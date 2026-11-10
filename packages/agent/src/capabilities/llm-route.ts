@@ -9,7 +9,6 @@ import type {
 } from "../types.ts"
 import type { LlmDecisionChoiceMap } from "./llm-decision-shared.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isRuntimeString } from "../internal/runtime-value.ts"
 
 export interface LlmRouteDecision<TChoice extends string = string> {
   choice: TChoice
@@ -40,7 +39,7 @@ export function llmRoute<
   const choiceKeys = choices.map(choice => choice.key)
 
   function toDecision(choice: unknown, details: Omit<LlmRouteDecision, "choice">): LlmRouteDecision<Extract<keyof TChoices, string>> {
-    if (!isRuntimeString(choice) || !choiceKeys.includes(choice)) {
+    if (typeof choice !== "string" || !choiceKeys.includes(choice)) {
       throw agentDiagnostics.AGENT_R0113({ message: `[vitehub] ${id} returned an invalid route choice.` })
     }
     // SAFETY: choice is a configured key and the generic is derived from those keys.

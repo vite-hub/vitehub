@@ -22,7 +22,6 @@ import { title } from "../src/capabilities.ts"
 import { http, telegram, webChat } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { agentChatApprovedTools } from "../src/internal/chat-approvals.ts"
-import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { installStubPackages } from "./support/stub-packages.ts"
@@ -63,7 +62,7 @@ async function resolveAgentViteConfig(
   config: Record<string, unknown>,
   environment: ConfigEnv = { command: "build", mode: "production" },
 ) {
-  if (!isRuntimeFunction(plugin.config)) throw new Error("Expected the Agent Vite config hook.")
+  if (typeof plugin.config !== "function") throw new Error("Expected the Agent Vite config hook.")
   // SAFETY: Fixtures supply only the config fields read by the Agent config hook, and the hook does not read the plugin context.
   const result = await plugin.config.call({} as never, config as UserConfig, environment)
   return result ? mergeConfig(config, result) : config
@@ -220,7 +219,7 @@ function createTestChatAdapter(
           }>
         | undefined
       const photo = photos?.at(-1)
-      const date = isRuntimeNumber(rawMessage.date) ? new Date(rawMessage.date * 1000) : new Date("2026-06-10T12:00:00.000Z")
+      const date = typeof rawMessage.date === "number" ? new Date(rawMessage.date * 1000) : new Date("2026-06-10T12:00:00.000Z")
       const message = new Message({
         attachments: rawMessage.audio
           ? [
@@ -233,7 +232,7 @@ function createTestChatAdapter(
                 type: "audio",
               },
             ]
-          : isRuntimeString(document?.file_id) && isRuntimeString(document.mime_type) && document.mime_type.startsWith("audio/")
+          : typeof document?.file_id === "string" && typeof document.mime_type === "string" && document.mime_type.startsWith("audio/")
             ? [
                 {
                   fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
@@ -242,26 +241,26 @@ function createTestChatAdapter(
                   name: document.file_name,
                   size: document.file_size,
                   type: "file",
-                  ...(isRuntimeString(document.url) ? { url: document.url } : {}),
+                  ...(typeof document.url === "string" ? { url: document.url } : {}),
                 },
               ]
-            : document && (isRuntimeString(document.file_id) || isRuntimeString(document.url) || isRuntimeString(document.content))
+            : document && (typeof document.file_id === "string" || typeof document.url === "string" || typeof document.content === "string")
               ? [
                   {
-                    ...(isRuntimeString(document.content)
+                    ...(typeof document.content === "string"
                       ? {
                           fetchData: options.attachmentFetchData ?? (async () => Buffer.from(document.content ?? "")),
                         }
                       : {}),
-                    ...(isRuntimeString(document.file_id) ? { fetchMetadata: { fileId: document.file_id } } : {}),
+                    ...(typeof document.file_id === "string" ? { fetchMetadata: { fileId: document.file_id } } : {}),
                     ...(document.mime_type ? { mimeType: document.mime_type } : {}),
                     name: document.file_name,
                     size: document.file_size,
                     type: "file",
-                    ...(isRuntimeString(document.url) ? { url: document.url } : {}),
+                    ...(typeof document.url === "string" ? { url: document.url } : {}),
                   },
                 ]
-              : isRuntimeString(photo?.file_id)
+              : typeof photo?.file_id === "string"
                 ? [
                     {
                       ...(options.photoData
@@ -295,7 +294,7 @@ function createTestChatAdapter(
         metadata: { dateSent: date, edited: false },
         raw: options.rawMessageValue ?? body,
         replyTo: options.replyTo,
-        text: isRuntimeString(rawMessage.text) ? rawMessage.text : "",
+        text: typeof rawMessage.text === "string" ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
       })
       if (options.missingIncomingMessageId) {
@@ -350,9 +349,9 @@ function createTestChatAdapter(
           id,
           metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
           raw: { message },
-          text: isRuntimeString(message)
+          text: typeof message === "string"
             ? message
-            : isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown)
+            : typeof message === "object" && message !== null && message && "markdown" in message && typeof message.markdown === "string"
               ? message.markdown
               : "",
           threadId,
@@ -558,7 +557,7 @@ describe("agent Vite plugin", () => {
     const environment = { consumer: "server", resolve: { noExternal } }
 
     const hook = plugin.configEnvironment
-    const result = isRuntimeFunction(hook)
+    const result = typeof hook === "function"
       ? hook.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
           {} as never,
@@ -629,7 +628,7 @@ describe("agent Vite plugin", () => {
       },
       consumer: "server",
     }
-    const result = isRuntimeFunction(hook)
+    const result = typeof hook === "function"
       ? hook.call(
           // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
@@ -1603,7 +1602,7 @@ describe("agent Vite plugin", () => {
         // SAFETY: This fixture supplies the private Nitro config context consumed by the plugin.
         const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root } as never
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        if (isRuntimeFunction(plugin.config)) await plugin.config.call({} as never, config, { command, mode: command === "serve" ? "development" : "production" })
+        if (typeof plugin.config === "function") await plugin.config.call({} as never, config, { command, mode: command === "serve" ? "development" : "production" })
         return JSON.stringify(config)
       }
       const handler = join(root, ".vitehub", "agent", "invocations-dev-handler.ts")
@@ -1799,7 +1798,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ preparation: { route: "/", workspace: "docs" } })
     expect(() => {
-      if (isRuntimeFunction(plugin.config)) {
+      if (typeof plugin.config === "function") {
         // SAFETY: The fixture supplies the Nitro fields read by the config hook.
         return plugin.config.call({} as never, {
           root: hostedAgentRoot,
@@ -1825,7 +1824,7 @@ describe("agent Vite plugin", () => {
       ? { routes: { aliases: { [route]: { agent: "support", webhook: "github" } } } }
       : kind === "inspection" ? { routes: { inspection: route } } : { preparation: { route, workspace: "docs" } })
     const configHook = plugin.config
-    if (!isRuntimeFunction(configHook)) throw new Error("Expected an Agent config hook")
+    if (typeof configHook !== "function") throw new Error("Expected an Agent config hook")
     // SAFETY: This fixture supplies the private Nitro config context read by the hook.
     const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot } as never
     expect(() => configHook.call({} as never, config, { command: "serve", mode: "development" })).toThrow(`${kind === "inspection" ? "development invocation" : kind} route conflicts`)
@@ -1842,7 +1841,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes })
     const configHook = plugin.config
-    if (!isRuntimeFunction(configHook)) throw new Error("Expected an Agent config hook")
+    if (typeof configHook !== "function") throw new Error("Expected an Agent config hook")
     // SAFETY: This fixture supplies the private Nitro context and configured handlers read by the hook.
     const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers } } as never
     expect(() => configHook.call({} as never, config, { command: "serve", mode: "development" })).toThrow("development invocation route conflicts")
@@ -1898,7 +1897,7 @@ describe("agent Vite plugin", () => {
       await mkdir(dirname(filename), { recursive: true })
       await writeFile(filename, "export default () => new Response('application route')")
       const plugin = hubAgent()
-      if (!isRuntimeFunction(plugin.config)) throw new Error("Expected an Agent config hook")
+      if (typeof plugin.config !== "function") throw new Error("Expected an Agent config hook")
       // SAFETY: This fixture supplies the private Nitro context and existing modules read by the hook.
       const config = {
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
@@ -1947,7 +1946,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const configHook = plugin.config
-    if (!isRuntimeFunction(configHook)) throw new Error("Expected an Agent config hook")
+    if (typeof configHook !== "function") throw new Error("Expected an Agent config hook")
     const middleware = { route: "/**", handler: "/app/middleware.ts", middleware: true }
     // SAFETY: This fixture supplies the private Nitro context and configured middleware read by the hook.
     const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers: [middleware] } } as never
@@ -1966,7 +1965,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ ...(runtime ? { runtime: "deno" as const } : {}), routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
     expect(() => {
-      if (isRuntimeFunction(plugin.config)) return plugin.config.call({} as never, { root: hostedAgentRoot, nitro } as never, { command: "build", mode: "production" })
+      if (typeof plugin.config === "function") return plugin.config.call({} as never, { root: hostedAgentRoot, nitro } as never, { command: "build", mode: "production" })
     }).toThrow(message)
   })
 
@@ -2000,7 +1999,7 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { discordGateway: true } })
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2090,7 +2089,7 @@ describe("agent Vite plugin", () => {
       } as never)
       const config = await resolveAgentViteConfig(plugin, { root })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "build", plugins: [], root } as never)
       }
@@ -2129,7 +2128,7 @@ describe("agent Vite plugin", () => {
       await installStubPackages(root, ["@vite-hub/connections/server", "@vite-hub/database/drizzle"])
       const plugin = hubAgent({ routes: { discordGateway: true } })
       const schedulePlugin = { name: "@vite-hub/schedule/vite" }
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
           {} as never,
@@ -2157,7 +2156,7 @@ describe("agent Vite plugin", () => {
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
-      if (isRuntimeFunction(denoPlugin.configResolved)) {
+      if (typeof denoPlugin.configResolved === "function") {
         await denoPlugin.configResolved.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
           {} as never,
@@ -2178,7 +2177,7 @@ describe("agent Vite plugin", () => {
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
-      if (isRuntimeFunction(netlifyPlugin.configResolved)) {
+      if (typeof netlifyPlugin.configResolved === "function") {
         await netlifyPlugin.configResolved.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
           {} as never,
@@ -2194,8 +2193,8 @@ describe("agent Vite plugin", () => {
           } as never,
         )
       }
-      if (!isRuntimeFunction(netlifyPlugin.closeBundle) && netlifyPlugin.closeBundle?.handler) {
-        if (isRuntimeFunction(netlifyPlugin.buildEnd)) await netlifyPlugin.buildEnd.call({} as never)
+      if (typeof netlifyPlugin.closeBundle !== "function" && netlifyPlugin.closeBundle?.handler) {
+        if (typeof netlifyPlugin.buildEnd === "function") await netlifyPlugin.buildEnd.call({} as never)
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
@@ -2218,13 +2217,13 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       await installStubPackages(root, ["@vite-hub/database/drizzle", "@vite-hub/email/server"])
       const emailPlugin = hubEmail({ driver: "resend" })
-      if (isRuntimeFunction(emailPlugin.configResolved)) {
+      if (typeof emailPlugin.configResolved === "function") {
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
         await emailPlugin.configResolved.call({} as never, { root } as never)
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
-      if (isRuntimeFunction(denoPlugin.configResolved)) {
+      if (typeof denoPlugin.configResolved === "function") {
         await denoPlugin.configResolved.call(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {} as never,
@@ -2257,7 +2256,7 @@ describe("agent Vite plugin", () => {
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
       const netlifyPlugin = hubAgent()
-      if (isRuntimeFunction(netlifyPlugin.configResolved)) {
+      if (typeof netlifyPlugin.configResolved === "function") {
         await netlifyPlugin.configResolved.call(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {} as never,
@@ -2280,8 +2279,8 @@ describe("agent Vite plugin", () => {
           } as never,
         )
       }
-      if (!isRuntimeFunction(netlifyPlugin.closeBundle) && netlifyPlugin.closeBundle?.handler) {
-        if (isRuntimeFunction(netlifyPlugin.buildEnd)) await netlifyPlugin.buildEnd.call({} as never)
+      if (typeof netlifyPlugin.closeBundle !== "function" && netlifyPlugin.closeBundle?.handler) {
+        if (typeof netlifyPlugin.buildEnd === "function") await netlifyPlugin.buildEnd.call({} as never)
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
@@ -2314,7 +2313,7 @@ describe("agent Vite plugin", () => {
       )
 
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
@@ -2656,7 +2655,7 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
       }
@@ -2832,7 +2831,7 @@ export default defineAgent({
               }
             : { routes },
         )
-        if (isRuntimeFunction(plugin.configResolved)) {
+        if (typeof plugin.configResolved === "function") {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           await plugin.configResolved.call({} as never, { command, preset: "cloudflare", root } as never)
         }
@@ -2865,7 +2864,7 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
       }
@@ -2895,7 +2894,7 @@ export default defineAgent({
         command: "serve",
         mode: "development",
       })
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "serve", preset: "cloudflare", root } as never)
       }
@@ -2922,7 +2921,7 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "build", preset: "vercel", root } as never)
       }
@@ -2947,7 +2946,7 @@ export default defineAgent({
       const plugin = hubAgent({
         providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } },
       })
-      if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+      if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
 
       await expect(
         plugin.configResolved.call(
@@ -2976,7 +2975,7 @@ export default defineAgent({
         providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } },
         runtime: "vercel",
       })
-      if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+      if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
 
       await expect(
         plugin.configResolved.call(
@@ -3014,7 +3013,7 @@ export default defineAgent({
             },
           },
         })
-        if (isRuntimeFunction(plugin.configResolved)) {
+        if (typeof plugin.configResolved === "function") {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           await plugin.configResolved.call({} as never, { command: "build", root } as never)
         }
@@ -3118,7 +3117,7 @@ export default defineAgent({
       const plugin = hubAgent({
         providers: { state: { provider: "libsql", url: "libsql://state.example.com" } },
       })
-      if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+      if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await plugin.configResolved.call({} as never, { command: "build", preset: "vercel", root } as never)
 
@@ -3141,7 +3140,7 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "build", root } as never)
       }
@@ -3183,7 +3182,7 @@ export default defineAgent({
         "utf8",
       )
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "build", root } as never)
       }
@@ -3226,7 +3225,7 @@ export default defineAgent({
         "utf8",
       )
       const plugin = hubAgent()
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { command: "build", root } as never)
       }
@@ -3259,7 +3258,7 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
@@ -3279,7 +3278,7 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { root, nitro: { preset: "netlify" } } as never)
       }
@@ -3340,7 +3339,7 @@ export default defineAgent({
       await writeFile(join(root, "server", "agents", "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "skills", "review", "scripts", "review.bin"), Uint8Array.from([0, 255, 42]))
       const plugin = hubAgent({ runtime: "deno" })
-      if (isRuntimeFunction(plugin.configResolved)) {
+      if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
@@ -7119,9 +7118,9 @@ describe("server helpers", () => {
     }
     adapter.formatConverter = {
       renderPostable(message: unknown) {
-        if (isRuntimeString(message)) return message
-        if (isRuntimeObject(message) && message && "raw" in message && isRuntimeString(message.raw)) return message.raw
-        if (isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown)) return message.markdown
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message !== null && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message !== null && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
         return ""
       },
     }
@@ -7221,9 +7220,9 @@ describe("server helpers", () => {
     }
     adapter.formatConverter = {
       renderPostable(message: unknown) {
-        if (isRuntimeString(message)) return message
-        if (isRuntimeObject(message) && message && "raw" in message && isRuntimeString(message.raw)) return message.raw
-        if (isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown)) return message.markdown
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message !== null && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message !== null && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
         return ""
       },
     }
@@ -11048,7 +11047,7 @@ describe("server helpers", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return isRuntimeFunction(value) ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     let activeSignal: AbortSignal | undefined
@@ -11145,7 +11144,7 @@ describe("server helpers", () => {
       get(target, property) {
         if (property === "extendWebhookDeliveryLease") return extendLease
         const value = Reflect.get(target, property)
-        return isRuntimeFunction(value) ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     let abortSignal: AbortSignal | undefined
@@ -11277,7 +11276,7 @@ describe("server helpers", () => {
         expect(
           consoleError.mock.calls.filter(
             ([message]) =>
-              isRuntimeString(message) && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-retry"'),
+              typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-retry"'),
           ),
         ).toHaveLength(1),
       )
@@ -11366,7 +11365,7 @@ describe("server helpers", () => {
         expect(
           consoleError.mock.calls.filter(
             ([message]) =>
-              isRuntimeString(message) && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
+              typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
           ),
         ).toHaveLength(1),
       )
@@ -11380,7 +11379,7 @@ describe("server helpers", () => {
         expect(
           consoleError.mock.calls.filter(
             ([message]) =>
-              isRuntimeString(message) && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
+              typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
           ),
         ).toHaveLength(2),
       )
@@ -11913,7 +11912,7 @@ describe("server helpers", () => {
       get(target, property) {
         if (property === "extendLock") return extendLock
         const value = Reflect.get(target, property)
-        return isRuntimeFunction(value) ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     let abortSignal: AbortSignal | undefined
@@ -13225,7 +13224,7 @@ describe("server helpers", () => {
             return (threadId: string) => target.forceReleaseLock(threadId.includes("channel-title:") ? threadId : `${prefix}:${threadId}`)
           }
           const value = Reflect.get(target, property)
-          return isRuntimeFunction(value) ? value.bind(target) : value
+          return typeof value === "function" ? value.bind(target) : value
         },
       })
     const createHandler = (prefix: string, adapter: ReturnType<typeof createTitleChatAdapter>) =>
@@ -13360,7 +13359,7 @@ describe("server helpers", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return isRuntimeFunction(value) ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     const setThreadTitle = vi.fn(async () => undefined)
@@ -13596,7 +13595,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (isRuntimeString(chunk)) text += chunk
+        if (typeof chunk === "string") text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       commitStarted()
@@ -13893,7 +13892,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (isRuntimeString(chunk)) text += chunk
+        if (typeof chunk === "string") text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       return { id: "stream-1", raw: { text }, threadId }
@@ -14987,7 +14986,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       defineAgent({
-        capabilities: [access({ chat: { resolve: ({ input }) => rejection !== "access" || !isRuntimeObject(input) || !("message" in input) || !isRuntimeObject(input.message) || !("text" in input.message) || input.message.text !== "B" } })],
+        capabilities: [access({ chat: { resolve: ({ input }) => rejection !== "access" || typeof input !== "object" || input === null || !("message" in input) || typeof input.message !== "object" || input.message === null || !("text" in input.message) || input.message.text !== "B" } })],
         channels: {
           telegram: testTelegram(telegram, {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -20550,7 +20549,7 @@ describe("server helpers", () => {
     const schema = {
       "~standard": {
         validate: (value: unknown) =>
-          isRuntimeObject(value) && value !== null && "title" in value ? { value } : { issues: [{ message: "Expected a title." }] },
+          typeof value === "object" && value !== null && "title" in value ? { value } : { issues: [{ message: "Expected a title." }] },
         vendor: "vitehub-test",
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         version: 1 as const,
@@ -20614,7 +20613,7 @@ describe("server helpers", () => {
     const schema = {
       "~standard": {
         validate: (value: unknown) =>
-          isRuntimeObject(value) && value !== null && "title" in value && isRuntimeString(value.title)
+          typeof value === "object" && value !== null && "title" in value && typeof value.title === "string"
             ? // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
               { value: value as { title: string } }
             : { issues: [{ message: "Expected a title." }] },
@@ -20845,7 +20844,7 @@ describe("server helpers", () => {
       const consoleUrl = `https://agents.example.test${base}_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
       for (const message of [adapter.postMessage.mock.calls[0]?.[1], adapter.editMessage.mock.calls.at(-1)?.[2]]) {
         if (!consoleLink) continue
-        const markdown = isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown) ? message.markdown : ""
+        const markdown = typeof message === "object" && message !== null && message && "markdown" in message && typeof message.markdown === "string" ? message.markdown : ""
         expect(parseMarkdown(markdown)).toMatchObject({
           children: [
             { type: "paragraph" },
@@ -22801,9 +22800,9 @@ describe("server helpers", () => {
     }
     adapter.formatConverter = {
       renderPostable(message: unknown) {
-        if (isRuntimeString(message)) return message
-        if (isRuntimeObject(message) && message && "raw" in message && isRuntimeString(message.raw)) return message.raw
-        if (isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown)) return message.markdown
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message !== null && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message !== null && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
         return ""
       },
     }
@@ -24122,7 +24121,7 @@ describe("server helpers", () => {
     const stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (isRuntimeString(chunk)) text += chunk
+        if (typeof chunk === "string") text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       return { id: "stream-1", raw: { text }, threadId }
@@ -24494,7 +24493,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (isRuntimeString(chunk)) text += chunk
+        if (typeof chunk === "string") text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       order.push(`stream:${text}`)
@@ -24592,7 +24591,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (isRuntimeString(chunk)) text += chunk
+        if (typeof chunk === "string") text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       return { id: "stream-committed", raw: { text }, threadId }

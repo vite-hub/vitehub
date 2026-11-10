@@ -10,7 +10,6 @@ import type {
 } from "../types.ts"
 import type { LlmDecisionChoiceMap } from "./llm-decision-shared.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isRuntimeString } from "../internal/runtime-value.ts"
 
 export type LlmGateDecision<TAllow extends string = string, TReject extends string = string> =
   | {
@@ -73,7 +72,7 @@ export function llmGate<
   type Decision = LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>
 
   function toDecision(category: unknown, details: Pick<LlmGateDecision, "confidence" | "probabilities">): Decision {
-    if (!isRuntimeString(category) || !categoryKeys.includes(category)) {
+    if (typeof category !== "string" || !categoryKeys.includes(category)) {
       throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
     }
     // SAFETY: category is a configured key and the category generic is derived from those keys.
