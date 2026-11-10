@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
+import { setupCommands } from "../src/setup/commands.ts"
+import { setupCommandNames } from "@vite-hub/internal/operations"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -582,6 +584,7 @@ export default ({ mode }) => ({
     const help = stdout.output()
     expect(help).toContain("Project:\n  init         Create a ViteHub app")
     expect(help).toContain("  add          Turn on features")
+    expect(help).toContain("  remove       Turn off features")
     expect(help).toContain("  catalog      List every ViteHub feature")
     expect(help).toContain("  status       Show the host")
     expect(help).toContain("  drain        Drain a running Node server")
@@ -598,6 +601,10 @@ export default ({ mode }) => ({
     expect(await runViteHubCli({ args: ["drain", "nope"], cwd: "/app", loadConfig, stderr, stdout })).toBe(2)
     expect(stderr.output()).toBe("usage: vitehub drain MAINPID [STATUS_URL]\n")
     expect(loadConfig).not.toHaveBeenCalled()
+  })
+
+  it("knows the name of every setup command before it imports them", () => {
+    expect(setupCommandNames).toEqual(expect.arrayContaining(setupCommands.map(command => command.name)))
   })
 
   it("dispatches setup commands before config loading", async () => {

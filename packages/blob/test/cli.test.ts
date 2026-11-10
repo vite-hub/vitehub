@@ -421,7 +421,7 @@ describe("hubBlob", () => {
     const contributor = await plugin.vitehub?.cli?.()
     expect(contributor?.namespaces?.map(namespace => namespace.name)).toEqual(["blob"])
     expect(contributor?.provision).toHaveLength(2)
-    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "blobOperations", module: "@vite-hub/blob/operations" })])
+    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "blobOperations", module: join(import.meta.dirname, "../dist/operations.js") })])
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
     expect(operations.map(operation => operation.name)).toEqual(["blob.list", "blob.head", "blob.get", "blob.put", "blob.del", "blob.media", "blob.variants"])
   })

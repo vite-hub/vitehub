@@ -49,11 +49,15 @@ Use per-render Markdown APIs when plugin values must come from an individual
 request or invocation. Content parsing and cache refreshes use the plugin list
 configured on the content runtime.
 
-Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
+Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
 `defineContentHandler(content)` also returns 404 when this option is false.
+
+## Types
+
+In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
 
 ## Markdown rendering
 

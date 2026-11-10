@@ -78,7 +78,7 @@ await db.batch([
 ])
 ```
 
-Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
+Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
 
@@ -88,7 +88,7 @@ In a Nuxt application, ViteHub also discovers Definitions in each layer's server
 
 When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration merges each resolved D1 binding into `nitro.cloudflare.wrangler.d1_databases` and copies the Definition's migration SQL to `.output/server/.vitehub/database/migrations/<binding>`. A Definition's binding replaces a Nitro binding with the same name.
 
-Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or its native libraries. Local SQLite development and projects with libSQL connections keep their existing drivers.
+A production build bundles libSQL only when a Database can reach a remote libSQL server: a `libsql:`, `http(s):`, or `ws(s):` connection URL, a URL from the environment, or a Definition that the build cannot read. A Cloudflare build whose Databases use D1 bindings or D1 over HTTP, or a Nuxt build with only D1-over-HTTP Databases, ships no libSQL client and no SQLite WASM. There, a Database without its D1 binding fails with `DATABASE_MISSING_CONNECTION`. Development and Node builds keep local SQLite.
 
 ## Migrations
 

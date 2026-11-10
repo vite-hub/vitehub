@@ -1,35 +1,22 @@
 ---
 title: Sandbox concepts
-description: Understand the boundary between a Sandbox Task Definition, its provider runtime, and the application that starts it.
+description: How a Sandbox Task, its provider, and the app that starts it fit together.
 navigation.title: Concepts
 navigation.order: 9
 navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---
 
-A Sandbox Task runs a named package project in a Sandbox, away from the application process. The
-application chooses the provider in Vite configuration. The Definition stays
-portable and the provider supplies the isolation, filesystem, network, and
-process limits.
+A Sandbox Task runs a named package in a Sandbox, away from your app process. The app chooses the provider in Vite config. The task code stays portable. The provider supplies the isolation, filesystem, network, and process limits.
 
 ## A run has two sides
 
-The application calls `runSandboxTask(name, payload, options)` and receives a
-native `Response`. The named project receives the payload inside its own
-entrypoint. Keep request validation and user authentication in the application,
-then pass only the data the isolated project needs.
+The app calls `runSandboxTask(name, payload, options)` and gets a native `Response`. The task gets the payload in its entry point. Validate requests and authenticate users in the app. Pass only the data the task needs.
 
-The response reports the run outcome. A successful HTTP response means the
-entrypoint returned a response. It does not grant the Sandbox access to the
-application's filesystem or credentials.
+The response reports the run outcome. A success status means the entry point returned. It does not give the Sandbox access to your app's filesystem or credentials.
 
 ## Provider choice changes the boundary
 
-Cloudflare Sandbox and Vercel Sandbox implement the same package contract, but
-they do not expose identical limits or local development behavior. Choose the
-provider in [Hosts](/docs/sandbox/hosts), then verify the generated output with
-the ViteHub CLI before deployment.
+Cloudflare Sandbox and Vercel Sandbox run the same packages, but their limits and local development differ. Choose the provider in [Hosts](/docs/sandbox/hosts). Check the generated output with the ViteHub CLI before you deploy.
 
-Read [Sandbox Task configuration](/docs/sandbox/configure) for package layout and
-runtime options. Read [Limits and errors](/docs/sandbox/limits-and-errors)
-before accepting untrusted input.
+Read [Sandbox Task configuration](/docs/sandbox/configure) for package layout and options. Read [Limits and errors](/docs/sandbox/limits-and-errors) before you accept untrusted input.
