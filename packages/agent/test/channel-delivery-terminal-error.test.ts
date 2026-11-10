@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -35,7 +35,7 @@ it("records why a trigger result made the webhook route answer with a 5xx", asyn
   })
   const agent = defineAgent({
     channels: {
-      hook: defineChannel("hook", {
+      hook: channelAdapter("hook", {
         messages: false,
         triggers: {
           webhook: defineChannelTrigger({

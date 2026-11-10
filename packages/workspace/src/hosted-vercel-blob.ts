@@ -1,7 +1,6 @@
 import { resolve } from "node:path"
 
 import { resolveVercelBlobWorkspaceStore } from "./config.ts"
-import { workspaceError } from "./core/errors.ts"
 import { createVercelBlobWorkspaceStore } from "./providers/vercel/blob-store.ts"
 import { setWorkspaceRuntimeConfig } from "./runtime/config.ts"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "./runtime/hosted-store-loader.ts"
@@ -19,8 +18,7 @@ export function installHostedVercelBlobWorkspaceRuntime(): void {
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
     if (storeOptions.provider === "vercel-blob") return createVercelBlobWorkspaceStore(storeOptions, workspaceName)
-    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw workspaceError("[vitehub] Vercel Blob hosted workspace runtime cannot load unsupported hosted store.")
+    return existingWorkspaceHostedStoreLoader?.(storeOptions, workspaceName)
   })
 }
 
