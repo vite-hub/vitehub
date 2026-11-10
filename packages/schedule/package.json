@@ -70,6 +70,7 @@
     "test": "vp run -t @vite-hub/schedule#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
     "effect": "catalog:effect",

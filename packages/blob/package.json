@@ -185,6 +185,7 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
     "cjs-module-lexer": "2.3.0",
