@@ -2,7 +2,7 @@
 
 The ViteHub Console as its own app. You deploy it once, sign in, and link your apps. The Console server calls each app's Operations endpoint with that app's token. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console.
 
-This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vite-hub console deploy` command come next.
+This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vitehub console deploy` command come next.
 
 ## How it works
 
@@ -38,7 +38,7 @@ Only users with the `admin` role can use the routes below. Others get `401` or `
 ## Develop
 
 ```sh
-corepack pnpm --dir packages/console exec vitehub db migrate
+corepack pnpm --dir packages/console exec vitehub database migrate
 VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=true corepack pnpm --dir packages/console run dev
 corepack pnpm --dir packages/console run test
 ```

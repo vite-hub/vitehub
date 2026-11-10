@@ -947,7 +947,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       // The Console runtime already holds these operations. The CLI and `vitehub inspect` read them from here.
       operations: [{
         export: "consoleOperations",
-        // An app without a Database gets no `vitehub db` commands.
+        // An app without a Database gets no `vitehub database` commands.
         load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections.includes("databases") || !operation.name.startsWith("databases.")),
         module: "vite-hub/console/server",
         runtime: false,
