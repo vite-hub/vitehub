@@ -92,10 +92,6 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
   background: var(--ui-bg-elevated);
 }
 
-.vh-docs-aside-github:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 1px;
-}
 
 .vh-docs-aside-stars {
   display: inline-flex;

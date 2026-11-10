@@ -347,6 +347,63 @@ The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, wit
 VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
 ```
 
+A command without `--url` calls the dev server of its project and sends it no credentials, so a dev server with `auth: 'token'` rejects the command. Pass `--url` with the origin of the dev server. The dev server also needs the hash in its environment:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub kv list --url http://localhost:3000
+```
+
+To use the commands and the Console at `/_vitehub` without a token during development, set `auth: false` for the dev server only. The build keeps `auth: 'token'`. A dev server without sign-in answers only requests from this machine.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  },
+  $development: {
+    vitehub: { console: { auth: false } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  }), nitro()],
+}))
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig(({ command }) => ({
+  plugins: [vitehub({
+    console: { auth: command === 'serve' ? false : 'token' },
+    kv: true,
+    preset: 'node',
+  })],
+}))
+```
+:::
+::
+
 A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
 
 ```ts [server/console-authorize.ts]

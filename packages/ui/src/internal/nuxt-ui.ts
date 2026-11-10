@@ -12,7 +12,8 @@ export type ViteHubUIComponentName =
   | "UEditorToolbar"
   | "UIcon"
   | "UInput"
-  | "UModal";
+  | "UModal"
+  | "UTabs";
 
 /** Components that replace the Nuxt UI ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
 export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Component>>;
@@ -36,6 +37,7 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
   UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
   UInput: defineAsyncComponent(() => import("@nuxt/ui/components/Input.vue")),
   UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
+  UTabs: defineAsyncComponent(() => import("@nuxt/ui/components/Tabs.vue")),
 };
 
 /**
