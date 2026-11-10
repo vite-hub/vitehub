@@ -1,5 +1,5 @@
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { normalizeCommentPage } from "../page.ts"
 
@@ -32,8 +32,8 @@ export interface CommentsIdentity {
  */
 export async function resolveCommentsIdentity(comments: Comments, event: CommentsRequestEvent, options: CommentsSessionOptions = {}, action: CommentAction = "read"): Promise<CommentsIdentity | false> {
   if (comments.options.identify) {
-    // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for an H3 app without the ViteHub plugin.
-    installStandardContext(event)
+    // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
+    getStandardContext(event)
     return { user: await comments.options.identify({ event }) ?? null, gate: {} }
   }
   if (options.consoleSession) {
@@ -51,7 +51,7 @@ export async function resolveCommentsPage(comments: Comments, event: CommentsReq
   const id = normalizeCommentPage(path)
   if (!comments.options.page) return { subject: { kind: "page", id } }
   // `page` reads `event["~standard"]`. Set it when Nitro did not, as for `identify`.
-  installStandardContext(event)
+  getStandardContext(event)
   const mapped = await comments.options.page({ url: new URL(id, forwardedRequestOrigin(request)), event })
   if (!mapped) return { subject: { kind: "page", id } }
   return { subject: { kind: mapped.kind, id: mapped.id }, ...(mapped.revision === undefined ? {} : { revision: mapped.revision }) }

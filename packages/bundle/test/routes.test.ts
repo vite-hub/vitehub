@@ -265,7 +265,7 @@ describe("route report", () => {
     writeEnvironmentReport(dir, clientReport())
     const run = async (feature: "report" | "why", args: string[]) => {
       let stdout = ""
-      const context = { rootDir: dir, stdout: { write: (text: string) => { stdout += text } }, stderr: { write: () => {} } } as unknown as ViteHubCliContext
+      const context = { cwd: dir, rootDir: dir, stdout: { write: (text: string) => { stdout += text } }, stderr: { write: () => {} } } as unknown as ViteHubCliContext
       const namespace = bundleCliContributor.namespaces![0]!
       const code = await namespace.features.find(candidate => candidate.name === feature)!.run(args, context)
       return { code, stdout }
