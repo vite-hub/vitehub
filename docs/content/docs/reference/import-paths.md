@@ -309,7 +309,7 @@ TypeScript replaces inherited arrays. If you set your own `rootDirs` or `files`,
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
-There is no `@vite-hub/agent/netlify` import. Netlify Agent output is generated Provider Output in `.netlify/v1`, plus the `.vitehub/agent/netlify-function.mjs` wrapper. With Nuxt, the wrapper is at `<buildDir>/vitehub/agent/netlify-function.mjs` (usually `.nuxt/vitehub/agent/netlify-function.mjs`).
+There is no `@vite-hub/agent/netlify` import. On Netlify, Agent routes run in the Nitro server function in `.netlify/v1`.
 
 `vite-hub` adds `vite-hub/source/vite` for custom Source setups. It adds no other public `vite-hub/*/vite` paths or provider-specific app aliases. Use `vitehub()` to set up the framework, and the package paths above for advanced control.
 

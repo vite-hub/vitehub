@@ -127,7 +127,7 @@ Discovered Database Definitions do not enable Database. Without `database`, impo
 
 If an enabled capability is not supported by the preset, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
-The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
+The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule; the Schedule owner-package output requires an explicit deployment integration.
 
 The Deno preset emits `.output/deno.json`, stages under `.output/node_modules` the packages that the server bundle keeps external and the Linux glibc binaries that bundled packages load at runtime, such as libSQL's native module, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` before deployment. The runner uses the resolved deployment identity as its app name, with `DENO_DEPLOY_APP` as an optional override, and uploads node modules when it creates or updates an app. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
 
@@ -230,7 +230,7 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 
 ## Record Agent invocations
 
-An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify preset and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
+An app with Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify preset requires `agent.invocations: false` and journals configured on each Agent Definition; it rejects an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
 
 ```ts
 import { vitehub } from "vite-hub"

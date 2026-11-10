@@ -45,12 +45,12 @@ it("restores the discovered source root through the generated deployment helper"
     const folder = join(root, "server", "agents", "support")
     await mkdir(folder, { recursive: true })
     await writeFile(join(folder, "agent.ts"), "export default defineAgent({ workspace: {} })")
-    const plugin = hubAgent({ runtime: "deno" })
+    const plugin = hubAgent()
     if (typeof plugin.configResolved !== "function") throw new Error("Expected configResolved hook")
     // SAFETY: The generation hook only needs the fixture's project root here.
     await plugin.configResolved.call({} as never, { root } as never)
 
-    const generated = await readFile(join(root, ".vitehub", "agent", "deno-server.ts"), "utf8")
+    const generated = await readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")
     const helper = generated.match(/function withWorkspaceSourceRoot[\s\S]*?\n}/)?.[0]
     if (!helper) throw new Error("Expected generated Workspace source-root helper")
     const { code } = await transform(helper, { loader: "ts", format: "esm" })
@@ -86,11 +86,11 @@ it("keeps generated colocated skills available to derived definitions", async ()
     const folder = join(root, "server", "agents", "support")
     await mkdir(folder, { recursive: true })
     await writeFile(join(folder, "agent.ts"), "export default defineAgent({ workspace: {} })")
-    const plugin = hubAgent({ runtime: "deno" })
+    const plugin = hubAgent()
     if (typeof plugin.configResolved !== "function") throw new Error("Expected configResolved hook")
     await plugin.configResolved.call({} as never, { root } as never)
 
-    const generated = await readFile(join(root, ".vitehub", "agent", "deno-server.ts"), "utf8")
+    const generated = await readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")
     const helper = generated.match(/function withWorkspaceSourceRoot[\s\S]*?\n}/)?.[0]
     if (!helper) throw new Error("Expected generated Workspace source-root helper")
     const { code } = await transform(helper, { loader: "ts", format: "esm" })

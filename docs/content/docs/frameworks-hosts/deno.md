@@ -20,10 +20,6 @@ portable. Deno code stays in generated output and driver configuration.
 | Not available | Blob without an explicit store, Queue, Rate Limit, and Sandbox fail the build. |
 | Deployment | Deno Deploy owns environment variables, permissions, logs, and rollout. |
 
-The Agent option `runtime: 'deno'` writes a separate
-`.vitehub/agent/deno-server.ts`. The `deno` preset rejects it, because that
-server is outside the deployed Nitro entry.
-
 ## Configure the preset
 
 Select the `deno` preset. This example also adds static Schedule output, so

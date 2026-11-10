@@ -51,7 +51,8 @@ export type {
 }
 
 export type AgentRuntimeName = "cloudflare-agents" | "deno" | "unknown" | "vercel" | "vite"
-export type AgentRuntime = "auto" | AgentRuntimeName
+/** The `runtime` option of `hubAgent()`. A Deno host runs Agents through the Nitro output, so `"deno"` is a detected runtime only. */
+export type AgentRuntime = "auto" | Exclude<AgentRuntimeName, "deno">
 export type AgentExecution = "inline" | "sandbox" | "workflow"
 export type AgentRuntimeBinding = false | AgentWorkflowRuntimeBinding
 

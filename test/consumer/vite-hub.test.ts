@@ -1606,11 +1606,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workspaceDisabledVercelImports, "canonical Workflow output must bundle Workspace when its Vite plugin is disabled").toEqual([])
 
       await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify", VITEHUB_PRESET: "netlify" })
-      const netlifyFunctionPath = join(appDir, ".netlify/v1/functions/vitehub-agent.mjs")
-      const netlifyFunctionSource = await readFile(netlifyFunctionPath, "utf8")
-      const netlifyProviderImports = importSpecifierOccurrences(netlifyFunctionSource)
-        .filter(({ specifier }) => specifier === "vite-hub" || specifier.startsWith("vite-hub/") || specifier.startsWith("@vite-hub/"))
-      expect(netlifyProviderImports, "Netlify Agent output must bundle canonical and owner-package imports").toEqual([])
+      // Nitro's Netlify server function serves the Agent routes.
+      const netlifyFunctionPath = join(appDir, ".netlify/v1/functions/server/main.mjs")
       const netlifyInvocation = await run("node", ["--input-type=module", "--eval", `
         const handler = await import(${JSON.stringify(pathToFileURL(netlifyFunctionPath).href)})
         const tasks = []

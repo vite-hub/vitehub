@@ -5,7 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: VITE_HUB_B0002, VITE_HUB_B0003, VITE_HUB_B0014, VITE_HUB_R0048, VITE_HUB_R0064 to VITE_HUB_R0069, VITE_HUB_R0099, VITE_HUB_R0100, VITE_HUB_R0105, VITE_HUB_R0110 to VITE_HUB_R0112, VITE_HUB_R0122, and VITE_HUB_R0134.
+// Retired codes. Do not reuse them: VITE_HUB_B0002, VITE_HUB_B0003, VITE_HUB_B0014, VITE_HUB_R0048, VITE_HUB_R0064 to VITE_HUB_R0069, VITE_HUB_R0087, VITE_HUB_R0099, VITE_HUB_R0100, VITE_HUB_R0105, VITE_HUB_R0110 to VITE_HUB_R0112, VITE_HUB_R0122, and VITE_HUB_R0134.
 export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -129,7 +129,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_R0084: dynamicError,
     VITE_HUB_R0085: dynamicError,
     VITE_HUB_R0086: dynamicError,
-    VITE_HUB_R0087: dynamicError,
     VITE_HUB_R0088: dynamicError,
     VITE_HUB_R0089: dynamicError,
     VITE_HUB_B0008: dynamicError,

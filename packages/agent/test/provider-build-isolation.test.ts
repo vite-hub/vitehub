@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 import { useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubAgent } from "../src/vite.ts"
 import type { ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
@@ -32,7 +33,6 @@ it.each([
   { retainMetadata: false, sameRoot: false, cloneBuild: false },
   { retainMetadata: false, sameRoot: true, cloneBuild: false },
 ])("keeps Agent output in its owning catalog across environment clones %j", async ({ retainMetadata, sameRoot, cloneBuild }) => {
-  vi.stubEnv("VITEHUB_HOSTING", "netlify")
   const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
   const configs: ResolvedConfig[] = []
   for (const name of ["first", "second"]) {
@@ -64,18 +64,13 @@ it.each([
     const contributions = useProviderOutputCatalog(config).takeDeploymentContributions()
     expect(contributions).toHaveLength(1)
     expect(contributions[0]?.rootDir).toBe(config.root)
-    const write = vi.fn<ProviderDeploymentOutputWriter>(async () => undefined)
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
     await contributions[0]!.write({
       readCloudflareState: async () => ({ wranglerConfig: {} }),
       signal: new AbortController().signal,
-      write,
+      write: vi.fn<ProviderDeploymentOutputWriter>(async () => undefined),
     })
-    expect(write).toHaveBeenCalledWith(expect.objectContaining({
-      rootDir: config.root,
-      netlify: expect.objectContaining({ functions: [expect.objectContaining({
-        bundleOptions: expect.objectContaining({ define: config.define }),
-      })] }),
-    }))
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith(expect.objectContaining({ rootDir: config.root }))
     await (plugin.closeBundle as { handler(this: typeof context): Promise<void> }).handler.call(context)
     expect(finalized).toHaveBeenLastCalledWith(useProviderOutputCatalog(config))
     await contributions[0]?.discard?.()

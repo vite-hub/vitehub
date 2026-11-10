@@ -325,23 +325,9 @@ describe('standalone Channel aliases', () => {
   })
 })
 
-describe.each(['deno', 'netlify'] as const)('%s named Channel hosting', (hosting) => {
-  it.each(['webhook', 'stripe'])('allows an Agent to host a listed %s Channel', async (adapter) => {
-    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOSTING', 'netlify')
-    const root = await app({
-      'server/channels/hooks.ts': `import { defineChannel, ${adapter} } from '@vite-hub/channels'
-export default defineChannel({ adapter: ${adapter}({ path: '/hooks' }) })`,
-      'server/agents/support.ts': `import { defineAgent as makeAgent } from '@vite-hub/agent'
-export default makeAgent({ channels: ['hooks'] as const, runtime: false, driver: { run: () => 'ok' } })`,
-    })
-    const plugin = hubAgent({ runtime: hosting === 'deno' ? 'deno' : undefined })
-    const configure = plugin.config
-    if (typeof configure !== 'function') throw new Error('Expected config hook')
-    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).not.toThrow()
-  })
-
-  it('still rejects the inbound Channel that no Agent lists', async () => {
-    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOSTING', 'netlify')
+describe('netlify named Channel hosting', () => {
+  it('serves an inbound Channel that no Agent lists through the Nitro output', async () => {
+    vi.stubEnv('VITEHUB_HOSTING', 'netlify')
     const root = await app({
       'server/channels/claimed.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
 export default defineChannel({ adapter: webhook() })`,
@@ -350,9 +336,9 @@ export default defineChannel({ adapter: webhook() })`,
       'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({ channels: ['claimed'], runtime: false, driver: { run: () => 'ok' } })`,
     })
-    const plugin = hubAgent({ runtime: hosting === 'deno' ? 'deno' : undefined })
+    const plugin = hubAgent()
     const configure = plugin.config
     if (typeof configure !== 'function') throw new Error('Expected config hook')
-    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).toThrow(/unclaimed\.ts.*require a Nitro host/)
+    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).not.toThrow()
   })
 })

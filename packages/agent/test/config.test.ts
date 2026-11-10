@@ -81,12 +81,6 @@ describe("agent config", () => {
     expect(normalizeAgentOptions({ routes: { inspection: false } })).toMatchObject({ routes: { inspection: false } })
   })
 
-  it("preserves Deno runtime selection", () => {
-    expect(normalizeAgentOptions({ runtime: "deno" })).toMatchObject({
-      runtime: "deno",
-    })
-  })
-
   it("keeps AI SDK loading out of the root Agent import", async () => {
     vi.resetModules()
     let loadedAi = false

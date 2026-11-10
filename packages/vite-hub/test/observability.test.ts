@@ -115,21 +115,18 @@ describe("vitehub({ observability })", () => {
     finally { await rm(root, { force: true, recursive: true }) }
   })
 
-  it.each([
-    { preset: "netlify" as const, agent: { invocations: false as const } },
-    { preset: "node" as const, agent: { invocations: false as const, runtime: "deno" as const } },
-  ])("rejects standalone Agent output: %j", (target) => {
-    const plugin = observabilityPlugin({ ...target, observability: { service: "support" } })
+  it("rejects Agents on the netlify preset", () => {
+    const plugin = observabilityPlugin({ preset: "netlify", agent: { invocations: false }, observability: { service: "support" } })
     // SAFETY: The hook reads only the hosting and Agent config supplied through vitehub().
     const hook = plugin.configResolved as (config: {}) => void
-    expect(() => hook({})).toThrow("Nitro-hosted Agents")
+    expect(() => hook({})).toThrow("netlify preset")
   })
 
-  it("rejects a final config override to standalone Agents", () => {
+  it("rejects a final config override to the netlify preset with Agents", () => {
     const plugin = observabilityPlugin({ preset: "node", agent: true, observability: { service: "support" } })
     // SAFETY: The hook only reads the Nitro config key.
     const hook = plugin.configResolved as (config: { nitro?: { preset: string } }) => void
-    expect(() => hook({ nitro: { preset: "netlify" } })).toThrow("Nitro-hosted Agents")
+    expect(() => hook({ nitro: { preset: "netlify" } })).toThrow("netlify preset")
   })
 
   it("rejects options it cannot honor", () => {

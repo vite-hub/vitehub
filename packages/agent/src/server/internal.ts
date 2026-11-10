@@ -73,7 +73,7 @@ export { runAgentInline, runAgentWithContext, streamAgentInline } from "../inter
 export type { RunAgentInlineOptions } from "../internal/agent-run.ts"
 import type { AgentInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../types.ts"
 
-type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
+type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896"
 
 /** Creates a coded Agent diagnostic for generated host runtime code. */
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {

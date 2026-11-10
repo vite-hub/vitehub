@@ -799,9 +799,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       kvImport: "vite-hub/kv",
       processDiscordGateway: true,
-      providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
-      },
       runtimeCapabilityImports: {
         auth: "vite-hub/auth/agent",
         blob: "vite-hub/blob",
@@ -1359,19 +1356,18 @@ describe("vitehub", () => {
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {
     vitehub({ agent: true, preset: "node", workflow: true })
-    const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    const defaultAliases = providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)
     expect(defaultAliases).toEqual({
       "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
     })
 
     const upstashPlugins = vitehub({ agent: true, preset: "node", kv: { driver: "upstash" }, workflow: true })
-    const upstashAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    const upstashAliases = providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)
     // SAFETY: The dependency plugin is part of every vitehub() result.
     const dependency = upstashPlugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
     callHook(dependency.configResolved, [{}])
 
     expect(upstashAliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
-    expect(providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)).toBe(upstashAliases)
   })
 
   it("exposes owner package aliases to deferred provider bundlers", async () => {
@@ -1385,7 +1381,7 @@ describe("vitehub", () => {
 
   it("retains generated Server Env for deferred provider bundles", () => {
     const plugins = vitehub({ agent: true, preset: "node" })
-    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    const aliases = providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)
     const dependency = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
 
     callHook(dependency.configResolved, [{ root: "/app" }])
@@ -1396,7 +1392,7 @@ describe("vitehub", () => {
 
   it("retains generated Server Env from the resolved Env project root", () => {
     const plugins = vitehub({ agent: true, env: { projectRoot: ".." }, preset: "node" })
-    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    const aliases = providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)
     const dependency = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
 
     callHook(dependency.configResolved, [{ root: "/app/client" }])
@@ -2238,7 +2234,6 @@ describe("vitehub", () => {
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
     expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
-    expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin

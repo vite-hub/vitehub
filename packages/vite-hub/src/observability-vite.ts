@@ -149,8 +149,8 @@ export function observabilityVitePlugin(options: Omit<ObservabilityOptions, "log
       if (!telemetry) return
       const agent = target.agent
       const hosting = resolveHost({ hosting: getDeploymentPreset(config) ?? target.hosting, nitro: Reflect.get(config, "nitro") })
-      if (agent && ((typeof agent === "object" && agent.runtime === "deno") || hosting === "netlify")) {
-        throw viteHubErrorDiagnostics.VITE_HUB_R0129({ message: "[vitehub] observability currently requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported." })
+      if (agent && hosting === "netlify") {
+        throw viteHubErrorDiagnostics.VITE_HUB_R0129({ message: "[vitehub] observability does not support Agents on the netlify preset." })
       }
     },
     async config(config) {

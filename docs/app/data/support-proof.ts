@@ -147,8 +147,8 @@ const claimDefinitions = {
       "Owning packages assert Cloudflare runtime and generated-output contracts.",
     ),
     vercel: ciClaim("Owning packages assert Vercel runtime and generated-output contracts."),
-    netlify: ciClaim("Agent, Schedule, and the Netlify fixture have contract coverage."),
-    deno: ciClaim("Agent and Schedule package tests assert Deno output."),
+    netlify: ciClaim("Schedule and the Netlify fixture have contract coverage."),
+    deno: ciClaim("Schedule package tests and the Deno host fixture assert Deno output."),
     nitro: ciClaim("Owning packages test their Nitro integration boundaries."),
     node: ciClaim("Owning packages test their Node-compatible drivers and handlers."),
   },
@@ -170,12 +170,12 @@ const claimDefinitions = {
         workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
       },
     ),
-    netlify: ciClaim("Agent and Schedule write functions under .netlify/v1/functions.", {
+    netlify: ciClaim("Nitro and Schedule write functions under .netlify/v1/functions.", {
       task: { name: "e2e:netlify", path: "vite.config.ts" },
       workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
     }),
     deno: ciClaim(
-      "Agent and Schedule write Deno entrypoints. ViteHub does not generate one general Deno bundle.",
+      "Nitro writes the Deno server and Schedule writes the Deno cron entry. ViteHub does not generate one general Deno bundle.",
     ),
     nitro: ciClaim(
       "Package integrations generate Nitro handlers, plugins, or configuration where documented.",

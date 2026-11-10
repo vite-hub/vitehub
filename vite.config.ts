@@ -60,16 +60,6 @@ export default defineConfig({
         command: "node test/local/netlify-real-project.mjs",
         dependsOn: ["build"],
       },
-      "e2e:deno": {
-        cache: false,
-        command: "node test/local/deno-real-project.mjs",
-        dependsOn: ["build"],
-      },
-      "e2e:deno:live": {
-        cache: false,
-        command: "node test/local/deno-real-project.mjs --live",
-        dependsOn: ["build"],
-      },
       "knip:catalog": {
         cache: false,
         command:

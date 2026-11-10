@@ -175,8 +175,7 @@ export default defineAgent({
     docs: "/docs/agents",
     hosts: {
       ...everywhere("nitro", "Nitro"),
-      deno: native("nitro", "Nitro", "Agent routes run in the Nitro output. The Agent Deno runtime is not supported on this preset."),
-      netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
+      netlify: native("nitro", "Nitro", "Agent routes run in the Nitro output. `agent.invocations` is not supported."),
     },
     id: "agent",
     implies: [{ except: ["netlify"], feature: "workflow" }],

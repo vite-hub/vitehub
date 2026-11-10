@@ -15,7 +15,7 @@ const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
   cloudflare: [".output/server/wrangler.json"],
   deno: [".output/server/index.mjs", ".output/main.ts", ".output/schedule/deno-cron.mjs"],
   netlify: [
-    ".netlify/v1/functions/vitehub-agent.mjs",
+    ".netlify/v1/functions/server/server.mjs",
     ".netlify/v1/functions/vitehub-schedule-heartbeat.mjs",
   ],
   "node-self-hosted": [".output/server/index.mjs"],

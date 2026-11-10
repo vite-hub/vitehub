@@ -16,8 +16,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 | Worker bundle | Cloudflare | Packages with Cloudflare output | Runs server and primitive code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state | Bindings, crons, durable objects, queues, Rate Limiting bindings, and other Worker config. |
 | Vercel Build Output | Vercel | Packages with Vercel output | Functions, static files, routes, and function config in `.vercel/output`. |
-| Netlify function output | Netlify | Agent and Schedule Packages | Functions and static config in `.netlify/v1`. |
-| Deno Agent server output | Deno | Agent Package | `.vitehub/agent/deno-server.ts` for `Deno.serve` chat and webhook routes. |
+| Netlify function output | Netlify | Schedule Package | Functions and static config in `.netlify/v1`. |
 | Deno cron output | Deno | Schedule Package | `.vitehub/schedule/deno-cron.mjs`, which wakes static schedules with `Deno.cron`. |
 | Rate Limit manifest | Local and hosted | Rate Limit Package | `.vitehub/rate-limit/manifest.json` with sorted Rate Limit IDs, providers, and driver capabilities. |
 | Generated Runtime Registry | Local and hosted | Packages that discover Definitions | Maps each discovered name to a lazy-loaded Definition. |
@@ -26,7 +25,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 ## Generation timing
 
-Production builds write Provider Output. Vite dev writes only discovery and local generated files. Netlify local dev also writes package functions for the Netlify CLI.
+Production builds write Provider Output. Vite dev writes only discovery and local generated files.
 
 `vitehub inspect output` lists the files of the active packages and the preset, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
 
@@ -61,9 +60,9 @@ pnpm --filter @vite-hub/workflow test
 
 Your code imports Runtime Helpers and documented handlers. Provider Output may import generated files, virtual modules, or provider runtime packages.
 
-Netlify Agent output is not an application import. There is no stable `@vite-hub/agent/netlify` import. To debug a deploy, inspect `.netlify/v1/functions/vitehub-agent.mjs` and `.vitehub/agent/netlify-function.mjs`.
+There is no `@vite-hub/agent/netlify` import. On Netlify, Agent routes run in the Nitro server function in `.netlify/v1/functions/server`.
 
-Nuxt writes generated Agent files to `<buildDir>/vitehub/agent` (usually `.nuxt/vitehub/agent`). The Netlify wrapper and Deno entrypoint are there. The `.netlify/v1` output and other `.vitehub` output do not move.
+Nuxt writes generated Agent files to `<buildDir>/vitehub/agent` (usually `.nuxt/vitehub/agent`). The `.netlify/v1` output and other `.vitehub` output do not move.
 
 | Do | Avoid |
 | --- | --- |

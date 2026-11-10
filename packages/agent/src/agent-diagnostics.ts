@@ -489,7 +489,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0894: dynamicError,
     AGENT_R0895: dynamicError,
     AGENT_R0896: dynamicError,
-    AGENT_R0897: dynamicError,
+    // AGENT_R0897 is retired with the standalone Deno Agent server. Do not reuse it.
     AGENT_R0004: dynamicError,
     AGENT_R0005: dynamicError,
     AGENT_R0006: dynamicError,

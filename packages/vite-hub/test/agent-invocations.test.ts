@@ -309,10 +309,9 @@ describe("vitehub({ agent: { invocations } })", () => {
     expect(agentInvocationsPlugin({ database: true, preset: "node" })).toBeUndefined()
   })
 
-  it("requires Database for the Database journal and a Nitro Agent host", () => {
+  it("requires Database for the Database journal and rejects the netlify preset", () => {
     expect(() => vitehub({ agent: { invocations: "database" }, preset: "node" })).toThrow("requires database")
-    expect(() => vitehub({ agent: { invocations: "memory" }, preset: "netlify" })).toThrow("requires Nitro-hosted Agents")
-    expect(() => vitehub({ agent: { invocations: "memory", runtime: "deno" }, preset: "node" })).toThrow("requires Nitro-hosted Agents")
+    expect(() => vitehub({ agent: { invocations: "memory" }, preset: "netlify" })).toThrow("not supported on the netlify preset")
   })
 
   it.each([
@@ -320,17 +319,15 @@ describe("vitehub({ agent: { invocations } })", () => {
     {},
     { retention: { maxAge: "14d" } },
     { databaseUrl: "libsql://journal.example.com" },
-  ] as const)("rejects the default journal %j on standalone Agent outputs", (invocations) => {
+  ] as const)("rejects the default journal %j on the netlify preset", (invocations) => {
     const error = expect.objectContaining({ code: "VITE_HUB_R0132" })
     expect(() => vitehub({ agent: { invocations }, preset: "netlify" })).toThrow(error)
-    expect(() => vitehub({ agent: { invocations, runtime: "deno" }, preset: "node" })).toThrow(error)
     expect(() => vitehub({ agent: { invocations }, preset: "deno" })).not.toThrow()
   })
 
-  it("requires an explicit journal opt-out on standalone Agent outputs", () => {
+  it("requires an explicit journal opt-out on the netlify preset", () => {
     expect(() => vitehub({ agent: true, preset: "netlify" })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0132" }))
     expect(() => vitehub({ agent: { invocations: false }, preset: "netlify" })).not.toThrow()
-    expect(() => vitehub({ agent: { invocations: false, runtime: "deno" }, preset: "node" })).not.toThrow()
     expect(() => vitehub({ preset: "netlify" })).not.toThrow()
   })
 })

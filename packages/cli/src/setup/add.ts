@@ -353,18 +353,14 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const value = valueFor(id)
     if (id === "connections" && isRecord(value) && value.management) requireFeature("console")
     if (id === "observability" && isRecord(value) && value.papercuts) {
-      const agent = valueFor("agent")
-      if (host === "netlify" || (isRecord(agent) && agent.runtime === "deno")) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "observability.papercuts requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: id, host }), setupExitCodes.conflict)
+      if (host === "netlify") {
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "observability.papercuts does not support Agents on the netlify preset.", feature: id, host }), setupExitCodes.conflict)
       }
       requireFeature("agent")
       requireFeature("console")
     }
     if (id === "observability" && isRecord(value) && value.posthog) requireFeature("env")
     if (id === "realtime" && args.name !== undefined) requireFeature("workspace")
-    if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
-    }
     if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
       const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
       if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
@@ -379,7 +375,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     }
     const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
     if (host === "netlify" && invocations !== undefined && invocations !== false) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), setupExitCodes.conflict)
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations is not supported on the netlify preset. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), setupExitCodes.conflict)
     }
     if (id === "console" && host !== "node" && isRecord(value) && isRecord(value.auth) && "provider" in value.auth && value.auth.provider !== "cloudflare-access") {
       throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), setupExitCodes.conflict)
@@ -429,13 +425,12 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     }
   }
   const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
-  const agent = valueFor("agent")
   const observabilityValue = valueFor("observability")
-  // Only `observability.service` installs Agent telemetry, which needs Nitro-hosted Agents.
+  // Only `observability.service` installs Agent telemetry, which the netlify preset does not support.
   const telemetry = isRecord(observabilityValue) && typeof observabilityValue.service === "string"
   if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && telemetry && enabledAfter("agent")
-    && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), setupExitCodes.conflict)
+    && host === "netlify") {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability does not support Agents on the netlify preset.", feature: "observability", host }), setupExitCodes.conflict)
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)

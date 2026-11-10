@@ -50,9 +50,7 @@ describe("vitehub add", () => {
     ['{ preset: "netlify", agent: true }', ["observability", "--option", "observability.service=api"]],
     ['{ preset: "netlify" }', ["agent", "observability", "--option", "observability.service=api"]],
     ['{ preset: "netlify", observability: { service: "api" } }', ["agent"]],
-    ['{ preset: "node", agent: { runtime: "deno" } }', ["observability", "--option", "observability.service=api"]],
-    ['{ preset: "node" }', ["agent", "observability", "--option", "agent.runtime=deno", "--option", "observability.service=api"]],
-  ] as const)("rejects Observability with non-Nitro Agents before installing or writing (%s)", async (options, args) => {
+  ] as const)("rejects Observability with Agents on the netlify preset before installing or writing (%s)", async (options, args) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
     const before = await snapshot(root)
     let spawned = false
@@ -61,7 +59,7 @@ describe("vitehub add", () => {
       return { exitCode: 0 }
     })
     expect(result.exitCode, result.stdout).toBe(3)
-    expect(result.json.error?.why).toContain("Nitro-hosted Agents")
+    expect(result.json.error?.why).toContain("netlify preset")
     expect(spawned).toBe(false)
     expect(await snapshot(root)).toEqual(before)
   })
@@ -161,11 +159,8 @@ describe("vitehub add", () => {
     expect(result.json.install.packages).toContain("evlog")
   })
 
-  it.each([
-    '{ preset: "netlify" }',
-    '{ preset: "node", agent: { runtime: "deno" } }',
-  ])("rejects papercut reporting without Nitro-hosted Agents (%s)", async (options) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+  it("rejects papercut reporting on the netlify preset", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "netlify" }') })
     const before = await snapshot(root)
     let spawned = false
     const result = await add(["observability", "--option", "observability.service=api", "--option", "observability.papercuts=true", "--yes"], root, async () => {
@@ -173,7 +168,7 @@ describe("vitehub add", () => {
       return { exitCode: 0 }
     })
     expect(result.exitCode, result.stdout).toBe(3)
-    expect(result.json.error?.why).toContain("Nitro-hosted Agents")
+    expect(result.json.error?.why).toContain("netlify preset")
     expect(spawned).toBe(false)
     expect(await snapshot(root)).toEqual(before)
   })
@@ -253,21 +248,6 @@ describe("vitehub add", () => {
       expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
       expect((await add(args, root)).json.status).toBe("unchanged")
     }
-  })
-
-  it.each([false, true])("rejects the Agent Deno runtime on Deno (existing: %s) before installing or writing", async (existing) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno"${existing ? ', agent: { runtime: "deno" }' : ""} }`) })
-    const before = await snapshot(root)
-    let spawned = false
-    const result = await add(["agent", ...existing ? [] : ["--option", "agent.runtime=deno"], "--name", "helper", "--yes"], root, async () => {
-      spawned = true
-      return { exitCode: 0 }
-    })
-    expect(result.exitCode, result.stdout).toBe(3)
-    expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
-    expect(result.json.error?.why).toContain("Nitro runtime")
-    expect(spawned).toBe(false)
-    expect(await snapshot(root)).toEqual(before)
   })
 
   it.each([

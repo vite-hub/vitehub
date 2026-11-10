@@ -133,7 +133,7 @@ Without `vitehub()`, call `installObservability(options)` from `@vite-hub/agent/
 Exported properties exclude raw prompts, model outputs, tool payloads, credentials, and common personal identifiers. Unknown error messages become generic text. This reduces accidental leaks but does not catch all sensitive text. Send only properties meant for telemetry.
 ::
 
-Observability needs Nitro-hosted Agents. Netlify and Deno standalone Agent output are not supported. Close the current host before you install another instance.
+Observability does not support Agents on the `netlify` preset. Close the current host before you install another instance.
 
 ## Deliver papercut reports durably
 

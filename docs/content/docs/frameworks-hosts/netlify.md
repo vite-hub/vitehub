@@ -7,8 +7,8 @@ icon: i-simple-icons-netlify
 ---
 
 The `netlify` preset deploys your app to Netlify. Support depends on the
-package. ViteHub has Netlify output for Blob, generated Agent HTTP routes, and
-static Schedule wake functions. Other primitives need an explicit remote
+package. ViteHub has Netlify output for Blob, Agent routes in the Nitro server
+function, and static Schedule wake functions. Other primitives need an explicit remote
 provider or are not available.
 
 ## Available boundaries
@@ -16,12 +16,9 @@ provider or are not available.
 | Surface | Current contract |
 | --- | --- |
 | Blob | `hubBlob()` selects the `netlify-blobs` driver when the build reports Netlify hosting. Your code still uses `vite-hub/blob`. |
-| Agent routes | `hubAgent()` writes one `vitehub-agent` function when hosted Agent Definitions exist. It mounts the standard chat dispatcher and webhook route. Route-enabled Channels pick which Agents answer chat requests. `routes.discordGateway` stays explicit. |
+| Agent routes | The Nitro server function mounts the standard chat dispatcher and webhook route. Route-enabled Channels pick which Agents answer chat requests. `routes.discordGateway` stays explicit. |
 | Static schedules | `hubSchedule()` writes one scheduled Netlify function per static Schedule Definition. |
 | Local proof | Pull-request CI runs a real-project fixture through Netlify CLI. |
-
-The Agent function goes to `.netlify/v1/functions`, and its source wrapper to `.vitehub/agent/netlify-function.mjs`. Both are Provider Output (generated host files), not public imports.
-In Nuxt, the wrapper follows Nuxt's build directory, normally `.nuxt/vitehub/agent/netlify-function.mjs`. The deployed function path does not change.
 
 ## Configure the preset
 
@@ -94,13 +91,13 @@ export default defineConfig({
 :::
 ::
 
-The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition becomes a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
+The `netlify` preset selects the Netlify Blobs driver. Agent routes run in the Nitro server function. Each static Schedule Definition becomes a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
 
-The standalone Agent function does not install an app-wide Invocation journal. Set `agent.invocations: false` and configure `invocations` on each Agent Definition when records are needed. An omitted or configured app-wide journal fails with `VITE_HUB_R0132`.
+The `netlify` preset does not install an app-wide Invocation journal. Set `agent.invocations: false` and configure `invocations` on each Agent Definition when records are needed. An omitted or configured app-wide journal fails with `VITE_HUB_R0132`.
 
 ## Generated functions
 
-The build writes generated functions and wrappers to Netlify's directories.
+The build writes generated functions to Netlify's directories.
 
 The server function comes from Nitro's `netlify` preset, and ViteHub follows Nitro's output directory:
 
@@ -112,10 +109,7 @@ Either way, `.netlify/deployment.json` records the server entry.
 ```bash [Terminal]
 pnpm build
 find .netlify/v1/functions -maxdepth 2 -type f | sort
-find .vitehub/agent -maxdepth 2 -type f | sort
 ```
-
-In Nuxt, inspect the wrapper with `find .nuxt/vitehub/agent -maxdepth 2 -type f | sort`, or the same path under a custom `buildDir`.
 
 ## Features without a Netlify provider
 

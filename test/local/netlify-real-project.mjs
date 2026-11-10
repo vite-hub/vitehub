@@ -213,23 +213,19 @@ async function createProject({ packageSource, preview }) {
 }
 
 async function assertNetlifyFunctionOutput() {
-  const functionFile = join(appDir, ".netlify", "v1", "functions", "vitehub-agent.mjs")
-  assert(existsSync(functionFile), "missing .netlify/v1/functions/vitehub-agent.mjs")
-  const source = await readFile(functionFile, "utf8")
-  for (const expected of [
-    "export const config = {",
-    "\"name\": \"vitehub-agent\"",
-    "\"nodeBundler\": \"esbuild\"",
-    "\"/api/_vitehub/agents/:agent/chat\"",
-    "VITEHUB_HOSTING",
-    "globalThis.__filename",
-    "globalThis.__dirname",
-    "netlify-alias-ok",
-  ]) {
-    assert(source.includes(expected), `Netlify function output missing ${expected}`)
+  const functionsDir = join(appDir, ".netlify", "v1", "functions")
+  const serverDir = join(functionsDir, "server")
+  const entry = join(serverDir, "server.mjs")
+  assert(existsSync(entry), "missing .netlify/v1/functions/server/server.mjs")
+  assert(!existsSync(join(functionsDir, "vitehub-agent.mjs")), "Agent routes must run in the Nitro server function")
+  assert((await readFile(entry, "utf8")).includes("path: \"/*\""), "the Nitro server function must serve every path")
+  const files = (await readdir(serverDir, { recursive: true }))
+    .filter(file => file.endsWith(".mjs") && !file.split(/[\\/]/).includes("node_modules"))
+  const source = (await Promise.all(files.map(file => readFile(join(serverDir, file), "utf8")))).join("\n")
+  for (const expected of ["\"/api/_vitehub/agents/:agent/chat\"", "netlify-alias-ok"]) {
+    assert(source.includes(expected), `Nitro server function output missing ${expected}`)
   }
-  assert(!source.includes("from \"@/"), "Netlify function output left the Vite alias unresolved")
-  assert(!source.includes("function config("), "Netlify function output used dynamic function config")
+  assert(!source.includes("from \"@/"), "Nitro server function output left the Vite alias unresolved")
 }
 
 async function postChat(port) {
