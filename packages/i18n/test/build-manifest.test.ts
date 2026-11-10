@@ -73,11 +73,13 @@ describe("build message snapshots", () => {
   it("collects query-suffixed source modules for browser catalogs", async () => {
     vi.stubEnv("NODE_ENV", "production")
     const root = await project()
-    await writeFile(join(root, "labels.ts"), "import { t } from '@vite-hub/i18n'; export default t`Query message`")
+    await writeFile(join(root, "labels.ts"), "import { t } from '@vite-hub/i18n'; export default t({ message: 'Query message', comment: 'A browser label' })")
+    await writeFile(join(root, "other.ts"), "import { t } from '@vite-hub/i18n'; export default t({ message: 'Query message', comment: 'Another use of the label' })")
     await writeFile(join(root, "main.ts"), [
       "import { createI18n } from '@vite-hub/i18n/vue'",
       "import label from './labels.ts?tenant=a'",
-      "console.log(createI18n, label)",
+      "import other from './other.ts'",
+      "console.log(createI18n, label, other)",
     ].join("\n"))
     const result = await build({
       root,
@@ -88,12 +90,17 @@ describe("build message snapshots", () => {
       build: { minify: false, rollupOptions: { input: join(root, "main.ts") } },
     })
     const manifest = JSON.parse(await readFile(join(root, ".vitehub/i18n/manifest.json"), "utf8")) as I18nManifest
-    expect(manifest.environments.client![messageId("Query message")]).toEqual({ message: "Query message", hash: messageSegment("Query message").hash, origins: ["labels.ts:1"] })
+    expect(manifest.environments.client![messageId("Query message")]).toEqual({
+      message: "Query message",
+      hash: messageSegment("Query message").hash,
+      origins: expect.arrayContaining(["labels.ts:1", "other.ts:1"]),
+      comments: expect.arrayContaining(["A browser label", "Another use of the label"]),
+    })
     const outputs = Array.isArray(result) ? result : "output" in result ? [result] : []
     const chunks = outputs.flatMap(output => output.output).filter(chunk => chunk.type === "chunk")
     expect(chunks.find(chunk => chunk.code.includes("console.log"))!.code).not.toContain("Query message")
     expect(chunks.filter(chunk => chunk.code.includes("Query message"))).toHaveLength(2)
-  })
+  }, 60_000)
 
   it("keeps every environment when an earlier manifest write finishes last", async () => {
     const root = await project()

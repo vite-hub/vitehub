@@ -166,6 +166,7 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
                 ...(message.context ? { context: message.context } : {}),
                 translation: records[id] && isVisible(records[id]) ? records[id].text : carried?.record.text ?? "",
                 comments: [
+                  ...message.comments ?? [],
                   `${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`,
                   ...(carried ? [`Previous source: ${carried.record.source}`] : []),
                 ],

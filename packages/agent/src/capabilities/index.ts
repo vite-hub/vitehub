@@ -269,6 +269,7 @@ export type {
   InputCommandAgentFinishHookContext,
   InputCommandAgentInputHookContext,
   InputCommandCall,
+  InputCommandConsole,
   InputCommandDeliveryMessage,
   InputCommandHooks,
   InputCommand,

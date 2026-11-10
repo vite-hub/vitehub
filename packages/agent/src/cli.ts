@@ -87,7 +87,8 @@ interface ParsedDevArgs {
   help: boolean
   message?: string
   payload?: Record<string, unknown>
-  payloadPath?: string
+  /** `--input`: the Agent Trigger payload as JSON, or `@file` to read it from a file. */
+  input?: string
   timeout?: number
   trigger?: string
   url: string
@@ -153,7 +154,7 @@ function writeEvalUsage(context: AgentCliContext): void {
 
 function writeDevUsage(context: AgentCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent dev [message...] [--agent <name>] [--prompt <text>] [--trigger <id>] [--payload <path>] [--url <url>] [--timeout <ms>]",
+    "Usage: vitehub agent dev [message...] [--agent <name>] [--prompt <text>] [--trigger <id>] [--input <json|@file>] [--url <url>] [--timeout <ms>]",
     "       vitehub agent dev --agent <name> --cli <name> -- <command...>",
     "",
     "Talk to a discovered Agent through a running Vite Development Server.",
@@ -163,7 +164,7 @@ function writeDevUsage(context: AgentCliContext): void {
     "  -p, --prompt <text>  Prompt text for a one-shot invocation.",
     "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
     "  --cli <name>      Run a Capability CLI command attached to the Agent.",
-    "  --payload <path>  Agent Trigger payload JSON file.",
+    "  --input <json|@file>  Agent Trigger payload as a JSON object, or @file to read it from a file.",
     "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
     "  --timeout <ms>    Stream inactivity timeout; command deadline. Defaults to 90000.",
     "  -h, --help        Show this help.",
@@ -696,13 +697,13 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.cliArgv = args.slice(index + 1)
       break
     }
-    if (arg === "--payload") {
-      parsed.payloadPath = readOptionValue(args, index, arg)
+    if (arg === "--input") {
+      parsed.input = readOptionValue(args, index, arg)
       index++
       continue
     }
-    if (arg.startsWith("--payload=")) {
-      parsed.payloadPath = arg.slice("--payload=".length)
+    if (arg.startsWith("--input=")) {
+      parsed.input = arg.slice("--input=".length)
       continue
     }
     const targetOption = readViteHubDevTargetOption(args, index, parsed, agentDevTargetErrors)
@@ -738,13 +739,17 @@ function isFileNotFound(error: unknown): boolean {
   return isRecord(error) && error.code === "ENOENT"
 }
 
-async function readDevPayloadFile(path: string): Promise<{ path: string, value: Record<string, unknown> }> {
+function parseDevInput(text: string): Record<string, unknown> {
   // SAFETY: CLI option parsing establishes the asserted command contract.
-  const value = JSON.parse(await readFile(path, "utf8")) as unknown
+  const value = JSON.parse(text) as unknown
   if (!isRecord(value)) {
-    throw agentDiagnostics.AGENT_R0398({ message: "Agent Dev Loop payload file must contain a JSON object." })
+    throw agentDiagnostics.AGENT_R0398({ message: "Agent Dev Loop --input must be a JSON object." })
   }
-  return { path, value }
+  return value
+}
+
+async function readDevPayloadFile(path: string): Promise<{ path: string, value: Record<string, unknown> }> {
+  return { path, value: parseDevInput(await readFile(path, "utf8")) }
 }
 
 async function loadDevPayload(payloadPath: string, rootDir: string, cwd: string): Promise<{ path: string, value: Record<string, unknown> }> {
@@ -1228,12 +1233,15 @@ export async function runAgentDevCli(
     return 0
   }
   const workspaceCommand = parsed.workspaceCommand
-  if (parsed.payloadPath) {
+  if (parsed.input !== undefined) {
     try {
-      const loaded = await loadDevPayload(parsed.payloadPath, context.rootDir, context.cwd)
-      parsed.payload = loaded.value
-      const output = parsed.cli || workspaceCommand ? context.stderr : context.stdout
-      output.write(`Loaded payload: ${loaded.path}\n`)
+      if (parsed.input.startsWith("@")) {
+        const loaded = await loadDevPayload(parsed.input.slice(1), context.rootDir, context.cwd)
+        parsed.payload = loaded.value
+        const output = parsed.cli || workspaceCommand ? context.stderr : context.stdout
+        output.write(`Loaded payload: ${loaded.path}\n`)
+      }
+      else parsed.payload = parseDevInput(parsed.input)
     }
     catch (error) {
       context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -1326,13 +1334,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         description: "External Channel registration workflows.",
         features: [
           {
-            description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
-            name: "export",
-            run: async (args, context) => await runConversationsExportCli(args, context),
-            usage: conversationsExportUsage.replace("vitehub conversations export", "vitehub channels export"),
-          },
-          {
-            description: "Download one deployed Channel conversation and its attachments. `channels export --format json --output <directory>` writes the same archive.",
+            description: "Download one deployed Channel conversation and its attachments. `conversations export --format json --output <directory>` writes the same archive.",
             name: "history",
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
               envDir: options?.envDir,

@@ -1,0 +1,20 @@
+
+Usage:   deno deploy apps get
+Version: 0.0.9909
+
+Description:
+
+  Show an application, including its production URL and domains
+
+Options:
+
+  -h, --help                       - Show this help.
+  --token                <token>   - Auth token to use
+  --config               <config>  - Path for the config file
+  --ignore               <path>    - Ignore particular source files
+  -q, --quiet                      - Suppress non-essential output
+  -j, --json                       - Emit JSON on stdout instead of human-readable output
+  -y, --non-interactive            - Fail fast instead of prompting; values must be supplied via flags or env vars (alias: -y)
+  --org                  <name>    - The name of the organization
+  --app                  <name>    - The name of the application
+

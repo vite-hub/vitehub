@@ -3,6 +3,9 @@ import { addViteHubPageToolRoutes, viteHubPageToolsBase } from "@vite-hub/intern
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { resolveConsoleClient } from "./client.ts"
+
+import type { NitroModule } from "nitro/types"
 
 export function mountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
@@ -32,14 +35,14 @@ export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: strin
  * adds the application base to these routes.
  */
 export function addConsolePageHandlers(
-  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
+  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], modules?: unknown, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
   signInPage?: string,
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
-  const assets = join(consoleRuntimeRoot, "public/console")
+  const assets = resolveConsoleClient().dir
   const skills = join(consoleRuntimeRoot, "public/skills")
   const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
   if (signInPage) {
@@ -59,6 +62,55 @@ export function addConsolePageHandlers(
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
   ]
   addConsolePageToolRoutes(nitro, consoleRuntimeRoot, viteHubBasePath(base))
+  addConsoleAssetManifestModule(nitro)
+}
+
+const consoleAssetManifestModuleName = "vite-hub/console-asset-manifest"
+const publicAssetsDataId = /^#nitro\/virtual\/public-assets-data$/
+const publicAssetsDataPrefix = "export default "
+
+/**
+ * Remove the Console files from Nitro's public asset manifest on presets that do not serve static files, such as
+ * Cloudflare. There, Nitro reads the manifest only to ask whether a URL is a public asset, and the `/_vitehub/` asset
+ * bases already answer yes for every file below them. The Console client has about 600 files, whose entries add about
+ * 165 KB to the server entry.
+ */
+export function addConsoleAssetManifestModule(nitro: { modules?: unknown }): void {
+  const modules = Array.isArray(nitro.modules) ? nitro.modules : []
+  if (modules.some(module => Object(module) === module && Reflect.get(Object(module), "name") === consoleAssetManifestModuleName)) return
+  nitro.modules = [...modules, consoleAssetManifestModule]
+}
+
+const consoleAssetManifestModule: NitroModule = {
+  name: consoleAssetManifestModuleName,
+  setup(nitro) {
+    if (nitro.options.dev || nitro.options.serveStatic) return
+    const transform = {
+      filter: { id: publicAssetsDataId },
+      handler: (code: string) => pruneConsoleAssetManifest(code, consoleAssetBases(nitro.options.baseURL, nitro.options.publicAssets)),
+    }
+    nitro.hooks.hook("build:config", (_nitro, config) => {
+      if (config.rolldown) config.rolldown.plugins = [config.rolldown.plugins, { name: consoleAssetManifestModuleName, transform }]
+      else config.rollup.plugins = [config.rollup.plugins, { name: consoleAssetManifestModuleName, transform }]
+    })
+  },
+}
+
+/** The URL prefixes of the `/_vitehub/` asset folders that Nitro matches as a whole: the folders without fallthrough. */
+export function consoleAssetBases(baseURL: string, publicAssets: ReadonlyArray<{ baseURL?: string, fallthrough?: boolean }>): string[] {
+  return publicAssets.flatMap((asset) => {
+    if (asset.fallthrough || !asset.baseURL?.includes("/_vitehub/")) return []
+    return [`${baseURL.replace(/\/+$/, "")}/${asset.baseURL.replace(/^\/+|\/+$/g, "")}/`]
+  })
+}
+
+/** Nitro's manifest module without the files below `bases`. It returns `undefined` to keep a module it cannot read. */
+export function pruneConsoleAssetManifest(code: string, bases: readonly string[]): string | undefined {
+  if (!bases.length || !code.startsWith(publicAssetsDataPrefix)) return undefined
+  const assets: unknown = JSON.parse(code.slice(publicAssetsDataPrefix.length).trim().replace(/;$/, ""))
+  if (Object(assets) !== assets) return undefined
+  const kept = Object.entries(Object(assets)).filter(([id]) => !bases.some(base => id.startsWith(base)))
+  return `${publicAssetsDataPrefix}${JSON.stringify(Object.fromEntries(kept), null, 2)};`
 }
 
 /**

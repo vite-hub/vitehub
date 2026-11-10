@@ -62,6 +62,19 @@ function deferred() {
   return { promise, resolve }
 }
 
+it("exports every translator note collected for a message", async () => {
+  await writeFile(join(root, "label.ts"), 'import { t } from "@vite-hub/i18n"; export const label = t({ message: "Save", comment: "Saves the current file" })')
+  await writeFile(join(root, "toolbar.ts"), 'import { t } from "@vite-hub/i18n"; export const label = t({ message: "Save", comment: "Action in the toolbar" })')
+  const exported = await cli("export", "es")
+  expect(exported.code).toBe(0)
+  const catalog = await poFormatter().parse(exported.stdout, { locale: "es", sourceLocale: "en", filename: "es.po" })
+  expect(catalog[messageId("Save")]!.comments).toEqual(expect.arrayContaining([
+    "Saves the current file",
+    "Action in the toolbar",
+    "vitehub-i18n-expected: null",
+  ]))
+})
+
 it.each([null, "Guardar"])("refuses a stale PO edit exported with %j", async (baseline) => {
   const records = join(root, "locales")
   if (baseline !== null) await saveTranslation(records, "es", { message: "Save" }, baseline, { by: "ana", expected: null })
@@ -103,7 +116,7 @@ it("lets a PO file without a baseline add translations but refuses to overwrite 
 
 it.each(["missing", "rejected", "invalid"])("keeps the target baseline when reviewing a fuzzy draft for a %s record", async (state) => {
   const message = "Search all agents"
-  await writeFile(join(root, "label.ts"), `import { t } from "@vite-hub/i18n"; export const label = t\`${message}\``)
+  await writeFile(join(root, "label.ts"), `import { t } from "@vite-hub/i18n"; export const label = t({ message: "${message}", comment: "Search across all agents" })`)
   const records = join(root, "locales")
   await saveTranslation(records, "es", { message: "Search agents" }, "Buscar agentes", { by: "ana", expected: null })
   const baseline = state === "missing" ? null : state === "invalid" ? "Buscar {name}" : "Buscar todos los agentes"
@@ -121,7 +134,7 @@ it.each(["missing", "rejected", "invalid"])("keeps the target baseline when revi
   const catalog = await formatter.parse(await readFile(options.filename, "utf8"), options)
   const entry = Object.values(catalog)[0]!
   expect(entry.translation).toBe("Buscar agentes")
-  expect(entry.comments).toEqual([`vitehub-i18n-expected: ${JSON.stringify(baseline)}`, "Previous source: Search agents"])
+  expect(entry.comments).toEqual(["Search across all agents", `vitehub-i18n-expected: ${JSON.stringify(baseline)}`, "Previous source: Search agents"])
   expect(JSON.parse((await cli("import", "es", "es.po", "--json")).stdout)).toMatchObject({ saved: 0, fuzzy: 1, refused: [] })
   expect((await readRecords(records, "es")).records[messageId(message)]?.text ?? null).toBe(baseline)
 

@@ -8,11 +8,17 @@ icon: i-lucide-history
 
 ## Enable the log
 
-Auth events are opt-in. Set `events.store` on the Auth Definition. Apps that omit `events`, or set it to `false`, do not create event tables or load a database for the log.
+The event log is off until you set `events.store` on the Auth Definition. Without it, Auth creates no event tables and loads no database for the log.
 
-Use the same SQLite Drizzle database that the app already uses, or a separate one. The store uses the `run` and `all` contract used by the Env and Connections stores. It works with Node SQLite, libSQL, and Cloudflare D1. It does not support Postgres.
+Use the app's SQLite Drizzle database or another one. Like the Env and Connections stores, it uses the `run` and `all` contract. It works with Node SQLite, libSQL, and Cloudflare D1, not Postgres.
 
-This example keeps users and events in a discovered `auth` Database Definition. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
+Here, users and events share the `auth` Database. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
+
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
@@ -28,9 +34,9 @@ export default defineAuth(() => ({
 }))
 ```
 
-The store creates `vitehub_auth_events` and four indexes on first use. There are no foreign keys to Better Auth users or sessions, so deletion of a user does not remove their history. Give the database role permission to create this table and its indexes. Each app must use its own event database. The table does not have a tenant namespace.
+On first use, the store creates `vitehub_auth_events` and four indexes, so the database role needs create permission. The table has no foreign keys to users or sessions, so deleting a user keeps their history. It has no tenant namespace, so each app needs its own event database.
 
-Better Auth 1.7.7 has a last-login-method plugin, but no bundled local audit log. ViteHub adds a plugin after the app's plugins and keeps the app's database hooks. Better Auth still owns authentication and authorization.
+Better Auth 1.7.7 has a last-login-method plugin but no local audit log. ViteHub adds a plugin after your plugins and keeps your database hooks. Better Auth still owns authentication and authorization.
 
 ## Read events from code
 
@@ -54,11 +60,16 @@ const overview = await aggregateAuthEvents({
 })
 ```
 
-Pass an Auth Definition as the second argument when it is not discovered by Vite. `getAuthEvents(definition?, request?)` returns its store, or `undefined` when disabled. Pass a request when the Definition needs request context. You can also call `store.list()` and `store.aggregate()` directly. The structured readers throw `AUTH_R0018` when the log is disabled.
+Pass the Auth Definition as the second argument if Vite did not discover it. `getAuthEvents(definition?, request?)` returns its store, or `undefined` when the log is off. Pass a request if the Definition needs request context. `store.list()` and `store.aggregate()` also work. The readers throw `AUTH_R0018` when the log is off.
 
-`list()` accepts `type`, `userId`, `actor`, `from`, `to`, `cursor`, and `limit`. `type` can be one event type or a non-empty array of types, matched with OR before pagination. Combine the other filters with AND. `from` is inclusive and `to` is exclusive. Times are ISO timestamps, returned in UTC. Keep the same filters on each page. The default limit is 50, and the maximum is 200. Events are ordered by time and then ID, newest first. The cursor contains both values, so it still works after retention removes its event. New events do not shift later pages.
+`list()` takes `type`, `userId`, `actor`, `from`, `to`, `cursor`, and `limit`:
 
-After initialization, a list call runs one SQL query. An aggregate call runs one statement so all counts share a snapshot. Neither loads user records. Indexes cover time, type, subject user, and actor. Aggregates accept a window of at most 366 days and return UTC days, including days with zero events, plus totals for the full window:
+- `type` is one event type or a non-empty array, matched with OR before pagination. Other filters combine with AND.
+- `from` is inclusive and `to` is exclusive. Times are ISO timestamps, returned in UTC.
+- Keep the same filters on each page. The limit defaults to 50, with a maximum of 200.
+- Events are sorted by time, then ID, newest first. The cursor holds both, so it still works after retention removes its event. New events do not shift later pages.
+
+A list call runs one SQL query. An aggregate runs one statement, so all counts share a snapshot. Neither loads user records. Indexes cover time, type, subject user, and actor. Aggregates take a window of up to 366 days and return each UTC day, including empty days, plus totals:
 
 ```ts fragment
 {
@@ -69,13 +80,15 @@ After initialization, a list call runs one SQL query. An aggregate call runs one
 }
 ```
 
-Active users are distinct users with a completed sign-in in the window. A user who signs in on two days counts once in `totals.activeUsers`. A session created at sign-up counts as a sign-in. Session refresh, a pending two-factor challenge, and impersonation do not count. This metric does not count page views or the use of an existing session. For a 30-day active-user count, request a 30-day window. Counts cover retained events only, starting when logging was enabled. There is no backfill.
+Active users are distinct users who completed a sign-in in the window, so two days of sign-ins count once in `totals.activeUsers`. A session created at sign-up counts. Session refresh, a pending two-factor challenge, impersonation, page views, and use of an existing session do not. For 30-day active users, request a 30-day window. Counts cover only kept events since the log was turned on, with no backfill.
 
-Server readers do not authorize HTTP callers. Guard a route before returning their results. The Console has the same responsibility.
+::warning
+Server readers do not authorize HTTP callers. Guard the route, or the Console, before you return their results.
+::
 
 ## Read from the CLI
 
-The Auth Vite Integration contributes `vitehub auth events`. It calls the app's Auth route. Enable this read endpoint with `events.authorize`, using the app's own access policy:
+The Auth Vite integration adds `vitehub auth events`, which calls the app's Auth route. Turn on this read endpoint with `events.authorize` and your own access policy:
 
 ```ts fragment
 import type { AuthEventsConfiguration } from '@vite-hub/auth'
@@ -86,9 +99,9 @@ const events: AuthEventsConfiguration = {
 }
 ```
 
-Without `authorize`, no event HTTP endpoint is registered. When enabled, `GET <auth-base-path>/vitehub/events` requires a session read from the authoritative store and an explicit `true` result. A normal user's session is not sufficient unless your policy permits it. Successful reads use `Cache-Control: no-store`. The policy can return a `Response` to reject access with its own status, headers, and body.
+Without `authorize`, there is no endpoint. With it, `GET <auth-base-path>/vitehub/events` needs a session read from the session store and a `true` result, so a normal user gets in only if your policy allows it. Successful reads send `Cache-Control: no-store`. The policy can return a `Response` to reject with its own status, headers, and body.
 
-Set `VITEHUB_AUTH_COOKIE` to an authorized session cookie in the shell environment. Do not put it in a command argument or shared log. Set `VITEHUB_AUTH_URL`, or pass the full Auth base URL with `--url`:
+Put an authorized session cookie in the `VITEHUB_AUTH_COOKIE` shell variable, never in a command argument or shared log. Set `VITEHUB_AUTH_URL`, or pass the full Auth base URL with `--url`:
 
 ```sh
 vitehub auth events --url http://localhost:5173/api/auth --type user.signed_in --limit 50
@@ -97,35 +110,35 @@ vitehub auth events --url http://localhost:5173/api/auth --aggregate \
   --from 2026-10-01T00:00:00.000Z --to 2026-11-01T00:00:00.000Z
 ```
 
-Output is JSON. List commands also accept `--from`, `--to`, and `--cursor`. The CLI requires HTTPS except on loopback hosts, does not follow redirects, and times out after 30 seconds. It uses the same store readers as server code.
+Output is JSON. List commands also take `--from`, `--to`, and `--cursor`. The CLI needs HTTPS except on loopback, does not follow redirects, and times out after 30 seconds. It uses the same readers as server code.
 
 ## Event fields
 
-Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The actor is `user:<id>` or `system`. The subject is a user ID, or `null` for a failed sign-in. Impersonated actions name the initiating admin as actor.
+Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The actor is `user:<id>` or `system`. `userId` is the subject, or `null` for a failed sign-in. In impersonated actions, the actor is the admin who started it.
 
 | Type | Metadata and trigger |
 | --- | --- |
-| `user.signed_up` | `method`. Better Auth creates a user, including admin provisioning with method `unknown`. |
+| `user.signed_up` | `method`. Better Auth creates a user, also by admin provisioning, with method `unknown`. |
 | `user.signed_in` | `method`, coarse `device`, and `sessionId`. A new session completes authentication. |
 | `user.signed_out` | `sessionId`. Sign-out deletes a stored session. |
 | `sign_in.failed` | `method`. A sign-in endpoint returns a Better Auth API error. No email or attempted user ID is saved. |
-| `session.revoked` | `sessionId`. A stored session is deleted outside sign-out or the end of impersonation. This includes ban and user-deletion cleanup. |
+| `session.revoked` | `sessionId`. A stored session is deleted, other than at sign-out or the end of impersonation, including cleanup after a ban or user deletion. |
 | `user.banned`, `user.unbanned` | No metadata. Admin ban, unban, or an admin update of `banned`. |
 | `user.role_changed` | `role`. Admin changes the user's role. |
 | `user.updated` | `fields`. Admin updates user fields or sets a password. Field values and ban reasons are omitted. |
 | `user.removed` | No metadata. Better Auth deletes a user. |
-| `impersonation.started`, `impersonation.stopped` | `sessionId`. Admin starts or stops impersonation. A start that the store cannot record does not start. |
-| `oauth.consent_granted`, `oauth.consent_revoked` | `clientId`. OAuth Provider persists, updates, or deletes an `oauthConsent` record through its request adapter. A denied consent does not count. |
+| `impersonation.started`, `impersonation.stopped` | `sessionId`. Admin starts or stops impersonation. If the store cannot record a start, it does not start. |
+| `oauth.consent_granted`, `oauth.consent_revoked` | `clientId`. OAuth Provider saves, updates, or deletes an `oauthConsent` record through its request adapter. Denied consent does not count. |
 | `organization.member_added` | `organizationId`, `memberId`, `role`. Add a member, accept an invitation, or create the owner membership. |
 | `organization.member_removed`, `organization.member_role_changed` | `organizationId`, `memberId`, `role`. Remove a member, leave, or change a role. |
 
-IP addresses are discarded. The raw user agent is never stored. `device` is `desktop`, `mobile`, `tablet`, `bot`, or `unknown`. Metadata uses a fixed set of fields. Unknown fields are removed before storage. Tokens, passwords, authorization codes, email addresses, and request bodies are not recorded.
+The log never stores IP addresses, the raw user agent, tokens, passwords, authorization codes, email addresses, or request bodies. `device` is `desktop`, `mobile`, `tablet`, `bot`, or `unknown`. Metadata has a fixed set of fields, and unknown fields are removed.
 
-Methods include `email-password`, `oauth:<provider-id>`, `email-otp`, `magic-link`, `username`, `phone-number`, `passkey`, `siwe`, `anonymous`, `two-factor`, and `unknown`. OAuth IDs must match a configured provider. `two-factor` identifies the final verification step; it does not claim to identify the first factor.
+Methods are `email-password`, `oauth:<provider-id>`, `email-otp`, `magic-link`, `username`, `phone-number`, `passkey`, `siwe`, `anonymous`, `two-factor`, and `unknown`. OAuth IDs must match a configured provider. `two-factor` names the last verification step, not the first factor.
 
 ## Retention and failure behavior
 
-The default keeps 90 days and at most 100,000 events. Set either limit, or set `retention: false` to keep all events:
+By default, the log keeps 90 days and at most 100,000 events. Set either limit, or `retention: false` to keep everything:
 
 ```ts fragment
 createDatabaseAuthEventStore({
@@ -134,12 +147,16 @@ createDatabaseAuthEventStore({
 })
 ```
 
-Like Connections activity, one DELETE follows each append and removes expired records and records beyond the count limit. Reads exclude events past the age limit even when there have been no new writes. Physical deletion resumes on the next append. There is no timer or background service. Use the same retention options for every store instance that uses a database.
+As with Connections activity, each append runs one DELETE for expired records and records over the count limit. Reads skip events past the age limit even before the next append deletes them. There is no timer or background service. Use the same retention options for every store instance on one database.
 
-An event write is awaited, but is separate from the auth mutation. If storage fails, Auth continues and writes the fixed warning `AUTH_EVENT_WRITE_FAILED` without provider error details. That event can be lost. `impersonation.started` is the exception: when the store cannot write it, Auth deletes the new session and the request fails with `IMPERSONATION_NOT_RECORDED`. This log is for activity and analytics; it is not an atomic or tamper-proof compliance ledger. A failed cleanup retries on the next append. Initialization retries after a failure.
+Auth waits for each event write, but the write is separate from the auth change. If storage fails, Auth continues and logs the fixed warning `AUTH_EVENT_WRITE_FAILED` without provider details, and the event can be lost. Except for `impersonation.started`: if it cannot be written, Auth deletes the new session and the request fails with `IMPERSONATION_NOT_RECORDED`. Failed cleanup retries on the next append, and failed setup retries too.
 
-Only operations that pass through the supported Better Auth hooks and endpoints are recorded. Direct SQL writes, bulk organization deletion cascades, and custom plugin paths are not covered. A stateless cookie has no stored session to revoke, so it cannot provide stored-session deletion events. Failed sign-ins rejected by a proxy, rate limiter, or earlier before-hook may not reach the recorder. Hosted OAuth-provider flows need their own application check; the local tests cover the provider's consent-adapter contract.
+::warning
+This log is for activity and analytics. It is not an atomic or tamper-proof compliance ledger.
+::
+
+The log records only operations through the supported Better Auth hooks and endpoints, not direct SQL writes, bulk organization deletion cascades, or custom plugin paths. A stateless cookie has no stored session, so it gives no session deletion events. Sign-ins that a proxy, rate limiter, or earlier before-hook rejects may not reach the log. Check hosted OAuth-provider flows in your app. The local tests cover only the provider's consent-adapter contract.
 
 ## Console runtime exports
 
-`@vite-hub/auth/runtime/console` exports `readAuthEventConsoleRecords`, a zero-argument runtime reader that follows `@vite-hub/internal/console`. It returns at most 50 recent records, or an empty array when the log is disabled. It also exports `listAuthEvents` and `aggregateAuthEvents` for pages that need cursors or structured metrics. This package adds no Console UI.
+`@vite-hub/auth/runtime/console` exports `readAuthEventConsoleRecords`, a no-argument reader that follows `@vite-hub/internal/console`. It returns up to 50 recent records, or an empty array when the log is off. `listAuthEvents` and `aggregateAuthEvents` are exported too, for pages that need cursors or metrics. This package adds no Console UI.
