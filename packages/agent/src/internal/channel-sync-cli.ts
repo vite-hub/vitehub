@@ -11,7 +11,6 @@ import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-
 import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType } from "./runtime-type.ts"
 
 interface ChannelSyncCliContext {
   cwd: string
@@ -506,7 +505,7 @@ export async function runAgentChannelSyncCli(
     if (parsed.apply && origin) for (const item of planned) {
       if (item.plan.action !== "delete" && item.plan.action !== "update") continue
       const currentUrl =
-        item.target.sync.currentWebhookUrl?.(item.plan) ?? (hasRuntimeType(item.plan.current.url, "string") ? item.plan.current.url : "")
+        item.target.sync.currentWebhookUrl?.(item.plan) ?? (typeof item.plan.current.url === "string" ? item.plan.current.url : "")
       if (currentUrl) {
         const currentOrigin = httpsUrlOrigin(currentUrl, "current provider webhook URL").origin
         if (currentOrigin !== origin) {
