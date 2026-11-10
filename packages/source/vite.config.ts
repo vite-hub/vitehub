@@ -45,7 +45,6 @@ try {
         /^@vite-hub\/internal/,
         "fdir",
         "mrmime",
-        "ocache",
         "picomatch",
         "tinyglobby",
       ],

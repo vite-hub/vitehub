@@ -101,6 +101,7 @@
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
+    "ocache": "catalog:unjs",
     "ofetch": "catalog:unjs"
   },
   "devDependencies": {
@@ -111,7 +112,6 @@
     "drizzle-orm": "catalog:database",
     "mrmime": "catalog:workspace",
     "nitro": "catalog:unjs",
-    "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",
     "publint": "catalog:tooling",
     "tinyglobby": "catalog:workspace",
