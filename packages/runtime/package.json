@@ -24,12 +24,7 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/drain.js"
-  ],
-  "bin": {
-    "vitehub-drain": "./dist/drain.js"
-  },
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -46,6 +41,11 @@
       "types": "./dist/h3.d.ts",
       "import": "./dist/h3.js",
       "default": "./dist/h3.js"
+    },
+    "./internal/drain": {
+      "types": "./dist/internal/drain.d.ts",
+      "import": "./dist/internal/drain.js",
+      "default": "./dist/internal/drain.js"
     },
     "./internal/execution-budget": {
       "types": "./dist/internal/execution-budget.d.ts",
@@ -88,7 +88,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/runtime#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/runtime#build && vp test"
+    "test": "vp run --cache -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {
     "h3": "catalog:unjs",

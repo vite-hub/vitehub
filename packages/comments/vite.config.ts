@@ -39,7 +39,7 @@ export default defineConfig({
         dts: ".d.ts",
         js: ".js",
       }),
-      publint: true,
+      publint: "ci-only",
     },
     {
       // The page tools loader at `/_vitehub/page/assets/loader.js`. It has its own build, so it shares no chunk with the overlay.

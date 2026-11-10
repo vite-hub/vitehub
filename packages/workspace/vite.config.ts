@@ -18,7 +18,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/ai.ts",
       "src/blob-database.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
@@ -29,8 +28,6 @@ export default defineConfig({
       "src/index.ts",
       "src/lineage.ts",
       "src/loader.ts",
-      "src/mountx.ts",
-      "src/nitro.ts",
       "src/operations.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
@@ -82,6 +79,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

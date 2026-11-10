@@ -2,33 +2,41 @@ import { includedNitro } from "./nitro-plugin.ts"
 import { viteHubPlugins } from "./plugins.ts"
 
 import type { PluginOption } from "vite"
-import type { ViteHubConfig, ViteHubOptions } from "./plugins.ts"
+import type { ViteHubOptions } from "./plugins.ts"
 
 export type {
   AgentInvocationsDefault,
   AgentInvocationsDefaultJournal,
+  AgentOptions,
+  AuthOptions,
+  BlobOptions,
+  BrowserOptions,
   CacheOptions,
+  ChannelsOptions,
+  CloudflareOptions,
+  ConnectionsOptions,
   ConsoleOptions,
+  DatabaseOptions,
   DeploymentPreset,
-  LogsEvlogOptions,
-  LogsOptions,
+  EmailOptions,
+  EnvOptions,
+  I18nOptions,
+  KVOptions,
   ObservabilityEvlogOptions,
+  ObservabilityLogsOptions,
   ObservabilityOptions,
-  ViteHubAgentOptions,
-  ViteHubCloudflareOptions,
-  ViteHubConfig,
-  ViteHubConnectionsOptions,
+  QueueOptions,
+  RateLimitOptions,
+  RealtimeOptions,
+  SandboxTaskOptions,
+  ScheduleOptions,
   ViteHubNodeOptions,
   ViteHubOptions,
+  WorkflowOptions,
+  WorkspaceOptions,
 } from "./plugins.ts"
 
 /** The ViteHub Vite plugins and Nitro, the server of the app. Nitro steps aside when the app adds `nitro()` itself. */
 export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
   return [...viteHubPlugins(options), includedNitro()]
-}
-
-declare module "vite" {
-  interface UserConfig {
-    vitehub?: ViteHubConfig
-  }
 }

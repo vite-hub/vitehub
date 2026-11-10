@@ -68,7 +68,7 @@ export interface EmailOutboxOptions {
   limit?: number
 }
 
-export interface EmailVitePluginOptions {
+export interface EmailOptions {
   driver: EmailProvider
   options?: EnvRuntimeConfigOptions
   /**
@@ -194,7 +194,7 @@ function resolveRemote(value: unknown): boolean {
   return value
 }
 
-function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
+function configuredDefinition(options: EmailOptions): Omit<GeneratedEmailDefinition, "handler"> {
   const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
   validateEmailRuntimeOptions(runtimeOptions)
   return {
@@ -419,11 +419,11 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   await rm(backupRoot, { force: true, recursive: true })
 }
 
-export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
+export function hubEmail(options: EmailOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
-  const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
+  const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
   const driverImport = resolveDriverImport(configured.driver)
   const outbox = resolveOutboxOptions(options.outbox)
@@ -431,7 +431,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const outboxRuntimeId = randomUUID()
   let command: "build" | "serve" | undefined
   const runtimeEnvImport = internalOptions.runtimeEnvImport
-    ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
+    ?? resolvePackageImport("@vite-hub/env/internal/server")
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare-email"
@@ -536,9 +536,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       if (cloudflareEmail && !cloudflare) {
         throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
       }
-      vercel = hosting === "vercel"
-        || internalOptions.workflowProvider === "vercel"
-        || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
+      vercel = hosting === "vercel" || internalOptions.workflowProvider === "vercel"
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {

@@ -5,7 +5,6 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveDurabilityModule } from "@vite-hub/internal/durability"
 import { sqliteUrlInput } from "@vite-hub/runtime/durability"
 import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { ownModule } from "@vite-hub/internal/build/paths"
 
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
@@ -16,10 +15,7 @@ import type { Plugin } from "vite"
 import type { AgentInvocationsDurabilityInput } from "@vite-hub/agent/durability"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { AgentInvocationsDefault } from "./internal/agent-invocations.ts"
-
-// Generated code imports this vite-hub module by path. It is not a package export.
-const agentInvocationsModule = ownModule(import.meta.url, "internal/agent-invocations")
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
 
@@ -91,7 +87,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ...(journal.length ? [`journal: { ${journal.join(", ")} }`] : []),
   ]
   return [
-    `import { installAgentInvocations } from ${JSON.stringify(agentInvocationsModule)}`,
+    `import { installAgentInvocations } from "@vite-hub/agent/invocations/app"`,
     "",
     // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,

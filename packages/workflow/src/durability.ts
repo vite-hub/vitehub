@@ -1,4 +1,5 @@
 import { resolveDurabilityValue } from "@vite-hub/runtime/durability"
+import { resolveOpenWorkflowStorage } from "./internal/openworkflow-storage.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
 import type { WorkflowRuntimeConfigValue } from "./types.ts"
@@ -12,7 +13,7 @@ export interface WorkflowDurabilityInput {
   sqlitePath?: WorkflowRuntimeConfigValue
 }
 
-const sqliteFix = "Set OPENWORKFLOW_POSTGRES_URL to a Postgres URL, set `workflow.postgres.url`, or use a Postgres Default Database."
+const sqliteFix = "Set OPENWORKFLOW_POSTGRES_URL or DATABASE_URL to a Postgres URL, or set `workflow.postgres.url`."
 
 function sqlite(path: string): Durability[] {
   return [{ primitive: "workflow", store: "openworkflow-sqlite", scope: "host", reason: `Runs in the SQLite file ${path} on this host.`, fix: sqliteFix }]
@@ -24,8 +25,8 @@ function postgres(source: string): Durability[] {
 
 /**
  * The durability of Workflow runs. It follows the storage order of the OpenWorkflow runtime: the SQLite path, then
- * `OPENWORKFLOW_SQLITE_PATH`, then the Postgres URL and `OPENWORKFLOW_POSTGRES_URL`, then the Postgres Default Database,
- * then the default SQLite file.
+ * `OPENWORKFLOW_SQLITE_PATH`, then the Postgres URL, `OPENWORKFLOW_POSTGRES_URL`, and `DATABASE_URL`, then the default
+ * SQLite file. The runtime and reporter share this selection.
  */
 export function workflowDurability(input: WorkflowDurabilityInput, context: DurabilityContext): Durability[] {
   const { env } = context
@@ -41,13 +42,13 @@ export function workflowDurability(input: WorkflowDurabilityInput, context: Dura
       fix: "Set `workflow: { provider: \"openworkflow\" }` with a Postgres URL.",
     }]
   }
-  const postgresUrl = resolveDurabilityValue(input.postgresUrl, env)
-  const sqlitePath = resolveDurabilityValue(input.sqlitePath, env) || (!postgresUrl ? env.OPENWORKFLOW_SQLITE_PATH?.trim() : undefined)
-  if (sqlitePath) return sqlite(sqlitePath)
-  if (postgresUrl) return postgres("`workflow.postgres.url`")
-  if (env.OPENWORKFLOW_POSTGRES_URL?.trim()) return postgres("OPENWORKFLOW_POSTGRES_URL")
-  if (input.defaultDatabase && context.find("database")?.store === "postgres") return postgres("the Default Database")
-  return sqlite(".vitehub/data/openworkflow.sqlite.db")
+  const storage = resolveOpenWorkflowStorage({
+    postgresUrl: resolveDurabilityValue(input.postgresUrl, env),
+    sqlitePath: resolveDurabilityValue(input.sqlitePath, env),
+  }, name => env[name]?.trim() || undefined)
+  if (storage.backend === "postgres") return postgres(storage.source)
+  if (storage.source === "default" && input.defaultDatabase && context.find("database")?.store === "postgres") return postgres("the Default Database")
+  return sqlite(storage.path)
 }
 
 /**

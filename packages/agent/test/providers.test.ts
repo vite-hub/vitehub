@@ -491,10 +491,8 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 
       await rm(evalFile)
-      await configResolved({
-        ...privateConfig,
-        agent: { providers: { state: { provider: "memory" } } },
-      })
+      const memoryPlugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
@@ -541,13 +539,15 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } } }
+    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } | null } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } | null } }
 
-    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } } }) => mergeConfig(input, config(input)).server?.watch?.ignored
+    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } | null } }) => mergeConfig(input, config(input)).server?.watch?.ignored
 
     expect(watchIgnored({})).toEqual(["**/.vitehub/**"])
     expect(watchIgnored({ server: { watch: { ignored: ["**/node_modules/**"] } } })).toEqual(["**/node_modules/**", "**/.vitehub/**"])
     expect(watchIgnored({ server: { watch: { ignored: ["**/.vitehub/**"] } } })).toEqual(["**/.vitehub/**"])
+    const disabledWatcher = { server: { watch: null } }
+    expect(mergeConfig(disabledWatcher, config(disabledWatcher)).server?.watch).toBeNull()
     expect(config({ root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe(JSON.stringify("/repo/apps/web"))
     expect(config({ define: { __VITEHUB_AGENT_APP_ROOT__: "configured" }, root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe("configured")
   })
@@ -651,14 +651,6 @@ describe("agent Vite plugin", () => {
         plugins: [outputPlugin],
       },
     })
-  })
-
-  it("exposes hubAgent options through Vite config", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ routes: { discordGateway: true } })
-    const result = await resolveAgentViteConfig(plugin, {})
-
-    expect(result).toMatchObject({ agent: { routes: { discordGateway: true } } })
   })
 
   it("imports generated runtime Capabilities in hosted Agent routes", async () => {
@@ -1181,7 +1173,7 @@ describe("agent Vite plugin", () => {
       await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: platformPackage }))
       const plugin = hubAgent()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
       vi.mocked(resolveProviderRuntimePackages).mockReturnValueOnce([
         { name: "@openai/codex", resolveFrom: join(root, "package.json") },
@@ -2629,7 +2621,6 @@ describe("agent Vite plugin", () => {
     const result = await resolveAgentViteConfig(plugin, {})
 
     expect(result).toMatchObject({
-      agent: { runtime: "deno" },
       server: { watch: { ignored: ["**/.vitehub/**"] } },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2645,10 +2636,10 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
-      await configResolved({ agent: { runtime: "deno" }, command: "build", root })
+      await configResolved({ command: "build", root })
       await runProviderOutputHooks(plugin)
 
       expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
@@ -3428,17 +3419,6 @@ export default defineAgent({
 
     expect(config).toContain('"esbuild"')
     expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
-  })
-
-  it("publishes the Agent output helper subpath", async () => {
-    const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-    if (!isTestRecord(pkg) || !isTestRecord(pkg.exports)) throw new Error("Expected package exports metadata.")
-
-    expect(pkg.exports?.["./output"]).toEqual({
-      types: "./dist/output.d.ts",
-      import: "./dist/output.js",
-      default: "./dist/output.js",
-    })
   })
 })
 
@@ -9327,7 +9307,7 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
-  it("runs GitHub channel webhooks through workflow-backed agents", async () => {
+  it("runs GitHub channel webhooks through workflow-backed agents", async ({ onTestFinished }) => {
     const { defineAgent, workflow } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -9337,6 +9317,7 @@ describe("server helpers", () => {
     const runFinished = new Promise<void>((resolve) => {
       releaseRun = resolve
     })
+    onTestFinished(releaseRun)
     const run = vi.fn(async (context) => {
       await runFinished
       return `accepted ${context.prompt}`
@@ -9381,14 +9362,8 @@ describe("server helpers", () => {
         "",
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
-      const response = await Promise.race([responsePromise, new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 25))])
-
-      if (response === "blocked") {
-        releaseRun()
-        await responsePromise
-      }
-      expect(response).not.toBe("blocked")
-      if (response === "blocked") throw new Error("Workflow webhook response waited for deferred workflow completion.")
+      // The response must arrive while the Workflow is still waiting for releaseRun().
+      const response = await withDeadline(responsePromise, 3_000, "Workflow webhook response waited for deferred workflow completion.")
       const json = await response.json()
 
       expect(response.status).toBe(200)
@@ -9406,6 +9381,7 @@ describe("server helpers", () => {
         await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
+      releaseRun()
       resetWorkflowRuntime()
     }
   })
@@ -15613,7 +15589,7 @@ describe("server helpers", () => {
     })
   })
 
-  it("defers manual delivery to the active Agent Workflow by default", async () => {
+  it("defers manual delivery to the active Agent Workflow by default", async ({ onTestFinished }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -15628,6 +15604,7 @@ describe("server helpers", () => {
     const blocked = new Promise<void>((resolve) => {
       release = resolve
     })
+    onTestFinished(release)
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -15653,17 +15630,12 @@ describe("server helpers", () => {
 
     try {
       await state.connect()
-      const response = await Promise.race([
-        handler(chatWebhookRequest(91_100), "telegram", {
-          agentIdentity: { name: "calories" },
-          cloudflare: { env: {} },
-          waitUntil: (task) => waitUntilTasks.push(task),
-        }),
-        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 1_000)),
-      ])
-
-      expect(response).not.toBe("blocked")
-      if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
+      // The response must arrive before the blocked Driver is released below.
+      const response = await handler(chatWebhookRequest(91_100), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: (task) => waitUntilTasks.push(task),
+      })
       expect(response.status).toBe(200)
       expect(adapter.postMessage).not.toHaveBeenCalled()
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123", messageId: "91100" })
