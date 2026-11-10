@@ -235,7 +235,7 @@ describe("project.get probe", () => {
   it("names a URL without a Console and a server error with its fix", async () => {
     expect(await probeConsoleProject(target, undefined, { fetch: async () => new Response("Not found", { status: 404 }) })).toEqual({ kind: "missing" })
     const unset = await probeConsoleProject(target, "secret", { fetch: json(500, { code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.", ok: false, status: 500 }) })
-    expect(unset).toEqual({ kind: "failed", status: 500, message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256." })
+    expect(unset).toEqual({ kind: "failed", status: 500, code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256." })
     // The fix stays its own field, so the Console shows it as its own paragraph.
     if (unset.kind !== "failed") throw new Error("expected a failed probe")
     expect(consoleProjectProblem(unset, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" })).toEqual({
@@ -243,6 +243,56 @@ describe("project.get probe", () => {
       message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.",
       fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.",
     })
+  })
+})
+
+describe("account Console", () => {
+  const linked = { id: "p-1", url: "https://app.example.com", label: "Docs", tokenSha256: "a".repeat(64), tokenVariable: "VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_P1" }
+
+  async function account(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+    vi.stubGlobal("fetch", fetch)
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const storage = memoryProjectStorage()
+    storage.setItem(consoleProjectsStorageKey, JSON.stringify({ active: linked.id, projects: [{ id: linked.id, url: linked.url, label: linked.label }] }))
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "account", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage })
+    state.account.value = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    return { module, state }
+  }
+
+  it("sends the project's calls to the Console server, with the page cookies and no token", async () => {
+    const fetch = vi.fn(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
+    const { module, state } = await account(fetch)
+    await module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "ready" })
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("/p/p-1/_vitehub/rpc/__call")
+    expect(init.credentials).toBe("same-origin")
+    expect(new Headers(init.headers).has("authorization")).toBe(false)
+    // project-session imported its own copy of the transport after the module reset.
+    const transport = await import("../src/console/runtime/client/project.ts")
+    expect(transport.consoleProject()).toMatchObject({ origin: "", base: "/p/p-1", remote: true })
+    expect(transport.isRemoteProject()).toBe(true)
+  })
+
+  it("shows the variable to set while the project has no hash, or another one", async () => {
+    for (const answer of [
+      json(500, { code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "not set", ok: false, status: 500 }),
+      json(401, { code: "CONSOLE_TOKEN_INVALID", message: "refused", ok: false, status: 401 }),
+    ]) {
+      const { module, state } = await account(answer)
+      await module.openConsoleProject()
+      expect(state.gate.value).toEqual({ kind: "setup", project: linked })
+      vi.resetModules()
+    }
+  })
+
+  it("starts with the empty state when the team has no project", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "account", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage: memoryProjectStorage() })
+    expect(state.gate.value).toEqual({ kind: "empty" })
+    // The Console server keeps the list, so the page never says that it ends with the page.
+    expect(state.persistent.value).toBe(true)
   })
 })
 

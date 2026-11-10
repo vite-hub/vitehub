@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
-import { computed, shallowRef } from "vue";
+import { computed, defineAsyncComponent, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleProjectStatus } from "../client/project-session";
@@ -9,8 +9,14 @@ import { checkConsoleProjects, forgetConsoleProject, openConsoleNewProject, swit
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleProjectLink from "./console-project-link.vue";
 
+// Only an `account` Console shows it, so it loads with the Better Auth client.
+const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
+
 const projects = useConsoleProjects();
 const forgetting = shallowRef<ConsoleLinkedProject>();
+// An `account` Console lists the projects of the active team, and unlinks them for the whole team.
+const account = projects.mode === "account";
+const teamName = computed(() => projects.account.value?.teams.find(team => team.id === projects.account.value?.teamId)?.name);
 
 const current = computed(() => projects.current.value);
 const name = computed(() => projects.info.value?.name || (current.value ? consoleProjectName(current.value) : "Project"));
@@ -33,7 +39,7 @@ function status(project: ConsoleLinkedProject): ConsoleProjectStatus {
 // label, and the pointerup would select the project under it.
 const items = computed<DropdownMenuItem[][]>(() => [
   [
-    { type: "label", label: "Projects" },
+    { type: "label", label: account && teamName.value ? `${teamName.value} projects` : "Projects" },
     ...projects.projects.value.map((project): DropdownMenuItem => ({
       description: `${consoleProjectHost(project)}${status(project) === "ready" ? "" : ` · ${statusLabels[status(project)]}`}`,
       label: consoleProjectName(project),
@@ -45,7 +51,7 @@ const items = computed<DropdownMenuItem[][]>(() => [
     })),
   ],
   [
-    { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+    ...(account ? [] : [{ icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject }]),
     { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
     {
       children: projects.projects.value.map((project): DropdownMenuItem => ({
@@ -54,7 +60,7 @@ const items = computed<DropdownMenuItem[][]>(() => [
         onSelect: () => { forgetting.value = project; },
       })),
       icon: "i-lucide-trash-2",
-      label: "Forget project",
+      label: account ? "Unlink project" : "Forget project",
     },
   ],
 ]);
@@ -111,25 +117,29 @@ function forget(): void {
 
   <UModal
     :open="Boolean(forgetting)"
-    :title="forgetting ? `Forget ${consoleProjectName(forgetting)}?` : 'Forget project?'"
+    :title="`${account ? 'Unlink' : 'Forget'} ${forgetting ? consoleProjectName(forgetting) : 'project'}?`"
     :content="{ role: 'alertdialog' }"
     :ui="{ content: 'sm:max-w-[440px]' }"
     @update:open="(value: boolean) => { if (!value) forgetting = undefined; }"
   >
     <template #body>
-      <p class="text-pretty text-[13px] text-muted">
+      <p v-if="account" class="text-pretty text-[13px] text-muted">
+        The Console deletes the token of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }} for everyone in {{ teamName ?? "this team" }}. Remove its variable from the app as well. To open it again, link it again.
+      </p>
+      <p v-else class="text-pretty text-[13px] text-muted">
         This browser removes the URL and the tokens of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}, and signs out of it. The project does not change. To open it again, link it again.
       </p>
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" label="Cancel" @click="forgetting = undefined" />
-        <UButton color="error" label="Forget project" @click="forget" />
+        <UButton color="error" :label="account ? 'Unlink project' : 'Forget project'" @click="forget" />
       </div>
     </template>
   </UModal>
 
-  <ConsoleProjectLink v-model:open="projects.linkOpen.value" />
+  <ConsoleAccountLink v-if="account" v-model:open="projects.linkOpen.value" />
+  <ConsoleProjectLink v-else v-model:open="projects.linkOpen.value" />
 </template>
 
 <style>

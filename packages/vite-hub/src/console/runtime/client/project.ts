@@ -17,6 +17,11 @@ export interface ConsoleProject {
    * the request again with, such as after an OAuth refresh, or `undefined` to keep the `401`.
    */
   renew?: (response: Response, sent: string) => Promise<string | undefined>
+  /**
+   * The Console server forwards the requests, such as `/p/<project>` of an `account` Console. The origin is the page's,
+   * but the app is elsewhere, so its cookies, frames, and WebSockets do not work.
+   */
+  remote?: boolean
 }
 
 let active: ConsoleProject = { origin: "", base: "" }
@@ -103,7 +108,7 @@ export function isRemoteProject(): boolean {
   // Read the page origin without depending on DOM types in the package's server build.
   const location: unknown = Reflect.get(globalThis, "location")
   const pageOrigin: unknown = location instanceof Object ? Reflect.get(location, "origin") : undefined
-  return active.origin !== "" && active.origin !== pageOrigin
+  return active.remote === true || (active.origin !== "" && active.origin !== pageOrigin)
 }
 
 /**

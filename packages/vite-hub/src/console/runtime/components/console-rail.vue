@@ -2,7 +2,7 @@
 import { createAuthClient } from "@vite-hub/auth/vue";
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
-import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
@@ -21,6 +21,9 @@ import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupC
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectSwitcher from "./console-project-switcher.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+
+// Only an `account` Console shows it, so it loads with the Better Auth client.
+const ConsoleAccountMenu = defineAsyncComponent(() => import("./console-account-menu.vue"));
 
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -277,7 +280,7 @@ onBeforeUnmount(() => {
           <ConsoleMark class="size-[1.125rem]" />
         </PrimitiveRailItem>
       </UTooltip>
-      <ConsoleProjectSwitcher v-if="projects.mode === 'hosted'" />
+      <ConsoleProjectSwitcher v-if="projects.mode !== 'embedded'" />
     </template>
 
     <template #default="{ expanded }">
@@ -343,8 +346,10 @@ onBeforeUnmount(() => {
           <span class="vh-primitive-rail__label">Search</span>
         </UDashboardSearchButton>
       </UTooltip>
+      <!-- An `account` Console signs people in to itself, not to the app. -->
+      <ConsoleAccountMenu v-if="projects.mode === 'account'" :expanded="expanded" :appearance-items="appearance ? appearanceItems : []" />
       <UDropdownMenu
-        v-if="appearance || signedIn || tokenSignedIn"
+        v-else-if="appearance || signedIn || tokenSignedIn"
         :items="userMenuItems"
         :content="{ side: 'right', align: 'end', sideOffset: 8 }"
         :ui="{ content: 'min-w-52' }"

@@ -13,6 +13,11 @@ import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
 import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
+// Only an `account` Console shows these, so they load with the Better Auth client.
+const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
+const ConsoleAccountSetup = defineAsyncComponent(() => import("./console-account-setup.vue"));
+const ConsoleAccountSignIn = defineAsyncComponent(() => import("./console-account-sign-in.vue"));
+
 // The page reads the feature catalog, so it loads only on /new.
 const ConsoleNewProject = defineAsyncComponent(() => import("./console-new-project.vue"));
 
@@ -27,14 +32,15 @@ const busy = ref(false);
 const tokenError = shallowRef<ConsoleProjectProblem>();
 
 const current = computed(() => projects.current.value);
+const activeTeam = computed(() => projects.account.value?.teams.find(team => team.id === projects.account.value?.teamId));
 const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
 const others = computed(() => projects.projects.value.filter(project => project.id !== current.value?.id));
 const switchItems = computed<DropdownMenuItem[][]>(() => [
   others.value.map(project => ({ label: consoleProjectName(project), description: consoleProjectHost(project), onSelect: () => switchConsoleProject(project.id) })),
   [
-    { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+    ...(projects.mode === "account" ? [] : [{ icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject }]),
     { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
-    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Forget this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
+    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: projects.mode === "account" ? "Unlink this project" : "Forget this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
   ],
 ].filter(group => group.length));
 
@@ -78,7 +84,7 @@ onMounted(() => {
       <div class="vitehub-console-boot__header" />
       <p role="status" class="vitehub-console-opening">
         <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        {{ gate.kind === "callback" ? "Finishing sign-in…" : host && projects.mode === "hosted" ? `Opening ${host}…` : "Opening Console…" }}
+        {{ gate.kind === "callback" ? "Finishing sign-in…" : host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
       </p>
     </div>
   </div>
@@ -87,7 +93,21 @@ onMounted(() => {
     <div class="vitehub-project-gate__body">
       <ConsoleMark class="size-6 text-highlighted" />
 
-      <template v-if="gate.kind === 'empty'">
+      <ConsoleAccountSignIn v-if="gate.kind === 'account'" :invitation="gate.invitation" />
+
+      <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :project="gate.project" />
+
+      <template v-else-if="gate.kind === 'empty' && projects.mode === 'account'">
+        <div class="grid gap-1.5">
+          <h1 class="vitehub-project-gate__title">Link your first project</h1>
+          <p class="vitehub-project-gate__text">Link a deployed ViteHub app to {{ activeTeam?.name ?? "this team" }}. The Console server keeps its token, so the project opens in any browser where you sign in.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <UButton icon="i-lucide-link" label="Link project" @click="projects.linkOpen.value = true" />
+        </div>
+      </template>
+
+      <template v-else-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Add your first project</h1>
           <p class="vitehub-project-gate__text">Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>. The project list and tokens stay in this browser.</p>
@@ -139,14 +159,15 @@ onMounted(() => {
         {{ consoleProjectsVolatileNote }}
       </p>
 
-      <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty' && gate.kind !== 'link'" class="vitehub-project-gate__host">
+      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'link' && gate.kind !== 'account'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
           <UButton color="neutral" variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
         </UDropdownMenu>
       </div>
     </div>
-    <ConsoleProjectLink v-model:open="projects.linkOpen.value" />
+    <ConsoleAccountLink v-if="projects.mode === 'account'" v-model:open="projects.linkOpen.value" />
+    <ConsoleProjectLink v-else v-model:open="projects.linkOpen.value" />
   </main>
 </template>
 

@@ -34,48 +34,56 @@ import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } 
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { takeConsoleOAuthCallback } from "./oauth";
 import { continueConsoleOpen, startConsoleOpen } from "./open-link";
-import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
+import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, startConsoleAccount, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
-// The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
-// app serves the page, and the Console reads that app. The Console API paths below are app paths; `projectUrl()` adds
-// the origin and the mount of the project.
-const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getAttribute("content") === "hosted";
-const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
-const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
+// The hosted build marks its static page. There the Console opens the projects that this browser linked. The Console
+// app marks its page `account`: people sign in, and the Console server forwards the calls of their team's projects.
+// Otherwise the app serves the page, and the Console reads that app. The Console API paths below are app paths;
+// `projectUrl()` adds the origin and the mount of the project.
+const pageMode = document.querySelector('meta[name="vitehub-console-mode"]')?.getAttribute("content");
+const account = pageMode === "account";
+const hosted = pageMode === "hosted";
+const hostBase = hosted || account ? "" : consoleMountBase(window.location.pathname);
+const consoleBase = hosted || account ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
-// A browser that blocks or fills storage keeps the projects in memory until the page reloads.
-const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
-// The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
-const session = openConsoleStorage(() => window.sessionStorage);
+if (account) {
+  await startConsoleAccount({ home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname });
+}
+else {
+  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+  const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
+  // The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
+  const session = openConsoleStorage(() => window.sessionStorage);
 
-// A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
-const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
-// The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
-const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
-// A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
-// a linked project opens at the path.
-const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
+  // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
+  const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+  // The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
+  const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
+  // A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
+  // a linked project opens at the path.
+  const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
 
-startConsoleProjects({
-  base: hostBase,
-  home: consoleBase,
-  mode: hosted ? "hosted" : "embedded",
-  navigate: (url) => window.location.assign(url),
-  pageOrigin: window.location.origin,
-  storage,
-  storagePersistent: storage.persistent !== false,
-  sessionStorage: session.durable ? session.storage : undefined,
-  durableStorage: storage.persistent !== false,
-  pendingLinkLocks: navigator.locks,
-});
-if (linkHash !== undefined) startConsoleLink(linkHash);
-// The /new page opens no project, so it works before the first link.
-else if (hosted && isConsoleNewProjectPath(window.location.pathname, consoleBase)) startConsoleNewProject();
-else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
-else if (openRequest) continueConsoleOpen(openRequest);
+  startConsoleProjects({
+    base: hostBase,
+    home: consoleBase,
+    mode: hosted ? "hosted" : "embedded",
+    navigate: (url) => window.location.assign(url),
+    pageOrigin: window.location.origin,
+    storage,
+    storagePersistent: storage.persistent !== false,
+    sessionStorage: session.durable ? session.storage : undefined,
+    durableStorage: storage.persistent !== false,
+    pendingLinkLocks: navigator.locks,
+  });
+  if (linkHash !== undefined) startConsoleLink(linkHash);
+  // The /new page opens no project, so it works before the first link.
+  else if (hosted && isConsoleNewProjectPath(window.location.pathname, consoleBase)) startConsoleNewProject();
+  else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
+  else if (openRequest) continueConsoleOpen(openRequest);
+}
 const sectionsBase = "/_vitehub/api/sections";
 const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 

@@ -1,12 +1,31 @@
-import { admin } from "better-auth/plugins"
+import { passkey } from "@better-auth/passkey"
+import { organization } from "better-auth/plugins"
 import { defineAuth } from "vite-hub/auth"
 import { authDatabase } from "vite-hub/auth/database"
 
-// People sign in to the Console, never to each app. Only admins open projects: `VITEHUB_ADMINS` lists GitHub accounts,
-// and `vitehub auth claim` makes a one-time code for the first admin of an email and password account.
-export default defineAuth({
+import { passkeySignUp, sessionTeam } from "../src/accounts.ts"
+
+// Anyone can sign up with GitHub or a passkey. Each account gets a personal team, and projects belong to teams.
+export default defineAuth(({ env }) => ({
   appName: "ViteHub Console",
   database: authDatabase(),
-  emailAndPassword: { enabled: true },
-  plugins: [admin()],
-})
+  socialProviders: env.auth.github.clientId
+    ? { github: { clientId: env.auth.github.clientId, clientSecret: env.auth.github.clientSecret?.unseal() ?? "" } }
+    : {},
+  // A passkey account links GitHub later. Its email is a placeholder, so the GitHub email cannot match it.
+  account: { accountLinking: { allowDifferentEmails: true } },
+  databaseHooks: {
+    session: {
+      create: {
+        async before(session, context) {
+          const team = await sessionTeam(session.userId, context)
+          return { data: { ...session, activeOrganizationId: team ?? null } }
+        },
+      },
+    },
+  },
+  plugins: [
+    organization({ creatorRole: "owner" }),
+    passkey({ rpName: "ViteHub Console", registration: passkeySignUp }),
+  ],
+}))

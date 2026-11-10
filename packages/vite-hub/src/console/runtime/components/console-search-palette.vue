@@ -339,9 +339,9 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
     ]
   : [])
 
-// A hosted Console switches between the projects that this browser linked.
+// A hosted Console switches between the projects that this browser linked, an `account` Console between those of the team.
 const projects = useConsoleProjects()
-const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "hosted"
+const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "embedded"
   ? [{
       children: [
         ...projects.projects.value.map(project => ({
@@ -353,19 +353,21 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "h
             if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
           },
         })),
-        { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+        ...(projects.mode === "hosted" ? [{ icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject }] : []),
         { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
       ],
       icon: "i-lucide-arrow-left-right",
       keywords: ["project", "projects", "app", "link", "change"],
       label: "Switch project…",
       placeholder: "Choose a project…",
-    }, {
-      icon: "i-lucide-plus",
-      keywords: ["create", "init", "start", "stack", "app"],
-      label: "New project",
-      onSelect: openConsoleNewProject,
-    }]
+    }, ...(projects.mode === "hosted"
+      ? [{
+          icon: "i-lucide-plus",
+          keywords: ["create", "init", "start", "stack", "app"],
+          label: "New project",
+          onSelect: openConsoleNewProject,
+        }]
+      : [])]
   : [])
 
 /** Pages and collections of the document editor sections, after their section in the Go to group. */
