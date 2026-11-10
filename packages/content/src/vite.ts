@@ -1,6 +1,8 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { gzipSync } from "node:zlib"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
@@ -143,17 +145,18 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
         const [name = "", shard] = id.slice(SNAPSHOT_ID.length).split(":")
         const snapshot = built?.snapshots[name]
         if (!snapshot) return
-        // JSON text parses faster than the same data as a JavaScript object literal.
-        if (shard !== undefined) return `export default ${JSON.stringify(snapshot.shards[Number(shard)])}`
+        // Gzipped JSON in base64: a host compiles the module by its gzip size, and the server decodes it on first use.
+        const gzip = (text: string) => JSON.stringify(gzipSync(text, { level: 9 }).toString("base64"))
+        if (shard !== undefined) return `export default ${gzip(snapshot.shards[Number(shard)]!)}`
         const shards = snapshot.shards.map((_, number) => `() => import(${JSON.stringify(`${SNAPSHOT_ID}${name}:${number}`)}).then(module => module.default)`)
-        return `export default { index: ${JSON.stringify(snapshot.index)}, shards: [${shards.join(", ")}] }`
+        return `export default { index: ${gzip(snapshot.index)}, shards: [${shards.join(", ")}] }`
       },
     },
     vitehub: {
       // The Console, `vitehub content`, and agents run these. The app imports them through `vite-hub`.
       // An app without server/content.ts has no Content to operate on, so it contributes nothing.
       operations: async () => await discover()
-        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: "@vite-hub/content/operations" }]
+        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: ownModule(import.meta.url, "operations") }]
         : [],
       cli: async () => {
         if (!await discover()) return
@@ -298,7 +301,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
  * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
  */
 export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentConsoleOptions> = {
-  actions: { export: "createContentConsoleActions", module: "@vite-hub/content/runtime/console" },
+  actions: { export: "createContentConsoleActions", module: ownModule(import.meta.url, "runtime/console") },
   description: "Edit, publish, and restore Content documents.",
   entry: options => findContentCollectionsEntry(options),
   inspect: options => inspectContentSetup(options),

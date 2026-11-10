@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import semver from "semver"
 import { array, object, optional, parse, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
@@ -68,6 +69,14 @@ function publishNameFromSpecifier(specifier: string) {
   if (specifier === "vite-hub" || specifier.startsWith("vite-hub/")) return "vite-hub"
   const match = /^(@vite-hub\/[^/]+)/.exec(specifier)
   return match?.[1]
+}
+
+const workspaceCatalogs = parse(object({ catalog: record(string(), string()), catalogs: record(string(), record(string(), string())) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+
+function catalogRange(name: string, specifier: string) {
+  if (!specifier.startsWith("catalog:")) return specifier
+  const catalog = specifier.slice("catalog:".length)
+  return (catalog ? workspaceCatalogs.catalogs[catalog] : workspaceCatalogs.catalog)?.[name] ?? specifier
 }
 
 function hasGeneratedOutputUnderExampleSurface(path: string) {
@@ -207,16 +216,36 @@ describe("package manifest contracts", () => {
     expect(contact).not.toContain("/security/advisories/new")
   })
 
-  it("declares shared framework peers as ranges that accept the app's copy", () => {
+  it("declares peers that the app also installs as ranges that accept the app's copy", () => {
     // An exact peer makes pnpm install a second Vue next to the app's Vue, and Nuxt pages then render empty.
-    const workspace = parse(object({ catalogs: record(string(), record(string(), string())) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+    // npm stops with ERESOLVE when the app depends on another version of an exact optional peer, such as better-auth.
+    const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "nuxt", "vite", "vue", "workflow"]
     for (const packageName of packageNames) {
       const peers = readPackageManifest(packageName).peerDependencies || {}
-      for (const peer of ["@nuxt/ui", "nuxt", "vite", "vue"]) {
+      for (const peer of appPeers) {
         const specifier = peers[peer]
         if (!specifier) continue
-        const range = specifier.startsWith("catalog:") ? workspace.catalogs[specifier.slice("catalog:".length)]?.[peer] : specifier
-        expect(range, `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+        expect(catalogRange(peer, specifier), `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+      }
+    }
+  })
+
+  it("declares peer ranges that accept the versions that sibling packages depend on", () => {
+    // npm installs one copy for the peer and the sibling's dependency only when the peer range accepts that version.
+    const dependencies = packageNames.flatMap((packageName) => {
+      const manifest = readPackageManifest(packageName)
+      return Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies })
+        .map(([name, specifier]) => ({ packageName, name, range: catalogRange(name, specifier) }))
+    })
+    for (const packageName of packageNames) {
+      for (const [peer, specifier] of Object.entries(readPackageManifest(packageName).peerDependencies || {})) {
+        const peerRange = catalogRange(peer, specifier)
+        if (!semver.validRange(peerRange)) continue
+        for (const dependency of dependencies.filter(dependency => dependency.name === peer)) {
+          const version = semver.validRange(dependency.range) && semver.minVersion(dependency.range)
+          if (!version) continue
+          expect(semver.satisfies(version, peerRange), `${packageName} peer ${peer}@${peerRange} should accept ${dependency.packageName}'s ${dependency.range}`).toBe(true)
+        }
       }
     }
   })

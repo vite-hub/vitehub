@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
+import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -857,15 +857,21 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
       invalidateScheduleRegistry(context.server)
     },
-    resolveId(id) {
-      if (id === SCHEDULE_REGISTRY_ID) {
-        return RESOLVED_SCHEDULE_REGISTRY_ID
-      }
+    resolveId: {
+      filter: { id: /^#vitehub\/schedule\/registry$/ },
+      handler(id) {
+        if (id === SCHEDULE_REGISTRY_ID) {
+          return RESOLVED_SCHEDULE_REGISTRY_ID
+        }
+      },
     },
-    load(id) {
-      if (id === RESOLVED_SCHEDULE_REGISTRY_ID) {
-        return createRegistryContents()
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/schedule\/registry$/ },
+      handler(id) {
+        if (id === RESOLVED_SCHEDULE_REGISTRY_ID) {
+          return createRegistryContents()
+        }
+      },
     },
     buildApp: providerOutputEnvironment.buildApp,
     buildStart() {

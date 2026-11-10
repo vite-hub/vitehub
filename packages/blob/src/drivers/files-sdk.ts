@@ -41,6 +41,7 @@ function isString(value: unknown): value is string {
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
   let decoded: string
   try {
@@ -49,16 +50,20 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
   }
   catch {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
   let parsed: unknown
   try {
     parsed = JSON.parse(decoded)
   }
   catch {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
@@ -68,6 +73,7 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     || (providerCursor !== undefined && !isString(providerCursor))
     || (providerCursorHistory !== undefined && (!Array.isArray(providerCursorHistory) || !providerCursorHistory.every(isString)))
   ) {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
   return {
@@ -247,6 +253,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           })
 
           if (start > 0 && start >= result.items.length) {
+            // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
             throw new TypeError("Invalid Blob cursor.")
           }
 

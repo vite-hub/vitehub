@@ -21,7 +21,7 @@ The package requires Node.js 22.19 or newer. Vite is an optional peer dependency
 For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
 ```sh
-pnpm add @vercel/queue
+pnpm add @vercel/queue @vercel/functions
 pnpm add -D @types/node @types/ws
 ```
 

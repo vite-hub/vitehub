@@ -74,7 +74,7 @@ Turns off runtime dispatch and the generated Vercel consumer functions. Runtime 
 | Driver | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { driver: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue`. Supports idempotency, region, retention, and delay. |
+| Vercel | `queue: { driver: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
 | Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every driver, with that driver's rules. |
 
 ViteHub has no Queue Provider for Deno. The local driver keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.

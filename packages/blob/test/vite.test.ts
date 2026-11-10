@@ -213,10 +213,13 @@ describe("hubBlob", () => {
 
   it("exposes resolved config through a stable ViteHub import path", async () => {
     const plugin = hubBlob({ driver: "fs", base: ".virtual/blob" })
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
-    const resolvedId = await resolveId(BLOB_VIRTUAL_CONFIG_ID)
-    const code = await load(resolvedId!)
+    const resolveId = plugin.resolveId as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const load = plugin.load as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const resolvedId = resolveId.handler(BLOB_VIRTUAL_CONFIG_ID)
+    const code = load.handler(resolvedId!)
+
+    expect([BLOB_VIRTUAL_CONFIG_ID, "#vitehub/blob/config.ts", "@vite-hub/blob"].map(id => resolveId.filter.id.test(id))).toEqual([true, false, false])
+    expect([resolvedId!, BLOB_VIRTUAL_CONFIG_ID].map(id => load.filter.id.test(id))).toEqual([true, false])
 
     expect(code).toContain("export const blob =")
     expect(code).toContain(".virtual/blob")

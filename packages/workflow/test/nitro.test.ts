@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -99,6 +99,7 @@ it.each([undefined, "vite-hub/workflow"])("retains a deferred start from a Nitro
 it("installs discovered Agent workflows into a Cloudflare Nitro entry", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-"))
   try {
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
     const agentDir = join(rootDir, "server", "agents", "calories")
     await mkdir(agentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), "export default defineAgent({ driver: { run: () => 'ok' } })\n")
@@ -120,10 +121,13 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
     // SAFETY: Cloudflare configuration creation above installs the Rollup plugins array.
     const plugin = (nitro.rollupConfig as { plugins: Array<Record<string, any>> }).plugins
       .find(candidate => candidate.name === "vitehub-workflow-cloudflare-exports")!
-    const moduleId = plugin.resolveId("virtual:vitehub-workflow-cloudflare-exports")
-    expect(plugin.load(moduleId)).toContain("installViteHubWorkflowRuntime()")
+    const moduleId = plugin.resolveId.handler("virtual:vitehub-workflow-cloudflare-exports")
+    expect(plugin.load.handler(moduleId)).toContain("installViteHubWorkflowRuntime()")
     const workflowFile = join(agentDir, "agent.ts")
-    expect(plugin.resolveId(pathToFileURL(workflowFile).href)).toBe(workflowFile)
+    expect(plugin.resolveId.handler(pathToFileURL(workflowFile).href)).toBe(workflowFile)
+    const ids = ["virtual:vitehub-workflow-cloudflare-exports", pathToFileURL(workflowFile).href, moduleId, "virtual:vitehub-workflow-cloudflare-exports.mjs", "cloudflare:workers", workflowFile]
+    expect(ids.filter(id => plugin.resolveId.filter.id.test(id))).toEqual(ids.slice(0, 2))
+    expect(ids.filter(id => plugin.load.filter.id.test(id))).toEqual([moduleId])
     const renderChunk = plugin.renderChunk.handler ?? plugin.renderChunk
     expect(renderChunk.call({}, "export default {}", { fileName: "index.js", isEntry: true })).toMatchObject({
       code: expect.stringMatching(/export \{ ViteHub.*Workflow \} from '\.\/workflow-cloudflare-exports\.mjs'/),
