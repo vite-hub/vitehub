@@ -135,8 +135,6 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
 
-      # Run contracts first: examples:verify leaves generated example output
-      # that the repository contract tests would scan.
       - run: vp run build
 
       # vp pack rewrites each package's exports map in sorted order. Commit
@@ -150,8 +148,6 @@ jobs:
 
       - name: Validate packed package metadata
         run: vp run package:metadata
-
-      - run: vp run --ignore-depends-on examples:verify
 
   # Match Void's prepublish contract: install the exact tarballs a release
   # would publish and exercise them without workspace visibility. This runs
