@@ -46,8 +46,9 @@ The public page at `/` lists published posts. It has no edit button: editors go 
 The `docs` collection keeps each page in English and Spanish, with `locales: ['en', 'es']`. `server/routes/[...path].get.ts`
 serves every published docs page: `/docs/guide` in English and `/es/docs/guide` in Spanish, or in English with a note
 while the page has no translation. Its head has `<html lang>`, the canonical link, and an `hreflang` link for each
-locale. The Console edits English pages; save a translation from server code with
-`content.collection('docs').save(id, input, { locale: 'es' })`, or with an Agent that has the `content()` Capability.
+locale. In the Console, the docs editor switches between `EN` and `ES` next to the title. You can also save a translation
+from server code with `content.collection('docs').save(id, input, { locale: 'es' })`, or with an Agent that has the
+`content()` Capability.
 
 `server/comments.ts` turns on Comments. Sign in, then open `/?vitehub` (or the "Comment on this site" link). Press `C`
 and click the page to pin a comment; open the same page as a second user in another browser profile to see their

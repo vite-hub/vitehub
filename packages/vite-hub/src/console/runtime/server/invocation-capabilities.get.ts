@@ -1,6 +1,7 @@
 import { getConsoleInvocations } from "./invocations.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -12,10 +13,7 @@ async function consoleInvocationCapabilitiesHandler(event: ConsoleRequestEvent):
   assertConsoleRequest(event)
   const agentName = consoleRequestURL(event).searchParams.get("agent")?.trim() || undefined
   if (agentName && agentName.length > 512) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0053({ message: "Invalid Agent name" }), {
-      statusCode: 400,
-      statusMessage: "Invalid Agent name",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0053({ message: "Invalid Agent name" }))
   }
   const invocations = getConsoleInvocations()
   const [capabilities, triggeredBy] = await Promise.all([

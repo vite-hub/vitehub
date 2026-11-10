@@ -1,8 +1,9 @@
-import { discoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { discoveredAgentName, discoveredAgentWorkspace } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { resolveAgentPresetExtension } from "./agent-presets.ts"
+import { mergeAgentChannels } from "./internal/named-channels.ts"
 import type { AgentDefinition, AgentInterceptOutputCarrier, AgentSettings } from "./types.ts"
 
 type LayerAgentDefinition = Omit<AgentDefinition, keyof AgentInterceptOutputCarrier> & AgentInterceptOutputCarrier
@@ -79,7 +80,7 @@ function record(value: unknown): value is Record<string, unknown> {
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
 const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch", "driver.gateway"])
-const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills"])
+const definitionMaps = new Set(["workspace.sources", "workspace.skills"])
 
 type RequirementsExtension = (inherited: readonly string[]) => unknown
 
@@ -213,6 +214,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (!record(parent) || !record(child)) return child
   if (path === "hooks") return composeHooks(parent, child)
+  if (path === "channels") return mergeAgentChannels(parent, child)
   if (definitionMaps.has(path)) return { ...parent, ...child }
   if (path === "driver" && child.kind !== undefined && child.kind !== parent.kind) {
     return {
@@ -296,7 +298,7 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
-    discoveredAgentName, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
+    discoveredAgentName, discoveredAgentWorkspace, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
     "resolve", "run", "health", "status", "sandbox", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
     "bindings", "commit", "loaders", "plugins", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",

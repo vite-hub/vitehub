@@ -7,13 +7,13 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { resolveCommentsRuntime } from "../index.ts"
+import { resolveCommentsRuntime } from "../installed.ts"
 import { commentActions, commentAnchorSchema, commentInputSchemas } from "../operations-core/operations.ts"
 import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
 import { commentsRoute, normalizeCommentPage } from "../page.ts"
 import { requestOf } from "./request.ts"
-import { resolveCommentsIdentity } from "./session.ts"
+import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
@@ -307,8 +307,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(issues) }))
   }
 
-  /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
-  async function session(event: H3Event, subject?: CommentSubject): Promise<Response> {
+  /** Who the overlay's person is, what they may do, and the subject of the page. The page tools session decides whether the overlay loads. */
+  async function session(event: H3Event, subject?: CommentSubject, revision?: number): Promise<Response> {
     const identity = await identityOf(event)
     const user = identity === false ? false : identity.user
     const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, identity, action, undefined, subject)))
@@ -327,6 +327,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         ...(signOut ? { signOut } : {}),
         realtime: options.realtime,
         content: Boolean(options.content),
+        ...(subject ? { subject } : {}),
+        ...(revision === undefined ? {} : { revision }),
       },
     })
   }
@@ -360,11 +362,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** The list query of `GET /threads`: the filters of `comments.list` as search parameters. */
-  function listQuery(url: URL): Result<CommentListQuery, "COMMENTS_INVALID_INPUT"> {
+  /** `page`: the subject that `page` of `defineComments()` gives for the `?page=` path, as the overlay sees it. */
+  function listQuery(url: URL, page?: CommentSubject): Result<CommentListQuery, "COMMENTS_INVALID_INPUT"> {
     const params = url.searchParams
     const number = (name: string) => params.has(name) ? Number(params.get(name)) : undefined
     const flag = (name: string) => params.has(name) ? params.get(name) === "true" || params.get(name) === "1" : undefined
-    const page = params.get("page")
     const kind = params.get("subjectKind")
     const subjectId = params.get("subjectId")
     const state = params.get("status")
@@ -372,7 +374,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const beforeId = params.get("beforeId")
     const beforeUpdatedAt = number("beforeUpdatedAt")
     const parsed = v.safeParse(commentInputSchemas.list, {
-      ...(page ? { subject: { kind: "page", id: normalizeCommentPage(page) } } : kind && subjectId ? { subject: { kind, id: subjectId } } : kind ? { subjectKind: kind } : {}),
+      ...(page ? { subject: page } : kind && subjectId ? { subject: { kind, id: subjectId } } : kind ? { subjectKind: kind } : {}),
       ...(state === "open" || state === "resolved" ? { status: state } : {}),
       ...(lte === undefined ? {} : { revision: { lte } }),
       ...(number("limit") === undefined ? {} : { limit: number("limit") }),
@@ -383,9 +385,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return parsed.success ? [undefined, parsed.output] : [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
   }
 
-  /** Checks the page context that the overlay read: same origin, same page. Keeps only the origin and the path. */
-  function checkContext(request: Request, context: CommentContext, subject: CommentSubject): Result<CommentContext, "COMMENTS_INVALID_INPUT"> {
-    if (subject.kind !== "page") return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context: Only a page thread keeps the page context." }), undefined]
+  /**
+   * Checks the page context that the overlay read: same origin, and a thread on the subject of that page. Keeps only
+   * the origin and the path, and gives the revision of the page subject.
+   */
+  async function checkContext(event: H3Event, request: Request, context: CommentContext, subject: CommentSubject): Promise<Result<{ context: CommentContext, revision?: number }, "COMMENTS_INVALID_INPUT">> {
     const origin = forwardedRequestOrigin(request)
     let submitted: URL
     try {
@@ -394,11 +398,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     catch {
       return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }), undefined]
     }
-    if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== subject.id) {
-      return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }), undefined]
+    if (submitted.origin !== origin) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }), undefined]
+    // The server decides the subject of a page. The overlay may not start a thread on another subject.
+    const page = normalizeCommentPage(submitted.pathname)
+    const expected = await resolveCommentsPage(comments, event, request, page)
+    if (expected.subject.kind !== subject.kind || expected.subject.id !== subject.id) {
+      return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: `context.url: The page ${page} maps to the subject ${expected.subject.kind}:${expected.subject.id}, not ${subject.kind}:${subject.id}.` }), undefined]
     }
     // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
-    return [undefined, completeContext({ ...context, url: `${origin}${subject.id}` })]
+    return [undefined, { context: completeContext({ ...context, url: `${origin}${page}` }), ...(expected.revision === undefined ? {} : { revision: expected.revision }) }]
   }
 
   async function fieldTarget(event: H3Event, address: string, subject?: CommentSubject): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
@@ -493,16 +501,21 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const page = url.searchParams.get("page")
     const subjectKind = url.searchParams.get("subjectKind")
     const subjectId = url.searchParams.get("subjectId")
-    const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : subjectKind && subjectId ? { kind: subjectKind, id: subjectId } : undefined
+    // Only the routes that read the subject call `page` of `defineComments()`.
+    const pageOf = async () => page ? await resolveCommentsPage(comments, event, request, page) : subjectKind && subjectId ? { subject: { kind: subjectKind, id: subjectId } } : undefined
+    const subjectOf = async (): Promise<CommentSubject | undefined> => (await pageOf())?.subject
     if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
-    if (method === "GET" && path === "/session") return await session(event, subject)
+    if (method === "GET" && path === "/session") {
+      const current = await pageOf()
+      return await session(event, current?.subject, current?.revision)
+    }
     // Better Auth checks the origin of its own POST routes.
     if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(event, path)
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [invalidQuery, query] = listQuery(url)
+        const [invalidQuery, query] = listQuery(url, page ? await subjectOf() : undefined)
         if (invalidQuery) return failure(invalidQuery)
         return await act(event, "read", async (who) => {
           await mayRead(who, query.subject)
@@ -513,11 +526,17 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const parsed = v.safeParse(createBody, await readJson(event))
         if (!parsed.success) return invalid(parsed.issues)
         const { page, subject: given, context, anchor, ...input } = parsed.output
-        const target = given ?? (page === undefined ? undefined : { kind: "page", id: normalizeCommentPage(page) })
+        // A page means the subject that `page` of `defineComments()` gives for it, as on the other routes.
+        const mappedPage = given || page === undefined ? undefined : await resolveCommentsPage(comments, event, request, page)
+        const target = given ?? mappedPage?.subject
         if (!target) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }))
-        const [badContext, checked] = context ? checkContext(request, context, target) : [undefined, undefined]
+        const [badContext, checked] = context ? await checkContext(event, request, context, target) : [undefined, undefined]
         if (badContext) return failure(badContext)
-        return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked } : {}) }, who), (thread, who) => threadResponse(event, who, thread))
+        // The overlay sends the revision that `/session` gave it, which a new version can pass while the person types.
+        // That revision, or an older one, stays. A missing or newer one becomes the revision of the page subject.
+        const mapped = checked?.revision ?? mappedPage?.revision
+        const revision = mapped === undefined ? input.revision : input.revision !== undefined && input.revision <= mapped ? input.revision : mapped
+        return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked.context } : {}), ...(revision === undefined ? {} : { revision }) }, who), (thread, who) => threadResponse(event, who, thread))
       }
     }
 
@@ -571,7 +590,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       const threadId = url.searchParams.get("thread")
       const [missing, current] = threadId ? await comments.get(threadId) : [undefined, undefined]
       if (missing) return failure(missing)
-      const target = current?.subject ?? subject
+      const target = current?.subject ?? await subjectOf()
       const [denied, allowed] = await access(event, "read", current, target)
       if (denied) return failure(denied)
       const limit = Number(url.searchParams.get("limit") ?? 20)
@@ -579,7 +598,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
 
     if (path === "/fields") {
-      if (!subject || subject.kind !== "page") return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the current page for a field edit." }))
+      const subject = page ? await subjectOf() : undefined
+      if (!subject) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the current page for a field edit." }))
       if (method === "GET") return await readField(event, url.searchParams.get("field") ?? "", subject)
       if (method === "POST") return await saveField(event, subject)
     }
