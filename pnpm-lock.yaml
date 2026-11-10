@@ -525,9 +525,6 @@ catalogs:
     minimatch:
       specifier: ^10.2.6
       version: 10.2.6
-    mountx:
-      specifier: 0.0.2
-      version: 0.0.2
     mrmime:
       specifier: ^2.0.1
       version: 2.0.1
@@ -3851,9 +3848,6 @@ importers:
 
   packages/workspace:
     dependencies:
-      '@standard-schema/spec':
-        specifier: catalog:runtime
-        version: 1.1.0
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -3899,9 +3893,6 @@ importers:
       minimatch:
         specifier: catalog:workspace
         version: 10.2.6
-      mountx:
-        specifier: catalog:workspace
-        version: 0.0.2(unstorage@1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3)))
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
@@ -17382,15 +17373,6 @@ packages:
     peerDependencies:
       '@vueuse/core': '>=10.0.0'
       vue: 3.5.44
-
-  mountx@0.0.2:
-    resolution: {integrity: sha512-9e9DB2zUA0gCk5d7EzaN4o4+R8+36Fn7NzEhCibe8FlaN3xDC9JtDcEotI3q++ENOcxzByzIPIOoiztZn/TIUg==}
-    hasBin: true
-    peerDependencies:
-      unstorage: '*'
-    peerDependenciesMeta:
-      unstorage:
-        optional: true
 
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
@@ -39207,10 +39189,6 @@ snapshots:
       - react
       - react-dom
       - remix
-
-  mountx@0.0.2(unstorage@1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3))):
-    optionalDependencies:
-      unstorage: 1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3))
 
   mri@1.2.0: {}
 

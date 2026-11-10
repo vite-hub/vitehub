@@ -13,11 +13,10 @@ icon: i-lucide-code-2
 | `defineWorkspace` from `@vite-hub/workspace` | Declare a Workspace Definition. |
 | `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Source Bindings. |
-| `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools for a Workspace. |
+| `createWorkspaceTools` from `@vite-hub/workspace` | Build AI SDK tools for a Workspace. |
 | Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
 | `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | [Add rules and hooks](#add-plugins-to-a-workspace) to a Workspace you do not define. |
-| `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Add discovery, generated types, assets, and runtime setup. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/test` | Add loaders, or register test Workspaces. |
 
@@ -405,53 +404,6 @@ Control what the Session writes back:
 | `commit(options?)` | `message?: string` | Writes changes back and takes a snapshot, with an optional message. |
 | `close()` | none | Rolls uncommitted host changes back to the Workspace state and frees Session resources. |
 | `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
-
-### Mount a session with MountX
-
-Use `@vite-hub/workspace/mountx` when an Agent, editor, CLI, or VM needs a real folder or a file protocol instead of Workspace methods. ViteHub keeps the session and its commit step. MountX shows the session through local FUSE, 9P, NFS, or S3.
-
-Install MountX before you import its transports:
-
-```bash
-pnpm add mountx@0.0.2
-```
-
-```ts [server/tasks/edit-docs.ts]
-import { createWorkspaceDriver } from '@vite-hub/workspace/mountx'
-import { mount } from 'mountx/auto'
-import { useWorkspace } from '@vite-hub/workspace'
-
-const session = await useWorkspace('docs', { mode: 'write' }).startSession()
-
-try {
-  const mounted = await mount(createWorkspaceDriver(session), '/tmp/vitehub-docs')
-
-  try {
-    // Any local program can now use /tmp/vitehub-docs.
-  }
-  finally {
-    await mounted.unmount()
-  }
-
-  await session.commit({ message: 'accept projected changes' })
-}
-finally {
-  await session.close()
-}
-```
-
-Pass `{ readOnly: true }` to `createWorkspaceDriver()` for read-only use. Pass the same driver to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3 clients.
-
-The adapter uses MountX's unstorage driver, so:
-
-- Empty directories are not shown or saved.
-- Filenames cannot contain `:` or `?`, or end in `$`.
-- Renames copy then delete, so they are not atomic.
-- Executable Git files keep their execute bits. Git symlinks are rejected.
-
-::warning
-MountX is alpha and unaudited. Keep network transports on loopback unless the sandbox or network around them is your security boundary.
-::
 
 Workspace stores the file tree and commits. Sandbox and Sandbox Task run commands in separate environments. Provider Agent Drivers copy the selected Workspace into their local working directory.
 
