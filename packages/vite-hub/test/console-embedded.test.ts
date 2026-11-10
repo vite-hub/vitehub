@@ -4,7 +4,11 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import page from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import session from "../src/console/runtime/server/page-session.ts"
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
+
 const event = (path: string) => new Request(`http://localhost${path}`, { headers: { accept: "text/html" } })
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))

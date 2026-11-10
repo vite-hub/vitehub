@@ -16,10 +16,14 @@ import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import authManage from "../src/console/runtime/server/auth-manage.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import { assertConsoleAccess, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { requestEvent } from "./console-event.ts"
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const state = vi.hoisted(() => ({ inspect: undefined as unknown, host: undefined as unknown }))
 vi.mock("@vite-hub/auth/server", async importOriginal => ({
