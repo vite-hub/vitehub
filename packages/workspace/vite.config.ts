@@ -5,7 +5,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/, /^@vite-hub\/forge/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
         "vite",
         "#vitehub-workspace-assets-registry",
