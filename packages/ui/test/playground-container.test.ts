@@ -3,8 +3,9 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineConnect } from "@vite-hub/web-container/connect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, type PropType } from "vue";
+import { defineComponent, h, type PropType, ref } from "vue";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundUrl } from "../src/playground/share.ts";
+import { downloadZip } from "../src/playground/zip.ts";
 import type { PlaygroundContainerTemplate, PlaygroundContext } from "../src/workspace/playground-container.ts";
 
 vi.mock("@xterm/xterm", () => ({
@@ -19,6 +20,7 @@ vi.mock("@xterm/xterm", () => ({
   },
 }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
+vi.mock("../src/playground/zip.ts", () => ({ downloadZip: vi.fn() }));
 
 // A container that boots at once, writes to a map, and is ready when the dev server starts.
 const fake = vi.hoisted(() => ({ boots: [] as { files: Record<string, string>, snapshot: boolean }[], runs: [] as unknown[], disk: new Map<string, string>(), supported: true }));
@@ -111,6 +113,7 @@ const blob: PlaygroundContainerTemplate = { ...kv, id: "blob", label: "Blob", fi
 const agent: PlaygroundContainerTemplate = { id: "agent", label: "Agent", files: { "package.json": "{\"name\":\"agent\"}\n" }, snapshot: async () => new Uint8Array([2]) };
 
 beforeEach(() => {
+  vi.mocked(downloadZip).mockClear();
   fake.boots.length = 0;
   fake.runs.length = 0;
   fake.disk.clear();
@@ -202,6 +205,53 @@ describe("PlaygroundContainer", () => {
     const invalid = mount(PlaygroundContainer, { global, props: { templates: [kv, blob] } });
     await vi.waitFor(() => expect(invalid.text()).toContain("This link has no files that the workspace can read. It opened the KV template."));
     invalid.unmount();
+  });
+
+  it("boots the current tutorial files when a tablet opens after a step change", async () => {
+    viewport(900);
+    let context: PlaygroundContext | undefined;
+    const wrapper = mount(PlaygroundContainer, {
+      global,
+      props: { templates: [kv], share: false, onContext: (value: PlaygroundContext) => { context = value; } },
+    });
+    await flushPromises();
+    expect(context).toBeUndefined();
+    const next = { ...kv, files: { ...kv.files, "server/api/health.get.ts": "next step" } };
+    await wrapper.setProps({ templates: [next] });
+    await wrapper.findAll("button").find(button => button.text() === "Open workspace")!.trigger("click");
+    await flushPromises();
+    expect(fake.boots).toEqual([{ files: next.files, snapshot: true }]);
+    expect(context!.edited).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it("downloads the current tutorial files on a phone without booting", async () => {
+    viewport(390);
+    const wrapper = mount(PlaygroundContainer, { global, props: { templates: [kv], share: false } });
+    await flushPromises();
+    const next = { ...kv, files: { ...kv.files, "server/api/health.get.ts": "next step" } };
+    await wrapper.setProps({ templates: [next] });
+    await wrapper.findAll("button").find(button => button.text() === "Download files")!.trigger("click");
+    expect(downloadZip).toHaveBeenCalledWith(next.files, next.id);
+    expect(fake.boots).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("updates the selected model when a new boot cannot open the previous path", async () => {
+    const selected = ref(kv.open);
+    const wrapper = mount(defineComponent(() => () => h(PlaygroundContainer, {
+      templates: [kv, agent],
+      selected: selected.value,
+      "onUpdate:selected": (path: string) => { selected.value = path; },
+    })), { global });
+    await flushPromises();
+    expect(selected.value).toBe(kv.open);
+    await wrapper.get("[data-item='Agent']").trigger("click");
+    await flushPromises();
+    expect(fake.boots.at(-1)?.files).toEqual(agent.files);
+    expect(wrapper.get(".vh-pc-path").text()).toBe("package.json");
+    expect(selected.value).toBe("package.json");
+    wrapper.unmount();
   });
 
   it("puts the preview in a tab in a tutorial, and adds Connect and the tabs of the page", async () => {

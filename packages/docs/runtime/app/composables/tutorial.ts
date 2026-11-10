@@ -1,5 +1,6 @@
 import { useCookie, useState } from "#imports"
 import { docsTutorialNavigationCookie } from "#docs/navigation"
+import { nextTick } from "vue"
 
 // A page with a collapsed sidebar, such as a code panel tutorial, starts with a narrow strip so the content gets the
 // page. Its button opens the sidebar. A cookie keeps the choice, so the server renders the same layout on the next
@@ -16,25 +17,24 @@ export function useDocsSidebarExpanded() {
 export const docsSidebarToggleIds = { show: "vh-docs-sidebar-show", hide: "vh-docs-sidebar-hide" } as const
 
 /**
- * Opens or collapses the sidebar. The button that was pressed leaves the page, so the button that does the opposite
- * takes the focus once it mounts. The component that renders that button calls `focusMounted` from `onMounted`.
+ * Opens or collapses the sidebar and focuses the opposite control after the DOM updates, whether the component mounts
+ * or only its toggle prop changes.
  */
 export function useDocsSidebarToggle() {
   const expanded = useDocsSidebarExpanded()
   const focus = useState<string | null>("vh-docs-sidebar-focus", () => null)
+  function focusMounted() {
+    const id = focus.value
+    focus.value = null
+    if (id) document.getElementById(id)?.focus()
+  }
   return {
     expanded,
     toggle(open: boolean) {
       focus.value = open ? docsSidebarToggleIds.hide : docsSidebarToggleIds.show
       expanded.value = open
+      void nextTick(focusMounted)
     },
-    focusMounted() {
-      const id = focus.value
-      if (!id) return
-      const button = document.getElementById(id)
-      if (!button) return
-      focus.value = null
-      button.focus()
-    },
+    focusMounted,
   }
 }
