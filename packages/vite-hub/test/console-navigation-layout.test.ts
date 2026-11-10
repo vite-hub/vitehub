@@ -200,8 +200,12 @@ describe("shared Console navigation layout", () => {
 
   it("loads only the requested syntax grammar for workspace previews", () => {
     const preview = component("console-session-code-preview")
+    const languages = readFileSync(new URL("../src/console/runtime/client/highlight-languages.ts", import.meta.url), "utf8")
     expect(preview).toContain('import("shiki/core")')
-    expect(preview).toContain('import("shiki/langs/typescript.mjs")')
+    expect(preview).toContain('import { consoleHighlightLanguages } from "../client/highlight-languages"')
+    expect(preview).toContain("consoleHighlightLanguages[languageName]")
+    expect(languages).toContain('typescript: () => import("shiki/langs/typescript.mjs")')
     expect(preview).not.toContain('import("shiki/bundle/web")')
+    expect(languages).not.toContain('import("shiki/bundle/web")')
   })
 })
