@@ -49,8 +49,8 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     }
     nuxt = await loadNuxt({
       cwd: root,
-      // `_generate` is what `nuxi generate` sets: prerender every page to static files. NuxtConfig doesn't type it.
-      overrides: Object.assign(config, { _generate: true }),
+      // `nuxi generate` sets both: prerender every page to static files and skip the server build. NuxtConfig does not type `_generate`.
+      overrides: Object.assign(config, { _generate: true, nitro: { static: true } }),
       ready: true,
     })
     // The link checker fails the build on a broken link. `site.url` isn't live, so every link must resolve in the build.
