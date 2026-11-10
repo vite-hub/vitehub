@@ -1592,7 +1592,6 @@ export type AgentCapabilityInput<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name>
 
-type AgentExtensionMount = object
 declare const agentStaticCapabilitiesListBrand: unique symbol
 
 export type AgentCapabilitiesList<
@@ -1603,7 +1602,7 @@ export type AgentCapabilitiesList<
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[] & {
+> = readonly AgentCapabilityInput<TRuntimeConfig, Name>[] & {
   readonly [agentStaticCapabilitiesListBrand]?: true
 }
 

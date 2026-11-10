@@ -306,10 +306,6 @@ export function normalizeCapabilities(
   if (!Array.isArray(capabilities)) {
     throw agentDiagnostics.AGENT_C0008()
   }
-  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
-  if (capabilities.some(capability => (capability as Record<symbol, unknown>)?.[Symbol.for("eve.mounted-extension")] === true)) {
-    throw agentDiagnostics.AGENT_B0001()
-  }
   // Remove host-injected copies retained by definitions from an earlier host.
   const observability = hostObservability()?.capability
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.

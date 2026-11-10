@@ -20,7 +20,6 @@ import type { AgentInvocationSummary, AgentInvocationContextStore, AgentInvokerP
 import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade, type WorkspaceName } from "@vite-hub/workspace"
 import type { AccessChatOptions, AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -45,7 +44,7 @@ describe("agent public types", () => {
     expectTypeOf<AgentCallbackContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
   })
 
-  it("preserves native Capability context inference beside Eve mounts", () => {
+  it("preserves native Capability context inference in static capabilities", () => {
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
       AgentRuntimeConfig,
@@ -53,7 +52,7 @@ describe("agent public types", () => {
       { invocationContext: { native: string } }
     >
     defineAgent({
-      capabilities: [native, githubExtension({ preset: "code-review" })],
+      capabilities: [native],
       driver: { run({ context }) {
         expectTypeOf(context.get("native")).toEqualTypeOf<string | undefined>()
         return "ok"
@@ -144,20 +143,15 @@ describe("agent public types", () => {
     })
   })
 
-  it("types Eve extensions in static capabilities", () => {
+  it("rejects values that are not Capabilities in static capabilities", () => {
     defineAgent({
-      capabilities: [githubExtension({ preset: "code-review" })],
-      driver: { run: () => "ok" },
-    })
-
-    defineAgent({
-      // @ts-expect-error arbitrary objects are neither Capabilities nor extension mounts
+      // @ts-expect-error arbitrary objects are not Capabilities
       capabilities: [{}],
       driver: { run: () => "ok" },
     })
 
     defineAgent({
-      // @ts-expect-error unrelated symbol-bearing objects are not extension mounts
+      // @ts-expect-error symbol-bearing objects are not Capabilities
       capabilities: [{ *[Symbol.iterator]() {} }],
       driver: { run: () => "ok" },
     })
@@ -173,12 +167,6 @@ describe("agent public types", () => {
     defineAgent({
       // @ts-expect-error readonly open arrays still validate every Capability
       capabilities: readonlyArbitraryCapabilities,
-      driver: { run: () => "ok" },
-    })
-
-    const typedExtensionCapabilities: AgentCapabilitiesInput = [githubExtension({ preset: "code-review" })]
-    defineAgent({
-      capabilities: typedExtensionCapabilities,
       driver: { run: () => "ok" },
     })
   })

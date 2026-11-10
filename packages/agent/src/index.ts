@@ -2617,13 +2617,7 @@ type AgentCapabilitiesOption<
 >
 
 type ValidateStaticAgentCapability<TCapability> =
-  TCapability extends AgentCapabilityDefinition
-    ? TCapability
-    : Extract<keyof TCapability, symbol> extends never
-      ? never
-      : TCapability[Extract<keyof TCapability, symbol>] extends true
-        ? TCapability
-        : never
+  TCapability extends AgentCapabilityDefinition ? TCapability : never
 
 type ValidateStaticAgentCapabilities<TCapabilities> =
   TCapabilities extends readonly unknown[]
