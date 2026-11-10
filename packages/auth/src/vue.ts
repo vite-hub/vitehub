@@ -1,5 +1,5 @@
 import abilities from "#vitehub/auth/abilities"
-import { computed, defineComponent, effectScope, getCurrentInstance, getCurrentScope, inject, provide, shallowRef, watch } from "vue"
+import { computed, defineComponent, effectScope, getCurrentInstance, getCurrentScope, inject, onScopeDispose, provide, shallowRef, watch } from "vue"
 
 import { checkAbility } from "./ability-check.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
@@ -13,6 +13,8 @@ import type { AbilityCheckRefusal } from "./ability-check.ts"
 export type { VueAuthClient } from "better-auth/vue"
 
 const LOAD = Symbol.for("vitehub.auth.client.load")
+const ON_LOAD = Symbol.for("vitehub.auth.client.on-load")
+const OPTIONS = Symbol.for("vitehub.auth.client.options")
 
 type Callable = (...args: unknown[]) => unknown
 type NuxtApp = { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: VueAuthClient<any> }
@@ -45,12 +47,26 @@ const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, 
  * used. Creating one costs nothing, so an app can create it up front and only pages that sign in pay for Better Auth.
  * Calls such as `signIn.social()` wait for the load. Hooks such as `useSession()` return a ref at once that is
  * pending until then. Every `useSession()` call of one client in one app returns the same ref. In Nuxt, it starts with
- * the session that the server read for the request, so it is settled during server rendering and hydration. Use
+ * the session that the server read for the request, so it is settled during server rendering and hydration. The
+ * browser then loads Better Auth and reads the session again only when the session can change: a call, `refetch()`,
+ * the tab shows again, the network comes back, another tab signs out or updates the user, or the session expires. Use
  * `loadAuthClient()` for anything else, such as `$store`.
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
-  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)))
+  let betterAuth: VueAuthClient<Option> | undefined
+  // Run when Better Auth loads, before the first call runs, such as the session store that follows this client.
+  const onLoad = new Set<(client: VueAuthClient<Option>) => void>()
+  const load = () => (loaded ??= import("better-auth/vue").then((module) => {
+    betterAuth = module.createAuthClient(options)
+    for (const run of onLoad) run(betterAuth)
+    onLoad.clear()
+    return betterAuth
+  }))
+  const whenLoaded = (run: (client: VueAuthClient<Option>) => void) => {
+    if (betterAuth) run(betterAuth)
+    else onLoad.add(run)
+  }
 
   function hook(name: string, args: unknown[]) {
     // One session state per app, which every caller shares. See `sessionStore()`.
@@ -82,6 +98,8 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
     return new Proxy(function () {}, {
       get(_, key) {
         if (key === LOAD && !path.length) return load
+        if (key === ON_LOAD && !path.length) return whenLoaded
+        if (key === OPTIONS && !path.length) return options
         // Like Better Auth's own client: no symbols, and never a thenable.
         if (typeof key !== "string" || key === "then" || key === "catch" || key === "finally") return undefined
         if (!path.length && /^use[A-Z]/.test(key)) return (...args: unknown[]) => hook(key, args)
@@ -117,6 +135,8 @@ interface SessionStore {
   read: (query?: SessionQuery) => Promise<unknown>
   /** Sets the session that the server read for the request, if it is known now and nothing settled the state yet. */
   seed: () => void
+  /** Keeps the browser's wait for a change of the session while `scope` lives. See `wakeWhenSessionCanChange()`. */
+  hold: (scope: EffectScope | undefined) => void
   /** The scope of the store's computed refs and its one watcher. It never stops, as the store lives as long as the app. */
   scope: EffectScope
   /** The object that `useUserSession()` returns, made once. */
@@ -143,6 +163,7 @@ function sessionStore(client: object): SessionStore {
   if (!store) byOwner.set(owner, store = createSessionStore(client, app))
   // A store made before the session was known, such as at module scope, takes it from the first caller that knows it.
   else store.seed()
+  store.hold(getCurrentScope())
   return store
 }
 
@@ -153,8 +174,11 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
   const state = shallowRef<SessionState>(pendingState(refetch))
   let seeded = false
   let reading: Promise<unknown> | undefined
-  // Better Auth's own session ref, which follows its session atom, once its client has loaded in the browser.
-  let following: Promise<Readonly<Ref<SessionState>>> | undefined
+  // Better Auth's session ref, which follows its session atom, once its client has loaded in the browser.
+  let atom: Readonly<Ref<SessionState>> | undefined
+  // The browser's wait for a change of the session, and the number of scopes that keep it.
+  let stopWaking: (() => void) | undefined
+  let holders = 0
 
   async function refetch(query?: SessionQuery): Promise<void> {
     await read(query)
@@ -178,22 +202,47 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
     })
   }
 
-  /** Loads Better Auth in the browser and follows its session atom with one watcher. */
-  function follow(): Promise<Readonly<Ref<SessionState>>> {
-    return following ??= loadAuthClient(client as VueAuthClient<{}>).then(loaded => scope.run(() => {
+  /**
+   * Follows Better Auth's session atom with one watcher. It runs when Better Auth loads, before the first call of the
+   * client runs, so the session signal of that call, such as after `signOut()`, reaches the state.
+   */
+  function connect(loaded: object): Readonly<Ref<SessionState>> {
+    if (atom) return atom
+    stopWaking?.()
+    stopWaking = undefined
+    // Start Better Auth's session with the server's, so a read that fails keeps it, as it does after a first read.
+    const hydrateSession: unknown = Reflect.get(loaded, "hydrateSession")
+    if (seeded && state.value.data && typeof hydrateSession === "function") hydrateSession.call(loaded, state.value.data)
+    atom = scope.run(() => {
       // SAFETY: Better Auth's `useSession()` without an argument returns the ref of its session atom.
-      const atom = loaded.useSession() as unknown as Readonly<Ref<SessionState>>
-      watch(atom, (value) => {
+      const ref = (Reflect.get(loaded, "useSession") as () => Readonly<Ref<SessionState>>)()
+      watch(ref, (value) => {
         // Better Auth starts each read with no data as pending. Once the state is settled, keep it until the read answers.
         if (!state.value.isPending && isPendingWithoutData(value)) return
         state.value = value
       }, { immediate: true, flush: "sync" })
-      return atom
-    })!, (error: unknown) => {
-      // A failed load, such as a lost network, is tried again on the next read.
-      following = undefined
-      throw error
-    })
+      return ref
+    })!
+    return atom
+  }
+
+  /** Loads Better Auth in the browser and follows its session atom. */
+  async function follow(): Promise<Readonly<Ref<SessionState>>> {
+    return atom ?? connect(await loadAuthClient(client as VueAuthClient<{}>))
+  }
+
+  function hold(caller: EffectScope | undefined): void {
+    if (!browser || atom || !seeded || state.value.isPending) return
+    holders++
+    stopWaking ??= wakeWhenSessionCanChange((Reflect.get(client, OPTIONS) as BetterAuthClientOptions | undefined)?.sessionOptions, state.value.data, () => void follow())
+    // A caller outside a component, such as the page guard, keeps the wait as long as the page.
+    if (caller) {
+      runIn(caller, () => onScopeDispose(() => {
+        if (--holders || !stopWaking) return
+        stopWaking()
+        stopWaking = undefined
+      }))
+    }
   }
 
   async function fetchSession(query?: SessionQuery): Promise<unknown> {
@@ -205,18 +254,18 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
       state.value = settled(session)
       return session
     }
-    const atom = await follow()
+    const followed = await follow()
     // Better Auth writes the answer to its atom, and the watcher writes it to the state before `refetch()` resolves.
-    await atom.value.refetch(query)
+    await followed.value.refetch(query)
     // Better Auth cancels a read when it starts a later one, such as after a sign-in or on window focus, and the
     // cancelled read resolves without an answer. Wait for the answer of the later read.
-    if (atom.value.isRefetching) await settledAtom(atom)
+    if (followed.value.isRefetching) await settledAtom(followed)
     return state.value.data ?? null
   }
 
-  function settledAtom(atom: Readonly<Ref<SessionState>>): Promise<void> {
+  function settledAtom(followed: Readonly<Ref<SessionState>>): Promise<void> {
     return new Promise((resolve) => {
-      const stop = scope.run(() => watch(atom, (value) => {
+      const stop = scope.run(() => watch(followed, (value) => {
         if (value.isRefetching) return
         stop?.()
         resolve()
@@ -233,8 +282,64 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
   }
 
   seed()
-  if (browser) void follow()
-  return { state, read, seed, scope }
+  if (browser) {
+    // Any load of the client, such as for a call, follows Better Auth before the call runs.
+    const whenLoaded = Reflect.get(client, ON_LOAD) as ((run: (loaded: object) => void) => void) | undefined
+    whenLoaded?.(connect)
+    // Better Auth reads the session when its atom first mounts. The server read it for this page a moment ago, so a
+    // store with the server's session waits until the session can change. An unknown session loads Better Auth at once.
+    if (!seeded || state.value.isPending) void follow()
+  }
+  return { state, read, seed, hold, scope }
+}
+
+/** The browser globals that the wait listens to. The package compiles without the DOM types. */
+type BrowserGlobals = { window?: EventTarget, document?: EventTarget & { visibilityState?: string }, navigator?: { onLine?: boolean } }
+
+/** The longest delay that `setTimeout()` keeps. It runs a longer delay at once. */
+const maxTimerDelay = 2 ** 31 - 1
+
+/** Better Auth's channel to other tabs: a tab writes this `localStorage` key when it signs out or updates the user or session. */
+const sessionChannelKey = "better-auth.message"
+
+/**
+ * Calls `wake` at the moments when Better Auth reads the session again: the tab shows again (unless
+ * `refetchOnWindowFocus` is `false`), the network comes back, another tab changes the session, `refetchInterval`
+ * passes, or the session expires. Like Better Auth, it waits while the browser is offline, unless `refetchWhenOffline`
+ * is `true`: Better Auth could not load then, and the `online` event wakes it later. Returns a function that removes
+ * the listeners.
+ */
+function wakeWhenSessionCanChange(options: BetterAuthClientOptions["sessionOptions"], seed: unknown, wake: () => void): () => void {
+  const stops: Array<() => void> = []
+  const { document: page, navigator, window } = globalThis as BrowserGlobals
+  const wakeOnline = () => {
+    if (navigator?.onLine === false && options?.refetchWhenOffline !== true) return
+    wake()
+  }
+  const listen = (target: EventTarget | undefined, type: string, when: (event: Event) => boolean = () => true) => {
+    if (typeof target?.addEventListener !== "function") return
+    const listener = (event: Event) => when(event) && wakeOnline()
+    target.addEventListener(type, listener)
+    stops.push(() => target.removeEventListener(type, listener))
+  }
+  if (options?.refetchOnWindowFocus !== false) listen(page, "visibilitychange", () => page?.visibilityState === "visible")
+  listen(window, "online")
+  listen(window, "storage", event => Reflect.get(event, "key") === sessionChannelKey)
+  const session: unknown = typeof seed === "object" && seed !== null ? Reflect.get(seed, "session") : undefined
+  const expiresAt: unknown = typeof session === "object" && session !== null ? Reflect.get(session, "expiresAt") : undefined
+  const times: number[] = []
+  if (expiresAt instanceof Date || typeof expiresAt === "string" || typeof expiresAt === "number") times.push(new Date(expiresAt).getTime())
+  // Better Auth polls only a signed-in session.
+  if (session && options?.refetchInterval && options.refetchInterval > 0) times.push(Date.now() + options.refetchInterval * 1000)
+  const at = Math.min(...times.filter(Number.isFinite))
+  if (Number.isFinite(at)) {
+    // A session that ends after the longest delay wakes then. An early read is safe.
+    const timer = setTimeout(wakeOnline, Math.min(Math.max(at - Date.now(), 0), maxTimerDelay))
+    stops.push(() => clearTimeout(timer))
+  }
+  return () => {
+    for (const stop of stops) stop()
+  }
 }
 
 /** Better Auth's own Vue client behind one that `createAuthClient()` returned, once it has loaded. */
