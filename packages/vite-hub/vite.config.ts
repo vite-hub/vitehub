@@ -63,6 +63,17 @@ const runtimeEntries = [
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/task/operations.ts",
+  "src/comments/realtime.ts",
+  "src/comments/runtime/auth.ts",
+  "src/connections/agent.ts",
+  "src/console/auth-cloudflare-access.ts",
+  "src/console/auth-inline.ts",
+  "src/console/runtime/server/blob.ts",
+  "src/console/runtime/server/database.ts",
+  "src/console/runtime/server/definitions.ts",
+  "src/console/runtime/server/env.ts",
+  "src/console/runtime/server/operation-contributions.ts",
+  "src/console/runtime/server/sections.ts",
   "src/console/auth-types.ts",
   // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
   "src/console/authorize.ts",
@@ -567,20 +578,13 @@ export default defineConfig({
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
           delete exports["./task/operations"];
+          delete exports["./comments/realtime"];
+          delete exports["./comments/runtime/auth"];
+          delete exports["./connections/agent"];
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
-            "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
-            "./console/auth/inline": "./dist/console/auth-inline.js",
-            "./console/blob": "./dist/console/runtime/server/blob.js",
-            "./console/database": "./dist/console/runtime/server/database.js",
-            "./console/definitions": "./dist/console/runtime/server/definitions.js",
-            "./console/documents": "./dist/console/runtime/server/documents.js",
-            "./console/env": "./dist/console/runtime/server/env.js",
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
-            "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
-            "./console/sections": "./dist/console/runtime/server/sections.js",
-            "./console/setup": "./dist/console/runtime/server/setup.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",

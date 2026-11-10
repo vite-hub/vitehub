@@ -5,7 +5,7 @@ import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
 // The generated Console Nitro plugin imports its setters from this entry. It leaves out the access checks and
-// sign-in pages of `vite-hub/console/sections`, which load on the first Console request.
+// sign-in pages of the sections module, which load on the first Console request.
 export { installConsoleAccess } from "./access-policy.ts"
 export { installConsoleOrigins } from "./cors.ts"
 export { installConsoleDevelopment } from "./development.ts"
