@@ -55,7 +55,7 @@
     "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'AgentDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, unknown>'.\n      Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'CodexDriver<unknown, unknown> | ClaudeCodeDriver<unknown, unknown>'.\n        Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'ClaudeCodeDriver<unknown, unknown>'.\n          Property '[providerAgentRuntime]' is missing in type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' but required in type 'ProviderAgentRuntimeCarrier'."
   },
   {
-    "id": "docs/content/docs/agents/sandboxes.md#a900a524eaf8",
+    "id": "docs/content/docs/agents/sandboxes.md#496567f8154e",
     "label": "server/agents/review/agent.ts",
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
