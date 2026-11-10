@@ -3,13 +3,14 @@ import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { assertViteHubDevRequestGrant, registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { assertViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
-import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { ensureWorkspaceDevToken, runWorkspaceDevCommand } from "@vite-hub/workspace/server"
 
-import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
+import { agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
+import { isAgentDevLoopDiscoveryRequest } from "./invocation-stream-route.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
@@ -47,6 +48,7 @@ import type {
 } from "../index.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
+import type { AgentDevRuntimeCapability, AgentDevRuntimeOptions } from "./invocation-stream-route.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isTriggerInputSchema } from "../trigger-runtime.ts"
 
@@ -84,16 +86,6 @@ interface AgentInvocationStreamEntry {
   identity: AgentHostIdentity
   name: string
   triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentRuntimeContext>>
-}
-
-interface AgentDevRuntimeCapability {
-  importName: string
-  name: string
-  packageName: false | string
-}
-
-interface AgentDevRuntimeOptions {
-  runtimeCapabilities?: AgentDevRuntimeCapability[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -617,10 +609,6 @@ export async function resolveDevRuntimeCapabilities(
  * The discovery `GET` returns the Agent names, the server root, and the token server ID. Clients need it to find the
  * private token, so it is the only Dev Loop request that does not need the token.
  */
-function isAgentDevLoopDiscoveryRequest(req: IncomingMessage): boolean {
-  return req.method === "GET" && new URL(req.url || "/", "http://localhost").searchParams.get("inspect") !== "1"
-}
-
 async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, abortSignal: AbortSignal | undefined, runtimeOptions: AgentDevRuntimeOptions): Promise<Response> {
   assertViteHubDevRequestGrant(grant, req)
   const capabilities = await resolveDevRuntimeCapabilities(server, runtimeOptions.runtimeCapabilities ?? [])
@@ -785,25 +773,11 @@ function errorResponse(error: unknown): Response {
   })
 }
 
-export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer, runtimeOptions: AgentDevRuntimeOptions = {}): Promise<void> {
-  const tokenOptions = { serverId: workspaceDevTokenServerId(server.config.server.port) }
-  await refreshWorkspaceDevToken(server.config.root, tokenOptions)
-  registerViteHubDevEndpoint(server, {
-    // Inspection, streams, Capability CLI calls, Workspace commands, and Channel replay run Agent code or return Agent data.
-    authorize: async req => isAgentDevLoopDiscoveryRequest(req) || await validateWorkspaceDevToken(server.config.root, req.headers, tokenOptions)
-      ? undefined
-      : new Response("Forbidden Agent Dev Loop token.", { status: 403 }),
-    handle: (req, res, grant) => {
-      const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
-      void handleAgentInvocationStreamRequest(server, req, grant, tokenOptions, abort.signal, runtimeOptions)
-        .catch(errorResponse)
-        .then(response => writeResponse(res, response))
-        .finally(abort.dispose)
-    },
-    header: agentInvocationStreamHeader,
-    headerValue: agentInvocationStreamHeaderValue,
-    label: "Agent Dev Loop",
-    methods: ["GET", "POST"],
-    route: agentInvocationStreamRoute,
-  })
+/** Answers one Dev Loop request. The endpoint module loads this module on the first request. */
+export function handleAgentInvocationStreamEndpoint(server: ViteDevServer, req: IncomingMessage, res: ServerResponse, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, runtimeOptions: AgentDevRuntimeOptions): void {
+  const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
+  void handleAgentInvocationStreamRequest(server, req, grant, tokenOptions, abort.signal, runtimeOptions)
+    .catch(errorResponse)
+    .then(response => writeResponse(res, response))
+    .finally(abort.dispose)
 }
