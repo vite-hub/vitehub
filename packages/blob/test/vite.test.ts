@@ -1231,30 +1231,33 @@ describe("hubBlob", () => {
       target: "node24",
     })
     const artifact = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
-    const appPolicy = "default-src 'self'"
-    const app = new H3({ onRequest: event => installStandardContext(event) })
-    app.use((event) => {
-      event.res.headers.set("content-security-policy", appPolicy)
-    })
-    app.all("/api/_vitehub/blob/**", artifact.default)
-    const request = (pathname: string, headers: Record<string, string> = {}, method = "GET") =>
-      app.fetch(new Request(`http://localhost/api/_vitehub/blob/${pathname}`, { headers, method }))
+    // An empty middleware CSP must not replace the Blob sandbox either.
+    for (const appPolicy of ["default-src 'self'", ""]) {
+      const app = new H3({ onRequest: event => installStandardContext(event) })
+      app.use((event) => {
+        event.res.headers.set("content-security-policy", appPolicy)
+      })
+      app.all("/api/_vitehub/blob/**", artifact.default)
+      const request = (pathname: string, headers: Record<string, string> = {}, method = "GET") =>
+        app.fetch(new Request(`http://localhost/api/_vitehub/blob/${pathname}`, { headers, method }))
+      const pagePolicy = appPolicy ? `${appPolicy}, sandbox` : "sandbox"
 
-    const page = await request("page.html")
-    expect(page.status).toBe(200)
-    expect(page.headers.get("content-security-policy")).toBe(`${appPolicy}, sandbox`)
-    expect(await page.text()).toBe("content")
-    const etag = page.headers.get("etag")!
-    for (const [headers, method, status] of [[{}, "HEAD", 200], [{ Range: "bytes=0-1" }, "GET", 206], [{ "If-None-Match": etag }, "GET", 304], [{ "If-None-Match": etag }, "HEAD", 304]] as const) {
-      const response = await request("page.html", headers, method)
-      expect(response.status, `${method} ${status}`).toBe(status)
-      expect(response.headers.get("content-security-policy"), `${method} ${status}`).toBe(`${appPolicy}, sandbox`)
-      await response.body?.cancel()
+      const page = await request("page.html")
+      expect(page.status).toBe(200)
+      expect(page.headers.get("content-security-policy"), JSON.stringify(appPolicy)).toBe(pagePolicy)
+      expect(await page.text()).toBe("content")
+      const etag = page.headers.get("etag")!
+      for (const [headers, method, status] of [[{}, "HEAD", 200], [{ Range: "bytes=0-1" }, "GET", 206], [{ "If-None-Match": etag }, "GET", 304], [{ "If-None-Match": etag }, "HEAD", 304]] as const) {
+        const response = await request("page.html", headers, method)
+        expect(response.status, `${method} ${status}`).toBe(status)
+        expect(response.headers.get("content-security-policy"), `${JSON.stringify(appPolicy)} ${method} ${status}`).toBe(pagePolicy)
+        await response.body?.cancel()
+      }
+      // A type that runs no script keeps only the app policy.
+      const photo = await request("photo.png")
+      expect(photo.headers.get("content-security-policy")).toBe(appPolicy)
+      await photo.body?.cancel()
     }
-    // A type that runs no script keeps only the app policy.
-    const photo = await request("photo.png")
-    expect(photo.headers.get("content-security-policy")).toBe(appPolicy)
-    await photo.body?.cancel()
   })
 
   describe("serve authorization", () => {
