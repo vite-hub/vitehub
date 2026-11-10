@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -53,13 +54,16 @@ describe("Console section contributions", () => {
   it("maps request-time readers to vite-hub exports", async () => {
     const manifest: { exports: Record<string, unknown> } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
 
-    expect(consoleRuntimeReaderModule("@vite-hub/email/runtime/console")).toBe("vite-hub/_internal/email/runtime/console")
+    expect(consoleRuntimeReaderModule("@vite-hub/content/runtime/console")).toBe("vite-hub/_internal/content/runtime/console")
+    // An owner that contributes a file path keeps it.
+    expect(consoleRuntimeReaderModule("/email/dist/runtime/console.js")).toBe("/email/dist/runtime/console.js")
     expect(describeConsoleRuntimeReaders(["agents", "email", "queues", "schedules"])).toEqual([
-      { export: "readEmailOutboxConsoleRecords", module: "vite-hub/_internal/email/runtime/console", section: "email" },
-      { export: "readScheduleConsoleRecords", module: "vite-hub/_internal/schedule/runtime/console", section: "schedules" },
+      { export: "readEmailOutboxConsoleRecords", module: expect.stringMatching(/[\\/]email[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/), section: "email" },
+      { export: "readScheduleConsoleRecords", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/), section: "schedules" },
     ])
     for (const reader of describeConsoleRuntimeReaders([...consoleContributedSections.keys()])) {
-      expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)
+      if (reader.module.startsWith("/")) expect(existsSync(reader.module), reader.module).toBe(true)
+      else expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)
     }
   })
 
