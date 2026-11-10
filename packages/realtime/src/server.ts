@@ -1626,8 +1626,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     }
     catch (error) {
       // Reads and recovery writes can fail before saveRoomNow installs its retry.
-      if (room.dirty && !room.idleTimer) {
-        room.retryDelay = Math.min(Math.max(room.resolved.persistence?.debounce ?? 2_000, room.retryDelay * 2), maxSaveRetryMs)
+      if (room.dirty && room.resolved.persistence && !room.idleTimer) {
+        room.retryDelay = Math.min(Math.max(room.resolved.persistence.debounce, room.retryDelay * 2), maxSaveRetryMs)
         scheduleSave(room, room.retryDelay)
       }
       throw error

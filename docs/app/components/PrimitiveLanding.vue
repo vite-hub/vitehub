@@ -28,7 +28,7 @@ useSeoMeta({
         <UPopover v-model:open="selectorOpen" :ui="{ content: 'w-[min(36rem,calc(100vw-2rem))] p-2' }">
           <UButton :label="landing.name" trailing-icon="i-lucide-chevron-down" color="neutral" variant="ghost" />
           <template #content>
-            <div class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-default bg-default sm:grid-cols-3">
+            <div class="grid grid-cols-2 gap-px overflow-hidden rounded-(--vh-frame-radius) border border-default bg-default sm:grid-cols-3">
               <NuxtLink
                 v-for="primitive in primitiveOptions"
                 :key="primitive.slug"

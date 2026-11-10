@@ -6,6 +6,7 @@ import { expect, it } from "vitest"
 
 import { resolveDBViteConfig } from "../src/config.ts"
 import { writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
+import { createUseDatabase } from "../src/runtime/use-database.ts"
 
 it("keeps prototype-named databases addressable in hosted modules", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-db-runtime-proto-"))
@@ -25,17 +26,20 @@ it("keeps prototype-named databases addressable in hosted modules", async () => 
     for (const provider of ["cloudflare", "vercel"]) {
       const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "schema_0", "createHostedDrizzleDb", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "resolveRuntimeCloudflareConfig", evaluable)(
+      const runtime = new Function("definition_0", "schema_0", "createHostedDrizzleDb", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "resolveRuntimeCloudflareConfig", "createUseDatabase", evaluable)(
         { name: "__proto__", drizzle: {}, schema: {} },
         { marker: "schema" },
         () => ({ marker: "database" }),
         () => ({}),
         () => new Error("missing"),
         (value: unknown) => value,
-      ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
+        createUseDatabase,
+      ) as { databases: Record<string, unknown>, useDatabase: (name?: string) => unknown }
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
       expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+      expect(runtime.useDatabase()).toBe(runtime.useDatabase("__proto__"))
+      expect(() => runtime.useDatabase("default")).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND", why: "The database \"default\" is not configured. Database Definitions: \"__proto__\"." }))
     }
   }
   finally {

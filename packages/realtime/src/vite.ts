@@ -359,13 +359,19 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const files = renderNodeFiles({ ...nodeWrite, database: postgresDatabase ? databaseImport : undefined, importBase })
       await Promise.all(files.map(([file, contents]) => writeFile(file, contents)))
     },
-    resolveId(id) {
-      if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+    resolveId: {
+      filter: { id: /^#vitehub\/realtime\/availability$/ },
+      handler(id) {
+        if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+      },
     },
-    load(id) {
-      if (id === resolvedRealtimeAvailabilityId) {
-        return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/realtime\/availability$/ },
+      handler(id) {
+        if (id === resolvedRealtimeAvailabilityId) {
+          return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+        }
+      },
     },
   }
 }

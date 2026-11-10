@@ -175,8 +175,8 @@ icon: i-lucide-radio
   On Node, instances share rooms through Postgres or Redis. On Cloudflare, each document gets its own Durable Object.
   :::
 
-  :::product-feature-item{title="Content documents edit live in the Console" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
-  With Realtime on, Content adds a `content` definition: carets, field focus, and drafts that save themselves.
+  :::product-feature-item{title="Content documents edit live" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
+  With Realtime on, Content adds a `content` definition for your own live editor: carets, field focus, and drafts that save themselves.
   :::
 ::
 
