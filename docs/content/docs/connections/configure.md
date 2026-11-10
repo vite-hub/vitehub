@@ -208,6 +208,41 @@ export default defineConnection({
 
 This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
 
+## Setup docs
+
+A Connection often needs a person to do something first: create an app at the provider, choose the right account, or approve a scope. Write those steps next to the definition, in a Markdown file with the same name:
+
+```md [server/connections/crm.md]
+Connect the **support@** account, not your own.
+
+1. In CRM, open **Settings → API** and turn on API access.
+2. Click **Connect** and approve `offline_access`.
+```
+
+The Console shows this Markdown on the Connection, before the **Connect** button. `vitehub connections inspect crm` prints it after the actions, and `inspect()` returns it as `docs`, so an Agent can read it too. A `.connection.ts` file uses a `.connection.md` file next to it.
+
+The `docs` option of a definition replaces the file. Use it when the steps depend on the instance of a [keyed Connection](#keyed-connections), which share the file otherwise:
+
+```ts [server/connections/crm.ts]
+import { defineConnection } from 'vite-hub/connections'
+
+export default defineConnection({
+  instances: ['acme', 'globex'],
+  definition: tenant => ({
+    provider: {
+      id: 'crm',
+      authorizationEndpoint: `https://${tenant}.crm.example.com/authorize`,
+      tokenEndpoint: `https://${tenant}.crm.example.com/token`,
+      clientId: `${tenant}-client-id`,
+    },
+    scopes: ['offline_access'],
+    docs: `Sign in to https://${tenant}.crm.example.com as the tenant's automation user.`,
+  }),
+})
+```
+
+The Markdown is part of your app. ViteHub does not read it from users or providers.
+
 ## MCP endpoint
 
 `apiKey({ mcp })` and OAuth providers can declare an MCP endpoint with `mcp`. Its origin also gets the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, with no credentials, query, or fragment.

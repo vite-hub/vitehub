@@ -12,6 +12,7 @@ import {
   addRouteMiddleware,
   addServerHandler,
   addTemplate,
+  addTypeTemplate,
   createResolver,
   defineNuxtModule,
   extendPages,
@@ -321,6 +322,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
+    // Nuxt types runtime config from its value, and that type has no fields for objects in arrays, such as `socials`.
+    addTypeTemplate({ filename: "types/vite-hub-docs.d.ts", getContents: () => docsRuntimeConfigTypes })
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
     addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
@@ -754,6 +757,18 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
+
+const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
+
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "@nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+
+export {}
+`
 
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
