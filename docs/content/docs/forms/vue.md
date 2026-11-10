@@ -94,6 +94,8 @@ const { send, sent } = useFormSubmit('feedback', form)
       <textarea id="feedback-message" v-model="field.input" v-bind="field.props" :aria-describedby="field.errors ? 'feedback-message-error' : undefined" />
       <p v-if="field.errors" id="feedback-message-error">{{ field.errors[0] }}</p>
     </Field>
+    <!-- The rate limit, a server failure, or a network error -->
+    <p v-if="form.errors" role="alert">{{ form.errors[0] }}</p>
     <button>Send</button>
     <!-- Always in the page, so screen readers announce the text when it appears -->
     <p role="status">{{ sent ? 'Thanks.' : '' }}</p>
