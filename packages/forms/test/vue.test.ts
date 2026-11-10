@@ -87,7 +87,12 @@ describe("AutoForm", () => {
   it("shows client errors under each field and sends nothing", async () => {
     const { root, store, submit, type } = await mount()
     await type("[data-field=email] :is(input, select, textarea)", "nope")
+    // When focus arrives, the field already points to its error, so a screen reader reads it.
+    const described: (string | null)[] = []
+    root.querySelector("[data-field=email] input")!.addEventListener("focus", event => described.push((event.target as Element).getAttribute("aria-describedby")))
     await submit()
+    expect(document.activeElement).toBe(root.querySelector("[data-field=email] input"))
+    expect(described.at(-1)).toContain("-error")
     expect(root.querySelector("[data-field=email] [data-error]")?.textContent).toBe("Enter a valid email.")
     expect(root.querySelector("[data-field=email] :is(input, select, textarea)")?.getAttribute("aria-invalid")).toBe("true")
     // One announcement: focus goes to the field, which reads its error. Field errors are not alerts.
@@ -99,6 +104,8 @@ describe("AutoForm", () => {
     // No mount on the server: the route query comes in as `result`.
     const html = await renderToString(createSSRApp(AutoForm, { name: "contact", schema: ContactSchema, result: "error" }))
     expect(html).toContain("The message was not sent. Check the form and try again.")
+    // Until the app runs, the browser checks `required` and `type` itself.
+    expect(html).not.toContain("novalidate")
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
@@ -107,6 +114,9 @@ describe("AutoForm", () => {
       const { root, type, element } = await mount()
       await nextTick()
       expect(root.querySelector("[role=status]")?.textContent).toBe("The message was not sent. Check the form and try again.")
+      // The page loads at the top, so focus moves to the result. The app's own checks take over.
+      expect(document.activeElement).toBe(root.querySelector("[role=status]"))
+      expect(root.querySelector("form")?.hasAttribute("novalidate")).toBe(true)
       await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
       await type("[data-field=topic] :is(input, select, textarea)", "idea")
       await type("[data-field=message] :is(input, select, textarea)", "Add dark mode.")

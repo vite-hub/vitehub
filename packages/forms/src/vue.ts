@@ -1,4 +1,4 @@
-import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
+import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, validate } from "@formisch/vue"
 import { computed, defineComponent, h, nextTick, onMounted, ref, useId } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
@@ -215,10 +215,17 @@ export const AutoForm = defineComponent({
     } as SubmitFormOptions)
     // A post without JavaScript comes back with `?form=sent` or `?form=error`. Show it in the status region.
     const returned = ref<"sent" | "error" | undefined>(props.result === "sent" || props.result === "error" ? props.result : undefined)
+    // The browser checks `required` and `type` itself until the app runs, so a post without JavaScript is checked too.
+    const mounted = ref(false)
+    const statusElement = ref<HTMLElement>()
     onMounted(() => {
-      if (returned.value) return
-      const result = new URLSearchParams(globalThis.location?.search).get("form")
-      if (result === "sent" || result === "error") returned.value = result
+      mounted.value = true
+      if (!returned.value) {
+        const result = new URLSearchParams(globalThis.location?.search).get("form")
+        if (result === "sent" || result === "error") returned.value = result
+      }
+      // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
+      if (returned.value) statusElement.value?.focus()
     })
     const status = () => {
       if (sent.value || returned.value === "sent") return slots.sent?.() ?? props.sentMessage
@@ -230,18 +237,28 @@ export const AutoForm = defineComponent({
       if (sent.value) emit("sent", sent.value)
     })
     // The button stays focusable while it sends, so a second submit is ignored here instead.
-    const onSubmit = (event: SubmitEvent) => {
-      if (!form.isSubmitting) {
-        // A new send replaces the result of an earlier post without JavaScript.
-        returned.value = undefined
-        return submit(event)
-      }
+    let checking = false
+    const onSubmit = async (event: SubmitEvent) => {
       event.preventDefault()
+      if (form.isSubmitting || checking) return
+      // A new send replaces the result of an earlier post without JavaScript.
+      returned.value = undefined
+      // Validate without focus, then focus after the render, so the field already points to its error. Formisch
+      // `handleSubmit()` focuses before Vue renders the error.
+      checking = true
+      const result = await validate(form).finally(() => { checking = false })
+      if (!result.success) {
+        await nextTick()
+        const path = result.issues[0].path?.map(item => item.key as string | number)
+        if (path?.length) (focus as (form: FormStore, config: { path: (string | number)[] }) => void)(form, { path })
+        return
+      }
+      await submit(event)
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.
     const prefix = `vitehub-form-${props.name}-${useId()}`
     // `method` and `action` post the form to its route before the app hydrates, or without JavaScript.
-    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: true, onSubmit }, [
+    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: mounted.value, onSubmit }, [
       ...fields.value.map(field => h(AutoFormControl, { key: field.key, form, field, id: `${prefix}-${field.key}` })),
       props.honeypot
         ? h("input", {
@@ -256,7 +273,7 @@ export const AutoForm = defineComponent({
         : null,
       form.errors ? h("p", { "data-error": "", role: "alert" }, form.errors[0]) : null,
       // The live region is always there, so screen readers announce the text when it appears.
-      h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status" }, status()),
+      h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status", tabindex: "-1", ref: statusElement }, status()),
       // The label stays the same while it sends, so the button keeps its width. `aria-busy` tells that it sends.
       h("button", { type: "submit", "aria-disabled": form.isSubmitting ? "true" : undefined, "aria-busy": form.isSubmitting ? "true" : undefined }, props.submitLabel),
     ])
