@@ -26,7 +26,7 @@ An app that deploys to several hosts can import Browser on all of them. A build 
 
 ```ts [server/api/example-html.get.ts]
 import { defineEventHandler } from 'h3'
-import { isBrowserAvailable, runBrowserContent } from 'vite-hub/browser/actions'
+import { isBrowserAvailable, runBrowserContent } from 'vite-hub/browser'
 
 export default defineEventHandler(async () => {
   if (!isBrowserAvailable()) return { html: null }

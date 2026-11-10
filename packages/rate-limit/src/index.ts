@@ -20,7 +20,7 @@ export type {
   RateLimitEnforcement,
   RateLimitFailurePolicy,
   RateLimiter,
-  RateLimitModuleOptions,
+  RateLimitOptions,
   RateLimitPeekResult,
   RateLimitPolicy,
   RateLimitProvider,

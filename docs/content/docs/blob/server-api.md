@@ -13,12 +13,12 @@ icon: i-lucide-code-2
 | `blob` from `@vite-hub/blob` | Read and write the default or named Blob Stores. |
 | `image`, `file` from `@vite-hub/blob` | Validate Blob references and describe them as JSON Schema for pickers. |
 | `blob.media` from `@vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
-| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Image helpers that also run in the browser. `@vite-hub/blob` re-exports them. |
-| `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Detect common image and PDF signatures before storage. |
-| `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
-| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime config and its Nitro plugin. |
-| `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob runtime config yourself. |
-| `@vite-hub/blob/drivers/*` | Provider-specific driver modules. |
+| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Browser-safe image helpers. `@vite-hub/blob` re-exports them for server code. |
+| `detectContentType` from `vite-hub/blob`, or from `vite-hub/blob/client` in browser code | Classify common image and PDF signatures before storage. |
+| `ensureBlob` from `vite-hub/blob` | Validate upload size and content type. |
+| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and its Nitro plugin. |
+| `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
+| `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
 
 `@vite-hub/blob` exports all driver, object, list, put, store, and module types.
 
