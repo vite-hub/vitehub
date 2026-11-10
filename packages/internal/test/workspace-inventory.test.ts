@@ -19,6 +19,7 @@ describe("workspace inventory", () => {
       "codemods",
       "comments",
       "connections",
+      "console-client",
       "content",
       "database",
       "decisions",
