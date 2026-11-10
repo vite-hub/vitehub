@@ -1079,7 +1079,6 @@
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@iconify-json/lucide": "catalog:ui",
-    "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@internationalized/date": "^3.12.4",
     "@json-render/core": "0.21.0",

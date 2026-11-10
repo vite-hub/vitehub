@@ -163,6 +163,18 @@ describe("operations", () => {
     }
   })
 
+  it.each([true, false])("says to pass --url when a dev server that the command found asks for sign-in (found: %s)", async found => {
+    const fix = "For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION`."
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ code: "CONSOLE_TOKEN_INVALID", fix, message: "This request has no Console token.", ok: false, status: 401 }, { status: 401 }))
+    const result = await callOperation({ env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch, url: "http://localhost:5173", ...(found ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })
+    expect(result).toMatchObject({
+      code: "CONSOLE_TOKEN_INVALID",
+      fix: found ? `Pass --url http://localhost:5173 to send credentials. A command sends none to the dev server that it finds. ${fix}` : fix,
+      ok: false,
+      status: 401,
+    })
+  })
+
   it("returns a coded failure when the operation response body is interrupted", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(new ReadableStream({
       start(controller) {

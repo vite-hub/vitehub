@@ -32,7 +32,7 @@ const docsShellUi = {
       <div id="docs-content" tabindex="-1" class="relative">
         <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
         <!-- A page with a collapsible sidebar, such as a playground, fills the viewport, so it has no banner. -->
-        <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-[var(--ui-border)] bg-default px-4 py-2 text-center text-sm/5">
+        <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
           <span class="text-muted">{{ banner }}</span>
         </div>
       </div>
@@ -49,6 +49,7 @@ const docsShellUi = {
   z-index: 60;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--ui-border);
+  border-radius: calc(var(--ui-radius) * 1.5);
   background: var(--ui-bg);
   color: var(--ui-text-highlighted);
   font-size: 0.875rem;
