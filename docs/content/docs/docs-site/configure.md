@@ -292,7 +292,7 @@ The design follows the comark-ui site: Geist, neutral grays, hairline rings, sma
 
 ### Icons
 
-The shell uses Lucide, Phosphor, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/ph`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Otherwise `@nuxt/icon` fetches them from the Iconify API.
+The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
 The ViteHub icon set is registered: write `i-vitehub-<name>`, such as `icon: i-vitehub-kv` in a `.navigation.yml` file. The rail draws these icons inline and animates them on hover. The [`@vite-hub/icons`](https://github.com/vite-hub/vitehub/tree/main/packages/icons) README lists every name.
 
@@ -303,8 +303,9 @@ The ViteHub icon set is registered: write `i-vitehub-<name>`, such as `icon: i-v
 | `rail` | Rail icon per section id, such as `i-vitehub-reference`. Replaces the section icon in the rail only. |
 | `sections`, `pages` | Sidebar icon per section id or page path. Replaces the icon in the file. |
 | `aliases` | Replacement per icon name, so the sidebar keeps one icon style. |
-| `family` | Sidebar icon prefix, such as `i-ph-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
+| `family` | Icon prefix of the sidebar, such as `i-lucide-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
 | `page`, `section` | Fallback icons. |
+| `stroke` | Stroke width of Lucide icons. The default `1.5` matches the ViteHub set. `false` keeps Lucide's 2px. |
 
 ## Replace a component
 
