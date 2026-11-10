@@ -1,21 +1,13 @@
-import { createConsoleProjectRegistry, type ConsoleProjectRegistry } from "./project-registry.ts"
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
 import type { EnvBridgeRequestOptions } from "@vite-hub/env/bridge"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
-import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 
-export const consoleDefinitionsKey: unique symbol = Symbol.for("vitehub.console.definitions")
-export const consoleDefinitionsRegistryKey: unique symbol = Symbol.for("vitehub.console.definitions.registry")
-export const consoleDefinitionsRootKey: unique symbol = Symbol.for("vitehub.console.definitions.root")
-export const consoleDatabaseKey: unique symbol = Symbol.for("vitehub.console.database")
-export const consoleDatabaseRegistryKey: unique symbol = Symbol.for("vitehub.console.database.registry")
-export const consoleDatabaseRootKey: unique symbol = Symbol.for("vitehub.console.database.root")
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
 export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
@@ -24,30 +16,12 @@ export const consoleInvocationsBindingKey: unique symbol = Symbol.for("vitehub.c
 export const consoleInvocationsBindingRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.bindings")
 export const consoleInvocationsBindingRootRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.binding-roots")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
-export const consoleBlobKey: unique symbol = Symbol.for("vitehub.console.blob")
-export const consoleBlobRegistryKey: unique symbol = Symbol.for("vitehub.console.blob.registry")
-export const consoleBlobRootKey: unique symbol = Symbol.for("vitehub.console.blob.root")
-export const consoleEnvKey: unique symbol = Symbol.for("vitehub.console.env")
-export const consoleEnvRegistryKey: unique symbol = Symbol.for("vitehub.console.env.registry")
-export const consoleEnvRootKey: unique symbol = Symbol.for("vitehub.console.env.root")
-export const consoleSchedulesKey: unique symbol = Symbol.for("vitehub.console.schedules")
-export const consoleSchedulesRegistryKey: unique symbol = Symbol.for("vitehub.console.schedules.registry")
-export const consoleSchedulesRootKey: unique symbol = Symbol.for("vitehub.console.schedules.root")
-export const consoleDocumentsKey: unique symbol = Symbol.for("vitehub.console.documents")
-export const consoleDocumentsRegistryKey: unique symbol = Symbol.for("vitehub.console.documents.registry")
-export const consoleDocumentsRootKey: unique symbol = Symbol.for("vitehub.console.documents.root")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
-export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
-export const consoleAuthKey: unique symbol = Symbol.for("vitehub.console.auth")
-export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
-export const consoleBuildKey: unique symbol = Symbol.for("vitehub.console.build")
-export const consoleBuildRegistryKey: unique symbol = Symbol.for("vitehub.console.build.registry")
-export const consoleBuildRootKey: unique symbol = Symbol.for("vitehub.console.build.root")
-export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
-const consoleSectionsAmbiguousRootKey: unique symbol = Symbol.for("vitehub.console.sections.ambiguous-root")
-export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
+export const consoleStateKey: unique symbol = Symbol.for("vitehub.console.state")
+/** `@vite-hub/schedule` reads the Schedules that the Console may run from this slot of the global object. */
+export const consoleSchedulesKey: unique symbol = Symbol.for("vitehub.console.schedules")
 
 type ConsoleInvocationsByRoot = {
   delete(key: string): boolean
@@ -55,8 +29,6 @@ type ConsoleInvocationsByRoot = {
   set(key: string, value: AgentInvocations): unknown
   readonly size: number
 }
-
-type ConsoleDefinitionsByRoot = ConsoleProjectRegistry<ConsoleSectionCatalog>
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
@@ -80,21 +52,9 @@ export interface ConsoleBlobInspection {
   media?: () => Promise<ConsoleMediaLibrary>
 }
 
-type ConsoleBlobByRoot = ConsoleProjectRegistry<ConsoleBlobInspection>
-
-type ConsoleEnvByRoot = ConsoleProjectRegistry<ConsoleEnvInspection>
-
-type ConsoleSchedulesByRoot = ConsoleProjectRegistry<ScheduleDefinitionRegistry>
-
-type ConsoleDatabaseByRoot = ConsoleProjectRegistry<ConsoleDatabaseInspection>
-
-type ConsoleDocumentsByRoot = ConsoleProjectRegistry<ConsoleDocumentEditors>
-
-type ConsoleBuildByRoot = ConsoleProjectRegistry<string>
-
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleSectionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleEnvByRoot | ConsoleEnvInspection | ConsoleSchedulesByRoot | ScheduleDefinitionRegistry | ConsoleSectionsByRoot | ConsoleDocumentsByRoot | ConsoleDocumentEditors | undefined
+  AgentInvocations | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -108,92 +68,43 @@ type ConsoleInvocationIdentitiesByRoot = {
 /** Independent Console Auth that serves the Console: a Better Auth session (`true`) or Cloudflare Access. */
 export type ConsoleAuthMode = true | "cloudflare-access"
 
-interface ConsoleSectionRegistration {
+/**
+ * What generated Console output installs: the sections, the project name, the build id, and the readers of each
+ * section. One server bundle serves one project, so the Console keeps one state and does not key it by project root.
+ * The state lives on the global object, because a development server runs server code in more than one Vite module
+ * runner, such as the `nitro` and `ssr` environments of a Nitro dev worker. Each runner loads its own copy of the
+ * Console modules, and all of them share the global object.
+ */
+export interface ConsoleState {
   auth?: ConsoleAuthMode | false
+  blob?: ConsoleBlobInspection
+  build?: string
+  database?: ConsoleDatabaseInspection
+  definitions?: ConsoleSectionCatalog
+  /** Whether generated output was created for a development server. */
+  development?: boolean
+  documents?: ConsoleDocumentEditors
+  env?: ConsoleEnvInspection
   projectName?: string
-  sections: readonly ConsoleSectionId[]
+  sections?: readonly ConsoleSectionId[]
 }
 
-type ConsoleSectionsByRoot = {
-  get(key: string): ConsoleSectionRegistration | undefined
-  set(key: string, value: ConsoleSectionRegistration): unknown
-  readonly size: number
-  values(): IterableIterator<ConsoleSectionRegistration>
+export function consoleState(): ConsoleState {
+  // SAFETY: Only this module writes the Console state slot of the global object.
+  const scope = globalThis as typeof globalThis & { [consoleStateKey]?: ConsoleState }
+  return scope[consoleStateKey] ??= {}
 }
 
 export type ConsoleInvocationScope = {
   process?: unknown
   [consoleInvocationsBindingKey]?: string
-  [consoleBlobKey]?: ConsoleBlobInspection
-  [consoleBlobRegistryKey]?: ConsoleBlobByRoot
-  [consoleBlobRootKey]?: string
-  [consoleDatabaseKey]?: ConsoleDatabaseInspection
-  [consoleDatabaseRegistryKey]?: ConsoleDatabaseByRoot
-  [consoleDatabaseRootKey]?: string
-  [consoleDefinitionsKey]?: ConsoleSectionCatalog
-  [consoleDefinitionsRegistryKey]?: ConsoleDefinitionsByRoot
-  [consoleDefinitionsRootKey]?: string
   [consoleInvocationsKey]?: AgentInvocations
   [consoleInvocationsIdentityKey]?: string
   [consoleInvocationsIdentityRootKey]?: string
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
-  [consoleEnvKey]?: ConsoleEnvInspection
-  [consoleEnvRegistryKey]?: ConsoleEnvByRoot
-  [consoleEnvRootKey]?: string
-  [consoleSchedulesKey]?: ScheduleDefinitionRegistry
-  [consoleDocumentsKey]?: ConsoleDocumentEditors
-  [consoleDocumentsRegistryKey]?: ConsoleDocumentsByRoot
-  [consoleDocumentsRootKey]?: string
-  [consoleSchedulesRegistryKey]?: ConsoleSchedulesByRoot
-  [consoleSchedulesRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
-  [consoleSectionsKey]?: readonly ConsoleSectionId[]
-  [consoleAuthKey]?: ConsoleAuthMode | false
-  [consoleProjectNameKey]?: string
-  [consoleBuildKey]?: string
-  [consoleBuildRegistryKey]?: ConsoleBuildByRoot
-  [consoleBuildRootKey]?: string
-  [consoleSectionsRootKey]?: string
-  [consoleSectionsAmbiguousRootKey]?: boolean
-  [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
-
-const definitionsRegistry = createConsoleProjectRegistry<ConsoleSectionCatalog>({
-  root: consoleDefinitionsRootKey,
-  value: consoleDefinitionsKey,
-  registry: consoleDefinitionsRegistryKey,
-})
-const blobRegistry = createConsoleProjectRegistry<ConsoleBlobInspection>({
-  root: consoleBlobRootKey,
-  value: consoleBlobKey,
-  registry: consoleBlobRegistryKey,
-})
-const envRegistry = createConsoleProjectRegistry<ConsoleEnvInspection>({
-  root: consoleEnvRootKey,
-  value: consoleEnvKey,
-  registry: consoleEnvRegistryKey,
-})
-const schedulesRegistry = createConsoleProjectRegistry<ScheduleDefinitionRegistry>({
-  root: consoleSchedulesRootKey,
-  value: consoleSchedulesKey,
-  registry: consoleSchedulesRegistryKey,
-})
-const documentsRegistry = createConsoleProjectRegistry<ConsoleDocumentEditors>({
-  root: consoleDocumentsRootKey,
-  value: consoleDocumentsKey,
-  registry: consoleDocumentsRegistryKey,
-})
-const databaseRegistry = createConsoleProjectRegistry<ConsoleDatabaseInspection>({
-  root: consoleDatabaseRootKey,
-  value: consoleDatabaseKey,
-  registry: consoleDatabaseRegistryKey,
-})
-const buildRegistry = createConsoleProjectRegistry<string>({
-  root: consoleBuildRootKey,
-  value: consoleBuildKey,
-  registry: consoleBuildRegistryKey,
-})
 
 function defaultConsoleInvocationScope(): ConsoleInvocationScope {
   // SAFETY: ConsoleInvocationScope adds only optional symbol-keyed state to the global object.
@@ -241,22 +152,6 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
     && Number.isInteger(registry.size)
     // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
     ? registry as ConsoleInvocationsByRoot
-    : undefined
-}
-
-
-
-
-
-
-
-function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
-  if (!value || (typeof value !== "object" && typeof value !== "function")) return
-  // SAFETY: The structural checks below validate every ConsoleSectionsByRoot member before use.
-  const registry = value as Partial<ConsoleSectionsByRoot>
-  return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
-    ? // SAFETY: The preceding checks validate every ConsoleSectionsByRoot member.
-      registry as ConsoleSectionsByRoot
     : undefined
 }
 
@@ -436,164 +331,6 @@ export function installConsoleInvocationFallback(
     }
     registry[consoleInvocationsKey] = invocations
   }
-}
-
-export function installConsoleDefinitionScope(
-  projectRoot: string,
-  catalog: ConsoleSectionCatalog,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleSectionCatalog {
-  return definitionsRegistry.install(projectRoot, catalog, scope)
-}
-
-export function resolveConsoleDefinitions(
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleSectionCatalog | undefined {
-  return definitionsRegistry.resolve(scope)
-}
-
-export function installConsoleBlobScope(
-  projectRoot: string,
-  inspection: ConsoleBlobInspection,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleBlobInspection {
-  return blobRegistry.install(projectRoot, inspection, scope)
-}
-
-export function resolveConsoleBlob(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleBlobInspection | undefined {
-  return blobRegistry.resolve(scope)
-}
-
-export function installConsoleEnvScope(
-  projectRoot: string,
-  inspection: ConsoleEnvInspection,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleEnvInspection {
-  return envRegistry.install(projectRoot, inspection, scope)
-}
-
-export function resolveConsoleEnv(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleEnvInspection | undefined {
-  return envRegistry.resolve(scope)
-}
-
-/** Stores the document editor actions of each document editor section, loaded on first use. */
-export function installConsoleDocumentsScope(
-  projectRoot: string,
-  editors: ConsoleDocumentEditors,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleDocumentEditors {
-  return documentsRegistry.install(projectRoot, editors, scope)
-}
-
-export function resolveConsoleDocuments(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleDocumentEditors | undefined {
-  return documentsRegistry.resolve(scope)
-}
-
-/** Stores the Static Schedule Definitions that the Console may run. Only Console invocation installs them. */
-export function installConsoleSchedulesScope(
-  projectRoot: string,
-  registry: ScheduleDefinitionRegistry,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ScheduleDefinitionRegistry {
-  return schedulesRegistry.install(projectRoot, registry, scope)
-}
-
-export function resolveConsoleSchedules(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ScheduleDefinitionRegistry | undefined {
-  return schedulesRegistry.resolve(scope)
-}
-
-export function installConsoleDatabaseScope(
-  projectRoot: string,
-  inspection: ConsoleDatabaseInspection,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleDatabaseInspection {
-  return databaseRegistry.install(projectRoot, inspection, scope)
-}
-
-export function resolveConsoleDatabase(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleDatabaseInspection | undefined {
-  return databaseRegistry.resolve(scope)
-}
-
-export function installConsoleSectionScope(
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-  independentAuth: ConsoleAuthMode | false = false,
-): readonly ConsoleSectionId[] {
-  const installed = [...new Set(sections)]
-  if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
-  scope[consoleSectionsRootKey] = projectRoot
-  scope[consoleSectionsKey] = installed
-  scope[consoleAuthKey] = independentAuth
-  const registry = processRegistry(scope)
-  if (registry) {
-    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
-    const projectName = sectionsRegistry.get(projectRoot)?.projectName
-    const registration: ConsoleSectionRegistration = { auth: independentAuth, sections: installed }
-    if (projectName) registration.projectName = projectName
-    sectionsRegistry.set(projectRoot, registration)
-    registry[consoleSectionsRegistryKey] = sectionsRegistry
-    registry[consoleSectionsKey] = installed
-  }
-  return installed
-}
-
-export function installConsoleProjectNameScope(
-  projectRoot: string,
-  projectName: string,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): string {
-  if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
-  scope[consoleSectionsRootKey] = projectRoot
-  scope[consoleProjectNameKey] = projectName
-  const registry = processRegistry(scope)
-  if (registry) {
-    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
-    const sections = sectionsRegistry.get(projectRoot)?.sections ?? scope[consoleSectionsKey] ?? []
-    sectionsRegistry.set(projectRoot, { ...sectionsRegistry.get(projectRoot), projectName, sections })
-    registry[consoleSectionsRegistryKey] = sectionsRegistry
-  }
-  return projectName
-}
-
-export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): readonly ConsoleSectionId[] {
-  const root = scope[consoleSectionsRootKey]
-  const registry = processRegistry(scope)
-  const registered = sectionsByRoot(registry?.[consoleSectionsRegistryKey])
-  if (root) return registered?.get(root)?.sections ?? scope[consoleSectionsKey] ?? []
-  if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
-  // SAFETY: installConsoleSectionScope is the only writer for this process registry key.
-  return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
-}
-
-export function resolveConsoleAuth(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleAuthMode | false {
-  // A shared scope can register several projects. Its last root cannot identify the current request.
-  if (scope[consoleSectionsAmbiguousRootKey]) return false
-  const root = scope[consoleSectionsRootKey]
-  const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
-  if (root) return registered?.get(root)?.auth ?? scope[consoleAuthKey] ?? false
-  if (registered && registered.size > 1) return false
-  return registered?.values().next().value?.auth ?? scope[consoleAuthKey] ?? false
-}
-
-export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
-  const root = scope[consoleSectionsRootKey]
-  const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
-  if (root) return registered?.get(root)?.projectName ?? scope[consoleProjectNameKey]
-  if (registered && registered.size > 1) return scope[consoleProjectNameKey]
-  return registered?.values().next().value?.projectName ?? scope[consoleProjectNameKey]
-}
-
-export function installConsoleBuildScope(
-  projectRoot: string,
-  build: string,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): string {
-  return buildRegistry.install(projectRoot, build, scope)
-}
-
-export function resolveConsoleBuild(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
-  return buildRegistry.resolve(scope)
 }
 
 export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {

@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { consoleState } from "../src/console/internal.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import pageSessionHandler from "../src/console/runtime/server/page-session.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
@@ -41,7 +42,7 @@ async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Re
 afterEach(() => {
   Reflect.deleteProperty(globalThis, policyKey)
   Reflect.deleteProperty(globalThis, pageToolsKey)
-  for (const suffix of ["", ".root", ".registry", ".ambiguous-root"]) Reflect.deleteProperty(globalThis, Symbol.for(`vitehub.console.development${suffix}`))
+  delete consoleState().development
   vi.unstubAllEnvs()
 })
 

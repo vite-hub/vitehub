@@ -32,7 +32,7 @@ import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
-import { resolveConsoleSections } from "../src/console/internal.ts"
+import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 // Nuxt's Nitro 2 receives this module after every other Nitro module.
 const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
@@ -2286,12 +2286,12 @@ describe("ViteHub Nuxt integration", () => {
     const application = createNuxt(false)
     try {
       await viteHubNuxtModule({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node" }, application.nuxt)
-      expect(resolveConsoleSections()).toContain("comments")
+      expect(getConsoleSections()).toContain("comments")
       await expect(generatedConsoleSections()).resolves.toContain("comments")
       const config = nitroOptions(application.nuxt)
       for (let replay = 0; replay < 2; replay++) {
         await application.runNitroConfigHook(config)
-        expect(resolveConsoleSections()).toContain("comments")
+        expect(getConsoleSections()).toContain("comments")
         await expect(generatedConsoleSections()).resolves.toContain("comments")
         expect(nitroHandlerRoutes(config)).toContain("/_vitehub/mcp")
       }

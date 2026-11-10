@@ -20,23 +20,16 @@ import {
   consoleInvocationsBindingRootRegistryKey,
   consoleInvocationsIdentityKey,
   consoleInvocationsIdentityRootKey,
-  consoleBlobKey,
-  consoleBlobRegistryKey,
-  consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
   consoleInvocationsRevisionRegistryKey,
   consoleInvocationsRootIdentityRegistryKey,
   consoleInvocationsRootKey,
   consoleProjectRootKey,
-  consoleProjectNameKey,
-  consoleSectionsKey,
-  consoleSectionsRootKey,
-  consoleSectionsRegistryKey,
+  consoleStateKey,
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
@@ -167,13 +160,7 @@ function installDefaultJournal(projectRoot: string, setting?: AgentInvocationsDe
 
 afterEach(() => {
   installAgentInvocations({})
-  for (const name of ["development", "development.root", "development.registry", "development.ambiguous-root"]) {
-    const key = Symbol.for(`vitehub.console.${name}`)
-    Reflect.deleteProperty(globalThis, key)
-    Reflect.deleteProperty(process, key)
-  }
-  delete scope[consoleBlobKey]
-  delete scope[consoleBlobRootKey]
+  Reflect.deleteProperty(globalThis, consoleStateKey)
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsIdentityRootKey]
@@ -186,22 +173,12 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsBindingRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsBindingRootRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
-  delete scope[consoleSectionsKey]
-  delete scope[consoleProjectNameKey]
-  delete scope[consoleSectionsRootKey]
-  Reflect.deleteProperty(process, consoleBlobKey)
-  Reflect.deleteProperty(process, consoleBlobRootKey)
-  Reflect.deleteProperty(process, consoleBlobRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
-  Reflect.deleteProperty(process, consoleSectionsKey)
-  Reflect.deleteProperty(process, consoleProjectNameKey)
-  Reflect.deleteProperty(process, consoleSectionsRootKey)
-  Reflect.deleteProperty(process, consoleSectionsRegistryKey)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -1920,29 +1897,16 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("serves enabled Console sections in stable order for the active project", async () => {
-    installConsoleSections("/first", ["agents"])
-    installConsoleProjectName("/first", "first-app")
-    installConsoleSections("/second", ["kv"])
-    installConsoleProjectName("/second", "second-app")
+  it("serves the Console sections and project name that generated output installed last", async () => {
+    installConsoleSections("/project", ["agents"])
+    installConsoleProjectName("/project", "first-app")
+    installConsoleSections("/project", ["kv", "kv"])
+    installConsoleProjectName("/project", "second-app")
 
     expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
       projectName: "second-app",
       sections: ["kv"],
     })
-
-    scope[consoleSectionsRootKey] = "/first"
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
-      projectName: "first-app",
-      sections: ["agents"],
-    })
-  })
-
-  it("resolves the project name from the process registry across isolated realms", () => {
-    installConsoleSections("/project", ["agents"])
-    installConsoleProjectName("/project", "shared-app")
-
-    expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
   it("does not let section registration rebind the invocation project", async () => {
@@ -4775,20 +4739,6 @@ describe("Agent invocation console", () => {
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
-  })
-
-  it.each([false, true])("denies framing when production and development share a scope (development first: %s)", async (developmentFirst) => {
-    installConsoleDevelopment("/first", developmentFirst)
-    installConsoleDevelopment("/second", !developmentFirst)
-
-    for (const root of ["/first", "/second"]) {
-      const response = await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))
-      expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
-      expect(response.headers.get("x-frame-options")).toBe("DENY")
-      // Refreshing a project cannot disambiguate the scope of the serving handler.
-      installConsoleDevelopment(root, true)
-    }
-    expect((await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))).headers.get("x-frame-options")).toBe("DENY")
   })
 
   it.each(["build", "serve"])("uses generated %s output to select framing regardless of NODE_ENV or mode", async (command) => {

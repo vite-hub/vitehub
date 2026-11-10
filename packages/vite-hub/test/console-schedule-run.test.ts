@@ -13,7 +13,7 @@ import { readScheduleConsoleRecords } from "../../schedule/dist/runtime/console.
 import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/process"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
-import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleSchedulesKey, consoleStateKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { vitehub } from "../src/index.ts"
@@ -24,25 +24,11 @@ import scheduleRunRoute, { handleDispatchScheduleRunRequest } from "../src/conso
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { consoleAccess } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 const schedules = async () => listConsoleDefinitions({ section: "schedules" }, await consoleAccess())
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
-const symbols = [
-  consoleDefinitionsKey,
-  consoleDefinitionsRegistryKey,
-  consoleDefinitionsRootKey,
-  consoleSchedulesKey,
-  consoleSchedulesRegistryKey,
-  consoleSchedulesRootKey,
-  consoleSectionsKey,
-  consoleSectionsRegistryKey,
-  consoleSectionsRootKey,
-]
 
 const temporaryRoots: string[] = []
 
@@ -54,10 +40,8 @@ async function temporaryRoot(prefix: string): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
-  for (const key of symbols) {
-    Reflect.deleteProperty(scope, key)
-    Reflect.deleteProperty(process, key)
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
+  Reflect.deleteProperty(globalThis, consoleSchedulesKey)
   resetScheduleRuntime()
   installConsoleOperations([])
 })

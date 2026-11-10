@@ -21,9 +21,9 @@ import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/conso
 import { createInlineConsoleAuth } from "../src/console/auth-inline.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
+import { getConsoleAuth, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
   it.each([false, true])("ignores the Primary Auth claim code with an independent admin plugin=%s", async (withAdmin) => {
@@ -137,13 +137,18 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("reports independent auth only for the configured Console project", () => {
-    const scope: ConsoleInvocationScope = {}
-    installConsoleSectionScope("/console-auth", ["agents"], scope, true)
-    installConsoleProjectNameScope("/console-auth", "Console Auth", scope)
-    expect(resolveConsoleAuth(scope)).toBe(true)
-    installConsoleSectionScope("/host-managed", ["kv"], scope)
-    expect(resolveConsoleAuth(scope)).toBe(false)
+  it("reports the Console Auth mode of the installed sections", () => {
+    try {
+      installConsoleSections("/console-auth", ["agents"], true)
+      expect(getConsoleAuth()).toBe(true)
+      installConsoleSections("/access", ["agents"], "cloudflare-access")
+      expect(getConsoleAuth()).toBe("cloudflare-access")
+      installConsoleSections("/host-managed", ["kv"])
+      expect(getConsoleAuth()).toBe(false)
+    }
+    finally {
+      Reflect.deleteProperty(globalThis, consoleStateKey)
+    }
   })
 
   it("uses a distinct base path and cookie prefix and requires a database adapter", () => {

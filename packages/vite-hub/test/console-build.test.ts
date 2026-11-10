@@ -4,20 +4,18 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { consoleBuildKey, consoleBuildRegistryKey, consoleBuildRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin, type ConsoleNitroPluginOptions } from "../src/console/plugin.ts"
 import { consoleBuildCheckInterval, useConsoleUpdate, watchConsoleBuild } from "../src/console/runtime/client/build.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleBuild, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 import { consoleAccess } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 
-const scope = globalThis as ConsoleInvocationScope
 const buildPattern = /installConsoleBuild\("[^"]+", "([0-9a-f]{16})"\)\n$/
 
 function event(): ConsoleRequestEvent {
@@ -61,8 +59,7 @@ function stubSections(builds: string[]): ReturnType<typeof vi.fn> {
 }
 
 afterEach(() => {
-  for (const key of [consoleBuildKey, consoleBuildRootKey, consoleSectionsKey, consoleSectionsRootKey]) Reflect.deleteProperty(scope, key)
-  for (const key of [consoleBuildKey, consoleBuildRegistryKey, consoleBuildRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey]) Reflect.deleteProperty(process, key)
+  Reflect.deleteProperty(globalThis, consoleStateKey)
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })

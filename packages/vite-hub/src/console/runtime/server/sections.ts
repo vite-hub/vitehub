@@ -1,5 +1,5 @@
 import { installConsoleProjectRoot } from "./project-root.ts"
-import { installConsoleBuildScope, installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth, resolveConsoleBuild, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -17,12 +17,14 @@ export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
 export { installConsoleDevelopment } from "./development.ts"
 
 export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false): readonly ConsoleSectionId[] {
-  return installConsoleSectionScope(projectRoot, sections, undefined, independentAuth)
+  const state = consoleState()
+  state.auth = independentAuth
+  return state.sections = [...new Set(sections)]
 }
 
 export function installConsoleProjectName(projectRoot: string, projectName: string): string {
   installConsoleProjectRoot(projectRoot)
-  return installConsoleProjectNameScope(projectRoot, projectName)
+  return consoleState().projectName = projectName
 }
 
 /**
@@ -30,21 +32,21 @@ export function installConsoleProjectName(projectRoot: string, projectName: stri
  * changes, so an open Console compares it to know that a newer Console is deployed.
  */
 export function installConsoleBuild(projectRoot: string, build: string): string {
-  return installConsoleBuildScope(projectRoot, build)
+  return consoleState().build = build
 }
 
 export function getConsoleBuild(): string | undefined {
-  return resolveConsoleBuild()
+  return consoleState().build
 }
 
 export function getConsoleSections(): readonly ConsoleSectionId[] {
-  return resolveConsoleSections()
+  return consoleState().sections ?? []
 }
 
 export function getConsoleAuth(): ConsoleAuthMode | false {
-  return resolveConsoleAuth()
+  return consoleState().auth ?? false
 }
 
 export function getConsoleProjectName(): string | undefined {
-  return resolveConsoleProjectName()
+  return consoleState().projectName
 }
