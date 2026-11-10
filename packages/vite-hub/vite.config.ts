@@ -137,6 +137,7 @@ const runtimeEntries = [
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sign-in.ts",
   "src/console/runtime/server/sections.get.ts",
+  "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
 ];
@@ -551,6 +552,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/sign-in"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
+          delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           delete exports["./console/auth-cloudflare-access"];
@@ -571,6 +573,7 @@ export default defineConfig({
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
             "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
+            "./console/setup": "./dist/console/runtime/server/setup.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",

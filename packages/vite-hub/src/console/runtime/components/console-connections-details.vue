@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ConnectionInspection } from "@vite-hub/connections";
+import { Markdown } from "@vite-hub/ui";
 import { onMounted, ref, watch } from "vue";
 
 import {
@@ -195,6 +196,10 @@ onMounted(async () => {
           </dd>
         </template>
       </dl>
+      <section v-if="current.docs" aria-labelledby="connection-docs" class="space-y-2">
+        <h3 id="connection-docs" class="text-sm text-muted">Setup</h3>
+        <Markdown class="max-w-[75ch] break-words text-sm [--comark-grain:none] **:text-sm" :value="current.docs" />
+      </section>
       <p v-if="current.credential === 'chatgpt'" class="text-sm text-muted">
         Sign in from the app directory with
         <code class="break-all">vitehub connections connect {{ current.name }}</code>, then reload.
