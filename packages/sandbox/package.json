@@ -116,7 +116,6 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "catalog:tooling",
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
@@ -134,6 +133,7 @@
     "@types/ssh2": "^1.15.6",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/internal": "workspace:*",
+    "esbuild": "catalog:tooling",
     "miniflare": "4.20260730.0",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

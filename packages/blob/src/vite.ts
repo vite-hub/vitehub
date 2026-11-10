@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 
@@ -31,6 +32,10 @@ import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
 import type { Plugin, ResolvedConfig } from "vite"
+
+// Generated code imports these modules by path, so they need no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
+const runtimeStateModule = ownModule(import.meta.url, "runtime/state")
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
 const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
@@ -198,7 +203,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
  * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
  */
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule, requestBodyLimit?: number): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, workersModule = true, imageModule?: ImageModule, requestBodyLimit?: number): string {
   const cloudflareGlobals = cloudflare && workersModule
   const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined, requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit"]
   return [
@@ -206,7 +211,7 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
     // A literal import lets Nitro bundle or trace sharp for image variants.
     imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
-    `import { ${setters.filter(Boolean).join(", ")} } from '${importBase}/runtime/state'`,
+    `import { ${setters.filter(Boolean).join(", ")} } from ${JSON.stringify(runtimeStateModule)}`,
     "",
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
@@ -261,7 +266,7 @@ async function resolveImageModule(config: ResolvedConfig, root: string, blob: Bl
   return installed ? "sharp" : undefined
 }
 
-function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
+function renderNitroBlobMiddleware(workersModule = true): string {
   return [
     ...(workersModule
       ? [
@@ -269,7 +274,7 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule =
           "import { env as vitehubEnv } from 'cloudflare:workers'",
         ]
       : []),
-    `import { getRequestCloudflareEnv, setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
+    `import { getRequestCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(runtimeStateModule)}`,
     "",
     "export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0]) {",
     ...(workersModule
@@ -293,11 +298,9 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
-    `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
-    "type ServeContext = Exclude<Parameters<BlobStorage['serve']>[0], Request>",
     "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
@@ -315,6 +318,19 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "}",
     "",
     "async function serveBlob(request: Request): Promise<Response> {",
+    "  const response = await serveBlobResponse(request)",
+    "  if (response.status < 400) return response",
+    "  // H3 drops pending middleware headers for error Responses. Keep them, with the Blob headers taking precedence.",
+    "  const { res } = (request as Request & { '~standard'?: { res: { headers?: Headers } } })['~standard'] ?? {}",
+    "  const headers = new Headers(res?.headers)",
+    "  for (const [name, value] of response.headers) {",
+    "    if (name !== 'set-cookie') headers.set(name, value)",
+    "  }",
+    "  for (const cookie of response.headers.getSetCookie()) headers.append('set-cookie', cookie)",
+    "  return new Response(request.method === 'HEAD' ? null : response.body, { headers, status: response.status, statusText: response.statusText })",
+    "}",
+    "",
+    "async function serveBlobResponse(request: Request): Promise<Response> {",
     "  const url = new URL(request.url)",
     "  const pathname = blobPathname(request, url)",
     "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
@@ -327,18 +343,16 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  catch (error) {",
     "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
     "  }",
-    // `serve()` sets the configured headers and removes them again when it does not serve the object.
-    "  const [error, body] = await blob.store(storeName).serve(request, pathname, options)",
-    "  if (error) {",
-    "    if (error.code !== 'BLOB_NOT_FOUND') throw error",
-    "    return Response.json({ error: 'Blob not found.' }, { status: 404 })",
-    "  }",
-    "  // `serve()` writes the status and the headers to the Standard Context of the request. Move them to the Response,",
-    "  // so the host does not add them a second time. `body` is null only for a 304.",
-    "  const { res } = (request as Request & ServeContext)['~standard']",
-    "  const responseHeaders = new Headers(res.headers)",
-    "  for (const name of Array.from(responseHeaders.keys())) res.headers?.delete(name)",
-    "  return new Response(body, { headers: responseHeaders, status: body ? res.status ?? 200 : 304 })",
+    ...(serve.authorize
+      ? [
+          "  // H3 adds the headers that middleware set before this route over the returned Response. An authorized object",
+          "  // belongs to one user, so drop an earlier Cache-Control and keep the private policy of this route.",
+          "  const { res } = (request as Request & { '~standard'?: { res: { headers?: Headers } } })['~standard'] ?? {}",
+          "  res?.headers?.delete('cache-control')",
+        ]
+      : []),
+    // The Response of `serve()` has the final status and headers, also for a 304, a range, or a bad pathname.
+    "  return blob.store(storeName).serve(request, pathname, options)",
     "}",
     "",
     ...(serve.authorize
@@ -415,8 +429,8 @@ async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, b
   const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule, requestBodyLimit)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, !development, imageModule, requestBodyLimit)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(!development)),
   ])
   const serve = blob ? blob.serve : undefined
   if (!serve) return
@@ -462,8 +476,8 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
     name: BLOB_VITE_PLUGIN_NAME,
     api: { getConfig },
     vitehub: {
-      // The Console, `vitehub blob`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: "@vite-hub/blob/operations" }],
+      // The Console, `vitehub blob`, and agents run these.
+      operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: operationsModule }],
       cli: async () => {
         const { createBlobCliNamespaces } = await import(/* @vite-ignore */ "./cli.js")
         return {
@@ -499,7 +513,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
         )
         const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
         ;(config as { nitro?: unknown }).nitro = composedNitro
-        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/blob/operations")
+        return installStandaloneOperationRpc(config, env?.command ?? "build", operationsModule)
       },
     },
     async configResolved(config) {
@@ -571,15 +585,21 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
       if (!resolved || !siblingRuntime) return
       contributeProviderRuntime(useProviderOutputCatalog(resolved), siblingRuntime, siblingRuntimeGenerations.get(this))
     },
-    load(id) {
-      if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) {
-        return serializeVirtualConfig(getConfig())
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/blob\/config$/ },
+      handler(id) {
+        if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) {
+          return serializeVirtualConfig(getConfig())
+        }
+      },
     },
-    resolveId(id) {
-      if (id === BLOB_VIRTUAL_CONFIG_ID) {
-        return RESOLVED_BLOB_VIRTUAL_CONFIG_ID
-      }
+    resolveId: {
+      filter: { id: /^#vitehub\/blob\/config$/ },
+      handler(id) {
+        if (id === BLOB_VIRTUAL_CONFIG_ID) {
+          return RESOLVED_BLOB_VIRTUAL_CONFIG_ID
+        }
+      },
     },
   }
 }

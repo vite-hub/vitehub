@@ -8,7 +8,7 @@ export {
 } from "./errors.ts"
 export { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "./integrations/cloudflare.ts"
 export { getVercelWorkflowName } from "./integrations/vercel.ts"
-export { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "./runtime/client.ts"
+export { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./runtime/client.ts"
 export { readRequestPayload, readValidatedPayload, validatePayload } from "./runtime/payload.ts"
 export { createWorkflowCloudflareWorker } from "./runtime/cloudflare-vite.ts"
 
@@ -27,7 +27,6 @@ export type {
   WorkflowDefinitionOptions,
   WorkflowDefinitionRegistry,
   WorkflowCreateOptions,
-  WorkflowDeferOptions,
   WorkflowExecutionContext,
   WorkflowHandle,
   WorkflowHandler,

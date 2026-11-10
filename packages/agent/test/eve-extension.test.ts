@@ -15,7 +15,7 @@ import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { eveExtensionCapability } from "../src/eve.ts"
 import { createAgentChatApprovalCustody, withAgentChatApprovalGrant } from "../src/internal/chat-approvals.ts"
 import { agentToolJsonSchema } from "../src/tool-schema.ts"
-import { hubAgent, transformEveExtensionCapabilities } from "../src/vite.ts"
+import { agentRuntimeModule, hubAgent, transformEveExtensionCapabilities } from "../src/vite.ts"
 
 import type { AgentCapabilityContext, AgentToolDefinition } from "../src/types.ts"
 import type { ModelMessage } from "ai"
@@ -190,7 +190,7 @@ describe("Eve extension capabilities", () => {
       id,
     )
 
-    expect(transformed).toContain(`from "@vite-hub/agent/eve"`)
+    expect(transformed).toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`import github from`)
 
@@ -211,7 +211,7 @@ describe("Eve extension capabilities", () => {
       { parse: parseAst },
       source,
       join(root, "server", "agents", "other.ts"),
-    )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+    )).resolves.toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
 
     const watcher = new EventEmitter()
     await (plugin.configureServer as (server: unknown) => Promise<void>)({
@@ -227,7 +227,7 @@ describe("Eve extension capabilities", () => {
         { parse: parseAst },
         source,
         id,
-      )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+      )).resolves.toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
     }
     finally {
       await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
@@ -447,7 +447,7 @@ describe("Eve extension capabilities", () => {
     )).rejects.toThrow("cannot be imported separately as a runtime value")
   })
 
-  it("injects the configured Agent runtime import", async () => {
+  it("imports the Eve capability from the Agent file by path", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
         import { defineAgent } from "vite-hub/agent"
@@ -456,10 +456,9 @@ describe("Eve extension capabilities", () => {
       `,
       parseAst,
       async () => true,
-      "vite-hub/_internal/agent",
     )
 
-    expect(transformed).toContain(`from "vite-hub/_internal/agent/eve"`)
+    expect(transformed).toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
   })
 
   it("detects Eve extensions in factored Agent Definition options", async () => {

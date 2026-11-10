@@ -254,6 +254,47 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       expect(output.stdout).not.toContain(secretValue)
     }
   }, 60_000)
+  it.each(["check", "inspect"] as const)("runs %s with provider aliases and plugins when Nuxt gives the ssr environment to Nitro", async (command) => {
+    const root = await createStageFixture()
+    await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+    await mkdir(join(root, "server", "utils"), { recursive: true })
+    await writeFile(join(root, "server", "utils", "token.mjs"), 'export const token = "untransformed"\n')
+    await writeFile(join(root, "server", "token-provider.mjs"), [
+      'import { defineEnvProvider } from "@vite-hub/env/provider"',
+      'import { token } from "#server/utils/token.mjs"',
+      'import { stage } from "virtual:env-stage"',
+      `export default defineEnvProvider({ read: () => ({ token: stage === "production" && token === ${JSON.stringify(secretValue)} ? token : undefined }) })`,
+    ].join("\n"))
+    await writeFile(join(root, "nuxt.config.mjs"), "export default {}\n")
+    const kitRoot = join(root, "node_modules", "nuxt")
+    await mkdir(kitRoot, { recursive: true })
+    await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
+    // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
+    await writeFile(join(kitRoot, "kit.mjs"), [
+      'import { DevEnvironment } from "vite"',
+      'import { hubEnv, env } from "@vite-hub/env/vite"',
+      'export async function loadNuxt() {',
+      '  return { close: async () => {}, options: { vite: {',
+      '    environments: { ssr: { dev: { moduleRunnerTransform: false, createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } } },',
+      `    resolve: { alias: { "#server": ${JSON.stringify(join(root, "server"))} } },`,
+      '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" }, server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } }), {',
+      '      name: "env-provider-transforms",',
+      '      applyToEnvironment: environment => environment.name === "ssr",',
+      '      resolveId: id => id === "virtual:env-stage" ? "\\0virtual:env-stage" : undefined,',
+      '      load: id => id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined,',
+      `      transform: (code, id) => id.endsWith("/utils/token.mjs") ? code.replace('"untransformed"', ${JSON.stringify(JSON.stringify(secretValue))}) : undefined,`,
+      '    }],',
+      '  } } }',
+      '}',
+    ].join("\n"))
+    const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+    expect(await realFeature(command).run(["--stage", "production", "--json"], context)).toBe(command === "check" ? 1 : 0)
+    expect(JSON.parse(output.stdout)).toMatchObject({
+      entries: [{ path: "env.server.apiToken", status: "available" }, { path: "env.server.label", status: "missing" }, { path: "env.server.remote", source: "provider", status: "available" }],
+      ok: false,
+    })
+    expect(output.stdout).not.toContain(secretValue)
+  }, 60_000)
 })
 
 describe("env CLI with Vite stage files", () => {

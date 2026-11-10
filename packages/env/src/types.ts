@@ -143,6 +143,18 @@ export type EnvValueSchema =
   | { kind: "array", items?: EnvValueSchema }
   | { kind: "object", properties?: Record<string, EnvValueSchema> }
 
+/**
+ * A Standard Schema that the server build imports from a module. Server Env runs it on the raw value when it resolves,
+ * so refinements and transforms work. Create it with `env.schemaFrom()`.
+ */
+export interface EnvSchemaModuleReference {
+  kind: "schema-module"
+  /** Module specifier. A relative path resolves from the project root, like `hubEnv({ providers })`. */
+  module: string
+  /** Name of the export that holds the schema. */
+  export: string
+}
+
 export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]
 
 type EnvBuildConfigValue = EnvBuildConfigOptions | EnvBuildStaticValue | EnvVariableDeclaration
@@ -193,6 +205,7 @@ interface EnvRegistryEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: Extract<EnvSource, { kind: "env" | "provider" }>
 }

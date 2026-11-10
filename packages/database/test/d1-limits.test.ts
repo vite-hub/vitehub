@@ -140,9 +140,9 @@ describe("the Vite databases module", () => {
     // SAFETY: These are Vite hook handlers returned by hubDb.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, ...config })
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const load = plugin.load as (id: string) => string | undefined
+    const load = (plugin.load as { handler: (id: string) => string | undefined }).handler
     return load(resolveId("#vitehub/database/databases")!)
   }
 

@@ -20,6 +20,7 @@ export type {
   DeploymentPreset,
   EmailOptions,
   EnvOptions,
+  I18nOptions,
   KVOptions,
   ObservabilityEvlogOptions,
   ObservabilityLogsOptions,

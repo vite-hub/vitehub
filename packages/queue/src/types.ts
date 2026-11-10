@@ -149,7 +149,7 @@ export interface LocalQueueProviderOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
   provider: "local"
-  /** Queue Definition that receives the jobs. `getQueue()` sets it. */
+  /** Queue Definition that receives the jobs. `useQueue()` sets it. */
   queue?: string
   /** The provider whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the provider of the build. */
   rules?: LocalQueueRules
