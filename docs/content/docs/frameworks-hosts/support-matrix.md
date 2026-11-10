@@ -56,6 +56,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Connections | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
 | Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
+| I18n | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 |
 | Logs | Nitro | Nitro | Nitro | Nitro | Nitro | Host source | Nitro |
 | Observability | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog |
 <!-- support-matrix:application-features:end -->

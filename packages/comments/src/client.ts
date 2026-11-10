@@ -15,7 +15,7 @@ import type {
   CommentUsersInput,
 } from "./client-types.ts"
 
-export { createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
+export { anchorRange, createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
 export type {
   AnchorPoint,
   AnchorPosition,

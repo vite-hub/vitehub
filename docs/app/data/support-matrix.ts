@@ -256,6 +256,11 @@ const applicationFeatures: SupportMatrixGroup = {
       "Variables are validated at build and in the Nitro output of the selected host.",
       "Nitro runtime",
     )),
+    featureRow("i18n", "Source-text messages in the request locale", cell(
+      "available",
+      "Requires Nitro 3 with request async context, or Nuxt 5.",
+      "Nitro 3",
+    )),
     featureRow("logs", "Log sources and the development buffer", cell(
       "package",
       "Logs read the log source that the app configures for the deployment host.",

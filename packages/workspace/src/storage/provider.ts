@@ -171,10 +171,10 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
 
   if (store?.provider === "memory") return createMemoryWorkspaceStore()
   if (store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob") {
-    const loader = getWorkspaceHostedStoreLoader()
-    if (!loader && store.provider === "github") return createGitHubWorkspaceStore(store, definition.name)
-    if (!loader) throw workspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)
-    return loader(store, definition.name)
+    const hostedStore = getWorkspaceHostedStoreLoader()?.(store, definition.name)
+    if (hostedStore) return hostedStore
+    if (store.provider === "github") return createGitHubWorkspaceStore(store, definition.name)
+    throw workspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)
   }
 
   const root = store?.root

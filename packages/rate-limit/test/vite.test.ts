@@ -226,10 +226,10 @@ describe("hubRateLimit", () => {
     await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("uses the configured internal import base", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-import-base-"))
+  it("imports its runtime by file path, not through a package export", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-runtime-path-"))
     roots.push(root)
-    const plugin = hubRateLimit({ importBase: "vite-hub/_internal/rate-limit" } as never)
+    const plugin = hubRateLimit()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     await configResolved({
       build: { outDir: "dist" },
@@ -239,7 +239,7 @@ describe("hubRateLimit", () => {
       root,
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
-    expect(installer).toContain('from "vite-hub/_internal/rate-limit/runtime"')
+    expect(installer).toContain(`from ${JSON.stringify(join(import.meta.dirname, "../dist/runtime.js"))}`)
     expect(installer).not.toContain("@vite-hub/rate-limit/runtime")
     await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -247,7 +247,7 @@ describe("hubRateLimit", () => {
   it("leaves operation RPC installation to the root integration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-operations-"))
     roots.push(root)
-    const plugin = hubRateLimit({ importBase: "vite-hub/_internal/rate-limit" } as never)
+    const plugin = hubRateLimit()
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const serveConfig: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root, plugins: [plugin, { name: "vite-hub/dependencies" }] }
     expect(await config(serveConfig, { command: "serve" })).toBeUndefined()
@@ -258,7 +258,7 @@ describe("hubRateLimit", () => {
   })
 
   it("contributes the rate-limit operations", () => {
-    expect(hubRateLimit().vitehub.operations).toEqual([expect.objectContaining({ export: "rateLimitOperations", module: "@vite-hub/rate-limit/operations" })])
+    expect(hubRateLimit().vitehub.operations).toEqual([expect.objectContaining({ export: "rateLimitOperations", module: join(import.meta.dirname, "../dist/operations.js") })])
   })
 
   it("contributes the `vitehub rate-limit` CLI commands", async () => {

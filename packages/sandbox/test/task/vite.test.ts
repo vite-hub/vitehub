@@ -12,6 +12,13 @@ import { build as viteBuild, type AliasOptions } from "vite"
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
 
 const tempDirs: string[] = []
+
+function idHook(hook: unknown): (id: string) => string | undefined | Promise<string | undefined> {
+  const handler: unknown = typeof hook === "function" ? hook : Reflect.get(Object(hook), "handler")
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: The Sandbox Task state hooks take an id and return a resolved id or module source.
+  return handler as (id: string) => string | undefined | Promise<string | undefined>
+}
 const realpathMock = vi.hoisted(() => ({ windowsSeparators: false }))
 const runtimePreparationMock = vi.hoisted(() => ({
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
@@ -156,8 +163,8 @@ describe("hubSandboxTask", () => {
     } as never)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     const configResult = await configHook({
       root: rootDir,
@@ -174,6 +181,10 @@ describe("hubSandboxTask", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const ids = ["#vitehub/sandbox-task", resolvedId as string, "#vitehub/sandbox-task-registry", "#vitehub/sandbox-task/state", "@vite-hub/sandbox/task", "/app/server/api/run.ts"]
+    expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/sandbox-task", "\0vitehub:sandbox-task:state"])
+    expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(["#vitehub/sandbox-task", "\0vitehub:sandbox-task:state"])
     const alias = (configResult as { resolve: { alias: AliasOptions } }).resolve.alias
     const registryAlias = readAlias(alias, "#vitehub-sandbox-task-registry")!
     const providerLoaderAlias = readAlias(alias, "vitehub-sandbox-task-provider-loader")!
@@ -291,8 +302,8 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({
       root: rootDir,
@@ -352,8 +363,8 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({ root: rootDir, nitro: { preset: "vercel" } }, { command: "serve", mode: "development" })
 
@@ -644,8 +655,8 @@ describe("hubSandboxTask", () => {
     const plugin = hubSandboxTask()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
     const userConfig = {
       root: rootDir,
       nitro: { preset: "cloudflare-module" } as Record<string, any>,
@@ -755,8 +766,9 @@ describe("hubSandboxTask", () => {
       rollupConfig: {
         external: unknown
         plugins: Array<{
-          load: (id: string) => string
+          load: { filter: { id: RegExp }, handler: (id: string) => string }
           name: string
+          resolveId: { filter: { id: RegExp } }
           renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => { code: string }
         }>
       }
@@ -765,7 +777,10 @@ describe("hubSandboxTask", () => {
     expect(configuredNitro.rollupConfig.external).toEqual(["application-runtime", "cloudflare:workers"])
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-task-cloudflare-exports:Sandbox")
-    const exportsModule = rollupPlugin.load("\0virtual:vitehub-sandbox-task-cloudflare-exports")
+    const exportsModule = rollupPlugin.load.handler("\0virtual:vitehub-sandbox-task-cloudflare-exports")
+    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
+    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare"])
+    expect(ids.filter(id => rollupPlugin.load.filter.id.test(id))).toEqual(["\0virtual:vitehub-sandbox-task-cloudflare-exports"])
     expect(exportsModule).toContain("import { DurableObject } from 'cloudflare:workers'")
     expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")
     expect(exportsModule)
@@ -1245,8 +1260,8 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({
       root: rootDir,
@@ -1270,8 +1285,8 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({
       root: rootDir,

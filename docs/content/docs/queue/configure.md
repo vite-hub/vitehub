@@ -74,20 +74,20 @@ Turns off runtime dispatch and the generated Vercel consumer functions. Runtime 
 | Provider | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue`. Supports idempotency, region, retention, and delay. |
+| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
 | Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
 
 ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 
 ### Cloudflare names
 
-Without `binding`, the binding comes from the queue name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are `<namePrefix>queue--<hex-name>`. A name over 63 characters becomes a readable prefix plus a digest. Do not depend on these names. Call `runQueue()` with the queue name.
+Without `binding`, the binding comes from the queue name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are `<namePrefix>queue--<hex-name>`. A name over 63 characters becomes a readable prefix plus a digest. Do not depend on these names. Call `sendQueue()` with the queue name.
 
 ### Vercel region and topics
 
 Without `region`, ViteHub reads `QUEUE_REGION`, then `VERCEL_REGION`, then the headers of a Vercel request.
 
-Vercel topic names are `topic--<hex-name>`. Do not depend on them. Call `runQueue()` with the queue name.
+Vercel topic names are `topic--<hex-name>`. Do not depend on them. Call `sendQueue()` with the queue name.
 
 ## Define a queue
 

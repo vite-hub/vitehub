@@ -276,15 +276,13 @@ describe("package task runner", { timeout: 60_000 }, () => {
     expect(await readFile(log, "utf8")).not.toContain("test:start:@fixture/app")
   })
 
-  it("keeps packages outside the safe allowlist serial", async () => {
-    const result = await runFixture(["@fixture/serial-a", "@fixture/serial-b"], { VITEHUB_FIXTURE_DELAY: "20" })
+  it("builds independent packages together and keeps tests outside the safe allowlist serial", async () => {
+    const result = await runFixture(["@fixture/serial-a", "@fixture/serial-b"], { VITEHUB_FIXTURE_DELAY: "1000" })
 
     expect(result.code).toBe(0)
-    expect(result.log.trim().split("\n")).toEqual([
-      "build:start:@fixture/serial-a",
-      "build:end:@fixture/serial-a",
-      "build:start:@fixture/serial-b",
-      "build:end:@fixture/serial-b",
+    const events = result.log.trim().split("\n")
+    expect(events.slice(0, 2).sort()).toEqual(["build:start:@fixture/serial-a", "build:start:@fixture/serial-b"])
+    expect(events.slice(4)).toEqual([
       "test:start:@fixture/serial-a",
       "test:end:@fixture/serial-a",
       "test:start:@fixture/serial-b",
@@ -338,8 +336,10 @@ describe("package task runner", { timeout: 60_000 }, () => {
       const code = await exited
 
       expect(code).toBe(143)
-      expect(await readFile(log, "utf8")).toContain("build:signal:@fixture/interrupt")
-      expect(stdout).toContain("SKIP @fixture/serial-a")
+      const events = await readFile(log, "utf8")
+      expect(events).toContain("build:signal:@fixture/interrupt")
+      expect(events).not.toContain("test:start:")
+      expect(stdout).toMatch(/(?:FAIL|SKIP) @fixture\/serial-a/)
     }
     finally {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")

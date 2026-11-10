@@ -7,13 +7,13 @@ navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---
 
-A Queue splits two steps: accepting work and running it. `runQueue()` sends a
+A Queue splits two steps: accepting work and running it. `sendQueue()` sends a
 typed payload to the provider and returns when the provider accepts it. The
 handler runs later, often in another process or region.
 
 ## Acceptance is not completion
 
-`runQueue()` tells you only that the provider accepted the job, not what the
+`sendQueue()` tells you only that the provider accepted the job, not what the
 handler returned. To show progress, give the job an id or your own key, and
 store the final state in [KV](/docs/kv) or a [Database](/docs/database).
 

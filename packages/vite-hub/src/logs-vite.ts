@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
+import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { Plugin } from "vite";
@@ -46,7 +46,7 @@ export function logsVitePlugin(input: true | LogsOptions): Plugin {
           ? resolve(rootValue)
           : resolveViteHubProjectRoot(config.root ?? process.cwd());
       const source = "source" in options ? resolve(root, options.source) : undefined;
-      if (!source && environment.command === "build") {
+      if (!source && isProductionBuild(config, environment)) {
         throw new Error(
           '[vitehub] Production Logs needs an existing source. Set logs: { source: "./server/logs.ts" }. The local buffer is per process and has no durable history.',
         );

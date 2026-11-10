@@ -71,10 +71,10 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
       join(root, "server/api/onboard.post.ts"),
       [
         `import { defineEventHandler, readBody } from "h3"`,
-        `import { getWorkflowRun, runWorkflow } from "vite-hub/workflow"`,
+        `import { getWorkflowRun, startWorkflow } from "vite-hub/workflow"`,
         ``,
         `export default defineEventHandler(async (event) => {`,
-        `  const run = await runWorkflow("onboard-user", await readBody(event))`,
+        `  const run = await startWorkflow("onboard-user", await readBody(event))`,
         `  let state = await getWorkflowRun("onboard-user", run.id)`,
         `  for (let attempt = 0; state.status !== "completed" && attempt < 50; attempt++) {`,
         `    await new Promise(done => setTimeout(done, 20))`,
