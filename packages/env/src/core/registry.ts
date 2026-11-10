@@ -1,11 +1,12 @@
 import * as v from "valibot"
 
-import type { EnvValueSchema } from "../types.ts"
+import type { EnvSchemaModuleReference, EnvValueSchema } from "../types.ts"
 
 export interface RuntimeEnvEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: { canonical?: string | false, kind: "env", label: string, name: string, names?: string[], skipEmpty?: boolean }
 }
@@ -14,6 +15,7 @@ export interface RuntimeProviderEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: { key: string, kind: "provider", label: "provider", provider: string }
 }

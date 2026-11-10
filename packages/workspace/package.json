@@ -154,6 +154,7 @@
     "test": "vp run --cache -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/forge": "workspace:*",
