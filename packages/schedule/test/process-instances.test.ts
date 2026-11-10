@@ -1,4 +1,4 @@
-import { createMemoryLeaseStore } from "@vite-hub/runtime"
+import { createMemoryLeaseStore, createSqlLeaseStore } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineSchedule } from "../src/definition.ts"
@@ -45,6 +45,8 @@ interface InstallOptions {
   catchUpMs?: number
   leases: LeaseStore
   now: () => Date
+  onError?: (error: unknown) => void
+  prefix?: string
   registry: ScheduleDefinitionRegistry
   scheduleRunStore?: ScheduleRunStore
   startedStore?: StartedScheduleStore
@@ -61,7 +63,8 @@ async function install(server: ServerProcess, options: InstallOptions) {
     leaseTtlMs: 200,
     leases: options.leases,
     now: options.now,
-    onError: error => console.error(error),
+    onError: options.onError ?? (error => console.error(error)),
+    ...(options.prefix === undefined ? {} : { prefix: options.prefix }),
     registry: options.registry,
     scheduleRunStore: options.scheduleRunStore ?? createMemoryScheduleRunStore(),
   })
@@ -70,6 +73,49 @@ async function install(server: ServerProcess, options: InstallOptions) {
 }
 
 describe("Process Runtime on more than one process", () => {
+  it("isolates apps that share leases and use different prefixes", async () => {
+    const leases = createMemoryLeaseStore()
+    const handler = vi.fn()
+    const registry = { daily: async () => defineSchedule({ cron: "* * * * *", handler }) }
+    const now = () => minute("2026-11-09T08:00:10.000Z")
+
+    await install(await startProcess(), { leases, now, prefix: "app-a:schedule", registry })
+    await install(await startProcess(), { leases, now, prefix: "app-b:schedule", registry })
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2))
+    expect((await leases.get("app-a:schedule/schedule/srun_static_daily_2026-11-09T08:00:00.000Z/done"))[1]).not.toBeNull()
+    expect((await leases.get("app-b:schedule/schedule/srun_static_daily_2026-11-09T08:00:00.000Z/done"))[1]).not.toBeNull()
+  })
+
+  it.each([1, 2])("retries a Static Schedule after a lease outage within its catch-up window (minutes late: %s)", async (minutesLate) => {
+    const leases = createMemoryLeaseStore()
+    const acquire = leases.acquire.bind(leases)
+    const unavailable = createSqlLeaseStore({ dialect: "postgresql", query: async () => { throw new Error("Database unavailable") } })
+    let available = false
+    vi.spyOn(leases, "acquire").mockImplementation((key, options) => available ? acquire(key, options) : unavailable.acquire(key, options))
+    const onError = vi.fn()
+    const handler = vi.fn()
+    const time = clock("2026-11-09T08:00:10.000Z")
+    await install(await startProcess(), {
+      catchUpMs: 60_000,
+      leases,
+      now: time.now,
+      onError,
+      registry: { daily: async () => defineSchedule({ cron: "0 8 * * *", handler }) },
+    })
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled())
+
+    time.advance(minutesLate * 60_000)
+    available = true
+    if (minutesLate === 1) {
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: minute("2026-11-09T08:00:00.000Z") }))
+    }
+    else {
+      await sleep(100)
+      expect(handler).not.toHaveBeenCalled()
+    }
+  })
+
   it("runs each occurrence once when two processes share the leases", async () => {
     const time = clock("2026-11-09T08:00:10.000Z")
     const leases = createMemoryLeaseStore()
@@ -127,7 +173,7 @@ describe("Process Runtime on more than one process", () => {
     const scheduledAt = minute("2026-11-09T08:00:00.000Z")
     const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
     // The crashed process claimed the occurrence, started its run, and stopped without a done marker.
-    const [, crashed] = await leases.acquire(`schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
+    const [, crashed] = await leases.acquire(`vitehub:schedule/schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
     expect(crashed).not.toBeNull()
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: scheduledAt, id: runId, scheduleId: "daily", scheduledAt, startedAt: scheduledAt, status: "running", target: "daily", updatedAt: scheduledAt })
     await scheduleRunStore.createAttempt({ createdAt: scheduledAt, id: "satt_crashed", runId, startedAt: scheduledAt, status: "running", updatedAt: scheduledAt })
@@ -156,7 +202,7 @@ describe("Process Runtime on more than one process", () => {
     const scheduledAt = minute("2026-11-09T08:00:00.000Z")
     const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
     // At 08:00 a process claimed the occurrence, recorded its run as running, and crashed. Every process stopped.
-    await leases.acquire(`schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
+    await leases.acquire(`vitehub:schedule/schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: scheduledAt, id: runId, scheduleId: "daily", scheduledAt, startedAt: scheduledAt, status: "running", target: "daily", updatedAt: scheduledAt })
     await scheduleRunStore.createAttempt({ createdAt: scheduledAt, id: "satt_crashed", runId, startedAt: scheduledAt, status: "running", updatedAt: scheduledAt })
     const calls: string[] = []
@@ -185,8 +231,8 @@ describe("Process Runtime on more than one process", () => {
     const leases = createMemoryLeaseStore()
     const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
     // The process finished the run and wrote the done marker, then stopped before it released its claim.
-    await leases.acquire(`schedule/${runId}`, { ttl: 0.1 })
-    await leases.acquire(`schedule/${runId}/done`, { ttl: 60 })
+    await leases.acquire(`vitehub:schedule/schedule/${runId}`, { ttl: 0.1 })
+    await leases.acquire(`vitehub:schedule/schedule/${runId}/done`, { ttl: 60 })
     const handler = vi.fn()
 
     await install(await startProcess(), {

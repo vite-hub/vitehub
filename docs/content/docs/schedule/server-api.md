@@ -157,6 +157,7 @@ process.once('SIGTERM', () => void controller.close())
 | `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
 | `catchUpMs` | `number` | One hour | How far back the runtime runs minutes that no process checked. `0` disables catch-up. |
 | `leases` | `LeaseStore` | `createMemoryLeaseStore()` | Where processes claim each occurrence, so one process runs it. Give every process the same shared store. The memory store works for one process only. |
+| `prefix` | `string` | `vitehub:schedule` | Namespace for occurrence leases. Use the same prefix as the app's Schedule stores, and a different prefix for each app that shares a Database. |
 | `leaseTtlMs` | `number` | `60_000` | Milliseconds that a process holds an occurrence after it stops renewing it, for example after a crash. Then another process runs it, unless a process finished it. |
 
 Call `controller.close()` during shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.

@@ -23,7 +23,7 @@ async function projectRoot(): Promise<string> {
 
 async function generatedPlugin(plugins: unknown[]): Promise<string> {
   const root = await projectRoot()
-  const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process", leaseTtlMs: 30_000 } })
+  const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process", leaseTtlMs: 30_000, prefix: "app:schedule" } })
   await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>)(
     { plugins, root },
     { command: "build", mode: "production" },
@@ -39,6 +39,7 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
     expect(generated).toContain("const leases = scheduleLeaseStoreFromDatabase(databases.default.db)")
     expect(generated).toContain("...(leases ? { leases } : {}),")
     expect(generated).toContain("\"leaseTtlMs\": 30000")
+    expect(generated).toMatch(/const processRuntimeOptions = \{[^}]*"prefix": "app:schedule"/s)
   })
 
   it("keeps leases in memory without the Database plugin", async () => {

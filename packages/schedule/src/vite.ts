@@ -351,6 +351,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
         ...(processRuntime.concurrency !== undefined ? { concurrency: processRuntime.concurrency } : {}),
         ...(processRuntime.intervalMs !== undefined ? { intervalMs: processRuntime.intervalMs } : {}),
         ...(processRuntime.leaseTtlMs !== undefined ? { leaseTtlMs: processRuntime.leaseTtlMs } : {}),
+        ...(processRuntime.prefix !== undefined ? { prefix: processRuntime.prefix } : {}),
       }
     : undefined
   const leaseDatabaseImport = processRuntime ? options.leaseDatabaseImport : undefined

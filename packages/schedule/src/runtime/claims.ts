@@ -9,6 +9,8 @@ export interface OccurrenceClaimsOptions {
   leases: LeaseStore
   /** A label for the holder, such as `host:pid`. It is for inspection only. */
   owner?: string
+  /** Namespace shared by the servers of one app. Defaults to `vitehub:schedule`. */
+  prefix?: string
   reportError(error: unknown): void
   /** Milliseconds that a claim lasts when its process stops renewing it, for example after a crash. */
   ttlMs: number
@@ -26,27 +28,35 @@ export interface OccurrenceClaims {
   run(runId: string, run: () => Promise<unknown>): Promise<OccurrenceClaimResult>
 }
 
-const claimPrefix = "schedule/"
-
-/** The lease key of one occurrence, such as `schedule/srun_static_daily_2026-11-09T08:00:00.000Z`. */
-export function occurrenceLeaseKey(runId: string): string {
-  return `${claimPrefix}${runId}`
+/** The lease key of one occurrence within an app's Schedule prefix. */
+export function occurrenceLeaseKey(runId: string, prefix = "vitehub:schedule"): string {
+  const base = prefix.replace(/^\/+|\/+$/g, "")
+  return `${base ? `${base}/` : ""}schedule/${runId}`
 }
 
 /** The lease key that marks an occurrence as finished. */
-export function occurrenceDoneKey(runId: string): string {
-  return `${occurrenceLeaseKey(runId)}/done`
+export function occurrenceDoneKey(runId: string, prefix?: string): string {
+  return `${occurrenceLeaseKey(runId, prefix)}/done`
 }
 
-function keepAlive(lease: Lease, ttlMs: number, reportError: (error: unknown) => void): () => void {
+function keepAlive(lease: Lease, ttlMs: number, reportError: (error: unknown) => void): () => Promise<void> {
+  let stopped = false
+  let renewal: Promise<void> | undefined
   const timer = setInterval(() => {
-    void lease.renew().then(([error, renewed]) => {
+    if (renewal) return
+    renewal = lease.renew().then(([error, renewed]) => {
+      if (stopped) return
       if (error) reportError(error)
       else if (!renewed) reportError(new Error(`[vitehub] Schedule occurrence claim "${lease.key}" ended before its run finished. Another process can run it too. Make the claim TTL longer than a pause of this process.`))
-    })
+    }, error => { if (!stopped) reportError(error) }).finally(() => { renewal = undefined })
   }, Math.max(1, Math.floor(ttlMs / 3)))
   timer.unref?.()
-  return () => clearInterval(timer)
+  return async () => {
+    stopped = true
+    clearInterval(timer)
+    // Finish an earlier renewal before extending the claim to cover a failed done-marker write.
+    await renewal
+  }
 }
 
 export function createOccurrenceClaims(options: OccurrenceClaimsOptions): OccurrenceClaims {
@@ -55,11 +65,12 @@ export function createOccurrenceClaims(options: OccurrenceClaimsOptions): Occurr
   const owner = options.owner === undefined ? {} : { owner: options.owner }
   return {
     async run(runId, run) {
-      const [acquireError, lease] = await options.leases.acquire(occurrenceLeaseKey(runId), { ttl, ...owner })
+      const [acquireError, lease] = await options.leases.acquire(occurrenceLeaseKey(runId, options.prefix), { ttl, ...owner })
       if (acquireError) throw acquireError
       if (!lease) return "held"
+      let release = true
       try {
-        const [doneError, done] = await options.leases.get(occurrenceDoneKey(runId))
+        const [doneError, done] = await options.leases.get(occurrenceDoneKey(runId, options.prefix))
         if (doneError) throw doneError
         if (done) return "done"
         const stop = keepAlive(lease, options.ttlMs, options.reportError)
@@ -67,17 +78,26 @@ export function createOccurrenceClaims(options: OccurrenceClaimsOptions): Occurr
           await run()
         }
         finally {
-          stop()
-          const [markError, marked] = await options.leases.acquire(occurrenceDoneKey(runId), { ttl: doneTtl, ...owner })
-          if (markError) options.reportError(markError)
+          await stop()
+          const [markError, marked] = await options.leases.acquire(occurrenceDoneKey(runId, options.prefix), { ttl: doneTtl, ...owner })
+          if (markError) {
+            // Keep the claim for the same window as the missing marker. Renew checks the holder's ID.
+            release = false
+            options.reportError(markError)
+            const [renewError, renewed] = await lease.renew({ ttl: doneTtl })
+            if (renewError) options.reportError(renewError)
+            else if (!renewed) options.reportError(new Error(`[vitehub] Schedule occurrence "${runId}" lost its claim before its done marker could be saved. Another process can run it too.`))
+          }
           else if (!marked) options.reportError(new Error(`[vitehub] Schedule occurrence "${runId}" already had a done marker. Two processes ran it.`))
         }
         return "ran"
       }
       finally {
         // A failed release leaves the claim until its TTL ends. The done marker already stops a second run.
-        const [releaseError] = await lease.release()
-        if (releaseError) options.reportError(releaseError)
+        if (release) {
+          const [releaseError] = await lease.release()
+          if (releaseError) options.reportError(releaseError)
+        }
       }
     },
   }

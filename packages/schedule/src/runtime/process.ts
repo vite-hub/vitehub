@@ -46,6 +46,8 @@ export interface ProcessScheduleRuntimeOptions {
   /** Clock for tests. Defaults to the system clock. */
   now?: () => Date
   onError?: (error: unknown) => void
+  /** Namespace for occurrence leases. Use the same prefix as the app's Schedule stores. Defaults to `vitehub:schedule`. */
+  prefix?: string
   /** Static Schedule Definitions that this process runs on their cron. */
   registry: ScheduleDefinitionRegistry
   /** Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. */
@@ -135,6 +137,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     doneTtlMs: (options.catchUpMs ?? DEFAULT_CATCH_UP_MS) + leaseTtlMs + 2 * minuteMs,
     leases: options.leases ?? createMemoryLeaseStore(),
     owner: `${hostname()}:${process.pid}`,
+    prefix: options.prefix,
     reportError,
     ttlMs: leaseTtlMs,
   })
@@ -172,7 +175,14 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
       return recent.length < limit ? undefined : "unknown"
     },
     reportError,
-    retries: () => [...held.values()],
+    retries() {
+      const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
+      const since = currentMinute - (options.catchUpMs ?? DEFAULT_CATCH_UP_MS)
+      for (const [runId, input] of held) {
+        if (input.scheduledAt.getTime() < since) held.delete(runId)
+      }
+      return [...held.values()]
+    },
     wake(input) {
       if (closing) return Promise.resolve()
       const wake = (async () => {
@@ -193,16 +203,22 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           return
         }
         const runId = toRunId("static", entry.name, input.scheduledAt)
-        const result = await claims.run(runId, () => executeStaticSchedule({
-          claimed: true,
-          cron: entry.definition.cron,
-          definition: entry.definition,
-          name: entry.name,
-          scheduledAt: input.scheduledAt,
-          waitUntil,
-        }))
-        if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
-        else held.delete(runId)
+        try {
+          const result = await claims.run(runId, () => executeStaticSchedule({
+            claimed: true,
+            cron: entry.definition.cron,
+            definition: entry.definition,
+            name: entry.name,
+            scheduledAt: input.scheduledAt,
+            waitUntil,
+          }))
+          if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          else held.delete(runId)
+        }
+        catch (error) {
+          held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          throw error
+        }
       })()
       activeWakes.add(wake)
       void wake.finally(() => activeWakes.delete(wake)).catch(() => {})

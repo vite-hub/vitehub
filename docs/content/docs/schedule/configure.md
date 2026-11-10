@@ -41,12 +41,15 @@ Do not use this driver on request-scoped or serverless hosts that may stop betwe
 
 ### Run on more than one server
 
-Every server checks every Schedule, and one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `schedule/<run id>` in the `vitehub_leases` table of the Default Database. The other servers skip the occurrence and try again at their next scan. This works on Postgres and remote libSQL, such as Turso. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at start.
+Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. This works on Postgres and remote libSQL, such as Turso. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at start.
 
 | Case | What happens |
 | --- | --- |
 | The run works for a long time | The server renews its lease every third of `leaseTtlMs`. |
-| The run ends | The server writes a done marker, `schedule/<run id>/done`, and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so catch-up on another server does not run the occurrence again. |
+| The run ends | The server writes a done marker, `<prefix>/schedule/<run id>/done`, and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so catch-up on another server does not run the occurrence again. |
+| The done marker write fails | The server reports the error and tries to extend its claim for the same time as the marker, without releasing it. If that also fails, another server can run the occurrence after the claim expires. |
+| The server loses the Database, or its event loop pauses, for longer than `leaseTtlMs` | Its lease can expire while its handler still runs. Another server can then run the same occurrence at the same time. The runtime reports renewal failures, but cannot stop the handler or undo its effects. Choose a TTL longer than expected pauses and make external effects idempotent. |
+| The lease store fails before the run starts | The server reports the error and retries at its next scan, while the occurrence is inside `catchUpMs`. |
 | The handler fails | The run is final, as on one server. No server retries it. |
 | The server stops during the run | Its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless a done marker exists. The run gets a new attempt, and the stopped attempt is marked as failed. |
 | Every server restarts after a crash | At start, each server reads the Static Schedule runs inside `catchUpMs` that are still pending or running. It tries them like a held occurrence: one server runs each of them when the lease of the stopped server ends. |
@@ -55,7 +58,7 @@ Every server checks every Schedule, and one server runs each occurrence. Before 
 
 Without a Database, the leases stay in the memory of each server, and the build prints a warning. Then each server runs every occurrence, so run one server only. The Schedule Runs stay in KV. Use a KV store that all servers share, such as Upstash, so catch-up, `vitehub schedule runs`, and the Console see the runs of every server.
 
-Inspect the leases with SQL, for example `select "key", owner, expires_at from vitehub_leases where "key" like 'schedule/%'`. `owner` is the host name and process ID of the server.
+Inspect the leases with SQL, for example `select "key", owner, expires_at from vitehub_leases where "key" like 'vitehub:schedule/schedule/%'`. Replace `vitehub:schedule` with the app's prefix. `owner` is the host name and process ID of the server.
 
 ## Run a Schedule on another cron on one host
 
