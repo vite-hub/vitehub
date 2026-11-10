@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { findCommentsEntry } from "./entry.ts"
 
 import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
@@ -13,7 +14,7 @@ export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ p
   icon: "i-vitehub-comments",
   id: "comments",
   label: "Comments",
-  runtime: { export: "readCommentsConsoleRecords", module: "@vite-hub/comments/runtime/console" },
+  runtime: { export: "readCommentsConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [
       { key: "comment", label: "Comment" },
