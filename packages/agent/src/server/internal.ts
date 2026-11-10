@@ -63,10 +63,7 @@ export type {
   AgentTelegramPollingRouteOptions,
 } from "./routes.ts"
 
-export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inheritAgentLayerOptions } from "../agent-layers.ts"
-export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
-export { activeProviderSandbox } from "../internal/provider-box.ts"
-export { forgeAccessKey } from "../internal/forge-access.ts"
+export { inheritAgentLayerOptions } from "../agent-layers.ts"
 export { decodeColocatedAgentSkills, inspectAgentSkillFiles, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -82,3 +79,4 @@ type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R08
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {
   return agentDiagnostics[code]({ message })
 }
+export { agentChannelNames, namedChannelHosts, registerAgentChannels } from "../internal/named-channels.ts"

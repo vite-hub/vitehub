@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -1105,7 +1106,7 @@ describe("hubContent", () => {
     const operations = plugin.vitehub.operations
     if (!(operations instanceof Function)) throw new Error("expected a function that reads the project first")
     const entries = await operations()
-    expect(entries).toEqual([expect.objectContaining({ export: "contentOperations", module: "@vite-hub/content/operations" })])
+    expect(entries).toEqual([expect.objectContaining({ export: "contentOperations", module: ownModule(import.meta.url, "operations") })])
     expect(await entries[0]!.load!()).toBe(contentOperations)
     // An app without server/content.ts has no Content to operate on.
     const without = hubContent()

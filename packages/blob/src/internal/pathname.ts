@@ -19,7 +19,8 @@ function hasUnpairedSurrogate(value: string): boolean {
   return false
 }
 
-function pathnameIssue(pathname: string, prefix: boolean): string | undefined {
+/** Returns why a decoded pathname is unsafe, or `undefined` when it is valid. A list prefix can be empty. */
+export function pathnameIssue(pathname: string, { prefix = false } = {}): string | undefined {
   if (!pathname && !prefix) return "must not be empty"
   if (controlCharacters.test(pathname)) return "must not contain control characters"
   if (hasUnpairedSurrogate(pathname)) return "must contain well-formed Unicode"
@@ -32,7 +33,7 @@ function pathnameIssue(pathname: string, prefix: boolean): string | undefined {
  * folder, or bucket. A list prefix can be empty.
  */
 export function assertValidPathname(pathname: string, { prefix = false } = {}): string {
-  const issue = pathnameIssue(pathname, prefix)
+  const issue = pathnameIssue(pathname, { prefix })
   if (issue) {
     // H3 reads `statusCode`, so a route that lets this error through answers 400.
     throw Object.assign(

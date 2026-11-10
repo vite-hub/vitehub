@@ -3,6 +3,7 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import * as page from "../src/page.ts"
+import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { api } from "../src/overlay/api.ts"
 import { pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
@@ -85,6 +86,20 @@ async function startEdit() {
 }
 
 describe("the Comments overlay on a page", () => {
+  it("joins the new page's room when two pages map to the same subject", async () => {
+    await serveComments({
+      identify: () => ada,
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "one" }),
+    }, { realtime: true })
+    tools = pageTools()
+    document.documentElement.append(tools.pill)
+    ;({ shadow, overlay } = await startOverlay(tools))
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/"), expect.anything()))
+    history.pushState(null, "", "/v2")
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/v2"), expect.objectContaining({ params: { page: "/v2" } })))
+  })
+
   it("shares changes only through the authorized page room and ignores cursor-only updates", async () => {
     const { comments, requests } = await open({ content: false })
     await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalled())
