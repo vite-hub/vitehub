@@ -44,7 +44,7 @@ import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { getAgentChannelStatusDefinition } from "../internal/channel-status.ts"
 import type { AgentChannelStatus } from "../internal/channel-status.ts"
-import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
@@ -4503,7 +4503,7 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isAttachmentBlob(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
+  if (isAttachmentBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4550,12 +4550,12 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     } catch {
       return undefined
     }
-    if (isAttachmentBlob(data) && blobSize(data) > chatTextAttachmentMaxBytes) {
+    if (isAttachmentBlob(data) && data.size > chatTextAttachmentMaxBytes) {
       if (!options.rejectOversizedTextAttachments) return
       throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
     }
     try {
-      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(data)), options)
+      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await data.arrayBuffer()), options)
       return checkedTextAttachmentBytes(data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
@@ -4563,11 +4563,11 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     }
   }
   if (isAttachmentBlob(attachment.data)) {
-    if (blobSize(attachment.data) > chatTextAttachmentMaxBytes) {
+    if (attachment.data.size > chatTextAttachmentMaxBytes) {
       if (!options.rejectOversizedTextAttachments) return
       throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
     }
-    return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(attachment.data)), options)
+    return checkedTextAttachmentBytes(new Uint8Array(await attachment.data.arrayBuffer()), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -7997,10 +7997,10 @@ async function channelHistoryAttachment(
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
   if (isAttachmentBlob(data)) {
     const blob = isAttachmentBlob(data) ? data : undefined
-    if (blob && blobSize(blob) <= maxBytes) {
+    if (blob && blob.size <= maxBytes) {
       try {
         // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -8014,10 +8014,10 @@ async function channelHistoryAttachment(
   }
   if (isAttachmentBlob(data)) {
     const blob = isAttachmentBlob(data) ? data : undefined
-    if (blob && blobSize(blob) <= maxBytes) {
+    if (blob && blob.size <= maxBytes) {
       try {
         // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }

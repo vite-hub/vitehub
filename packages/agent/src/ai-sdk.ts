@@ -3,7 +3,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { getMessageText, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -364,14 +364,14 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 }
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
-  if (isAttachmentBlob(data)) return blobSize(data)
+  if (isAttachmentBlob(data)) return data.size
   if (isArrayBufferValue(data)) return data.byteLength
   if (isUint8ArrayValue(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
-  if (isAttachmentBlob(data) && blobType(data).startsWith("image/")) return blobType(data)
+  if (isAttachmentBlob(data) && data.type.startsWith("image/")) return data.type
   if (hasRuntimeType(data, "string")) {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType
@@ -416,7 +416,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   if (!resolved) return { byteLength: 0 }
   assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
   const data = isAttachmentBlob(resolved)
-    ? new Uint8Array(await blobArrayBuffer(resolved)).buffer
+    ? new Uint8Array(await resolved.arrayBuffer()).buffer
     : resolved
   const byteLength = attachmentDataByteLength(data) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)

@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { encodeUIMessageStream } from "./stream-output.ts"
 
@@ -15,36 +16,6 @@ function isAgentStreamResult(value: unknown): value is AgentStreamResult {
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
-function isResponseLike(value: unknown): value is Response {
-  try {
-    if (!hasRuntimeType(value, "object")) return false
-    const prototype = Response.prototype
-    const get = (name: string) => {
-      const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
-      if (!getter) throw new TypeError(`Missing Response accessor: ${name}`)
-      getter.call(value)
-    }
-    get("headers")
-    get("status")
-    get("statusText")
-    get("body")
-    get("bodyUsed")
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function isResponse(value: unknown): value is Response {
-  try {
-    return value instanceof Response || isResponseLike(value)
-  }
-  catch {
-    return false
-  }
 }
 
 const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])

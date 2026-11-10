@@ -2,7 +2,7 @@ import { createRuntimeContext } from "@vite-hub/runtime"
 import { createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
-import { defineAgent, registerResponseConstructor, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
+import { defineAgent, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
@@ -68,8 +68,7 @@ describe("runAgent()", () => {
     if (result) expectTypeOf(result.output).toEqualTypeOf<{ summary: string } | undefined>()
   })
 
-  it("drains a registered foreign Response", async () => {
-    registerResponseConstructor(ForeignResponse)
+  it("drains a foreign Response", async () => {
     const response = new ForeignResponse("foreign response")
     const agent = defineAgent({ driver: { run: () => response }, runtime: false })
     const [error, result] = await runAgent(agent, {})
