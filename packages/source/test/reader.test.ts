@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { clearSources, createSource, defineSource, registerSource, useSource } from "../src/index.ts"
-import { file } from "../src/file.ts"
+import { clearSources, createSource, defineSource, registerSource, useSource, file } from "../src/index.ts"
 import type { SourceContext } from "../src/index.ts"
 
 afterEach(clearSources)

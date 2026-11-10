@@ -1,33 +1,12 @@
 import ui from "@vite-hub/ui/vite";
 import vue from "@vitejs/plugin-vue";
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 import { consoleAppConfig } from "./src/console/app.config";
 import { consoleContributedSectionIcons } from "./src/console/contributions";
 
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
-const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
-const skillsOutDir = resolve(import.meta.dirname, ".vitehub/skills");
-// The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
-const consoleSkills = ["vitehub"];
-
-/** Copy the skills and write the well-known index that `npx skills add <app>/_vitehub` reads. */
-function writeConsoleSkills(): void {
-  rmSync(skillsOutDir, { force: true, recursive: true });
-  mkdirSync(skillsOutDir, { recursive: true });
-  const skills = consoleSkills.map((name) => {
-    const root = resolve(skillsSource, name);
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(root, "SKILL.md"), "utf8"))?.[1] ?? "";
-    const field = (key: string) => new RegExp(`^${key}: (.+)$`, "m").exec(frontmatter)?.[1];
-    const description = field("description");
-    if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
-    cpSync(root, resolve(skillsOutDir, name), { recursive: true });
-    return { name, description, files: readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort() };
-  });
-  writeFileSync(resolve(skillsOutDir, "index.json"), `${JSON.stringify({ skills }, null, 2)}\n`);
-}
 
 const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
@@ -38,6 +17,7 @@ export default defineConfig({
     alias: {
       "vite-hub/agent/vue": resolve(import.meta.dirname, "../agent/src/vue.ts"),
       "vite-hub/source/client": resolve(import.meta.dirname, "../source/src/client.ts"),
+      "shiki/wasm": resolve(clientRoot, "shiki-wasm.ts"),
       "vue-router": resolve(import.meta.dirname, "node_modules/vue-router"),
     },
     dedupe: ["vue", "vue-router"],
@@ -55,7 +35,6 @@ export default defineConfig({
         }
       },
     },
-    { name: "vitehub-console-skills", closeBundle: writeConsoleSkills },
     vue(),
     ...ui({
       comark: false,
@@ -64,6 +43,9 @@ export default defineConfig({
         // the root class and read the origin-wide `vueuse-color-scheme` key of the host app.
         colorMode: false,
         dts: false,
+        // Generate the theme classes of the Nuxt UI components that the Console and `@vite-hub/ui` use, not all 125.
+        experimental: { componentDetection: true },
+        scanPackages: ["@vite-hub/ui"],
         icon: {
           clientBundle: {
             // Contributed sections declare their icons in owner packages, which the scan does not read.

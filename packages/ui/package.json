@@ -253,14 +253,15 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/runtime#build && vp run -t @vite-hub/ui#build && vp test",
-    "test:browser": "vp run -t @vite-hub/ui#build && node --test test/browser/workspace.browser.mjs"
+    "test": "vp run --cache -t @vite-hub/runtime#build && vp run --cache -t @vite-hub/ui#build && vp test",
+    "test:browser": "vp run --cache -t @vite-hub/ui#build && node --test test/browser/workspace.browser.mjs"
   },
   "dependencies": {
     "@comark/vue": "0.8.1",
     "comark-chat": "catalog:",
     "@nuxt/kit": "4.6.2",
     "@shikijs/langs": "4.5.0",
+    "@shikijs/themes": "4.5.0",
     "@types/node": "catalog:tooling",
     "@vite-hub/comments": "workspace:*",
     "nostics": "catalog:runtime",

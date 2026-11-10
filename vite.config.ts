@@ -100,8 +100,8 @@ export default defineConfig({
       },
       "playground:vite:provision": {
         cache: false,
-        command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
-        dependsOn: ["@vite-hub/cli#build"],
+        command: "cd playground/vite && node ../../packages/vite-hub/dist/bin.js provision run",
+        dependsOn: ["vite-hub#build"],
       },
       preflight: {
         cache: false,

@@ -160,15 +160,15 @@ Most changes are options in `nuxt.config.ts`:
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
 | `base` | `/docs` | URL prefix whose folders are sections. |
-| `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
+| `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo`, `badge` (`{ label, tooltip }`). A `logo` path is a one-color SVG that the theme fills with the text color. `{ light, dark }` shows a colored logo as it is, with `dark` in dark mode. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
-| `socials` | `[]` | Community links in the header on every page, or in its menu on narrow screens. |
+| `socials` | `[]` | Community links at the foot of the docs sidebar and in the header of other pages, or in its menu on narrow screens. |
 | `footer` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy. |
 | `banner` | None | One line above every docs page. |
-| `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link to the header, with the star count when available. |
+| `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link beside the socials, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
@@ -187,16 +187,18 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 
 | Component | Part |
 | --- | --- |
-| `AppHeader` | Site header on every page, with search, GitHub, social links, and the color mode button. |
+| `AppHeader` | Site header, with search, GitHub, social links, and the color mode button. On wide screens it hides beside the docs sidebar. |
 | `AppSearch` | The search dialog. |
-| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The section rail, the page sidebar, and its title. |
+| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The section rail, the page sidebar with its brand, search, and title, and the row of links at its foot. |
 | `DocsPage`, `DocsArticle`, `DocsLanding`, `DocsMarkdown` | The page and its layouts. |
-| `DocsHeaderActions` | Empty. Replace it to add items to the site header, before search. |
+| `DocsHeaderActions` | Empty. Replace it to add items to the site header or the desktop sidebar footer. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
 
 Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, `::example` and `::examples`, `::correct` and `::incorrect`, `::code-tree`, `::page-list`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
+
+A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebars panel head />` to supply the sidebar controls and hide the desktop header. A replacement `DocsSidebars` can opt in with `data-docs-sidebar-head` on its root after it supplies the brand, badge tooltip, search, and `<DocsAsideFooter />`. The header owns one `DocsHeaderActions` instance and moves it into the mounted footer on wide screens.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 
@@ -248,7 +250,7 @@ Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console 
 
 ### Design
 
-The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. On docs pages the sidebar holds the brand, search, a rail of sections or groups next to the page list, and a row at its foot with GitHub, the socials, and the color mode button. Other pages, and phones, get a header with the same parts. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
@@ -287,7 +289,7 @@ A docs site on `vite-hub/nuxt` has ViteHub Comments on every page. The team pins
 pnpm add @vite-hub/comments
 ```
 
-The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Database. Run `vitehub db generate` and `vitehub db migrate` once. No `server/comments.ts` is needed; add one to set `authorize` or `people`.
+The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Database. Run `vitehub database generate` and `vitehub database migrate` once. No `server/comments.ts` is needed; add one to set `authorize` or `people`.
 
 - A thread belongs to the page path, such as `/docs/kv`, so it stays on its page across deploys.
 - Readers see nothing. The overlay loads only with `?vitehub` or the `vitehub-tools` cookie, for people that `authorize` lets read. Without `authorize`, a production build admits the people of the Console's Comments section and people signed in with GitHub who can push to the repository.
@@ -387,7 +389,7 @@ export const content = defineContent({
 
 ## Inspect
 
-- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. Components read it with `useDocsManifest()`. A script reads it with `createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
+- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. A script reads the whole manifest with `createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
 - The agent copy of each page is in `.nuxt/docs/raw/`.
 - The Markdown blocks that pages can use are in `.nuxt/docs/components.mjs`.
 - A running site serves the parsed page at `/api/_docs/page/<page>.json` and the search index at `/api/_docs/search.json`.

@@ -26,6 +26,29 @@ pnpm add -D drizzle-kit
 
 Add `console: { auth: false }` to `vitehub()` in `vite.config.ts`:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', console: { auth: false } },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -34,6 +57,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', console: { auth: false } })],
 })
 ```
+::::
+:::
 
 `console: { auth: false }` turns on the [Console](/docs/development/console) with no sign-in. Anyone who can reach the dev server can use it. Use it only on your own computer.
 
@@ -71,12 +96,12 @@ export const content = defineContent({
 Create the database tables that keep the drafts and their history:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-- `db generate` writes a migration file to `server/databases/migrations/`. A migration is a file that creates or changes tables.
-- `db migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
+- `database generate` writes a migration file to `server/databases/migrations/`. A migration is a file that creates or changes tables.
+- `database migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
 
 You did not define a database, so ViteHub uses one named `default`. To set it up yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
 
