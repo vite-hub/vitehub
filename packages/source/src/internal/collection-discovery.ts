@@ -1,12 +1,12 @@
 import { readFile, readdir } from "node:fs/promises"
 import { basename, extname, join, relative, resolve } from "node:path"
 
-import { argumentExpression, findCalls, findProperty, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, findCalls, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { findExportNames } from "mlly"
 
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { CallExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 export interface CollectionDiscoveryOptions {
   projectRoot: string
@@ -44,14 +44,16 @@ function exportedLocalName(module: ScannedModule, exportName: string): string | 
 
 /**
  * Finds the `defineCollection(...)` call that initializes the named export. An initializer with more than one call,
- * such as a conditional, has no known call: the scanner cannot know which branch runs.
+ * such as a conditional, has no known call: the scanner cannot know which branch runs. `exported` is true when the
+ * call is the initializer itself, so the export is the value that the call returns.
  */
-function findCollectionDefinitionCall(source: string, exportName: string, file: string): CallExpression | undefined {
+function findCollectionDefinitionCall(source: string, exportName: string, file: string): { call: CallExpression, exported: boolean } | undefined {
   const module = scanModule(source, file)
   const calls = findCalls(module, ["defineCollection"])
-  const callIn = (initializer: { end: number, start: number }) => {
+  const callIn = (initializer: Expression) => {
     const matches = calls.filter(call => call.start >= initializer.start && call.end <= initializer.end)
-    return matches.length === 1 ? matches[0] : undefined
+    const [call] = matches
+    return matches.length === 1 && call ? { call, exported: unwrapExpression(initializer) === call } : undefined
   }
   for (const initializer of declarationInitializers(module, exportName, true)) {
     const call = callIn(initializer)
@@ -67,11 +69,19 @@ function findCollectionDefinitionCall(source: string, exportName: string, file: 
   }
 }
 
-function collectionRouteDisabled(call: CallExpression | undefined): boolean {
-  if (!call) return false
-  const options = argumentExpression(call.arguments[1] ?? call.arguments[0])
-  const route = options?.type === "ObjectExpression" ? findProperty(options, "route")?.value : undefined
-  return route !== undefined && staticValue(route) === false
+/**
+ * True only for a literal `route: false` in the options of the exported `defineCollection()` call. A spread or a
+ * computed key after it can set `route` again when the module runs, so the route stays. Any other form keeps the route,
+ * and `defineCollectionHandler()` answers 404 at request time when the Collection has `route: false`.
+ */
+function collectionRouteDisabled(definition: { call: CallExpression, exported: boolean } | undefined): boolean {
+  if (!definition?.exported) return false
+  const options = argumentExpression(definition.call.arguments[1] ?? definition.call.arguments[0])
+  if (options?.type !== "ObjectExpression") return false
+  const properties = objectProperties(options)
+  const index = properties.findLastIndex(property => property.key === "route")
+  const route = properties[index]?.value
+  return route !== undefined && staticValue(route) === false && properties.slice(index + 1).every(property => property.key !== undefined)
 }
 
 export async function collectCollectionFiles(directory: string): Promise<string[]> {
@@ -111,7 +121,7 @@ export async function discoverCollections(options: CollectionDiscoveryOptions): 
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       const definition = findCollectionDefinitionCall(source, exportName, file)
-      return { definition, exportName, file, name, route: !collectionRouteDisabled(definition) }
+      return { definition: definition?.call, exportName, file, name, route: !collectionRouteDisabled(definition) }
     }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 
