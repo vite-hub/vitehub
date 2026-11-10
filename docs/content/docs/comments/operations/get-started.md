@@ -87,8 +87,8 @@ Here, every signed-in user reads and writes. Only an admin deletes the comments 
 Create the tables that hold the threads:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ## Read a thread

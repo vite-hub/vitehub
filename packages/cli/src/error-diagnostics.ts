@@ -42,7 +42,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         : `${String(file)} already defines a ${String(definition)} Definition that conflicts with ${String(starter)}, so the build would reject both.`,
     },
     SETUP_SERVER_DIR_MANUAL: {
-      fix: "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+      fix: ({ command }: { command?: unknown }) => command === "remove"
+        ? "Use literal rootDir and serverDir options without layers, or pass --force to turn the features off without checking unresolved Definition files."
+        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
       why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
     },
     SETUP_INPUT_NEEDED: {

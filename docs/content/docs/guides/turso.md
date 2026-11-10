@@ -98,9 +98,9 @@ provider stays Turso.
 Generate a migration if the schema changed. Review the SQL before you apply it:
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate --dry-run
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate --dry-run
+pnpm vitehub database migrate
 pnpm dev
 ```
 

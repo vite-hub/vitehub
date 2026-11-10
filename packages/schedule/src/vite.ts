@@ -6,7 +6,6 @@ import { dirname, relative, resolve, normalize } from "node:path"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
@@ -884,7 +883,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command)) {
         return
       }
       const config = resolved
@@ -977,7 +976,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       sequential: true,
       async handler() {
         if (providerOutputEnvironment.defers(this)) return
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },

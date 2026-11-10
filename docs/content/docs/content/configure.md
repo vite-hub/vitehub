@@ -33,8 +33,8 @@ Plugin options are read once. Rebuild the runtime to change them.
 | Source definition, such as `glob()` or `defineSource()` | Opens a new Reader per load. Overlapping refreshes, snapshots, and document reads keep their selected revisions. |
 | Registered Source name | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
-| Explicit reader with `items()` | Keeps its caller-owned lifecycle and revision across refreshes. |
-| `glob()` from `vite-hub/source/glob` | Serves project files, such as `glob('content/docs/**/*.md')`. The build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
+| Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
+| `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
 An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
@@ -50,7 +50,8 @@ Use a collection when people or Agents edit content at runtime. A collection sto
 Collections need a Workspace with retained history. The [CMS](/docs/cms) preset, `defineContent({ extends: cms })`, sets it up at build time. It turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds the history tables and the [Editing together](/docs/content/editing-together) `contentSessionsSchema` table to your Database (the implicit `default` Database if you define none).
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
@@ -60,14 +61,15 @@ export const content = defineContent({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
+Run `vitehub database generate` and `vitehub database migrate` before the first save. `vitehub()` needs no feature settings for the preset.
 
 To use your own Workspace, pass its name as `workspace` instead of `extends`. Its Store must keep history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. For presence and edit leases, add `contentSessionsSchema` from `vite-hub/content/database` to that Database. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
 ### Define collections
 
 ```ts [server/content.ts]
-import { defineContent, documents, optional } from 'vite-hub/content'
+import { defineContent, optional } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
@@ -213,7 +215,8 @@ The [Console editor](/docs/content/console#translations) switches between locale
 Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path in `collections`. It gets the same drafts, publishing, history, validation, and access.
 
 ```ts [server/content.ts]
-import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
+import { defineContent, image, optional } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -407,7 +410,7 @@ pnpm add comark-content
 import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
 	plugins: [sqliteFullTextSearch({ database: sqlite() })],

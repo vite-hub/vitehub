@@ -2,7 +2,6 @@ import { installStandaloneOperationRpc, publishStandaloneOperationServer } from 
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
   composeNitroCloudflareProviderOutput,
   contributeCloudflareProviderOutput,
@@ -231,7 +230,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       }
     },
     buildEnd(error) {
-      if (error || !cloudflareBindings || !resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (error || !cloudflareBindings || !resolved || shouldSkipViteProviderBuild(resolved.command)) return
       const configuredDeclarations = declarations
       collectDeclarations()
       if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {

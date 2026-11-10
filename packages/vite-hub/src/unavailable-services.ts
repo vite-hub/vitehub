@@ -30,6 +30,8 @@ const services: Record<OptionalService, { label: string, ownerPlugin: string, fi
 }
 
 const availabilityId = (service: OptionalService) => `#vitehub/${service}/availability`
+const availabilityIds = /^#vitehub\/(?:browser|realtime)\/availability$/
+const availabilityModules = /^\0#vitehub\/(?:browser|realtime)\/availability$/
 
 /**
  * Tells server code which optional services this build lacks, and why.
@@ -61,12 +63,18 @@ export function unavailableServicesPlugin(plan: DeploymentPlan, enabled: Record<
         if (config.plugins.some(plugin => plugin.name === services[service].ownerPlugin)) modules.delete(availabilityId(service))
       }
     },
-    resolveId(id) {
-      if (modules.has(id)) return `\0${id}`
+    resolveId: {
+      filter: { id: availabilityIds },
+      handler(id) {
+        if (modules.has(id)) return `\0${id}`
+      },
     },
-    load(id) {
-      const availability = id.startsWith("\0") ? modules.get(id.slice(1)) : undefined
-      if (availability) return `export default ${JSON.stringify(availability)}\n`
+    load: {
+      filter: { id: availabilityModules },
+      handler(id) {
+        const availability = id.startsWith("\0") ? modules.get(id.slice(1)) : undefined
+        if (availability) return `export default ${JSON.stringify(availability)}\n`
+      },
     },
   }
 }

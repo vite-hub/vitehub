@@ -77,7 +77,7 @@ async function bundleMiddleware(root: string, platform: "browser" | "node", midd
       name: "test-cloudflare-access-imports",
       setup(plugin) {
         plugin.onResolve({ filter: /^vite-hub\/console\/auth\/cloudflare-access$/ }, () => ({ path: resolve(packageRoot, "src/console/auth-cloudflare-access.ts") }))
-        plugin.onResolve({ filter: /^vite-hub\/env\/server$/ }, () => ({ path: resolve(packageRoot, "src/env/server.ts") }))
+        plugin.onResolve({ filter: /^vite-hub\/env$/ }, () => ({ path: resolve(packageRoot, "src/env.ts") }))
       },
     }],
   })

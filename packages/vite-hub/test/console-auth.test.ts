@@ -462,8 +462,9 @@ describe("independent Console Auth", () => {
       expect(middleware).toContain("path === '/_vitehub/sign-in'")
       // Only the schedule run route, and only with a dispatch signature, reaches its own verification without a session.
       expect(middleware).toContain("if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return")
-      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, toAuthRequest(event)")
-      expect(route).toContain("handleAuthRequest(definition, event, undefined, event)")
+      expect(await readFile(handlers.signIn, "utf8")).toContain("export default { fetch: request => consoleAuthSignInPage(signInProvider, request")
+      expect(route).toContain("async fetch(request) {")
+      expect(route).toContain("handleAuthRequest(definition, request, undefined, request)")
       expect(route).toContain('from "#vitehub/auth/server"')
     }
     finally {

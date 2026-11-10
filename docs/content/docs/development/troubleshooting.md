@@ -51,7 +51,7 @@ for the host). Dry-run provisioning, then build and inspect the output.
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 A build also fails when the host cannot give a feature you turned on. For

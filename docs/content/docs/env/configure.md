@@ -103,10 +103,10 @@ Pass these to the `env` option of `vitehub({ host: 'node' })`, or to `vitehub.en
 | `prefix` | `string \| false` | `'VITEHUB_'` | Prefix of [canonical variable names](#variable-names). `false` disables canonical names. |
 | `projectRoot` | `string` | ViteHub project root | Custom root for generated files and package import updates. |
 | `providers` | `Record<string, string>` | None | Maps runtime provider names to app modules. Relative paths start at the ViteHub project root. |
-| `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `EnvAccessContext` type. Also export `createServerEnvManagement` to get credential management, and `bindServerEnvSchemas` when declarations use `env.schemaFrom()`. |
+| `runtimeImports.secret` | `string` | `@vite-hub/env` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/internal/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `ViteHubContext` and `EnvAccessContext` types. Also export `createServerEnvManagement` to get credential management, and `bindServerEnvSchemas` when declarations use `env.schemaFrom()`. |
 
-To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime facade, re-export `deriveSecret` and `createSealing` from `@vite-hub/env/server`. The generated module uses these to read the project's development secret. Also re-export `seal` and `unseal` for their public types in generated declarations. Existing Env resolution and inspection operations do not require these sealing exports.
+To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime facade, re-export `deriveSecret` and `createSealing` from `@vite-hub/env/internal/server`. The generated module uses these to read the project's development secret. Also re-export `seal` and `unseal` for their public types in generated declarations. Existing Env resolution and inspection operations do not require these sealing exports.
 
 ## Env config sections
 

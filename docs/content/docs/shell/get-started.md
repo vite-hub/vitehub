@@ -23,7 +23,7 @@ Shell runs its commands on the files of a Workspace. A Workspace is a folder of 
 Install Shell and Workspace:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/shell @vite-hub/workspace
+pnpm add @vite-hub/shell @vite-hub/workspace valibot
 ```
 
 Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app. Shell needs no option, because your route creates it.

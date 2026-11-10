@@ -46,7 +46,7 @@ It does not start a server or call a provider.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 Use [`vitehub agent dev`](/docs/development/cli#talk-to-an-agent-during-development)
