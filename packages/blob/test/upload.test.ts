@@ -77,6 +77,16 @@ describe("handleUpload", () => {
       .rejects.toThrow("Expected a multipart/form-data request body.")
     expect(ok(await storage.list()).blobs).toEqual([])
   })
+
+  it("serves an uploaded type that a browser opens as a page in a CSP sandbox", async () => {
+    for (const type of ["text/html", "image/svg+xml", "multipart/x-mixed-replace; boundary=b", "multipart/mixed; boundary=b", "multipart/byteranges; boundary=b"]) {
+      const [object] = ok(await storage.handleUpload(formRequest([new File(["content"], "file", { type })]), { ensure: { maxSize: "1MB" } }))
+      const served = await storage.serve(new Request("http://localhost/file"), object!.pathname)
+      expect(served.headers.get("content-type"), type).toBe(type)
+      expect(served.headers.get("content-security-policy"), type).toBe("sandbox")
+      await served.body?.cancel()
+    }
+  })
 })
 
 describe("uploads from host Standard Context events", () => {

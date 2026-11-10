@@ -7,11 +7,13 @@ function mediaTypeEssences(contentType: string): string[] {
 const ACTIVE_ESSENCES = new Set(["text/html", "application/xhtml+xml", "text/xml", "application/xml", "text/xsl", "text/rdf"])
 
 /**
- * True for a MIME type that a browser opens as a page that can run script: HTML, XHTML, SVG, and XML types. Serve
- * them in a CSP sandbox, and do not accept them for a broad `ensure` type such as `image` or `text`.
+ * True for a MIME type that a browser opens as a page that can run script: HTML, XHTML, SVG, XML, and multipart types.
+ * A browser can open each part of a multipart body by the type of that part. Serve them in a CSP sandbox, and do not
+ * accept them for a broad `ensure` type such as `image` or `text`.
  */
 export function isActiveContentType(contentType: string): boolean {
-  return mediaTypeEssences(contentType).some(essence => ACTIVE_ESSENCES.has(essence) || essence.endsWith("+xml"))
+  return mediaTypeEssences(contentType).some(essence =>
+    ACTIVE_ESSENCES.has(essence) || essence.endsWith("+xml") || essence.startsWith("multipart/"))
 }
 
 // RFC 5987 `attr-char` keeps letters, digits, and !#$&+-.^_`|~. encodeURIComponent() keeps ' ( ) * too.

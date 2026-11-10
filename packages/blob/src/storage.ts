@@ -374,8 +374,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   }
   // A stored file can have any type that the uploader sent. Serve a type that a browser opens as a page in a CSP
   // sandbox, so it cannot run script on the app origin. The sandbox is added to a policy from the `headers` option.
-  function sandboxActiveContent(headers: Headers, options: BlobServeResponseOptions, contentType: string) {
-    if (!isActiveContentType(contentType)) return
+  // Without a type, for example before a transform runs, the response always gets the sandbox.
+  function sandboxActiveContent(headers: Headers, options: BlobServeResponseOptions, contentType?: string) {
+    if (contentType !== undefined && !isActiveContentType(contentType)) return
     const policy = new Headers(options.headers).get("Content-Security-Policy")
     headers.set("Content-Security-Policy", policy ? `${policy}, sandbox` : "sandbox")
   }
@@ -461,6 +462,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         if (etag) headers.set("ETag", etag)
         if (!options.transform) sandboxActiveContent(headers, options, meta.contentType || guessContentType(normalizedPath))
         if (["GET", "HEAD"].includes(request.method) && matchesETag(request.headers.get("if-none-match"), etag)) {
+          // A 304 replaces the headers that a cache stored. The transform result type is not known here, so a 304 for a
+          // transform always carries the sandbox. The sandbox does not change how an `<img>` shows an image.
+          if (options.transform) sandboxActiveContent(headers, options)
           return notModified(headers)
         }
 

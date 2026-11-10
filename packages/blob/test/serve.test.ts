@@ -675,6 +675,10 @@ describe("Blob responses for types that a browser opens as a page", () => {
     "image/png,image/svg+xml",
     "text/html (comment)",
     "text/html extra",
+    "multipart/x-mixed-replace; boundary=b",
+    "multipart/mixed; boundary=b",
+    "Multipart/Byteranges; boundary=b",
+    "image/png,multipart/x-mixed-replace;boundary=b",
   ])("serves %s in a CSP sandbox on GET, HEAD, 206, and 304", async (contentType) => {
     await storage.put("uploads/file", "content", { contentType })
 
@@ -729,6 +733,24 @@ describe("Blob responses for types that a browser opens as a page", () => {
     expect(served.headers.get("content-type")).toBe("image/svg+xml")
     expect(served.headers.get("content-security-policy")).toBe("sandbox")
     await served.body?.cancel()
+  })
+
+  it("keeps the sandbox on a 304 for a transform result, with a CSP from the headers option", async () => {
+    await storage.put("uploads/source.txt", "content", { contentType: "text/plain" })
+    const options = {
+      headers: { "Content-Security-Policy": "default-src 'self'" },
+      transform: { key: "as-html", run: async (original: Blob) => new Blob([await original.text()], { type: "text/html" }) },
+    }
+    const served = await storage.serve(request(), "uploads/source.txt", options)
+    expect(served.headers.get("content-security-policy")).toBe("default-src 'self', sandbox")
+    await served.body?.cancel()
+
+    // A 304 replaces the headers that a cache stored. The output type is not known before the transform runs.
+    for (const method of ["GET", "HEAD"]) {
+      const conditional = await storage.serve(request({ "if-none-match": served.headers.get("etag")! }, method), "uploads/source.txt", options)
+      expect(conditional.status).toBe(304)
+      expect(conditional.headers.get("content-security-policy")).toBe("default-src 'self', sandbox")
+    }
   })
 
   it("sends Content-Disposition: attachment with the pathname file name for download: true", async () => {
