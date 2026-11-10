@@ -603,7 +603,7 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 
 Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
-- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also get the loader when a route returns the page as a `Response`.
+- Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
 - Prerendered pages get the bootstrap at render time, so static hosting and CDNs still show the overlay. The server never adds a second script.
 
@@ -611,7 +611,7 @@ Every HTML page gets the page tools bootstrap, a short inline script before `</b
 
 With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/api/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
 
-ViteHub registers these routes below the part of the base that Nitro does not add. When Nitro `baseURL` is the same path, as Nuxt sets for `app.baseURL`, Nitro adds the base and ViteHub adds nothing. On Nuxt 4, a base set with `NUXT_APP_BASE_URL` at server start also works: the loader tag takes each request's base.
+ViteHub registers these routes below the part of the base that Nitro does not add. When Nitro `baseURL` is the same path, as Nuxt sets for `app.baseURL`, Nitro adds the base and ViteHub adds nothing.
 
 A prerendered site needs no extra route. Its pages have the bootstrap, so a Nuxt app on Cloudflare Workers can serve them as static assets, without `assets.run_worker_first`. Only the session route and Comments API run in the Worker.
 

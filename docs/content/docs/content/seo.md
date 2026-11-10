@@ -162,7 +162,7 @@ The sitemap lists:
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
-Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, on Nuxt 4 with Nitro 2, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
+Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
 
 Check the output from code:
 
@@ -171,7 +171,7 @@ await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://v
 content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
 ```
 
-In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
+In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
 
 ## Console
 

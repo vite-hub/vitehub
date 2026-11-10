@@ -224,6 +224,30 @@ describe("injectPageToolsLoader", () => {
 })
 
 describe("installViteHubPageTools on Nitro 3", () => {
+  it("returns a response that is not an HTML page without reading its body or the request URL", async () => {
+    const reads = { body: 0, url: 0 }
+    class CountedResponse extends Response {
+      override get body() {
+        reads.body++
+        return super.body
+      }
+    }
+    class CountedRequest extends Request {
+      override get url() {
+        reads.url++
+        return super.url
+      }
+    }
+    for (const response of [Response.json({ ok: true }), new Response("hello"), new Response("<body>Gone</body>", { status: 404, headers: { "content-type": "text/html; charset=utf-8" } })]) {
+      const original = new CountedResponse(response.body, response)
+      const app = { fetch: (_request: Request) => original }
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app)
+      expect(await app.fetch(new CountedRequest("http://site.test/"))).toBe(original)
+    }
+    expect(reads).toEqual({ body: 0, url: 0 })
+  })
+
   it.each(["", "?vitehub"])("uses a meta-only CSP nonce for a new page tools script with %s", async (search) => {
     const head = '<head><meta content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'" HTTP-EQUIV="Content-Security-Policy"></head>'
     const html = `${head}<body>Page</body>`

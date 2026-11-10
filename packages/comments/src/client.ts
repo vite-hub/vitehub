@@ -1,4 +1,4 @@
-import { commentsErrorDiagnostics } from "./client-errors.ts"
+import { commentsClientDiagnostics } from "./client-diagnostics.ts"
 
 import type {
   CommentCreateInput,
@@ -164,7 +164,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
         const snapshot = JSON.stringify(list)
         if (snapshot === previousSnapshot) break
         // A busy list must not cause unlimited requests or publish an incomplete cache. Keep the old cache on error.
-        if (scan === 2) throw commentsErrorDiagnostics.COMMENTS_R0015()
+        if (scan === 2) throw commentsClientDiagnostics.COMMENTS_R0015()
         previousSnapshot = snapshot
       }
       // A newer refresh, or a query change, makes this answer stale.

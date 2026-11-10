@@ -7,7 +7,7 @@ import type {
   AgentInvocationRecordStatus,
   AgentInvocationSummary,
 } from "./invocations.ts";
-import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { invocationDiagnostics } from "./invocation-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export interface AgentInvocationRequestOptions {
@@ -97,7 +97,7 @@ function parseInvocationSummary(value: unknown): AgentInvocationSummary {
     typeof value.traceId !== "string" ||
     typeof value.updatedAt !== "string"
   ) {
-    throw agentDiagnostics.AGENT_R0609({ message: "Invalid Agent Invocation response." });
+    throw invocationDiagnostics.AGENT_R0609({ message: "Invalid Agent Invocation response." });
   }
   return {
     ...value,
@@ -112,14 +112,14 @@ function parseInvocationSummary(value: unknown): AgentInvocationSummary {
 
 function parseInvocationListResult(value: unknown): AgentInvocationListResult {
   if (!isRecord(value) || !Array.isArray(value.invocations)) {
-    throw agentDiagnostics.AGENT_R0610({ message: "Invalid Agent Invocation list response." });
+    throw invocationDiagnostics.AGENT_R0610({ message: "Invalid Agent Invocation list response." });
   }
   if (value.cursor !== undefined && typeof value.cursor !== "string") {
-    throw agentDiagnostics.AGENT_R0611({ message: "Invalid Agent Invocation list cursor." });
+    throw invocationDiagnostics.AGENT_R0611({ message: "Invalid Agent Invocation list cursor." });
   }
   if (value.remainingStatuses !== undefined && (!Array.isArray(value.remainingStatuses)
     || !value.remainingStatuses.every(isInvocationStatus))) {
-    throw agentDiagnostics.AGENT_R0612({ message: "Invalid Agent Invocation remaining statuses." });
+    throw invocationDiagnostics.AGENT_R0612({ message: "Invalid Agent Invocation remaining statuses." });
   }
   return {
     ...(typeof value.cursor === "string" ? { cursor: value.cursor } : {}),
@@ -130,7 +130,7 @@ function parseInvocationListResult(value: unknown): AgentInvocationListResult {
 
 function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetailResult {
   if (!isRecord(value) || !Array.isArray(value.observations)) {
-    throw agentDiagnostics.AGENT_R0613({ message: "Invalid Agent Invocation detail response." });
+    throw invocationDiagnostics.AGENT_R0613({ message: "Invalid Agent Invocation detail response." });
   }
   const observations = value.observations.map((observation) => {
     if (
@@ -140,7 +140,7 @@ function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetail
       typeof observation.timestamp !== "string" ||
       !isTraceEventType(observation.type)
     ) {
-      throw agentDiagnostics.AGENT_R0614({ message: "Invalid Agent Invocation observation." });
+      throw invocationDiagnostics.AGENT_R0614({ message: "Invalid Agent Invocation observation." });
     }
     return {
       ...observation,
@@ -151,11 +151,11 @@ function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetail
     };
   });
   if (value.appendObservations !== undefined && typeof value.appendObservations !== "boolean") {
-    throw agentDiagnostics.AGENT_R0615({ message: "Invalid Agent Invocation observation page." });
+    throw invocationDiagnostics.AGENT_R0615({ message: "Invalid Agent Invocation observation page." });
   }
   const observationCursor = value.observationCursor;
   if (observationCursor !== undefined && typeof observationCursor !== "string") {
-    throw agentDiagnostics.AGENT_R0616({ message: "Invalid Agent Invocation observation cursor." });
+    throw invocationDiagnostics.AGENT_R0616({ message: "Invalid Agent Invocation observation cursor." });
   }
   const result: AgentInvocationDetailResult = {
     invocation: parseInvocationSummary(value.invocation),
@@ -383,7 +383,7 @@ export function useAgentInvocations(
       }
       revision++;
       if (loadMoreController && !resetFirstPage) {
-        loadMoreError.value = agentDiagnostics.AGENT_R0617({ message: "Loading older Agent Invocations was interrupted." });
+        loadMoreError.value = invocationDiagnostics.AGENT_R0617({ message: "Loading older Agent Invocations was interrupted." });
       }
       loadMoreController?.abort();
       loadMoreController = undefined;
