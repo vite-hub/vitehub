@@ -3,7 +3,8 @@
 //
 // Each page is a small project: a block with a file label, such as ```ts [server/db/schema.ts], is written
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
-// must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
+// must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment. A block that shows a
+// mistake on purpose names the errors it must fail with: ```ts [server/auth.ts] fails=TS2769.
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
@@ -15,6 +16,7 @@ const docsRoot = join(repoRoot, "docs")
 const packagesRoot = join(repoRoot, "packages")
 const fenceLanguages = new Set(["ts", "typescript", "tsx", "mts"])
 export const fragmentMarker = "fragment"
+export const failsMarker = "fails"
 
 function listMarkdown(directory) {
   return readdirSync(directory, { recursive: true, withFileTypes: true })
@@ -57,7 +59,8 @@ export function extractBlocks(markdown, languages = fenceLanguages) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
       const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
-      blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
+      const fails = meta.find(entry => entry.startsWith(`${failsMarker}=`))?.slice(failsMarker.length + 1).split(",").map(code => Number(code.replace(/^TS/, "")))
+      blocks.push({ code: body.join("\n"), end: end + 1, fails, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
     index = end
   }
@@ -158,6 +161,9 @@ export function collectSnippets(sources = snippetSources()) {
   return snippets
 }
 
+/** A whole file of the page's app. Excerpts and examples of mistakes are not part of it. */
+const isAppFile = snippet => !snippet.fragment && !snippet.fails
+
 const workflowStepFile = /(?:^|\/)workflows\/(.+)\/(\d+[.-]?[^/]*\.m?ts)$/
 
 /**
@@ -168,7 +174,7 @@ export async function generatedDeclarations(pageSnippets) {
   const workflows = new Map()
   for (const snippet of pageSnippets) {
     const match = workflowStepFile.exec(snippet.label ?? "")
-    if (!match || snippet.fragment) continue
+    if (!match || !isAppFile(snippet)) continue
     const definition = workflows.get(match[1]) ?? { handler: snippet.file.slice(0, -match[2].length - 1), name: match[1], steps: [] }
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
@@ -217,7 +223,7 @@ async function channelNames(label, code, pageSnippets) {
   const indexFolder = /^server\/channels\/(.+)\/index\.(?:[cm]?ts|tsx)$/i
   if (pageSnippets.some((snippet) => {
     const indexLabel = snippet.label?.replace(/^\/+/, "") ?? ""
-    const folder = !snippet.fragment && indexFolder.exec(indexLabel)?.[1]
+    const folder = isAppFile(snippet) && indexFolder.exec(indexLabel)?.[1]
     return folder && label !== indexLabel && label.startsWith(`server/channels/${folder}/`)
   })) return []
   const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
@@ -272,7 +278,7 @@ async function registryDeclarations(pageSnippets) {
   for (const registry of registries) {
     const definitions = new Map()
     for (const snippet of pageSnippets) {
-      if (snippet.fragment || !snippet.label) continue
+      if (!isAppFile(snippet) || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
       if (/\.d\.(?:[cm]?ts|tsx)$/i.test(label)) continue
       for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
@@ -306,7 +312,7 @@ async function envPluginDeclarations(plugins, config) {
  * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
  */
 async function envDeclarations(pageSnippets) {
-  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
+  const configs = pageSnippets.filter(snippet => isAppFile(snippet) && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
   if (!configs.length) return []
   const env = { public: {}, server: {} }
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
@@ -331,7 +337,7 @@ async function envDeclarations(pageSnippets) {
         }
       }
       catch {
-        // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
+        // Only excluded blocks may be skipped; a failed app config must not leave a partial Env contract.
         return []
       }
     }
@@ -386,7 +392,7 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
   }
   const lines = new Map(snippets.map(snippet => [snippet.file, snippet.line]))
   const shownVersion = (file, importer) => {
-    const shown = versions.get(file).filter(snippet => !snippet.fragment)
+    const shown = versions.get(file).filter(isAppFile)
     const line = lines.get(importer) ?? Number.POSITIVE_INFINITY
     return (shown.findLast(snippet => snippet.line < line) ?? shown[0])?.file ?? file
   }
@@ -463,6 +469,13 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     catch (error) {
       diagnostics = [{ code: 0, file: sourceFile, messageText: `TypeScript crashed: ${String(error).split("\n")[0]}`, start: 0 }]
     }
+    if (snippet.fails) {
+      // A mistake on purpose passes when it fails with exactly the errors that its marker names.
+      const codes = new Set(diagnostics.map(diagnostic => diagnostic.code))
+      const missing = snippet.fails.filter(code => !codes.has(code))
+      diagnostics = diagnostics.filter(diagnostic => !snippet.fails.includes(diagnostic.code))
+      if (missing.length) diagnostics.unshift({ code: 0, file: sourceFile, messageText: `The block is marked \`${failsMarker}=${snippet.fails.map(code => `TS${code}`).join(",")}\`, but it does not fail with ${missing.map(code => `TS${code}`).join(", ")}.`, start: 0 })
+    }
     if (!diagnostics.length) continue
     failures.push({
       snippet,
@@ -495,8 +508,9 @@ export function baselineEntry({ snippet, diagnostics }) {
 
 export function compareBaseline(failures, baseline) {
   const known = new Map(baseline.map(entry => [entry.id, entry]))
-  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
+  const failed = new Set(failures.filter(({ snippet }) => !snippet.fails).map(failure => snippetId(failure.snippet)))
   const fresh = failures.filter((failure) => {
+    if (failure.snippet.fails) return true
     const current = baselineEntry(failure)
     const expected = known.get(current.id)
     return !expected || expected.label !== current.label || expected.error !== current.error
@@ -516,6 +530,12 @@ export function updateBaseline(failures, path = baselinePath) {
   return true
 }
 
+/** Expected-error assertions always fail on a mismatch, even if a baseline once listed them. */
+export function checkBaseline(failures, baseline) {
+  const entries = failures.filter(({ snippet }) => !snippet.fails).map(baselineEntry)
+  return { entries, ...compareBaseline(failures, baseline) }
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const snippets = collectSnippets()
   // A page with generated declarations, such as Workflow step types, gets its own program, because two pages
@@ -532,18 +552,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...sharedCheck.failures,
     ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
   ]
-  const baseline = readBaseline()
+  const { fresh, stale } = checkBaseline(failures, readBaseline())
   if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {
     console.log(`Wrote ${failures.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
-  const { fresh, stale } = compareBaseline(failures, baseline)
   for (const { snippet, diagnostics } of fresh) {
     for (const diagnostic of diagnostics) console.error(`${snippet.page}:${diagnostic.line} TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}`)
   }
   for (const entry of stale) console.error(`${entry.id} passes now or changed. Remove it from ${relative(repoRoot, baselinePath)}.`)
   const fragments = snippets.filter(snippet => snippet.fragment).length
-  console.log(`${snippets.length - fragments} TypeScript blocks type-checked, ${fragments} marked \`${fragmentMarker}\`, ${failures.length} failed, ${failures.length - fresh.length} of them listed as known failures.`)
-  if (fresh.length) console.log(`Fix each new or changed failure, or add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file.`)
+  const mistakes = snippets.filter(snippet => snippet.fails).length
+  console.log(`${snippets.length - fragments} TypeScript blocks type-checked, ${fragments} marked \`${fragmentMarker}\`, ${mistakes} marked \`${failsMarker}\`, ${failures.length} failed, ${failures.length - fresh.length} of them listed as known failures.`)
+  if (fresh.length) console.log(`Fix each block, add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file, or \`${failsMarker}=TS<code>\` to a block that shows a type error on purpose.`)
   if (fresh.length || stale.length) process.exitCode = 1
 }

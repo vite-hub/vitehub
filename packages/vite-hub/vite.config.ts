@@ -369,6 +369,7 @@ export default defineConfig({
         },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/highlight-languages.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
