@@ -69,6 +69,7 @@ export default defineConfig({
       "src/workspace-boot-status.ts",
       "src/connect-panel.ts",
       "src/browser-support-notice.ts",
+      "src/playground.ts",
     ],
     exports: {
       customExports(exports) {
@@ -97,6 +98,6 @@ export default defineConfig({
       inlinedDependencies: false,
     },
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: true,
+    publint: "ci-only",
   },
 });

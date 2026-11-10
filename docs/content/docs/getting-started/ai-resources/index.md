@@ -7,18 +7,16 @@ navigation.order: 201
 icon: i-lucide-file-text
 ---
 
-ViteHub publishes documentation for people and for coding agents. You can use
-these resources when an agent writes or changes your application; they are
-optional when you are reading and coding by hand. Choose the resource that
-matches the task. A coding agent can use more than one: the skill gives it a
-process, and the MCP server gives it live lookups.
+Use these resources when a coding agent writes or changes your app. You do not
+need them when you code by hand. An agent can use more than one: the skill
+gives it a process, and the MCP server gives it live lookups.
 
 ## Choose by task
 
 | Task | Resource | Setup |
 | --- | --- | --- |
 | Build or change a ViteHub application | ViteHub skill | [Add the ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) |
-| Let the agent search and read the docs while it works | Docs MCP server | [Connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server) |
+| Let the agent search and read the docs as it works | Docs MCP server | [Connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server) |
 | Ask a chat tool about one page | Page actions and raw Markdown | [Copy a page for an LLM](/docs/getting-started/ai-resources/markdown-pages) |
 | Give a tool without skills or MCP a documentation map | `llms.txt` indexes | [Load a documentation index](#load-a-documentation-index) |
 
@@ -31,25 +29,24 @@ npx skills add https://vitehub.dev --skill vitehub --agent claude-code
 claude mcp add --transport http vitehub https://vitehub.dev/mcp
 ```
 
-Then ask for the result you want, not for a package recipe:
+Then ask for a result, not a package recipe:
 
 ```txt [Prompt]
 Add durable rate limiting to this server route with ViteHub and prove it locally.
 ```
 
-Cursor, VS Code, Windsurf, and Codex use other commands and configuration files. The [skill page](/docs/getting-started/ai-resources/agent-instructions-skills) and the [MCP page](/docs/getting-started/ai-resources/mcp-server) have a snippet for each.
+For Cursor, VS Code, Windsurf, and Codex, the [skill page](/docs/getting-started/ai-resources/agent-instructions-skills) and the [MCP page](/docs/getting-started/ai-resources/mcp-server) have a snippet for each.
 
 ## Load a documentation index
 
-Each index lists documentation pages and links every page to its raw Markdown version. Raw pages, `llms-full.txt`, and the MCP server contain all the text that the site shows, plus agent-only notes: routing hints, exact commands, and mistakes that coding agents make. The site does not show these notes.
+Each index links every docs page to its raw Markdown version. Raw pages, `llms-full.txt`, and the MCP server hold all the site text plus agent-only notes that the site hides: routing hints, exact commands, and common agent mistakes.
 
 | URL | Content |
 | --- | --- |
 | `https://vitehub.dev/llms.txt` | Every docs page, plus trust and developer resources. Start here. |
 | `https://vitehub.dev/llms-full.txt` | The complete documentation in one file. |
 
-Give the agent the index, then let it pick only the product pages the task needs.
-For example, an application that uses KV and Queue without Agents needs only those two product pages:
+Give the agent the index and let it pick only the pages the task needs. An app that uses KV and Queue without Agents needs only those two pages:
 
 ```txt [Agent flow]
 1. Read https://vitehub.dev/llms.txt.
@@ -59,22 +56,22 @@ For example, an application that uses KV and Queue without Agents needs only tho
 ```
 
 ::tip
-Use `llms-full.txt` for a broad audit, not for routine implementation. One raw page usually gives a coding agent a better signal.
+Use `llms-full.txt` for a broad audit, not routine work. One raw page usually gives a better signal.
 ::
 
 ## Find other machine-readable resources
 
 | Resource | Use |
 | --- | --- |
-| [ViteHub OpenAPI document](https://vitehub.dev/openapi.json) | Describes the resources that `vitehub.dev` serves. |
-| [Skill index](https://vitehub.dev/.well-known/skills/index.json) | Lists the skills that `vitehub.dev` publishes. The skills CLI reads this file. |
+| [ViteHub OpenAPI document](https://vitehub.dev/openapi.json) | Describes the resources `vitehub.dev` serves. |
+| [Skill index](https://vitehub.dev/.well-known/skills/index.json) | Lists the skills `vitehub.dev` publishes. The skills CLI reads it. |
 | [ViteHub Agent Skill](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md) | The entry file of the ViteHub skill. |
 | [ViteHub MCP server](https://vitehub.dev/mcp) | Streamable HTTP endpoint for MCP clients. |
 | [ViteHub CLI on npm](https://www.npmjs.com/package/vite-hub) | The `vite-hub` package includes the official `vitehub` command. |
 
 The OpenAPI document describes `vitehub.dev`, not a hosted runtime API.
-ViteHub runs inside your application, so the application endpoints depend on the Agent Definitions, Channels, and server routes that the application declares.
+ViteHub runs inside your app, so your endpoints come from the Agent Definitions, Channels, and server routes you declare.
 
 ::note
-The documentation describes the current published release. When an example and the installed package differ, the installed exports and types control the implementation. Ask the agent to report the difference.
+The docs describe the current published release. When an example and the installed package differ, follow the installed exports and types, and ask the agent to report the difference.
 ::

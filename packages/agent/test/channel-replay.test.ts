@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { dispatchChannelItems } from "../src/channel-replay.ts"
 import { defineAgent } from "../src/index.ts"
 import { bindAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
@@ -36,7 +36,7 @@ function mailbox(options: { maxLimit?: number } = {}) {
     querySchema: v.object({ folder: v.optional(v.picklist(["archive", "inbox"])) }),
   })
   const label = vi.fn()
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: history, key: email => email.id },
     message: {
       data: v.object({ id: v.string() }),
@@ -94,7 +94,7 @@ describe("replayChannel()", () => {
       maxLimit: 1,
       querySchema: v.object({}),
     })
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: { collection: history, key: email => email.id },
       triggers: {
         received: defineChannelTrigger({
@@ -122,7 +122,7 @@ describe("replayChannel()", () => {
       querySchema: v.object({}),
     })
     history.page = async () => ({ items: [emails[0]!], nextCursor: "start" })
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: { collection: history, key: email => email.id },
       triggers: {
         received: defineChannelTrigger({
@@ -185,7 +185,7 @@ describe("replayChannel()", () => {
   it("atomically excludes a webhook dispatch racing history replay", async () => {
     const invocations = memoryInvocations()
     let entered = 0
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: { collection: defineCollection(async () => [emails[0]!], { cursor: email => email.id, cursorSchema: v.string() }), key: email => email.id },
       triggers: { received: defineChannelTrigger({
         input: v.object({ folder: v.string(), id: v.string(), subject: v.string() }),
@@ -396,7 +396,7 @@ describe("replayChannel()", () => {
       if (fail) throw new Error("Trigger preparation failed")
       return { input: { prompt: "hello" } }
     })
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: { collection: defineCollection(async () => [emails[0]!], { cursor: email => email.id, cursorSchema: v.string() }), key: email => email.id },
       triggers: { received: defineChannelTrigger({ input: v.object({ folder: v.string(), id: v.string(), subject: v.string() }), invoke }) },
     })
@@ -501,7 +501,7 @@ describe("replayChannel()", () => {
   })
 })
 
-describe("defineChannel({ history })", () => {
+describe("channelAdapter({ history })", () => {
   it("rejects history without a Collection, key, or unambiguous trigger", () => {
     const collection = defineCollection(async () => [], { cursor: () => "", cursorSchema: v.string() })
     const triggers = {
@@ -509,11 +509,11 @@ describe("defineChannel({ history })", () => {
       b: { invoke: () => ({ input: {} }) },
     }
     // SAFETY: These runtime checks cover JavaScript callers that bypass the typed options.
-    expect(() => defineChannel("x", { history: { key: () => "" } as never, triggers })).toThrow(/requires a Collection/)
-    expect(() => defineChannel("x", { history: { collection } as never, triggers })).toThrow(/requires key/)
-    expect(() => defineChannel("x", { history: { collection, key: () => "" }, triggers })).toThrow(/requires trigger when the Channel has 2 triggers/)
-    expect(() => defineChannel("x", { history: { collection, key: () => "", trigger: "c" }, triggers })).toThrow(/must name one of the Channel triggers: a, b/)
-    expect(defineChannel("x", { history: { collection, key: () => "", trigger: "b" }, triggers }).history?.trigger).toBe("b")
+    expect(() => channelAdapter("x", { history: { key: () => "" } as never, triggers })).toThrow(/requires a Collection/)
+    expect(() => channelAdapter("x", { history: { collection } as never, triggers })).toThrow(/requires key/)
+    expect(() => channelAdapter("x", { history: { collection, key: () => "" }, triggers })).toThrow(/requires trigger when the Channel has 2 triggers/)
+    expect(() => channelAdapter("x", { history: { collection, key: () => "", trigger: "c" }, triggers })).toThrow(/must name one of the Channel triggers: a, b/)
+    expect(channelAdapter("x", { history: { collection, key: () => "", trigger: "b" }, triggers }).history?.trigger).toBe("b")
   })
 
   it("rejects raw Channel histories with multiple triggers and no explicit trigger", async () => {

@@ -18,6 +18,8 @@ import {
 } from "typescript";
 import { describe, expect, it } from "vitest";
 
+import { frameworkView } from "../modules/tutorials/build";
+
 const docsRoot = resolve(import.meta.dirname, "..");
 const canonicalPages = [
   "content/docs/env/index.md",
@@ -47,9 +49,13 @@ function declarationSection(call: CallExpression) {
     const envProperty = sections.parent;
     if (
       isObjectLiteralExpression(sections) &&
-      isPropertyAssignment(envProperty) &&
-      propertyName(envProperty.name) === "env" &&
-      envProperty.initializer === sections
+      ((isPropertyAssignment(envProperty) &&
+        propertyName(envProperty.name) === "env" &&
+        envProperty.initializer === sections) ||
+        (isCallExpression(envProperty) &&
+          isIdentifier(envProperty.expression) &&
+          envProperty.expression.text === "hubEnv" &&
+          envProperty.arguments[0] === sections))
     ) {
       return name;
     }
@@ -99,7 +105,7 @@ function optionsHaveBuildMode(options: ObjectLiteralExpression) {
 async function canonicalBuildDeclarations() {
   const declarations: CallExpression[] = [];
   for (const page of canonicalPages) {
-    const markdown = await readFile(resolve(docsRoot, page), "utf8");
+    const markdown = frameworkView(await readFile(resolve(docsRoot, page), "utf8"), "Vite");
     for (const source of typescriptExamples(markdown)) {
       declarations.push(
         ...directEnvDeclarations(source).filter((call) => {
@@ -125,14 +131,14 @@ describe("canonical Env documentation", () => {
 
   it("recognizes only direct canonical build-backed declarations", () => {
     const source = `
-      defineConfig({ env: {
+      hubEnv({
         public: {
           valid: env({ mode: "build" }),
           invalid: env.variable({ mode: "runtime" }),
           server: env({ mode: "runtime" }),
         },
         server: { token: env({ mode: "runtime" }) },
-      } })
+      })
     `;
     const declarations = directEnvDeclarations(source).filter((call) => {
       const section = declarationSection(call);

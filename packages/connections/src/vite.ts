@@ -8,6 +8,7 @@ import * as v from "valibot";
 import {
   createNoExternalAddition,
   hasNitroConfigContext,
+  isProductionBuild,
   isServerEnvironment,
   loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
@@ -20,6 +21,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 export { discoverConnectionDefinitions } from "./discovery.ts";
 import { resolveActivityRetention } from "./internal/activity-retention.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
@@ -375,7 +377,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
   const databaseName = options.databaseName ?? "default";
-  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw new Error(`[vitehub] connections.database must be a Database name, such as "users". Got ${JSON.stringify(databaseName)}.`);
+  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ name: databaseName, problem: "database" });
   const activityRetention = resolveActivityRetention(options.activityRetention);
   let resolved: ResolvedConfig | undefined;
   let definitions: DiscoveredConnectionDefinition[] = [];
@@ -526,10 +528,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       if (environment.command === "serve" || options.management) {
         const actorModule =
           (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
-        if (environment.command !== "serve" && !actorModule?.trim()) {
-          throw new Error(
-            "Connections management in production requires management: { actor: <authentication module> }.",
-          );
+        if (isProductionBuild(config, environment) && !actorModule?.trim()) {
+          throw connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "management-actor" });
         }
         const actorImport = actorModule?.startsWith(".") ? resolve(root, actorModule) : actorModule;
         const writeManagementHandler = async (managementRoute: string) => await writeFileIfChanged(
@@ -540,12 +540,10 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             ...(actorModule ? [`import actor from ${JSON.stringify(actorImport)}`] : []),
             "",
             // Without an actor module, only a development server allows management.
+            // The handler is a Fetchable: Nitro calls `fetch(event.req)`.
             actorModule
-              ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
-              : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
-            "",
-            // `handle` reads the Web Request from the event's Standard Context, on H3 1 and H3 2.
-            "export default (event: Parameters<typeof handle>[0]) => handle(event)",
+              ? `export default createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
+              : `export default createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
           ].join("\n"),
         );
@@ -598,11 +596,17 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const module = context.server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
       if (module) context.server.moduleGraph.invalidateModule(module);
     },
-    resolveId(id) {
-      if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+    resolveId: {
+      filter: { id: /^#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+      },
     },
-    load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+    load: {
+      filter: { id: /^\0#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+      },
     },
   };
 }

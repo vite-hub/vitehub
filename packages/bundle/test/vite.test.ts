@@ -138,7 +138,7 @@ it("shares an explicit Nuxt build session across serial Vite and Nitro phases", 
   const nitroConfig: { rolldown: { plugins?: unknown } } = { rolldown: {} }
   plugin.nitro.setup({
     options: { dev: false, rootDir: root },
-    hooks: { hook(_name, callback) { callback({}, nitroConfig) } },
+    hooks: { hook(_name, callback) { callback({}, nitroConfig) }, callHook() {} },
   })
   const run = async () => {
     plugin.api.startBuild()

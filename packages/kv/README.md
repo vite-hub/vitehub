@@ -40,11 +40,10 @@ import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  kv: {
+  plugins: [hubKv({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
-  },
-  plugins: [hubKv()],
+  })],
 })
 ```
 
@@ -68,7 +67,7 @@ An explicit `driver` is honored as before; an `upstash` store prints the same no
 
 ## Nitro cache
 
-`@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+`kvNitroCacheDriver` from `@vite-hub/kv/vite` is the file path of an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
 
 ## Listing keys
 
@@ -116,6 +115,6 @@ export default defineNitroPlugin((nitroApp) => {
 
 `hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
-Each command runs a `kv.*` operation of the app through the Console RPC (`@vite-hub/kv/operations`). On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
+Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
