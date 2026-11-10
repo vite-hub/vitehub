@@ -123,7 +123,10 @@ function wantsPage(request: Request, kind: BodyKind): boolean {
   return kind === "form" && (request.headers.get("accept") ?? "").includes("text/html")
 }
 
-/** A browser form without JavaScript goes back to its page, with `?form=sent` or `?form=error`. */
+/**
+ * A browser form without JavaScript goes back to its page, with `?form=<name>.sent` or `?form=<name>.error` when
+ * `name` is set, else `?form=sent` or `?form=error`.
+ */
 export function back(request: Request, page: string | null, result: "sent" | "error", name?: string): Response {
   const url = new URL(page ?? "/", request.url)
   // The form name tells two forms on one page apart: `?form=contact.sent`.
