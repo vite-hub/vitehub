@@ -23,6 +23,7 @@ import { installConsoleDefinitions } from "../src/console/runtime/server/definit
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 // Content contributes its Console actions by the path of its own file.
 const contentConsoleModule = ownModule(new URL("../../content/package.json", import.meta.url).href, "runtime/console")
@@ -335,7 +336,7 @@ describe("Console document editor discovery", () => {
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
       { entry, export: "createContentConsoleActions", module: contentConsoleModule, section: "content" },
     ])
-    expect(source).toContain(`import { installConsoleDocuments } from "vite-hub/console/documents"`)
+    expect(source).toContain(`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`)
     // Content reaches MCP through its operations, so the plugin registers no Content tools.
     expect(source).not.toContain("registerContentMcpTools")
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from ${JSON.stringify(contentConsoleModule)}`)
