@@ -1,6 +1,6 @@
 ---
 title: Browser limits and errors
-description: Know Browser action timeouts, live handoff limits, and engine differences, and check Browser before production.
+description: Browser action timeouts, live handoff limits, engine differences, and checks before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -9,22 +9,23 @@ icon: i-lucide-circle-alert
 ## Limits
 
 - Browser Definitions and actions require the Cloudflare preset.
-- A Browser action waits 30 seconds by default. Timeout fields in the action input extend the wait, up to 6 minutes plus a 30-second grace period.
+- A Browser action waits 30 seconds by default. Timeout fields in the action input raise this to at most 6 minutes plus 30 seconds of grace.
 - The Kitesurf engine has no idle timeout and no live handoff.
-- Handoff refs expire after 60 seconds by default. Set `policy.handoffTtl` on `createBrowser()` or pass `ttl` to `session.handoff()`.
+- Handoff refs expire after 60 seconds by default. Change it with `policy.handoffTtl` on `createBrowser()` or `ttl` on `session.handoff()`.
 
 ## Errors
 
 ### BROWSER_UNAVAILABLE
 
-The build does not enable Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response; `runBrowser()` and Definitions throw it. `error.details` has the `preset`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other presets have no Browser provider. Check `isBrowserAvailable()` before you call Browser on those hosts. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
+The build does not turn on Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response. `runBrowser()` and Definitions throw it. `error.details` has the `preset`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other presets have no Browser provider, so check `isBrowserAvailable()` first. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
 
 ## Production checks
 
-Run browser automation only from trusted server code. Browser sessions can observe authenticated pages, cookies, screenshots, network responses, and rendered private UI.
+Run browser automation only from trusted server code. A session can see logged-in pages, cookies, screenshots, network responses, and private UI.
 
-When a request supplies the destination URL, validating only the first URL is not sufficient. Enforce protocol, host, and resolved-address policy for every browser request, including redirects and subresources, or restrict browser egress at the provider. Treat the returned page as untrusted input.
+> [!WARNING]
+> When a request gives the URL, checking only the first URL is not enough. Check the protocol, host, and resolved address of every request, including redirects and subresources, or limit network access at the provider. Treat the page as untrusted input.
 
-Do not log provider session ids, CDP endpoints, cookies, authorization headers, or raw handoff refs. Treat screenshots and downloaded files as user data. Route them through the same storage, retention, and approval policies as other artifacts.
+Do not log provider session ids, CDP endpoints, cookies, authorization headers, or raw handoff refs. Screenshots and downloads are user data: apply your artifact storage, retention, and approval rules.
 
-Inspect the generated `wrangler.json` before deployment, and test the deployed Worker. A successful build proves imports and generated output, not provider availability. Run `vitehub inspect definitions` to list discovered Browser Definitions.
+Inspect the generated `wrangler.json` before you deploy, and test the deployed Worker. A good build proves imports and generated output, not that the provider works. Run `vitehub inspect definitions` to list Browser Definitions.

@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 
 import { defineConfig } from "vite"
 
-import { overlayAliases, standaloneUI } from "./overlay.aliases.ts"
+import { overlayAliases, standaloneStyles, standaloneUI } from "./overlay.aliases.ts"
 
 const root = import.meta.dirname
 
@@ -17,7 +17,7 @@ export default defineConfig({
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: "false",
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
-  plugins: [standaloneUI()],
+  plugins: [standaloneUI(), standaloneStyles()],
   resolve: { alias: overlayAliases, dedupe: ["vue"] },
   build: {
     // Only this build writes here, so old chunks go.

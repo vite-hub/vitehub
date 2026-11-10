@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
-import { defineChannel, defineChannelTrigger, type AgentChannelState, type AgentDurableChannelTriggerContext } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, type AgentChannelState, type AgentDurableChannelTriggerContext } from "../src/channels.ts"
 
 describe("Channel trigger durableState", () => {
   it("types channelState as present with durableState: true", () => {
@@ -11,7 +11,7 @@ describe("Channel trigger durableState", () => {
         return { input: { prompt: context.channelState.keyPrefix } }
       },
     })
-    defineChannel("tickets", { messages: false, triggers: { opened: trigger } })
+    channelAdapter("tickets", { messages: false, triggers: { opened: trigger } })
   })
 
   it("keeps channelState optional without durableState", () => {
@@ -23,12 +23,12 @@ describe("Channel trigger durableState", () => {
           return { input: { prompt: "triage" } }
         },
       })
-      defineChannel("tickets", { messages: false, triggers: { opened: trigger } })
+      channelAdapter("tickets", { messages: false, triggers: { opened: trigger } })
     }
   })
 
   it("types inline Channel triggers by durableState", () => {
-    defineChannel("tickets", {
+    channelAdapter("tickets", {
       messages: false,
       triggers: {
         durable: {

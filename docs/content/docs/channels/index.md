@@ -11,7 +11,7 @@ icon: i-lucide-send
   :::code-tree
   ```ts [server/channels/stripe.ts] fragment
   import { defineChannel, stripe } from 'vite-hub/channels'
-  import { runQueue } from 'vite-hub/queue'
+  import { sendQueue } from 'vite-hub/queue'
 
   // The file name makes this the "stripe" Channel.
   export default defineChannel({
@@ -21,7 +21,7 @@ icon: i-lucide-send
       // Runs once per Stripe event ID, after ViteHub stores it.
       // A failed Result retries the event.
       'checkout.session.completed': event =>
-        runQueue('fulfil', event.data),
+        sendQueue('fulfil', event.data),
     },
   })
   ```
@@ -41,9 +41,18 @@ icon: i-lucide-send
   import { slack } from 'vite-hub/agent/channels'
   import { defineChannel } from 'vite-hub/channels'
 
-  // Sends through your Chat SDK Slack adapter
+  // The Agent that lists "slack" answers its messages.
   export default defineChannel({
     adapter: slack({ adapter: createSlackAdapter() }),
+  })
+  ```
+
+  ```ts [server/agents/support.ts]
+  import { defineAgent } from 'vite-hub/agent'
+
+  export default defineAgent({
+    channels: ['slack'],
+    driver: { model: 'openai/gpt-5.1-mini' },
   })
   ```
 
@@ -73,11 +82,15 @@ icon: i-lucide-send
   :::
 
   :::product-feature-item{title="A target for each event" icon="i-lucide-route" to="/docs/channels/server-api#receive-webhooks"}
-  Send an event to a handler, a Queue, a Workflow, or a trigger that starts an Agent.
+  Send an event to a handler, a Queue, a Workflow, or the Agent that lists the Channel.
   :::
 
   :::product-feature-item{title="Send from anywhere" icon="i-lucide-code-2" to="/docs/channels/server-api#send-a-message"}
   `useChannel(name).send()` returns `[undefined, receipt]` or `[error, undefined]`.
+  :::
+
+  :::product-feature-item{title="Start a trigger from code" icon="i-lucide-timer" to="/docs/channels/server-api#start-a-trigger-from-code"}
+  A Schedule starts a Channel trigger with the same delivery rules, without a fake webhook.
   :::
 
   :::product-feature-item{title="Logs without message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-a-message"}
@@ -86,7 +99,7 @@ icon: i-lucide-send
 ::
 
 ::agent-only{skill="channels"}
-A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`). Outbound messages go through `useChannel(name).send()` from any server code.
+A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`), or to the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. Outbound messages go through `useChannel(name).send()` from any server code. `sendChannelTrigger(name, trigger, input)` starts a trigger from code, such as a Schedule, with the same delivery rules as a webhook.
 
 Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Inbound Channels need `agent: true` next to `channels: true`. Keep secrets in Server Env and never parse or verify a webhook by hand.
 

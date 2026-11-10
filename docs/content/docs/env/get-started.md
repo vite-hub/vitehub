@@ -1,38 +1,52 @@
 ---
-
 title: Read your first environment value
-description: Declare an app name in your Vite config and read it in your code, with its type.
+description: Declare an app name in your config and read it in a server route, with its type.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Env gives your app its settings, such as its name, URLs, and API keys. You declare each value once in `vite.config.ts`. Then you read it in your code, with the correct type.
+Env gives your app its settings, such as its name, URLs, and API keys. You declare each value once in your config. Then you read it in your code, with the correct type.
 
-In this tutorial, you declare an app name, `Acme`, and print it from your code.
+In this tutorial, you declare an app name, `Acme`, and return it from a server route.
 
 > [!NOTE] Before you start
-> You need Node.js 22.18 or newer, pnpm, and a Vite app. Run the commands in the root folder of the app. You need no account and no API key.
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Declare the value"}
+## Declare the value
 
-Add Env to your app:
+Add an `env` block to your config. In Vite, `env` is a top-level key next to `plugins`. In Nuxt, it goes in `vitehub.env`. Keep the other options of your app.
 
-```bash pm [commands/install]
-pnpm add @vite-hub/env @vite-hub/runtime
-pnpm add -D vite
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+    },
+  },
+})
 ```
+:::
 
-Add `hubEnv()` and an `env` block to `vite.config.ts`. Keep the other plugins of your app.
-
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     public: {
       appName: env({ default: 'Acme', mode: 'build' }),
@@ -40,6 +54,25 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+  },
+})
+```
+:::
+::
 
 - `public` holds values that browser code can read. Every visitor can see them, so never put a password or an API key here. Put secrets in `env.server`, and read them only in server code.
 - `default: 'Acme'` is the value when no environment variable sets it. So you need no environment variable for this tutorial.
@@ -50,49 +83,44 @@ export default defineConfig({
 ::tutorial-step{title="Read the value"}
 ## Read the value
 
-Create `src/app.ts`. It reads `appName` and prints it:
+Create `server/api/app-name.get.ts`. This file is the route `GET /api/app-name`. It reads `appName` and returns it:
 
-```ts [src/app.ts]
+```ts [server/api/app-name.get.ts]
+import { defineEventHandler } from 'h3'
 import { usePublicEnv } from '#vitehub/env/public'
 
-const publicEnv = usePublicEnv()
-console.log(publicEnv.appName)
+export default defineEventHandler(() => {
+  const { appName } = usePublicEnv()
+  return { appName }
+})
 ```
 
-`#vitehub/env/public` is a module that Env makes from your config, so `appName` has a type. Env writes that type to `.vitehub/types/env.d.ts`. To use it in your editor, add `.vitehub/types/**/*.d.ts` to `include` in `tsconfig.json`, as [Configure](/docs/env/configure#provider-output) shows. Only Vite can load this module. You cannot run this file with `node` alone.
+`#vitehub/env/public` is a module that Env makes from your config, so `appName` has a type. Only the dev server and the build can load this module. You cannot run this file with `node` alone.
 
 ::
 
 ::tutorial-step{title="Run and verify"}
 ## Run and verify
 
-Create a script that loads `src/app.ts` through Vite:
+Start or restart the app after the config change:
 
-```js [scripts/verify-env.mjs]
-import { createServer } from 'vite'
-
-const server = await createServer({ server: { middlewareMode: true } })
-try {
-  await server.ssrLoadModule('/src/app.ts')
-} finally {
-  await server.close()
-}
+```bash [commands/start]
+pnpm dev
 ```
 
-Run it in the root folder of the app:
+Keep it running. Open a second terminal and call the route:
 
-```bash [commands/verify]
-node scripts/verify-env.mjs
+```bash [commands/request]
+curl http://localhost:3000/api/app-name
 ```
 
-The terminal prints a check line from Env, then `Acme`:
+The route returns:
 
-```text [output/terminal.txt]
-@vite-hub/env validated 1 declaration.
-Acme
+```json [output/response.json]
+{"appName":"Acme"}
 ```
 
-Your code read the value that you declared in `vite.config.ts`.
+Your code read the value that you declared in your config.
 
 ::
 
