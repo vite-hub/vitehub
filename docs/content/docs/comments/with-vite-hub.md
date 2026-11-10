@@ -13,8 +13,8 @@ icon: i-lucide-users
 | --- | --- | --- |
 | Threads, replies, resolve, pins | Yes | Yes |
 | Where threads go | A SQLite file, Turso, or Cloudflare D1 | A ViteHub [Database](/docs/database): SQLite, libSQL, or D1 |
-| Tables | Created when the server starts | Generated and applied with `vitehub db` |
-| Who can comment | Sign in with GitHub, or guests on the dev server | Sign in with GitHub, [ViteHub Auth](/docs/auth), the [Console](/docs/development/console), or your own login |
+| Tables | Created when the server starts | Generated and applied with `vitehub database` |
+| Who can comment | Sign in with GitHub, or guests on the dev server | Sign in with GitHub, [ViteHub Auth](/docs/auth), or your own login |
 | Avatars and cursors of people on a page | No | Yes, with [Realtime](/docs/realtime) |
 | Edit Content text in place | No | Yes, with [Content](/docs/content) |
 | Comments section in the Console, MCP tools for Agents | No | Yes |
@@ -108,8 +108,8 @@ export const comments = defineComments({
 Comments adds the tables `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` to the `default` Database. Generate the migration and apply it:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ::
@@ -154,7 +154,8 @@ Both browsers share a Realtime room for the page, which holds only presence. Com
 Add a Content singleton (a single document) with one text field. The `cms` preset stores it in a Workspace on the same Database and adds Blob.
 
 ```ts [server/content.ts]
-import { defineContent, singleton } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { singleton } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
@@ -207,11 +208,11 @@ fetch('/api/about')
 Restart the dev server, then run the migrations again for the Content tables:
 
 ```bash [commands/migrate-content]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-The singleton has no document yet. Open `http://localhost:5173/_vitehub/content`, then **Settings**, then **About**. Type a title and select **Publish**.
+The singleton has no document yet. Open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development). Select **Content**, then **Settings**, then **About**. Type a title and select **Publish**.
 
 Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 
@@ -219,7 +220,7 @@ Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 2. Click the heading. It becomes editable and shows the current draft.
 3. Change the text and press <kbd>Enter</kbd>. Comments saves a Content draft, and the heading gets a **Draft** mark.
 4. Reload the page. The heading shows the published title again, because pages read `published`.
-5. Select **Review and publish** in the message, or open `/_vitehub/content`. The About change is under **Needs publishing**. Publish it, then reload the page.
+5. Open **Content** in the Console. The About change is under **Needs publishing**. Publish it, then reload the page.
 
 Pins on the heading now store the field `about#title`, so they follow it through layout changes.
 

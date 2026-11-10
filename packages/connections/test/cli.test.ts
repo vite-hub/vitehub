@@ -18,7 +18,7 @@ function cli(test = createTestRuntime()) {
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler.fetch(new Request(input, init))) as typeof fetch, timeout: 5 }
   return {
     output,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
@@ -86,7 +86,7 @@ describe("vitehub connections", () => {
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
     const request = (async (input, init) => {
-      const response = await handler(new Request(input, init))
+      const response = await handler.fetch(new Request(input, init))
       if (JSON.parse(String(init?.body)).action === "complete") {
         // The grant is durable, but the app's final response arrives after 30 seconds.
         await new Promise(resolve => setTimeout(resolve, 31))
@@ -147,6 +147,14 @@ describe("vitehub connections", () => {
     expect(command === "list" ? output[0] : output).toEqual(expected)
     expect(harness.output.stdout).not.toContain(ACCESS_TOKEN)
     expect(harness.output.stdout).not.toContain(REFRESH_TOKEN)
+  })
+
+  it("prints the Connection's docs after its actions", async () => {
+    const harness = cli(createTestRuntime(async () => defineConnection({ provider: testProvider(), scopes: [], docs: "Sign in with the **support** inbox.\n" })))
+    expect(await harness.run("inspect", ["mail"])).toBe(0)
+    expect(harness.output.stdout).toMatch(/\n\nSign in with the \*\*support\*\* inbox\.\n$/)
+    expect(await harness.run("inspect", ["mail", "--json"])).toBe(0)
+    expect(harness.output.stdout).toContain('"docs": "Sign in with the **support** inbox.\\n"')
   })
 
   it("prints the Console connect URL for a deployed app", async () => {

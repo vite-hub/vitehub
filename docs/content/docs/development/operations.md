@@ -46,7 +46,7 @@ export const reportOperations = [
 | `kind` | `read` never changes state. `write` changes state. `destructive` deletes or publishes. |
 | `input` | A Standard Schema. This repository uses Valibot. Its JSON Schema makes the CLI options and the tool input. |
 | `output` | Optional. A Standard Schema of the result. |
-| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists input keys passed without a flag. `default: true` makes `vitehub <namespace>` run it when no command is named, as `vitehub usage` does (`vitehub usage get` also works). `format` prints a readable result. Without it the CLI prints JSON. |
+| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists input keys passed without a flag. `default: true` makes `vitehub <namespace>` run it when no command is named. `format` prints a readable result. Without it the CLI prints JSON. |
 | `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
 | `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips confirmation, and an agent runs it without approval. Without it, every `destructive` call asks. |
 | `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |
@@ -211,7 +211,7 @@ Core error codes:
 
 The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, since it needs `console.auth`.
 
-In `vite dev` without a `console` option, the app serves the RPC (no Console page) with the local policy, so every section is open.
+In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, and accepts calls from the [hosted Console](/docs/development/console#in-development) without a token.
 
 ::warning
 A dev RPC without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To open the dev Console to other people, set `console.auth` to `"app"` or a Console Auth config.
@@ -237,8 +237,8 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-- `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV Console pages run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
-- `databases.browse` and `databases.tables` run as `vitehub db rows` and `vitehub db tables`.
-- The task operations exist only when the app has tasks. The `tasks` section has no Console page, and `console.authorize` grants it by name.
+- `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
+- `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
+- The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
 - Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
 - The Workspace operations read a Workspace's kept history and run as `vitehub workspace history`, `refs`, and `show`.

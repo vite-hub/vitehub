@@ -1,7 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { createSource, defineSource, splitSource } from "../src/index.ts"
-import { glob } from "../src/glob.ts"
+import { createSource, defineSource, splitSource, glob } from "../src/index.ts"
 
 describe("splitSource() types", () => {
   it("infers part keys, data, and file methods", async () => {
