@@ -52,7 +52,7 @@ describe("workflow operations", () => {
   it("are contributed by the Workflow Vite plugin, which no longer adds a dev endpoint", async () => {
     const plugin = hubWorkflow()
     const [entry] = plugin.vitehub?.operations ?? []
-    expect(entry).toMatchObject({ export: "workflowOperations", module: "@vite-hub/workflow/operations" })
+    expect(entry).toMatchObject({ export: "workflowOperations", module: expect.stringMatching(/[\\/]workflow[\\/](?:src|dist)[\\/]operations\.(?:ts|js)$/) })
     expect(await entry?.load?.()).toBe(workflowOperations)
     expect(plugin.vitehub).not.toHaveProperty("cli")
     const nitro: Record<string, unknown> = {}

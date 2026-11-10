@@ -14,11 +14,10 @@ Each provider lists the API origins that may get its credential. For any other o
 | --- | --- | --- |
 | `google()` | `vite-hub/connections/google` | Root URL origins of its API catalogs, such as `https://gmail.googleapis.com`. |
 | `apiKey()` | `vite-hub/connections` | Its `origins` and the root URL origins of its `apis`. |
-| `oauthLogin()` | `vite-hub/connections` | Its `mcp` endpoint, its `origins`, and the root URL origins of its `apis`. |
 
 An origin is `https://host` or `https://host:port`. Origins must match exactly, so list each host. `http` works only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-ViteHub has no generic OAuth 2 provider function yet. For another service, use an [OAuth provider object](#oauth-provider-objects), [`oauthLogin()`](#oauth-login-connections) for a service account with no person, or `apiKey()` for API keys and personal access tokens. `apiKey()` never refreshes the key.
+ViteHub has no generic OAuth 2 provider function yet. For another service, use an [OAuth provider object](#oauth-provider-objects), or `apiKey()` for API keys and personal access tokens. `apiKey()` never refreshes the key.
 
 ## OAuth provider objects
 
@@ -100,26 +99,7 @@ ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, 
 
 ### Fallback key
 
-`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed:
-
-```ts [server/connections/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
-import { apiKey, defineConnection } from 'vite-hub/connections'
-
-export default defineConnection({
-  provider: apiKey({
-    id: 'github',
-    origins: ['https://api.github.com'],
-    fallback: () => useServerEnv().github.token,
-  }),
-})
-```
-
-The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from the Console or `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
-
-## OAuth login Connections
-
-`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects a service account without a person. Use it when a service accepts only its own OAuth tokens, such as an MCP server with its own authorization server. You write only `login`, which signs in and approves like a browser. The examples on this page read their credentials from Server Env:
+`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed. Declare the GitHub token in your host configuration:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -133,11 +113,6 @@ export default defineNuxtConfig({
     connections: true,
     env: {
       server: {
-        portal: {
-          login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
-          acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
-          globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
-        },
         github: {
           token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
         },
@@ -156,19 +131,17 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', connections: true }), nitro()],
-  env: {
-    server: {
-      portal: {
-        login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
-        acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
-        globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
-      },
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -180,76 +153,55 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', connections: true })],
-  env: {
-    server: {
-      portal: {
-        login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
-        acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
-        globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
-      },
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
 ::
 
-```ts [server/connections/portal.ts]
+```ts [server/connections/github.ts]
 import { useServerEnv } from '#vitehub/env/server'
-import { type ConnectionLoginContext, defineConnection, oauthLogin } from 'vite-hub/connections'
-
-async function login({ url, credentials, fetch }: ConnectionLoginContext) {
-  const [email, password] = credentials.split(':')
-  await fetch('/api/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) })
-  return (await fetch(url)).headers.get('location')!
-}
+import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
-  provider: oauthLogin({
-    id: 'portal',
-    mcp: 'https://portal.example.com/mcp',
-    clientName: 'Support Agent',
-    credentials: () => useServerEnv().portal.login,
-    login,
+  provider: apiKey({
+    id: 'github',
+    origins: ['https://api.github.com'],
+    fallback: () => useServerEnv().github.token,
   }),
-  scopes: ['openid', 'email'],
-  access: { 'agent:support': { read: true, write: ['fetch'], approve: false } },
 })
 ```
 
-ViteHub finds the authorization server from the `mcp` resource metadata (RFC 9728), then reads its metadata (RFC 8414 or OpenID Connect discovery). It registers a public client (RFC 7591) once per process. It builds the authorization URL with PKCE, `state`, `scope`, and `resource`, calls `login`, checks `code` and `state`, and exchanges the code. A token that expires within a minute is refreshed or replaced by a new sign-in. A `401` signs in again once and retries. Parallel requests share one sign-in, also when it fails.
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `login` | Required | Gets `{ url, redirectUri, credentials, fetch, signal }` and returns the URL that the provider redirects to `redirectUri`. `fetch` keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and follows redirects only when `init.redirect` asks. `signal` aborts after 60 seconds. |
-| `mcp` | None | The provider's MCP endpoint. Discovery starts here, and it gets the token. Set `mcp` or `issuer`. |
-| `issuer` | From the `mcp` resource metadata | The authorization server issuer. |
-| `resource` | `mcp` | The `resource` of authorization and token requests (RFC 8707). |
-| `credentials` | None | The secret that `login` gets, for example from Server Env. A sealed secret is unsealed. While it is empty, the Connection is `disconnected`. |
-| `clientId` | Registered | A registered public client id. Without it, the authorization server must support registration. |
-| `clientName` | `'ViteHub'` | `client_name` for client registration. |
-| `redirectUri` | `http://127.0.0.1/callback` | The redirect URI of the client. ViteHub never listens on it. |
-| `authorizationParams` | None | Extra authorization request parameters. |
-| `origins`, `apis` | None | Other origins and typed API catalogs that get the token. |
-| `account` | The ID token claims when `scopes` includes `openid` | Reads the account from the token response. |
-| `requests` | None | The [request policy](#request-policy). |
-
-Tokens and the client registration stay in memory, so each process signs in and the Connections store is not needed. While `credentials` has a value, the Connection is `connected`. A failed sign-in fails only its request. An error from `login` becomes `CONNECTION_PROVIDER` without its message, because the message could hold the credentials. There is no connect flow and no key: the Console connect route, `authorize()`, and `setKey()` reject it. A revoke drops the tokens, so the next request signs in again.
+The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from the Console or `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
 
 ## Keyed Connections
 
-A keyed definition makes one Connection per instance, such as one per tenant, named `<name>:<instance>`. Keep the imports and `login` function above, and replace the default export with this definition. It reads the per-tenant credentials declared in Server Env above:
+A keyed definition makes one Connection per instance, such as one per tenant, named `<name>:<instance>`:
 
-```ts [server/connections/portal.ts] fragment
+```ts [server/connections/portal.ts]
+import { defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   instances: ['acme', 'globex'],
   definition: tenant => ({
-    provider: oauthLogin({ mcp: `https://${tenant}.example.com/mcp`, credentials: () => useServerEnv().portal[tenant], login }),
-    scopes: ['openid'],
+    provider: {
+      id: 'portal',
+      authorizationEndpoint: `https://${tenant}.example.com/oauth/authorize`,
+      tokenEndpoint: `https://${tenant}.example.com/oauth/token`,
+      clientId: 'portal-client-id',
+      mcp: `https://${tenant}.example.com/mcp`,
+    },
+    scopes: ['openid', 'offline_access'],
   }),
 })
 ```
@@ -272,7 +224,7 @@ An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, witho
 
 ## Request policy
 
-`requests` on an OAuth provider, `oauthLogin()`, or `apiKey()` sets pacing, retries, and timeouts for `fetch` and API methods. It skips the [MCP endpoint](#mcp-endpoint), whose sessions are long streams. Without it, each request is sent once, with no pacing and no timeout.
+`requests` on an OAuth provider or `apiKey()` sets pacing, retries, and timeouts for `fetch` and API methods. It skips the [MCP endpoint](#mcp-endpoint), whose sessions are long streams. Without it, each request is sent once, with no pacing and no timeout.
 
 ```ts [server/connections/airtable.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'

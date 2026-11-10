@@ -3,11 +3,10 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
@@ -21,7 +20,7 @@ import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
-import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
@@ -36,11 +35,12 @@ import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import type { CollectedDatabaseContributions, DatabaseContributingPlugin } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
-import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DatabaseOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
+const DB_LIBSQL_IMPORT = "#vitehub/database/libsql"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./inspect.ts"
 export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
@@ -201,12 +201,10 @@ function renderNitroRequestStatsMiddleware() {
   ].join("\n")
 }
 
-// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+// Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
 function devServerTargetsCloudflare(config: ResolvedConfig | undefined): boolean {
   if (config?.command !== "serve") return false
-  const vitehub: unknown = Reflect.get(config, "vitehub")
-  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
-  return resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }) === "cloudflare"
+  return resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }) === "cloudflare"
 }
 
 function resolveHostedProvider(config: ResolvedConfig): DBProvider | undefined {
@@ -261,7 +259,7 @@ async function collectSourceDependencies(file: string, require: NodeRequire, fil
   }
 }
 
-export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
+export function hubDb(options?: DatabaseOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ source: string, target: string }> = []
   let providerOutput: ProviderOutputCatalog | undefined
@@ -275,7 +273,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let contributionDirectories = new Set<string>()
 
   function resolvedOptions() {
-    return resolved?.database ?? options
+    return (resolved && getResolvedFeatureOptions<DatabaseOptions>(resolved, "database")) ?? options
   }
 
   function integrationReadReplication() {
@@ -308,7 +306,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     }
   }
 
-  // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
+  // `vitehub database generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
@@ -386,6 +384,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     }))
     const plugins = nitroOptions.plugins ??= []
     if (!plugins.includes(plugin)) plugins.push(plugin)
+  }
+
+  // A Cloudflare build reaches each Database through D1, or through a remote libSQL URL. Without such a URL, the Worker
+  // ships no libSQL client. Development and other hosts keep local SQLite.
+  function bundlesLibsql() {
+    if (resolved?.command !== "build" || resolveHostedProvider(resolved) !== "cloudflare") return true
+    return runtimeConfig ? usesRemoteLibsql(runtimeConfig) : false
   }
 
   async function copyNitroMigrations(serverDir: string) {
@@ -517,7 +522,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       // Fail before bundling: without a D1 resource, the server bundle falls back to the Node libSQL client. Under Nuxt,
       // the module checks this in `nitro:config`, where it can see an alias that the app sets.
       const database = resolvedOptions()
-      if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command, getViteMode()) && resolveHostedProvider(resolved) === "cloudflare") {
+      if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command) && resolveHostedProvider(resolved) === "cloudflare") {
         const { unresolved } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved.root) })
         assertDefinitionD1Resources(runtimeConfig, contributions, unresolved.map(binding => binding.database))
       }
@@ -561,7 +566,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         await siblingRuntimeGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command)) {
         resetRuntimeContribution()
         return
       }
@@ -589,31 +594,36 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           : { vercel: runtimeModule, "vercel-definition-defaults": definitionDefaults },
       }, siblingRuntimeGenerations.get(this))
     },
-    resolveId(id) {
-      return resolveDatabaseVirtualId(id)
+    resolveId: {
+      filter: { id: /^(?:(?:#|virtual:)vitehub\/database\/(?:schema|databases)|#vitehub\/database\/(?:definition-defaults|libsql))$/ },
+      handler(id) {
+        if (id === DB_LIBSQL_IMPORT) return bundlesLibsql() ? undefined : resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/libsql-disabled")
+        return resolveDatabaseVirtualId(id)
+      },
     },
-    transform(code, id) {
-      if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+    transform: {
+      filter: { id: /(?:^|[\\/])(?:@vite-hub[\\/]database|database)[\\/]dist[\\/]drizzle\.js$/ },
+      handler(code, id) {
+        if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+      },
     },
-    load(id) {
-      if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
-      if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
-        const options = resolvedOptions()
-        return `export default ${serializeGeneratedRegistry({
-          ...runtimeConfig?.definitionDefaults ?? {
-            ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
-            ...(options && options.connection ? { connection: options.connection } : {}),
-          },
-          ...(resolved?.command === "serve" ? { dev: true } : {}),
-        })}\n`
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/database\/(?:schema|databases|definition-defaults)$/ },
+      handler(id) {
+        if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
+        if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
+        if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
+          const options = resolvedOptions()
+          return `export default ${serializeGeneratedRegistry({
+            ...runtimeConfig?.definitionDefaults ?? {
+              ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
+              ...(options && options.connection ? { connection: options.connection } : {}),
+            },
+            ...(resolved?.command === "serve" ? { dev: true } : {}),
+          })}\n`
+        }
+      },
     },
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    database?: DBModulePublicOptions
-  }
-}

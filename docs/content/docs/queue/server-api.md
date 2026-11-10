@@ -21,11 +21,9 @@ Set `queue: true` in your ViteHub config, then import from `vite-hub/queue`. Rou
 | `createQueueMessageId` from `vite-hub/queue` | Make a message id, with an optional prefix. |
 | `QueueErrorCode`, `CloudflareQueueErrorCode`, `VercelQueueErrorCode` from `vite-hub/queue` | Types of the `error.code` that a send returns. See [Queue errors](/docs/queue/limits-and-errors). |
 | `ViteHubError` and `getViteHubErrorShape` from `vite-hub/runtime` | Throw app failures from a handler and read their code. |
-| `createCloudflareQueueBatchHandler` from `vite-hub/queue` | Build a Cloudflare batch handler outside the generated Nitro plugin. |
-| `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `vite-hub/queue` | Read generated provider names. Do not store them as app identifiers. |
-| `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `vite-hub/queue` | Host helpers for generated output. Install `@vercel/functions` if you import the Vercel runtime. |
+| `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted` | Host helper for generated output. Install `@vercel/functions` if you import the Vercel runtime. |
 
-`vite-hub/queue` also exports the option, client, job, provider, registry, and result types. `@vite-hub/queue` has the same APIs for owner packages, with `hubQueue` from `@vite-hub/queue/vite`. `vite-hub` sets these up for apps. Nuxt apps use `vite-hub/nuxt`. Generated output uses `@vite-hub/queue/internal/runtime/*` subpaths. Do not import them in app code.
+`vite-hub/queue` also exports the option, client, job, provider, registry, and result types. `@vite-hub/queue` has the same APIs for owner packages, with `hubQueue` from `@vite-hub/queue/vite`. `vite-hub` sets these up for apps. Nuxt apps use `vite-hub/nuxt`. Generated output imports the Queue runtime modules by file path. They are not package exports.
 
 ## Queue job
 

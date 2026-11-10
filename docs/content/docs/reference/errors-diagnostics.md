@@ -80,12 +80,6 @@ Use an operational code to choose what your app does. Use a Nostics code to find
 
 ## Agent diagnostics
 
-<a id="runtime-preflight"></a>
-
-### Runtime preflight diagnostics
-
-Preflight checks report missing or unverified capabilities with `RUNTIME_R0012` and `RUNTIME_R0013`. Read the check id, kind, state, and reason. Then provide the capability, or change the check if it is optional. Invalid preflight options throw `RUNTIME_R0014` before checks start.
-
 Agent config, build, and runtime defects use `AGENT_C####`, `AGENT_B####`, and `AGENT_R####`. Your own tools can use their own Nostics catalog:
 
 ```ts
@@ -139,6 +133,8 @@ For ViteHub defects, check the diagnostic code instead of native `TypeError` and
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
 Content uses `AGENT_C0012` for invalid `content()` options, `AGENT_R1011` when the `content` primitive is not a Content runtime with collections, and `AGENT_R1012` for an unknown collection. See [Content capability](/docs/content/agent-capability).
+
+i18n uses `AGENT_C0014` for invalid `i18n()` options, and `AGENT_R0104` when the `i18n` primitive is missing or is not `agentI18n` from `vite-hub/i18n/server`. See [i18n capability](/docs/i18n/agent-capability).
 
 Forge uses `AGENT_C0011` for invalid options. `AGENT_R0941` to `AGENT_R0945` cover credentials, repository access, context, requests, and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 

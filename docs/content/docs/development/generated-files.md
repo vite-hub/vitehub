@@ -53,7 +53,7 @@ packages and preset write, and if each exists. It hides secrets.
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 List the files in `.vitehub` after Vite starts or builds. The set depends on

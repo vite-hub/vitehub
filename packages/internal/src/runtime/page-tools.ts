@@ -1,4 +1,3 @@
-import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
 import { pageToolsHtmlTransform, scriptPolicyNonce } from "./page-tools-html.ts"
 import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsHintCookie, viteHubPageToolsInlineScript, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, viteHubPageToolsWanted, withViteHubBase } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
@@ -8,11 +7,12 @@ import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-share
 export { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase }
 export type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
-/** What the visitor check of a tool gets: the request of the session route and its H3 event. */
+/**
+ * What the visitor check of a tool gets: the Request of the session route. In a ViteHub app, Nitro puts the Standard
+ * Context of the request on it (`request["~standard"]`), so helpers that read a request event accept it.
+ */
 export interface ViteHubPageToolVisitor {
   request: Request
-  /** The H3 event of the session route: an H3 2 event on Nitro 3, an H3 1 event on Nitro 2. */
-  event: unknown
 }
 
 /**
@@ -23,8 +23,10 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
   /**
    * Whether this visitor may use the tool. The session route calls it, and the loader imports only the scripts of
    * allowed tools. It does not replace the access checks of the tool's own API, which must check each call again.
+   * `"lazy"` allows the tool but loads its script only when the visitor opens it, such as a sign-in prompt that most
+   * visitors never open.
    */
-  allowed(visitor: ViteHubPageToolVisitor): Promise<boolean>
+  allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
 }
 
 interface PageToolsState {
@@ -105,7 +107,7 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
  * none is, so a signed-in person without access does not ask again on each page. A tool whose check throws is not
  * allowed. Requests from other sites get 403 and run no check.
  */
-export async function respondViteHubPageSession(nitroApp: object, request: Request, event: unknown): Promise<Response> {
+export async function respondViteHubPageSession(nitroApp: object, request: Request): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_METHOD", why: "The page tools session accepts GET only." } }, { status: 405 })
   }
@@ -116,7 +118,7 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
   const registered = [...state().tools.get(nitroApp)?.values() ?? []]
   const checks = await Promise.all(registered.map(async (tool) => {
     try {
-      return await tool.allowed({ request, event })
+      return await tool.allowed({ request })
     }
     catch (error) {
       console.error(`[vitehub] The visitor check of the page tool "${tool.id}" failed. The tool stays off for this request.`, error)
@@ -127,33 +129,22 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
   const at = pathname.lastIndexOf(viteHubPageSessionPath)
   const base = at > 0 ? pathname.slice(0, at) : ""
   const tools = registered
-    .filter((_, index) => checks[index] === true)
-    .map(({ allowed: _allowed, ...tool }) => ({ ...tool, script: withViteHubBase(base, tool.script) }))
+    .flatMap(({ allowed: _allowed, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
+      ? [{ ...tool, ...(checks[index] === "lazy" ? { lazy: true } : {}), script: withViteHubBase(base, tool.script) }]
+      : [])
   return sessionResponse({ tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0) })
 }
 
-/** The Web request of an H3 2 or H3 1 event. */
-function eventRequest(event: unknown): Request | undefined {
-  if (event === null || typeof event !== "object") return undefined
-  // ViteHub sets Standard Context on each request. A Nitro app without the ViteHub plugin has only the H3 fields.
-  const standard: unknown = Reflect.get(event, "~standard")
-  const standardRequest: unknown = standard !== null && typeof standard === "object" ? Reflect.get(standard, "req") : undefined
-  if (standardRequest instanceof Request) return standardRequest
-  if (isH3V1Event(event)) return toH3V1Request(event)
-  const request: unknown = Reflect.get(event, "req")
-  return request instanceof Request ? request : undefined
-}
-
 /**
- * The Nitro handler of `GET /_vitehub/page/session`. H3 2 and H3 1 both call a plain function with their event, so it
- * serves Nitro 3 and Nitro 2.
+ * The route of `GET /_vitehub/page/session`: a Fetchable (https://fetchable.org). Nitro 3 binds each Request to its
+ * app in `installViteHubPageTools()`, so the route finds the tools of that app.
  */
-export async function viteHubPageSessionHandler(event: unknown): Promise<Response> {
-  const request = eventRequest(event)
-  if (!request) return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_REQUEST", why: "The page tools session got no request." } }, { status: 400 })
-  const nitroApp = state().apps.get(request) ?? (event !== null && typeof event === "object" ? state().apps.get(event) : undefined)
-  if (!nitroApp) return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_APP", why: "The page tools session has no Nitro app." } }, { status: 503 })
-  return await respondViteHubPageSession(nitroApp, request, event)
+export const viteHubPageSessionHandler: { fetch(request: Request): Promise<Response> } = {
+  async fetch(request) {
+    const nitroApp = state().apps.get(request)
+    if (!nitroApp) return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_APP", why: "The page tools session has no Nitro app." } }, { status: 503 })
+    return await respondViteHubPageSession(nitroApp, request)
+  },
 }
 
 /**
@@ -319,7 +310,6 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
   const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
   if (!(hook instanceof Function)) return
   Reflect.apply(hook, hooks, ["request", (event: Nitro2Event) => {
-    state().apps.set(event, nitroApp)
     const request = nitro2Request(event)
     const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
     if (!request || !pageAddition(nitroApp, request, base)) return
