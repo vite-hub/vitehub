@@ -84,7 +84,6 @@ Some rules read the whole project:
 | [`VHUB0025`](#vhub0025) | `vitehub/realtime-persistence` | Error |
 | [`VHUB0026`](#vhub0026) | `vitehub/forge-error-imports` | Warning |
 | [`VHUB0027`](#vhub0027) | `vitehub/sandbox-runtime-options` | Error |
-| [`VHUB0028`](#vhub0028) | `vitehub/define-agent-from-vite-hub` | Warning |
 | [`VHUB0029`](#vhub0029) | `vitehub/rate-limit-capability-limiter` | Error |
 | [`VHUB0030`](#vhub0030) | `vitehub/no-vitehub-plugin-in-nuxt` | Warning |
 | [`VHUB0031`](#vhub0031) | `vitehub/valid-vitehub-options` | Warning |
@@ -100,14 +99,13 @@ Some rules read the whole project:
 
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
-- `vite-hub/_internal/*` is for generated ViteHub code only.
+- `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
 - `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
 - `.vitehub/**` and `.nuxt/vitehub/**` are build output, rewritten on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub's own runtime, such as `#vitehub/agent/registry`.
 
 ```ts [server/api/settings.get.ts] fragment
 // Invalid
-import { kv } from 'vite-hub/_internal/kv'
 import { useServerEnv } from '../../.vitehub/env/server'
 
 // Valid
@@ -268,7 +266,7 @@ The rule accepts a `SecretEnv` passed to a function, which can call `.unseal()`.
 
 A credential is written in source, or a config file reads it when Vite loads. ViteHub writes the `env.server` registry and Email options into the generated server module, so these values end up in the build output.
 
-In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server`, including `vitehub.env.server` in Nuxt:
+In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server` of `vitehub()` and of the `vitehub` key in Nuxt, and in the `server` option of `hubEnv()`:
 
 - a value or a `default` that reads `process.env` or `import.meta.env`
 - a `default` on a declaration with `secret: true`
@@ -276,33 +274,39 @@ In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.ser
 
 It also reports credential options of `hubEmail()` and the `email` option that are string literals or `process.env` reads. In server code, it reports string literals for credential keys in `defineAuth()`, `google()` and `apiKey()` from `vite-hub/connections`, and the `vite-hub/gateways` Gateway presets, including their `headers`.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Invalid: the token is in the build output.
-      githubToken: env({ secret: true, default: 'ghp_123' }),
-      airtableToken: process.env.AIRTABLE_TOKEN,
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Invalid: the token is in the build output.
+        githubToken: env({ secret: true, default: 'ghp_123' }),
+        airtableToken: process.env.AIRTABLE_TOKEN,
+      },
     },
-  },
+  })],
 })
 ```
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Valid
-      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
-      airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Valid
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+      },
     },
-  },
+  })],
 })
 ```
 
@@ -666,13 +670,13 @@ The rule reports property reads and destructuring of names that are not `Respons
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. Without the rule, these errors appear only when the Workflow runs.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
 
-```ts [server/workflows/onboard-user/index.ts]
+```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow(async ({ payload, steps }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
   const user = await steps.createUser(payload)
   // Invalid: there is no send-welcome-email step file.
   return await steps.sendWelcomeEmail(user)
@@ -844,22 +848,6 @@ const sandbox = await resolveSandbox({
 
 It skips definitions with a spread, and runtimes from variables. Read [Sandbox](/docs/sandbox).
 
-## VHUB0028
-
-**Import `defineAgent` from `vite-hub/agent`.** Rule `vitehub/define-agent-from-vite-hub`.
-
-An app that depends on `vite-hub` imports `defineAgent` from `@vite-hub/agent`. That version ignores the app-wide `agent.invocations` journal and the default journal, so the Agent's Invocations are not recorded. A string `invocations` setting, such as `'database'`, also fails when the module loads.
-
-```ts [server/agents/support.ts] fragment
-// Invalid
-import { defineAgent } from '@vite-hub/agent'
-
-// Valid
-import { defineAgent } from 'vite-hub/agent'
-```
-
-The rule reads dependencies from the project `package.json`. It skips `import type`.
-
 ## VHUB0029
 
 **Give the `rateLimit` Capability a limiter.** Rule `vitehub/rate-limit-capability-limiter`.
@@ -916,19 +904,26 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
-- `queue: { ... }` ignores its fields. The preset selects the Queue provider.
-- In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. Put them in the top-level `env` key of the Vite config.
+- `logs` moved into `observability`, as `observability: { logs }`.
+- `contentImportBase` was removed.
+- In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
-export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
-})
-
-// Valid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
   plugins: [vitehub({ preset: 'vercel' })],
+})
+```
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+// Valid
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
 ```
 

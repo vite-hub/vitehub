@@ -13,7 +13,6 @@ icon: i-lucide-code-2
 | `defineWorkflow` from `vite-hub/workflow` | Declare a workflow. |
 | `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
 | `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
-| `normalizeWorkflowOptions` from `vite-hub/workflow` | Turn plugin options into a concrete Workflow Provider. |
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
@@ -93,7 +92,7 @@ export default defineEventHandler((event) => {
 A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
+const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
   await sendWelcomeEmail(payload.email)
 })
 await welcome.start({ email: "ada@example.com" })

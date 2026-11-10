@@ -55,11 +55,6 @@
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/agents/invocations.md#40697317b08d",
-    "label": "server/api/support-chat.post.ts",
-    "error": "TS2339 Property 'text' does not exist on type '{ text: string; } | undefined'."
-  },
-  {
     "id": "docs/content/docs/agents/process-hosts.md#e5d266f81857",
     "label": "server/agents/reviewer.ts",
     "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'AgentDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, unknown>'.\n      Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'CodexDriver<unknown, unknown> | ClaudeCodeDriver<unknown, unknown>'.\n        Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'ClaudeCodeDriver<unknown, unknown>'.\n          Property '[providerAgentRuntime]' is missing in type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' but required in type 'ProviderAgentRuntimeCarrier'."
@@ -85,16 +80,6 @@
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/auth/console.md#62b3b1190037",
-    "label": "server/auth.ts",
-    "error": "TS2339 Property 'db' does not exist on type 'never'.\nTS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/auth/events.md#b442e7d50901",
-    "label": "server/auth.ts",
-    "error": "TS2339 Property 'db' does not exist on type 'never'.\nTS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
@@ -103,16 +88,6 @@
     "id": "docs/content/docs/blob/server-api.md#40d768790f89",
     "label": "server/api/files.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/browser/get-started.md#d06e9a8b1cda",
-    "label": "server/api/page-html.post.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/browser/index.md#d1cad0398d09",
-    "label": "server/api/page-html.post.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
@@ -135,9 +110,9 @@
     "error": "TS2339 Property 'role' does not exist on type '{}'.\nTS2339 Property 'setRole' does not exist on type 'InferAPI<Prettify<{ readonly ok: StrictEndpoint<\"/ok\", { method: \"GET\"; metadata: { openapi: { description: string; responses: { \"200\": { description: string; content: { \"application/json\": { schema: { type: \"object\"; properties: { ok: { type: string; description: string; }; }; required: string[]; }; }; }; }; }; }; ...'.\nTS2339 Property 'userId' does not exist on type '{}'."
   },
   {
-    "id": "docs/content/docs/comments/configure.md#e415f118aec1",
+    "id": "docs/content/docs/comments/configure.md#9415c5d5ee1d",
     "label": "server/api/docs/[id]/comments.post.ts",
-    "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations.\nTS2339 Property 'body' does not exist on type '{ body: string; quote: string; version: number; } | undefined'.\nTS2339 Property 'quote' does not exist on type '{ body: string; quote: string; version: number; } | undefined'.\nTS2339 Property 'version' does not exist on type '{ body: string; quote: string; version: number; } | undefined'."
+    "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
   },
   {
     "id": "docs/content/docs/comments/index.md#daebbc2b469e",
@@ -150,16 +125,6 @@
     "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/connections/configure.md#6fb59e04b48a",
-    "label": "server/connections/portal.ts",
-    "error": "TS2304 Cannot find name 'useServerEnv'."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#1b24c8752be5",
-    "label": "server/connections/portal.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'login'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineConnection'.\nTS2304 Cannot find name 'oauthLogin'.\nTS2304 Cannot find name 'useServerEnv'.\nTS7006 Parameter 'tenant' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
     "label": "server/connections/github.ts",
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
@@ -168,11 +133,6 @@
     "id": "docs/content/docs/connections/get-started.md#4744d64a62e0",
     "label": "server/connections/google.ts",
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#819c4cae6047",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2339 Property 'gmail' does not exist on type 'ConnectionClient<object, object, false>'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
@@ -192,7 +152,7 @@
   {
     "id": "docs/content/docs/content/editing-together.md#23c0eb7e404f",
     "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'ifDigest'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'session'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'input'.\nTS2304 Cannot find name 'input'.\nTS2304 Cannot find name 'input'."
+    "error": "TS18004 No value exists in scope for the shorthand property 'ifDigest'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'session'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'content'.\nTS2552 Cannot find name 'input'. Did you mean 'oninput'?\nTS2552 Cannot find name 'input'. Did you mean 'oninput'?\nTS2552 Cannot find name 'input'. Did you mean 'oninput'?"
   },
   {
     "id": "docs/content/docs/content/preview.md#c3b134d9e669",
@@ -270,64 +230,29 @@
     "error": "TS2307 Cannot find module 'my-package/vite' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/database/get-started.md#f6a12b6881ad",
-    "label": "server/api/notes.post.ts",
-    "error": "TS2339 Property 'insert' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/get-started.md#78a00416b0bc",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/index.md#dba1284359e2",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/database/index.md#5e51d6f3417a",
     "label": "server/api/notes.post.ts",
-    "error": "TS18048 'body' is possibly 'undefined'.\nTS2339 Property 'insert' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/index.md#a87403998a4f",
-    "label": "server/api/notes/[id].get.ts",
-    "error": "TS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/limits-and-errors.md#3bd387c7179c",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+    "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
     "id": "docs/content/docs/database/server-api.md#1de41e225584",
     "label": "server/api/notes.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'notes' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
   },
   {
     "id": "docs/content/docs/database/server-api.md#b670c18de498",
     "label": "server/api/events.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'events' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"analytics\"' is not assignable to parameter of type 'never'."
+    "error": "TS2304 Cannot find name 'defineEventHandler'."
   },
   {
     "id": "docs/content/docs/database/server-api.md#61de8494b7bc",
     "label": "server/utils/files.ts",
-    "error": "TS2339 Property 'delete' does not exist on type 'never'.\nTS2339 Property 'files' does not exist on type 'never'.\nTS2339 Property 'files' does not exist on type 'never'.\nTS2339 Property 'files' does not exist on type 'never'.\nTS2339 Property 'files' does not exist on type 'never'.\nTS2339 Property 'files' does not exist on type 'never'.\nTS2339 Property 'files' does not exist on type 'never'.\nTS2339 Property 'insert' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+    "error": "TS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
   },
   {
     "id": "docs/content/docs/decisions/index.md#d3a4290d45e6",
     "label": "server/api/choices.post.ts",
     "error": "TS2304 Cannot find name 'createError'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/development/cli.md#b4928631677f",
-    "label": "server/tasks/db/seed.ts",
-    "error": "TS2339 Property 'insert' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/development/console.md#a4a87285b0aa",
-    "label": "server/auth.ts",
-    "error": "TS2339 Property 'db' does not exist on type 'never'.\nTS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
@@ -380,74 +305,9 @@
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/guides/cloudflare-queues.md#bd4a74c683b6",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/guides/vercel-queues.md#e7ba7b93c750",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/guides/vercel-queues.md#03c273cbde2b",
-    "label": "server/utils/enqueue-welcome.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/guides/vercel-queues.md#aaaeec1543e9",
-    "label": "server/utils/enqueue-welcomes.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS2345 Argument of type '{ body: { email: string; }; idempotencyKey: string; }[]' is not assignable to parameter of type 'CloudflareQueueSendBatchMessage<never>[] & VercelQueueSendBatchMessage<never>[] & LocalQueueSendBatchMessage<never>[]'.\n  Type '{ body: { email: string; }; idempotencyKey: string; }[]' is not assignable to type 'CloudflareQueueSendBatchMessage<never>[]'.\n    Type '{ body: { email: string; }; idempotencyKey: string; }' is not assignable to type 'CloudflareQueueSendBatchMessage<never>'.\n      Types of property 'body' are incompatible.\n        Type '{ email: string; }' is not assignable to type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/get-started.md#e7ba7b93c750",
-    "label": "server/api/welcome.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/index.md#b49d3997bd7a",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/index.md#7d812ca03c6e",
-    "label": "server/api/reminder.post.ts",
-    "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/queue/limits-and-errors.md#f6a4c53b875d",
     "label": "server/api/signup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#bd4a74c683b6",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#5cd62d55a719",
-    "label": "server/utils/enqueue-welcome.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#9b3139045378",
-    "label": "examples/send-queue.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#1a64a20c035a",
-    "label": "examples/defer-queue.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#aded45af2a8f",
-    "label": "examples/use-queue.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS2345 Argument of type '{ email: string; }' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#1acf82eb4928",
-    "label": "examples/typed-dispatch.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS2345 Argument of type '{ email: string; }' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
@@ -473,11 +333,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
     "label": "server/api/issues.get.ts",
     "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
-    "label": "vite.config.ts",
-    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type 'string | undefined' is not assignable to type 'EnvRuntimeConfigValue'.\n      Type 'undefined' is not assignable to type 'EnvRuntimeConfigValue'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
@@ -517,17 +372,12 @@
   {
     "id": "docs/content/docs/reference/doctor-rules.md#ad9a38fa659e",
     "label": "server/plugins/warmup.ts",
-    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
+    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#317457c7fc34",
     "label": "server/api/warmup.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
-    "label": "vite.config.ts",
-    "error": "TS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'vitehub'.\nTS2304 Cannot find name 'vitehub'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
@@ -538,16 +388,6 @@
     "id": "docs/content/docs/sandbox/configure.md#a0e8d52d7c6f",
     "label": "server/tools/resize.sandbox-task.ts",
     "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'.\n  Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }>'.\n    Types of parameters 'payload' and 'payload' are incompatible.\n      Type '{ width: number; } | undefined' is not assignable to type '{ width: number; }'.\n        Type 'undefined' is not assignable to type '{ width: number; }'."
-  },
-  {
-    "id": "docs/content/docs/shell/index.md#df52e0f1282e",
-    "label": "server/api/check.post.ts",
-    "error": "TS18048 'body' is possibly 'undefined'."
-  },
-  {
-    "id": "docs/content/docs/source/server-api.md#b43f632ae0d3",
-    "label": "server/collections/articles.ts",
-    "error": "TS2339 Property 'articles' does not exist on type 'never'.\nTS2339 Property 'articles' does not exist on type 'never'.\nTS2339 Property 'articles' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
@@ -562,7 +402,7 @@
   {
     "id": "docs/content/docs/source/server-api.md#004ed78eccb1",
     "label": null,
-    "error": "TS2304 Cannot find name 'computed'.\nTS2304 Cannot find name 'useCollection'."
+    "error": "TS2304 Cannot find name 'computed'.\nTS2552 Cannot find name 'useCollection'. Did you mean 'Selection'?"
   },
   {
     "id": "docs/content/docs/ui/comments.md#288c9cbbdae6",
@@ -572,11 +412,11 @@
   {
     "id": "docs/content/docs/workspace/configure.md#c197ab50d2c5",
     "label": null,
-    "error": "TS2304 Cannot find name 'github'.\nTS2347 Untyped function calls may not accept type arguments.\nTS2717 Subsequent property declarations must have the same type.  Property 'channel' must be of type 'AgentChannelContext<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>', but here has type '{ meta?: { customer?: string | undefined; } | undefined; }'.\nTS7031 Binding element 'channel' implicitly has an 'any' type.\nTS7031 Binding element 'invocation' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'github'.\nTS2347 Untyped function calls may not accept type arguments.\nTS7031 Binding element 'channel' implicitly has an 'any' type.\nTS7031 Binding element 'invocation' implicitly has an 'any' type."
   },
   {
     "id": "packages/agent/README.md#e0e7838a305c",
-    "label": null,
+    "label": "server/agents/codex/agent.ts",
     "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'.\n  Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type '(context: AgentProviderCredentialContext<AgentRuntimeConfig>) => MaybePromise<AgentProviderCredentialValue>'.\n    Type 'Promise<unknown>' is not assignable to type 'MaybePromise<AgentProviderCredentialValue>'.\n      Type 'Promise<unknown>' is not assignable to type 'Promise<AgentProviderCredentialValue>'.\n        Type 'unknown' is not assignable to type 'AgentProviderCredentialValue'."
   },
   {
@@ -586,21 +426,16 @@
   },
   {
     "id": "packages/auth/README.md#73fb174ae71d",
-    "label": null,
+    "label": "server/auth.ts",
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
     "id": "packages/auth/README.md#16f5ad8e7cb4",
-    "label": null,
+    "label": "server/auth.ts",
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
-    "id": "packages/blob/README.md#5f0fd7485ab1",
-    "label": null,
-    "error": "TS18048 'body' is possibly 'undefined'.\nTS18048 'body' is possibly 'undefined'.\nTS18048 'body' is possibly 'undefined'."
-  },
-  {
-    "id": "packages/blob/README.md#0f443e92375d",
+    "id": "packages/blob/README.md#45378057acd1",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
   },
@@ -608,11 +443,6 @@
     "id": "packages/blob/README.md#49ae73a1f27e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
-  },
-  {
-    "id": "packages/browser/README.md#43de109c54d2",
-    "label": null,
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-content\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-content\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "packages/comments/README.md#8e8bbe0cee0c",
@@ -625,11 +455,6 @@
     "error": "TS18004 No value exists in scope for the shorthand property 'anchor'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'render'."
   },
   {
-    "id": "packages/connections/README.md#80ccef603b0c",
-    "label": null,
-    "error": "TS2339 Property 'gmail' does not exist on type 'ConnectionClient<object, object, false>'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "packages/content/README.md#c29a0c62bef2",
     "label": null,
     "error": "TS2304 Cannot find name 'defineContent'.\nTS2304 Cannot find name 'glob'.\nTS2307 Cannot find module 'comark-knap' or its corresponding type declarations."
@@ -640,29 +465,19 @@
     "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'createError'."
   },
   {
-    "id": "packages/database/README.md#612584a94be8",
-    "label": null,
-    "error": "TS2339 Property 'notes' does not exist on type 'never'.\nTS2339 Property 'select' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "packages/database/README.md#4de5ceb072d1",
     "label": null,
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
   },
   {
-    "id": "packages/env/README.md#a9239e812708",
-    "label": null,
+    "id": "packages/env/README.md#a071f6c066c6",
+    "label": "server/sync.ts",
     "error": "TS18046 'airtableToken' is of type 'unknown'."
   },
   {
     "id": "packages/env/README.md#82031b9440a2",
     "label": null,
     "error": "TS18046 'snapshot.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "packages/queue/README.md#2fb76d537956",
-    "label": null,
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "packages/queue/README.md#d7d22d97097e",
@@ -686,18 +501,8 @@
   },
   {
     "id": "packages/source/README.md#af264e7ce752",
-    "label": null,
+    "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS2304 Cannot find name 'db'."
-  },
-  {
-    "id": "packages/source/README.md#2a556cabbd25",
-    "label": null,
-    "error": "TS2345 Argument of type '\"articles\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "packages/vite-hub/README.md#2d1bacb37b87",
-    "label": null,
-    "error": "TS2339 Property 'insert' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "packages/vite-hub/README.md#2f4ad0597fb7",
@@ -706,7 +511,7 @@
   },
   {
     "id": "packages/workspace/README.md#3f540cceb6dc",
-    "label": null,
+    "label": "server/workspaces/docs/config.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(input: string): WorkspaceSource', gave the following error.\n    Argument of type '{ workspacePath: string; content: string; instructions: string; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(input: ExactOptions$1<{ readonly workspacePath: \"guide.md\"; readonly content: \"# Guide/n\"; readonly instructions: \"Use this source for local guide notes.\"; }, FileSourceOptions<string>>): WorkspaceSource', gave the following error.\n    Type 'string' is not assignable to type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(options: ExactOptions$1<{ readonly repo: \"vite-hub/vitehub\"; readonly root: \"docs/content/docs\"; readonly instructions: \"Use this source for public ViteHub documentation.\"; }, GitHubSourceOptions>): WorkspaceSource', gave the following error.\n    Type 'string' is not assignable to type 'never'.\n  Overload 2 of 2, '(resolve: GitHubSourceResolver): WorkspaceSource', gave the following error.\n    Object literal may only specify known properties, and 'repo' does not exist in type 'GitHubSourceResolver'."
   }
 ]

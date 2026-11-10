@@ -34,6 +34,9 @@ interface ZodLikeSchema {
 }
 
 export function parseSchema(schema: unknown, value: unknown, label: string): unknown {
+  if (isSchemaModuleReference(schema)) {
+    throw envErrorDiagnostics.ENV_R0029({ message: `[vitehub] ${label} uses env.schemaFrom(), which only env.server supports. Pass the schema object itself.` })
+  }
   if (isStandardSchema(schema)) {
     const result = schema["~standard"].validate(value)
     if (isPromiseLike(result)) {
@@ -66,6 +69,10 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
   }
 
   return value
+}
+
+function isSchemaModuleReference(schema: unknown): boolean {
+  return typeof schema === "object" && schema !== null && !Array.isArray(schema) && (schema as { kind?: unknown }).kind === "schema-module"
 }
 
 function isPromiseLike(value: unknown): value is Promise<unknown> {

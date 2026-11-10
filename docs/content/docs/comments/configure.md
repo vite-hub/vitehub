@@ -252,7 +252,7 @@ import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
 
 export const comments = defineComments({
-  // `event['~standard'].req` is the Web Request of the call, with its cookies.
+  // `event` is the Request of the call or its server event. `event['~standard'].req` is the Request, with its cookies.
   identify: async ({ event }) => {
     const session = await findSession(event['~standard'].req)
     return session ? { id: session.userId, name: session.name, image: session.avatar } : null
@@ -304,7 +304,8 @@ export const comments = defineComments({
 ```
 
 ```ts [server/api/docs/[id]/comments.post.ts]
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { comments } from '../../../comments'
 import { canComment, requireUser } from '../../../utils/docs'
 
@@ -312,7 +313,7 @@ export default defineEventHandler(async (event) => {
   const user = await requireUser(event)
   const id = getRouterParam(event, 'id')!
   if (!await canComment(user, id)) throw new Error('You cannot comment on this document.')
-  const { body, quote, version } = await readBody<{ body: string, quote: string, version: number }>(event)
+  const { body, quote, version } = await readValidatedBody(event, body => v.parse(v.object({ body: v.string(), quote: v.string(), version: v.number() }), body))
   const [error, thread] = await comments.create({
     subject: { kind: 'doc', id },
     revision: version,
@@ -419,7 +420,7 @@ export const comments = defineComments({
 
 ViteHub reads the name without running the file, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when there are several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
 
-`vitehub({ comments: { database: 'team' } })` names it without the file. Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts`, turn on the `comments` option, or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+`vitehub({ comments: { database: 'team' } })` names it without the file. Run `vitehub database generate` and `vitehub database migrate` after you add `server/comments.ts`, turn on the `comments` option, or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
 
 ## Upgrade to one model
 
@@ -448,20 +449,20 @@ All statements run in one batch or transaction, so a failure changes nothing.
 Stop comment writes while you migrate, also from older app instances, and back up the Database first.
 ::
 
-**A ViteHub Database.** The migration must go in the migration history, so that `vitehub db generate` does not try to change the old table itself:
+**A ViteHub Database.** The migration must go in the migration history, so that `vitehub database generate` does not try to change the old table itself:
 
-1. Run `vitehub db generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub db generate` tries to move the tables again.
+1. Run `vitehub database generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub database generate` tries to move the tables again.
 2. Print the SQL and put it in that file, one statement before each `--> statement-breakpoint`:
 
 ```bash
 node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comments/database'; console.log(commentsMigrationSql({ from: 'live' }).join(';\n--> statement-breakpoint\n') + ';')"
 ```
 
-3. Run `vitehub db migrate --dry-run`, then `vitehub db migrate`.
+3. Run `vitehub database migrate --dry-run`, then `vitehub database migrate`.
 
-A Database that already has the comment operations' tables gets the new `metadata`, `context`, and `revision` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
+A Database that already has the comment operations' tables gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub database generate`.
 
-Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments checks the tables once per server process, so the next request after `vitehub db migrate` works without a restart.
+Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments checks the tables once per server process, so the next request after `vitehub database migrate` works without a restart.
 
 **A Database that `comments()` opens itself.** Comments owns the SQLite file, `env:` libSQL URL, and D1 binding of `comments()`, so it moves them itself. Before each server process's first query, it runs `migrateComments()` and creates missing tables. Requests wait for the move. To move the tables before a deploy, run `migrateComments(db)` with a Drizzle database. A second run does nothing:
 
@@ -594,9 +595,12 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | Key | Action |
 | --- | --- |
 | <kbd>C</kbd> | Turn **Comment** on or off. While on, a click anywhere starts a thread. |
+| <kbd>B</kbd> | Turn **Highlight** on or off. While on, a drag draws a highlighter stroke over the page. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
-| <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
-| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. |
+| <kbd>Esc</kbd> | Close the open thread, or turn **Comment**, **Highlight**, and **Edit** off. |
+| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the strokes. |
+
+**Highlight** works like the Marker in Drop. Pick a color, draw on the page, and select **Done**. The overlay takes a picture of the screen with the strokes on it, and opens a comment on the area that the strokes cover with the picture attached. The strokes stay on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
 
 Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
@@ -714,7 +718,7 @@ Guests always post through the App, and so does anyone whose token fails. The po
 
 Changes do not wait for GitHub. Each thread has `forge` with `state` (`posted`, `pending`, or `failed` with the `error`) and the `url` of its comment. The thread's next change retries, and so does `comments.sync(threadId)`.
 
-GitHub ids live in the `vitehub_comment_forge` table. `comments()` creates it with the other tables. With `vitehub()`, run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
+GitHub ids live in the `vitehub_comment_forge` table. `comments()` creates it with the other tables. With `vitehub()`, run `vitehub database generate` and `vitehub database migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
 
 App mentions and thread numbers stay plain text on GitHub: `@ada` does not notify a GitHub user, and `#3` does not link issue 3.
 
@@ -734,4 +738,4 @@ Your own MCP server can register the same tools. `commentsMcpTools(comments)` fr
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.
 ::
 
-Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the H3 request event; `authorize` then decides. Without `identify`, pass Console access with `commentsMcpTools(comments, { consoleSession })`. A `false` result or failed read denies access before `authorize`. Otherwise the tools use the Console reader, else the Auth reader in `{ session }`, else `user`. Browser guest headers name an author only when `authorize` permits the anonymous caller.
+Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the Request or the H3 event of the call; `authorize` then decides. Without `identify`, pass Console access with `commentsMcpTools(comments, { consoleSession })`. A `false` result or failed read denies access before `authorize`. Otherwise the tools use the Console reader, else the Auth reader in `{ session }`, else `user`. Browser guest headers name an author only when `authorize` permits the anonymous caller.

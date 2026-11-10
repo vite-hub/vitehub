@@ -32,7 +32,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/agent/observability/host", { "evlog": "both" }],
   ["@vite-hub/agent/observability/posthog", { "evlog": "both", "posthog-node": "both" }],
   ["@vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
-  ["@vite-hub/agent/runtime/workflow", { "@vite-hub/workflow": "declaration" }],
+  // `getAgentInvocationsDatabase()` returns Drizzle types and loads drizzle-orm when it is called.
+  ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
+  ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["@vite-hub/auth/agent", { "@vite-hub/agent": "both" }],
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
@@ -52,6 +54,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
+  ["@vite-hub/forms/vue", { "@formisch/vue": "both" }],
   ["@vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
@@ -68,10 +71,10 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   }],
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
-  ["@vite-hub/workspace/nitro", { "vite": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
+  ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
@@ -86,6 +89,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/logs/memory", { "evlog": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
+  ["vite-hub/source/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/console/ui", {
@@ -113,9 +117,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/database/nuxt", { "vite": "both" }],
   // The config entry reaches Vite through the shared build helpers at runtime.
   ["@vite-hub/database/config", { "vite": "runtime" }],
-  ["@vite-hub/database/runtime/postgres", { "postgres": "runtime" }],
   ["@vite-hub/kv/vite", { "vite": "declaration" }],
   ["@vite-hub/queue/vite", { "vite": "declaration" }],
+  ["@vite-hub/queue/runtime/hosted", { "@vercel/functions": "runtime" }],
   ["@vite-hub/realtime/vite", { "vite": "declaration" }],
   ["@vite-hub/sandbox/task/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/vite", { "vite": "both" }],
@@ -125,12 +129,12 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 ])
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
-// `vite-hub/agent` and `vite-hub/_internal/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
+// `vite-hub/agent`, need the owner package.
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }
-  const feature = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/")[0]
+  const feature = subpath.replace(/^\.\//, "").split("/")[0]
   if (specifier.startsWith("vite-hub/") && feature && optionalFrameworkOwners.has(feature)) usage[`@vite-hub/${feature}`] ??= "both"
   if (/(?:^|\/)vite$/.test(subpath)) usage.vite ??= "both"
   if (/(?:^|\/)vue$/.test(subpath)) usage.vue ??= "both"

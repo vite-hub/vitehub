@@ -61,7 +61,7 @@ function parse(args: readonly string[]): Parsed {
 }
 
 /**
- * `vitehub conversations export` and `vitehub channels export`: read a conversation through the `conversations.export`
+ * `vitehub conversations export`: read a conversation through the `conversations.export`
  * operation of the running dev server or `--url`. Without `--output` it prints the Markdown or JSON, so
  * `vitehub conversations export … > chat.md` works. With `--output <directory>` it writes the file and the attachments
  * in `media/`, as `vitehub channels history` does.

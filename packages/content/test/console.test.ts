@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -811,7 +812,7 @@ describe("Content Console section", () => {
 
   it("shows the section only when server/content.ts defines document collections", async () => {
     await expect(contentConsoleSection.entry({ projectRoot: await temporaryRoot() })).resolves.toBeUndefined()
-    const imports = `import { defineContent, documents } from "vite-hub/content"\n`
+    const imports = `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\n`
     await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)).resolves.toBe(true)
     // Read-only Sources, or no collections, leave nothing to edit.
     await expect(entryFor(`${imports}export const content = defineContent({ source: "content" })\n`)).resolves.toBe(false)
@@ -823,7 +824,7 @@ describe("Content Console section", () => {
     await expect(entryFor(`${imports}import { collections } from "./collections"\nexport const content = defineContent({ workspace: "site", collections })\n`)).resolves.toBe(true)
     await expect(entryFor(`${imports}import { options } from "./options"\nexport const content = defineContent({ ...options })\n`)).resolves.toBe(true)
     await expect(entryFor(`import { createContent } from "./create"\nexport const content = createContent()\n`)).resolves.toBe(true)
-    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: "@vite-hub/content/runtime/console", export: "createContentConsoleActions" } })
+    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: ownModule(import.meta.url, "runtime/console"), export: "createContentConsoleActions" } })
     // The dashboard opens at /_vitehub/content; Media shows only when the project enables Blob.
     expect(contentConsoleSection.pages).toEqual([
       { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },

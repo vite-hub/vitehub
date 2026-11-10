@@ -18,10 +18,19 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ name }: { name: string }) => `\`${name}\` from \`vite-hub/i18n\` ran without the ViteHub build, so it has no message ID.`,
       fix: "Enable `i18n` in `vitehub()` or `vite-hub/nuxt`, and import the macro from `vite-hub/i18n` in a file that Vite builds.",
     },
-    // Runtime errors. `setLocale()` returns them as `[error, undefined]`.
+    // Thrown when server code calls `useTranslations()` in an app without `i18n.workspace`.
+    I18N_NO_WORKSPACE: {
+      why: "`useTranslations()` saves and publishes translations in a Workspace, and `i18n.workspace` is not set.",
+      fix: "Define a Workspace with retained history, such as `server/workspaces/translations/config.ts`, and set `i18n: { workspace: \"translations\" }`. Without a Workspace, translations are records in `locales/<locale>/`.",
+    },
+    // Runtime errors. `setLocale()` and `useTranslations()` return them as `[error, undefined]`.
+    I18N_INVALID_TRANSLATION: {
+      why: ({ problem }: { problem: string }) => `The translation was not saved. ${problem}`,
+      fix: "Write the translation in ICU MessageFormat, and keep every `{placeholder}` and `<0>` tag of the source text.",
+    },
     I18N_UNKNOWN_LOCALE: {
       why: ({ locale, locales }: { locale: string, locales: readonly string[] }) => `\`${locale}\` is not one of the configured locales: ${locales.join(", ")}.`,
-      fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales` and run `vitehub i18n extract`.",
+      fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales`.",
     },
     I18N_LOCALE_SUPERSEDED: {
       why: ({ locale }: { locale: string }) => `A newer \`setLocale()\` call superseded the selection of \`${locale}\` before its catalog loaded.`,

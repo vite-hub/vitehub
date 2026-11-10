@@ -44,7 +44,6 @@ try {
         /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "fdir",
-        "mrmime",
         "ocache",
         "picomatch",
         "tinyglobby",
@@ -54,32 +53,24 @@ try {
       "src/client.ts",
       "src/drizzle.ts",
       "src/index.ts",
-      "src/file.ts",
-      "src/files.ts",
-      "src/github.ts",
-      "src/glob.ts",
-      "src/markdown.ts",
       "src/mcp.ts",
       "src/server.ts",
       "src/vite.ts",
     ],
     exports: {
       customExports(exports) {
-        return {
-          ...normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
-            if (String(value) !== value || !value.endsWith(".js")) {
-              return [key, value];
-            }
-            return [
-              key,
-              {
-                types: value.replace(/\.js$/, ".d.ts"),
-                import: value,
-              },
-            ];
-          }))),
-          "./tsconfig": "./tsconfig.vite.json",
-        };
+        return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
+          if (String(value) !== value || !value.endsWith(".js")) {
+            return [key, value];
+          }
+          return [
+            key,
+            {
+              types: value.replace(/\.js$/, ".d.ts"),
+              import: value,
+            },
+          ];
+        })));
       },
       inlinedDependencies: false,
     },
@@ -87,6 +78,6 @@ try {
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });
