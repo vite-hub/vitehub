@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
+import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../github/index.ts";
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";

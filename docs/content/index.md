@@ -5,17 +5,17 @@ description: ViteHub is an open-source Vite plugin. Use one API for databases, s
 
 # The server layer for Vite apps
 
-ViteHub gives Vite apps one API for databases, storage, queues, workflows, schedules, and more. Use each Server Primitive on its own or combine them in your application.
+ViteHub gives Vite apps one API for databases, storage, queues, workflows, schedules, and more. Each of these Server Primitives works alone or with the others.
 
 ## Write once. Deploy anywhere.
 
-Same code on every host. The host picks the provider: Workers KV or Upstash Redis for KV, R2 or Vercel Blob for Blob, Cloudflare Queues or Vercel Queues for Queue. Host support depends on the primitive and provider. Check the [support matrix](/docs/frameworks-hosts/support-matrix) for each target.
+Same code on every host. The host picks the provider: Workers KV or Upstash Redis for KV, R2 or Vercel Blob for Blob, Cloudflare Queues or Vercel Queues for Queue. Support differs per primitive and provider, so check the [support matrix](/docs/frameworks-hosts/support-matrix).
 
 ## Define an Agent in one file.
 
-Your Agents live in your app, not beside it. An Agent Definition in `server/agents/` picks its Channels, Driver, Workspace, and Capabilities. Capabilities wrap the same primitives your routes call, so a route can read the KV store an Agent writes.
+Your Agents live in your app, not beside it. A file in `server/agents/` picks the Agent's Channels, Driver, Workspace, and Capabilities (its tools). Capabilities use the same primitives as your routes, so a route can read the KV store that an Agent writes.
 
-ViteHub builds on the UnJS ecosystem. Use TypeScript, native responses, and the tools you already use with Vite and Nuxt.
+ViteHub builds on UnJS. Use TypeScript, native responses, and your usual Vite and Nuxt tools.
 
 - [Build your first Server Primitive](/docs/getting-started/first-server-primitive)
 - [Build your first Agent](/docs/getting-started/first-agent)

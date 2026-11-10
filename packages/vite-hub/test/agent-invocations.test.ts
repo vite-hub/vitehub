@@ -297,7 +297,7 @@ describe("vitehub({ agent: { invocations } })", () => {
   it("renders only the configured parts", () => {
     expect(renderAgentInvocationsNitroPlugin({ database: true })).toContain(`installAgentInvocations({ database: () => import("vite-hub/agent/invocations/database") })`)
     expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`installAgentInvocations({ default: "memory" })`)
-    expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`import { installAgentInvocations } from "vite-hub/_internal/agent/invocations/app"`)
+    expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`import { installAgentInvocations } from "@vite-hub/agent/invocations/app"`)
   })
 
   it("adds the plugin for every app with Agents, unless the app turns journals off", () => {

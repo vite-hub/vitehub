@@ -10,8 +10,7 @@ const manifest: { dependencies: Record<string, string>, exports: Record<string, 
 const ownerPackages = new Set(Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies }).filter(name => name.startsWith("@vite-hub/")))
 
 /**
- * Every public `vite-hub/<owner>/<path>` subpath whose first segment names an owner package. Generated code reads
- * `vite-hub/_internal/*`, which is not public.
+ * Every public `vite-hub/<owner>/<path>` subpath whose first segment names an owner package.
  */
 const facades = Object.entries(manifest.exports).flatMap(([subpath, target]) => {
   const path = subpath.replace(/^\.\/?/, "")

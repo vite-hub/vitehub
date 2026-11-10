@@ -24,7 +24,7 @@ function photo(width: number, height: number, color = { b: 40, g: 120, r: 200 })
 }
 
 function request(url = "https://example.test/photo", headers?: Record<string, string>) {
-  return new H3Event(new Request(url, { headers }))
+  return new Request(url, { headers })
 }
 
 /** Records every operation and returns a small WebP whose size matches the request. */
@@ -83,8 +83,7 @@ describe("media records on the fs driver", () => {
     await storage.media.put("cover.jpg", await photo(10, 10))
     await expect(storage.put("_vitehub/media/records/cover.jpg.json", "{}")).rejects.toThrow("reserved ViteHub namespace")
     await expect(storage.media.put("_vitehub/media/x.jpg", "x")).rejects.toThrow("reserved ViteHub namespace")
-    const [error] = await storage.serve(request(), "_vitehub/media/records/cover.jpg.json")
-    expect(error?.code).toBe("BLOB_NOT_FOUND")
+    expect((await storage.serve(request(), "_vitehub/media/records/cover.jpg.json")).status).toBe(404)
   })
 
   it("deduplicates uploads by content hash when asked", async () => {
@@ -157,7 +156,7 @@ describe("media records on the fs driver", () => {
   it("moves an object with its record and crop replacements, and invalidates variants", async () => {
     await storage.media.put("old/hero.jpg", await photo(400, 200), { alt: "Hero" })
     ok(await storage.media.replaceCrop("old/hero.jpg", "mobile", await photo(80, 100)))
-    await storage.serve(request(), "old/hero.jpg", { variant: { width: 64 } })
+    await (await storage.serve(request(), "old/hero.jpg", { variant: { width: 64 } })).body?.cancel()
     expect(ok(await storage.media.variants("old/hero.jpg"))).toHaveLength(1)
     const before = ok(await storage.media.get("old/hero.jpg"))!
 
@@ -181,7 +180,7 @@ describe("media records on the fs driver", () => {
   it("removes an object with its record, crops, hash entry, and variants", async () => {
     const record = ok(await storage.media.put("gone.jpg", await photo(100, 100)))
     ok(await storage.media.replaceCrop("gone.jpg", "wide", await photo(160, 90)))
-    await storage.serve(request(), "gone.jpg", { variant: { crop: "wide", width: 64 } })
+    await (await storage.serve(request(), "gone.jpg", { variant: { crop: "wide", width: 64 } })).body?.cancel()
     ok(await storage.media.remove("gone.jpg"))
     expect(ok(await storage.list({ prefix: "_vitehub/" })).blobs).toEqual([])
     expect(ok(await storage.media.put("again.jpg", await photo(100, 100), { dedupe: true })).pathname).toBe("again.jpg")
@@ -237,16 +236,17 @@ describe("image variants on the fs driver", () => {
   })
 
   it("serves a resized WebP, caches it, and answers revalidation without transforming", async () => {
-    const first = request()
-    const [error, body] = await storage.serve(first, "photo.jpg", { variant: { width: 640 } })
-    expect(error).toBeUndefined()
-    const bytes = new Uint8Array(await new Response(body).arrayBuffer())
-    expect(first.res.headers.get("content-type")).toBe("image/webp")
+    const first = await storage.serve(request(), "photo.jpg", { variant: { width: 640 } })
+    expect(first.status).toBe(200)
+    const bytes = new Uint8Array(await first.arrayBuffer())
+    expect(first.headers.get("content-type")).toBe("image/webp")
     expect(await sharp(bytes).metadata()).toMatchObject({ format: "webp", height: 320, width: 640 })
-    await storage.serve(request(), "photo.jpg", { variant: { width: 640 } })
+    await (await storage.serve(request(), "photo.jpg", { variant: { width: 640 } })).body?.cancel()
     expect(transformer.operations).toHaveLength(1)
-    const conditional = request(undefined, { "if-none-match": first.res.headers.get("etag")! })
-    expect(await storage.serve(conditional, "photo.jpg", { variant: { width: 640 } })).toEqual([undefined, null])
+    const conditional = request(undefined, { "if-none-match": first.headers.get("etag")! })
+    const notModified = await storage.serve(conditional, "photo.jpg", { variant: { width: 640 } })
+    expect(notModified.status).toBe(304)
+    expect(notModified.body).toBeNull()
     const [variant] = ok(await storage.media.variants("photo.jpg"))
     expect(variant).toMatchObject({ contentType: "image/webp", key: "image:v1;src=original;out=640x320;fmt=webp;q=75;engine=recording", size: bytes.byteLength, source: "photo.jpg" })
   })
@@ -261,15 +261,15 @@ describe("image variants on the fs driver", () => {
   })
 
   it("crops cover variants around the focal point and changes the ETag when the focal point moves", async () => {
-    const first = request()
-    await storage.serve(first, "photo.jpg", { variant: { height: 256, width: 256 } })
+    const first = await storage.serve(request(), "photo.jpg", { variant: { height: 256, width: 256 } })
+    await first.body?.cancel()
     expect(transformer.operations[0]).toEqual({ extract: { height: 1000, left: 1000, top: 0, width: 1000 }, format: "webp", height: 256, quality: 75, width: 256 })
     await storage.media.update("photo.jpg", { focal: { x: 0, y: 0.5 } })
     expect(ok(await storage.media.variants("photo.jpg"))).toEqual([])
-    const second = request()
-    await storage.serve(second, "photo.jpg", { variant: { height: 256, width: 256 } })
+    const second = await storage.serve(request(), "photo.jpg", { variant: { height: 256, width: 256 } })
+    await second.body?.cancel()
     expect(transformer.operations[1]!.extract).toEqual({ height: 1000, left: 0, top: 0, width: 1000 })
-    expect(second.res.headers.get("etag")).not.toBe(first.res.headers.get("etag"))
+    expect(second.headers.get("etag")).not.toBe(first.headers.get("etag"))
   })
 
   it("serves named crops from the focal point, then from an uploaded replacement", async () => {
@@ -279,10 +279,9 @@ describe("image variants on the fs driver", () => {
 
     const record = ok(await storage.media.replaceCrop("photo.jpg", "mobile", await photo(400, 500, { b: 200, g: 0, r: 0 })))
     expect(record.crops!.mobile).toMatchObject({ aspect: "4:5", replacement: { contentType: "image/jpeg", height: 500, width: 400 } })
-    const served = request()
-    const [, body] = await storage.serve(served, "photo.jpg", { variant: { crop: "mobile", width: 640 } })
+    const served = await storage.serve(request(), "photo.jpg", { variant: { crop: "mobile", width: 640 } })
     expect(transformer.operations.at(-1)).toEqual({ format: "webp", height: 500, quality: 75, width: 400 })
-    const { data } = await sharp(new Uint8Array(await new Response(body).arrayBuffer())).raw().toBuffer({ resolveWithObject: true })
+    const { data } = await sharp(new Uint8Array(await served.arrayBuffer())).raw().toBuffer({ resolveWithObject: true })
     expect(data[2]).toBeGreaterThan(150)
 
     const created = ok(await storage.media.replaceCrop("photo.jpg", "story", await photo(90, 160)))
@@ -302,11 +301,10 @@ describe("image variants on the fs driver", () => {
     await storage.put("icon.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>")
     await storage.put("notes.txt", "hello")
     for (const pathname of ["icon.svg", "notes.txt"]) {
-      const event = request()
-      const [error, body] = await storage.serve(event, pathname, { variant: { width: 64 } })
-      expect(error).toBeUndefined()
-      expect(event.res.headers.get("content-type")).not.toBe("image/webp")
-      await new Response(body).arrayBuffer()
+      const response = await storage.serve(request(), pathname, { variant: { width: 64 } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).not.toBe("image/webp")
+      await response.arrayBuffer()
     }
     expect(transformer.operations).toEqual([])
   })
@@ -330,19 +328,17 @@ describe("image transformer selection", () => {
       const record = ok(await storage.media.put("p.jpg", bytes))
       expect(record).toMatchObject({ height: 200, width: 300 })
       expect(record).not.toHaveProperty("color")
-      const event = request()
-      const [, body] = await storage.serve(event, "p.jpg", { variant: { format: "webp", width: 64 } })
-      expect(event.res.headers.get("content-type")).toBe("image/jpeg")
-      expect((await new Response(body).arrayBuffer()).byteLength).toBe(bytes.byteLength)
+      const response = await storage.serve(request(), "p.jpg", { variant: { format: "webp", width: 64 } })
+      expect(response.headers.get("content-type")).toBe("image/jpeg")
+      expect((await response.arrayBuffer()).byteLength).toBe(bytes.byteLength)
     }
   })
 
   it("auto-selects installed sharp on Node and produces a resized WebP", async () => {
     const storage = createBlobStorage(createDriver({ base: directory, driver: "fs" }), "default")
     ok(await storage.media.put("auto.jpg", await photo(1600, 900)))
-    const event = request()
-    const [, body] = await storage.serve(event, "auto.jpg", { variant: { quality: 60, width: 828 } })
-    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ format: "webp", height: 466, width: 828 })
+    const response = await storage.serve(request(), "auto.jpg", { variant: { quality: 60, width: 828 } })
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ format: "webp", height: 466, width: 828 })
     expect(ok(await storage.media.variants("auto.jpg"))[0]!.key).toContain("engine=sharp")
   })
 })
