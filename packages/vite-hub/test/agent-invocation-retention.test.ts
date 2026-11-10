@@ -15,6 +15,9 @@ import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.
 import type { Client } from "@libsql/client"
 import type { AgentInvocationStoreCreateInput, AgentRetentionPolicy } from "@vite-hub/agent/server"
 
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
+
 const day = 24 * 60 * 60 * 1000
 const ago = (milliseconds: number) => new Date(Date.now() - milliseconds).toISOString()
 const finished = (id: string, updatedAt: string, status: AgentInvocationStoreCreateInput["status"] = "completed"): AgentInvocationStoreCreateInput => ({
@@ -156,7 +159,7 @@ describe("Default Agent journal retention", () => {
 
   it("installs a new journal when only maxSize changes", () => {
     const install = (maxSize: "1GB" | "2GB") => {
-      installAgentInvocations({ default: { databaseUrl: url, retention: { maxSize } }, journal: { projectRoot: directory } })
+      installAgentInvocations({ default: { databaseUrl: url, retention: { maxSize } }, journal: { libsql, projectRoot: directory } })
       return resolveDefaultAgentInvocations()
     }
     const first = install("1GB")

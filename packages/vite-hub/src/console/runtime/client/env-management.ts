@@ -1,6 +1,6 @@
 import type { EnvActor, EnvPermission, EnvSecretMetadata, EnvActivity, EnvGrant } from "@vite-hub/env/bridge"
 import * as v from "valibot"
-import { isRemoteProject, projectConsoleUrl, projectFetch } from "./project"
+import { isRemoteProject, projectFetch } from "./project"
 import { ConsoleNetworkError, ConsoleRequestError, consoleResponseError } from "./request"
 
 export const envPermissionSchema: v.GenericSchema<unknown, EnvPermission> = v.picklist(["inspect", "preview", "replace", "use"])
@@ -14,7 +14,7 @@ export const envGrantsSchema: v.GenericSchema<unknown, { grants: EnvGrant[] }> =
 export async function requestEnvManagement<T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(endpoint: string, path: string, action: string, schema: T, input: Record<string, unknown> = {}): Promise<v.InferOutput<T>> {
   // The Env bridge accepts only browser calls from the app origin.
   if (isRemoteProject()) {
-    throw new ConsoleRequestError(403, { message: "Env management works only in the Console that the app serves.", fix: `Open ${projectConsoleUrl("/env")} to manage this value.` })
+    throw new ConsoleRequestError(403, { message: "Env management accepts only requests from the app origin, so the Console cannot manage this value." })
   }
   const body = JSON.stringify({ ...input, path, action })
   let response: Response

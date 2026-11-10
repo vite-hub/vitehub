@@ -314,7 +314,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       await expect(metadata.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/auth`], resource })
       await expect(auth(new Request(`${preview}/_vitehub/mcp`)).api.getOAuthServerConfig?.({ asResponse: false, headers: new Headers() })).resolves.toMatchObject({ issuer: `${app}/api/auth` })
       const context = await real(new Request(`${preview}/_vitehub/mcp`)).$context
-      expect(context.getPlugin("oauth-provider")?.options).toMatchObject({ clientRegistrationDefaultResources: [resource], consentPage: "/login", loginPage: "/login", resources: [resource] })
+      expect(context.getPlugin("oauth-provider")?.options).toMatchObject({ clientRegistrationDefaultResources: [resource, `${app}/_vitehub`], consentPage: "/login", loginPage: "/login", resources: [resource, `${app}/_vitehub`] })
       const registration = await real(new Request(`${preview}/_vitehub/mcp`)).handler(new Request(`${preview}/api/auth/oauth2/register`, {
         body: JSON.stringify({ client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" }),
         headers: { "content-type": "application/json", "origin": preview },
@@ -374,7 +374,8 @@ describe("MCP sign-in against a real Better Auth", () => {
     expect(provider?.options).toMatchObject({
       consentPage: "/portal/_vitehub/sign-in",
       loginPage: "/portal/_vitehub/sign-in",
-      resources: [resource],
+      // Only the exact `<base>/_vitehub/mcp` resource has a Console resource next to it.
+      resources: suffix ? [resource] : [resource, `${app}/portal/_vitehub`],
     })
   })
 
