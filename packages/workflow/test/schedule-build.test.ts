@@ -39,7 +39,6 @@ describe("Workflow preparation for Schedule", () => {
           root,
           build: { outDir: "dist" },
           plugins: [],
-          workflow: { provider: "vercel" },
           resolve: { alias: [{ find: "build-alias", replacement: join(root, "alias.ts") }] },
           [VITEHUB_SERVER_DIRS]: [server],
         }
@@ -83,7 +82,6 @@ describe("Workflow preparation for Schedule", () => {
         const input: UserConfig & { [VITEHUB_SERVER_DIRS]?: string[] } = {
           root,
           plugins: [],
-          workflow: { provider: "vercel" },
           [VITEHUB_SERVER_DIRS]: [server],
         }
         await (plugin.config as { handler: (config: UserConfig, env: { command: string }) => Promise<void> }).handler(input, { command: "build" })
@@ -147,7 +145,6 @@ describe("Workflow preparation for Schedule", () => {
       const configs = ["first", "second"].map(name => ({
         root, command: "build", plugins: [], build: { outDir: "dist" },
         resolve: { alias: [{ find: "build-alias", replacement: join(root, name) }] },
-        workflow: { provider: "vercel" },
         define: { __VITEHUB_PUBLIC_URL__: JSON.stringify(`https://${sharedUrl ? "shared" : name}.example.com`) },
       } as unknown as ResolvedConfig))
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(config)
@@ -171,7 +168,6 @@ describe("Workflow preparation for Schedule", () => {
       const configs = ["first", "second"].map(name => ({
         root, command: "build", plugins: [], build: { outDir: "dist" },
         resolve: { alias: [{ find: "build-alias", replacement: join(root, name) }] },
-        workflow: { provider: "vercel" },
         define: { __VITEHUB_PUBLIC_URL__: JSON.stringify(`https://${name}.example.com`) },
       } as unknown as ResolvedConfig))
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(config)

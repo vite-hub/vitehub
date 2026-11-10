@@ -7,7 +7,7 @@ import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
 import { consoleFeaturePackages, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join, relative, resolve } from "pathe"
+import { dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -89,11 +89,11 @@ function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessE
 }
 
 /** Features whose key accepts only a boolean. */
-const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
+const booleanFeatures: readonly FeatureId[] = ["sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], logs: ["source"], observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"] }
 
 /** Match the Auth package's file locations without loading application code. */
 function hasAuthDefinition(project: SetupProject): boolean {
@@ -423,19 +423,17 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       }
     }
     for (const key of requiredOptions[id] ?? []) {
-      if (id === "observability" || id === "logs") {
-        const selected = isRecord(value) ? value[key] : undefined
-        if (typeof selected === "string" && selected.trim()) continue
-      }
-      else if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
+      if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      if (id === "observability") setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
-      else rerunnable = false
+      rerunnable = false
     }
   }
   const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
   const agent = valueFor("agent")
-  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && enabledAfter("agent")
+  const observabilityValue = valueFor("observability")
+  // Only `observability.service` installs Agent telemetry, which needs Nitro-hosted Agents.
+  const telemetry = isRecord(observabilityValue) && typeof observabilityValue.service === "string"
+  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && telemetry && enabledAfter("agent")
     && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), setupExitCodes.conflict)
   }

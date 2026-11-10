@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { findExportNames, hasCJSSyntax } from "mlly"
@@ -25,7 +25,7 @@ import {
 } from "./vite-config.ts"
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
-import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import type { BlobOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -65,7 +65,7 @@ export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: B
 interface InternalBlobModuleOptions {
   importBase?: string
   /** Whether the effective options still use a preset driver after application config hooks. */
-  presetDriver?: boolean | ((options: BlobModuleOptions | undefined) => boolean)
+  presetDriver?: boolean | ((options: BlobOptions | undefined) => boolean)
 }
 
 const mergeNoExternal = createNoExternalAddition(blobPackageName)
@@ -134,7 +134,7 @@ function isNitroCloudflareHost(value: unknown): boolean {
   return resolveHost({ nitro: value }) === "cloudflare"
 }
 
-function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareHost: boolean): Record<string, unknown> {
+function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobOptions | undefined, cloudflareHost: boolean): Record<string, unknown> {
   const providerOutput = useProviderOutputCatalog(config)
   if (!cloudflareHost) {
     contributeCloudflareProviderOutput(providerOutput, { owner: "blob" })
@@ -229,11 +229,9 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
 
 type ImageModule = "photon" | "sharp"
 
-// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+// Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
 function devServerHost(config: ResolvedConfig) {
-  const vitehub: unknown = Reflect.get(config, "vitehub")
-  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
-  return getHostingProvider(resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }))
+  return getHostingProvider(resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }))
 }
 
 // Keep sharp's existing node_modules-based auto detection independent of NODE_PATH, which pnpm scripts set.
@@ -463,9 +461,9 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
   throw blobErrorDiagnostics.BLOB_B0004({ message: `[vitehub] ${lines.join(" ")} Install it in your app with: pnpm add ${install}` })
 }
 
-export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
+export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
-  let blob: BlobModuleOptions | undefined = options
+  let blob: BlobOptions | undefined = options
   let nitroCloudflare = false
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
@@ -506,7 +504,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       order: "pre",
       handler(config, env) {
         command = env.command
-        blob = config.blob ?? blob
+        blob = getResolvedFeatureOptions<BlobOptions>(config, "blob") ?? blob
         const configuredNitro = (config as { nitro?: unknown }).nitro
         const cloudflare = isNitroCloudflareHost(configuredNitro)
         const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
@@ -524,7 +522,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     async configResolved(config) {
       resolved = config
       rootDir = resolveViteHubProjectRoot(config.root)
-      blob = config.blob ?? blob
+      blob = getResolvedFeatureOptions<BlobOptions>(config, "blob") ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
       nitroCloudflare = cloudflare
@@ -606,11 +604,5 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         }
       },
     },
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    blob?: BlobModuleOptions
   }
 }

@@ -12,7 +12,8 @@ import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import type { UserConfig } from "vite"
+import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -193,10 +194,10 @@ describe("hubBlob", () => {
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
     await configResolved({
-      blob: {
+      [VITEHUB_FEATURES]: { blob: {
         base: ".top-level/blob",
         driver: "fs",
-      },
+      } },
       build: { outDir: "dist" },
       root: process.cwd(),
     } as never)
@@ -632,13 +633,13 @@ describe("hubBlob", () => {
     }])
 
     const resolved = {
-      blob: {
+      [VITEHUB_FEATURES]: { blob: {
         stores: {
           default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
           assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
           assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
         },
-      },
+      } },
       build: { outDir: "dist" },
       nitro: {
         ...(userConfig as { nitro?: object }).nitro,
@@ -1521,7 +1522,7 @@ describe("hubBlob in vite dev", () => {
     ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, true],
     ["cloudflare", { driver: "cloudflare-r2" }, false],
     ["cloudflare", { driver: "cloudflare-r2" }, true],
-  ] as const)("keeps the %s preset (%o, remote=%s) when application config replaces Blob options", async (preset, options, remote) => {
+  ] as const)("keeps the %s preset (%o, remote=%s) when ViteHub replaces Blob options", async (preset, options, remote) => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
     vi.stubEnv("BLOB_STORE_ID", "")
     try {
@@ -1532,7 +1533,8 @@ describe("hubBlob in vite dev", () => {
         configFile: false,
         logLevel: "silent",
         plugins: [
-          { name: "app-blob-config", config: () => ({ blob: { remote }, vitehub: { preset } }) },
+          // SAFETY: These private keys carry what the `vitehub()` deployment hook resolves for the owner plugin.
+          { name: "app-blob-config", config: () => ({ [VITEHUB_FEATURES]: { blob: { remote } }, [VITEHUB_DEPLOYMENT_PRESET]: preset }) as UserConfig },
           plugin,
         ],
         root,
