@@ -41,6 +41,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./guard": {
+      "types": "./dist/guard.d.ts",
+      "import": "./dist/guard.js",
+      "default": "./dist/guard.js"
+    },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
