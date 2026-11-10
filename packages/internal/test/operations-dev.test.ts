@@ -29,7 +29,7 @@ afterEach(() => {
 describe("local operation RPC", () => {
   it("uses project identity for discovered targets but not explicit deployment URLs", async () => {
     const { handler, run } = fixture()
-    const fetch: typeof globalThis.fetch = (url, init) => handler({ req: Object.assign(new Request(url, init), { ip: "127.0.0.1" }) })
+    const fetch: typeof globalThis.fetch = (url, init) => handler.fetch(Object.assign(new Request(url, init), { ip: "127.0.0.1" }))
     const result = await callOperationFromCli({ rootDir: "/client/project", env: {}, url: "http://localhost", fetch }, "test.echo", { text: "deployed" })
     expect(result).toEqual({ ok: true, value: "deployed" })
     const stale = await callOperationFromCli({ rootDir: "/client/project", env: { VITEHUB_DEV_SERVER_URL: "http://localhost" }, fetch }, "test.echo", { text: "wrong project" })
@@ -42,7 +42,7 @@ describe("local operation RPC", () => {
     { "x-forwarded-host": "public.test" }, { "x-vitehub-console": "" },
   ])("refuses an untrusted request before running an operation: %j", async (headers) => {
     const { handler, run, request } = fixture()
-    expect((await handler({ req: request({ operation: "test.echo", input: { text: "unsafe" } }, headers) })).status).toBe(403)
+    expect((await handler.fetch(request({ operation: "test.echo", input: { text: "unsafe" } }, headers))).status).toBe(403)
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -50,22 +50,22 @@ describe("local operation RPC", () => {
     const { handler, run, request } = fixture()
     const req = request({ operation: "test.echo", input: { text: "unsafe" } })
     Object.assign(req, { ip: "192.0.2.4" })
-    expect((await handler({ req })).status).toBe(403)
+    expect((await handler.fetch(req)).status).toBe(403)
     expect(run).not.toHaveBeenCalled()
   })
 
   it("refuses a peer without an address, whatever headers it sends", async () => {
     const { handler, run, request } = fixture()
     const forged = { "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" }
-    expect((await handler({ req: request({ operation: "test.echo", input: { text: "unsafe" } }, forged, undefined, null) })).status).toBe(403)
+    expect((await handler.fetch(request({ operation: "test.echo", input: { text: "unsafe" } }, forged, undefined, null))).status).toBe(403)
     expect(run).not.toHaveBeenCalled()
   })
 
   it("refuses a forwarded request on the direct-peer path before running the operation", async () => {
     const { handler, run, request } = fixture()
     const body = { operation: "test.echo", input: { text: "local" } }
-    expect((await handler({ req: request(body) })).status).toBe(200)
-    expect((await handler({ req: request(body, { host: "localhost", "x-forwarded-for": "203.0.113.9" }) })).status).toBe(403)
+    expect((await handler.fetch(request(body))).status).toBe(200)
+    expect((await handler.fetch(request(body, { host: "localhost", "x-forwarded-for": "203.0.113.9" }))).status).toBe(403)
     expect(run).toHaveBeenCalledTimes(1)
   })
 
@@ -79,24 +79,24 @@ describe("local operation RPC", () => {
     }
     const body = { operation: "test.echo", input: { text: "local" } }
     // A dev worker behind the front process's proxy sees no address, or the proxy on 127.0.0.1.
-    expect((await handler({ req: request(body, await signed("127.0.0.1"), undefined, null) })).status).toBe(200)
-    expect((await handler({ req: request(body, await signed("127.0.0.1")) })).status).toBe(200)
+    expect((await handler.fetch(request(body, await signed("127.0.0.1"), undefined, null))).status).toBe(200)
+    expect((await handler.fetch(request(body, await signed("127.0.0.1")))).status).toBe(200)
     expect(run).toHaveBeenCalledTimes(2)
-    expect((await handler({ req: request(body, await signed("192.168.0.38", { [viteHubDevPeerHeader]: "v1.forged" })) })).status).toBe(403)
+    expect((await handler.fetch(request(body, await signed("192.168.0.38", { [viteHubDevPeerHeader]: "v1.forged" })))).status).toBe(403)
     // A tunnel on this machine connects from 127.0.0.1 and adds the address of the client it forwards.
-    expect((await handler({ req: request(body, await signed("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }), undefined, null) })).status).toBe(403)
-    expect((await handler({ req: request(body, {}, undefined, "127.0.0.1") })).status).toBe(403)
+    expect((await handler.fetch(request(body, await signed("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }), undefined, null))).status).toBe(403)
+    expect((await handler.fetch(request(body, {}, undefined, "127.0.0.1"))).status).toBe(403)
     expect(run).toHaveBeenCalledTimes(2)
   })
 
   it("validates input and applies the selected operation's byte limit", async () => {
     const { handler, request } = fixture()
     const headers = { [operationExpectedRootsHeader]: projectRootHash("/server/project") }
-    expect((await handler({ req: request({ operation: "test.echo", input: { text: 42 } }, headers) })).status).toBe(400)
+    expect((await handler.fetch(request({ operation: "test.echo", input: { text: 42 } }, headers))).status).toBe(400)
     const input = { text: "x".repeat(70 * 1024) }
-    expect((await handler({ req: request({ operation: "test.echo", input }) })).status).toBe(413)
-    expect((await handler({ req: request({ operation: "test.large", input }) })).status).toBe(200)
-    expect((await handler({ req: request({ operation: "test.large", input: { text: "x".repeat(130 * 1024) } }) })).status).toBe(413)
+    expect((await handler.fetch(request({ operation: "test.echo", input }))).status).toBe(413)
+    expect((await handler.fetch(request({ operation: "test.large", input }))).status).toBe(200)
+    expect((await handler.fetch(request({ operation: "test.large", input: { text: "x".repeat(130 * 1024) } }))).status).toBe(413)
   })
 })
 

@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
-import { runtimeValueSchema } from "./declarations.ts"
+import { runtimeValueSchema, schemaModuleReference } from "./declarations.ts"
 import { envValueTypeName, parseEnvValue, schemaContainsEnum } from "./values.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
@@ -160,10 +160,17 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string | false } = {}): EnvRuntimeRegistry {
+export interface RuntimeRegistryOptions {
+  path?: string
+  prefix?: string | false
+  /** Accept `env.schemaFrom()`. Only generated modules that import and bind the schema modules set it. */
+  schemaModules?: boolean
+}
+
+export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: RuntimeRegistryOptions = {}): EnvRuntimeRegistry {
   const path = options.path ?? "env"
   try {
-    const registry = buildRegistry(declarations, path, options.prefix)
+    const registry = buildRegistry(declarations, path, options.prefix, options.schemaModules === true)
     assertUniqueCanonicalNames(registry, path)
     return registry
   }
@@ -269,6 +276,9 @@ async function resolveBuildDeclaration(
   input: { context: EnvSourceContext, prefix?: string | false },
   canonical = true,
 ) {
+  if (schemaModuleReference(declaration.schema)) {
+    throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(), which only env.server supports. Build-time values run the schema object itself.`)
+  }
   const defaultValue = parseDeclarationDefault(declaration, path)
   const source = resolveEnvSource(declaration, path, canonical ? input.prefix : false)
   const resolvedSource = await resolveSourceValue(source, input.context)
@@ -293,7 +303,7 @@ function parseDeclarationDefault(declaration: EnvVariableDeclaration, path: stri
     : declaration.default
 }
 
-function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string | false): EnvRuntimeRegistry {
+function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix: string | false | undefined, schemaModules: boolean): EnvRuntimeRegistry {
   if (typeof declarations === "undefined") {
     return {}
   }
@@ -310,7 +320,7 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       if (!isPlainRecord(value)) {
         throw invalidEnvDeclaration(valuePath, `Invalid runtime declaration at ${valuePath}. Use env(), a serializable static value, or a nested object.`)
       }
-      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, canonicalKey.test(key) ? prefix : false)]
+      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, canonicalKey.test(key) ? prefix : false, schemaModules)]
     }
     if (value.mode !== "runtime") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use mode: "runtime".`)
@@ -319,9 +329,26 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     if (source.kind !== "env" && source.kind !== "provider") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() or env.provider().`)
     }
+    const schemaModule = schemaModuleReference(value.schema)
+    if (schemaModule) {
+      if (!schemaModules) {
+        throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses env.schemaFrom(), which only env.server supports.`)
+      }
+      if (value.type) {
+        throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses env.schemaFrom(), so its type comes from the schema. Remove the type option.`)
+      }
+      // The schema runs in the server build, so a default is checked when the value resolves.
+      return [key, {
+        default: value.default,
+        required: value.required,
+        schemaModule,
+        secret: value.secret,
+        source,
+      }]
+    }
     const schema = runtimeValueSchema(value)
     if (!schema) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema. Server Env accepts env(), env.boolean(), env.number(), and env.enum() because runtime parsers must be serializable.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema object. Server Env runs in the server build, so export the schema from a module and use env.schemaFrom(), or use env(), env.boolean(), env.number(), or env.enum().`)
     }
     if (schemaContainsEnum(schema) && value.secret) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)

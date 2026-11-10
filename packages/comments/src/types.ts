@@ -63,8 +63,9 @@ export interface CommentsForgeOptions {
 }
 
 /**
- * The request event of a Comments call. Read the request, its cookies, and the platform bindings from
- * `event["~standard"]`. `context` is the H3 event context, when the call came through an H3 route.
+ * The request event of a Comments call: the Request of the Comments API, or the server event of an operation call.
+ * Read the request, its cookies, and the platform bindings from `event["~standard"]`. `context` is the H3 event
+ * context, when the call came through an H3 event.
  */
 export type CommentsRequestEvent = ViteHubContext<{ context?: Record<string, unknown> }>
 
