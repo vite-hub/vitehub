@@ -265,15 +265,21 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
       const registryModule = context.server.moduleGraph.getModuleById(resolvedBrowserRegistryId)
       if (registryModule) context.server.moduleGraph.invalidateModule(registryModule)
     },
-    resolveId(id) {
-      if (id === browserRegistryId) return resolvedBrowserRegistryId
-      if (id === browserRuntimeId) return resolvedBrowserRuntimeId
-      if (id === browserAvailabilityId) return resolvedBrowserAvailabilityId
+    resolveId: {
+      filter: { id: /^#vitehub\/browser\/(?:registry|runtime|availability)$/ },
+      handler(id) {
+        if (id === browserRegistryId) return resolvedBrowserRegistryId
+        if (id === browserRuntimeId) return resolvedBrowserRuntimeId
+        if (id === browserAvailabilityId) return resolvedBrowserAvailabilityId
+      },
     },
-    load(id) {
-      if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
-      if (id === resolvedBrowserRuntimeId) return runtimeContents()
-      if (id === resolvedBrowserAvailabilityId) return availabilityContents()
+    load: {
+      filter: { id: /^\0#vitehub\/browser\/(?:registry|runtime|availability)$/ },
+      handler(id) {
+        if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
+        if (id === resolvedBrowserRuntimeId) return runtimeContents()
+        if (id === resolvedBrowserAvailabilityId) return availabilityContents()
+      },
     },
     buildStart() {
       providerOutputGenerations.capture(this, providerOutput)
