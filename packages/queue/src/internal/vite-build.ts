@@ -254,17 +254,18 @@ export function createVercelQueueConsumerRoutes(definitions: DiscoveredQueueDefi
 
 function renderVercelQueueConsumerHandler(file: string, name: string) {
   return [
-    `import { defineHandler } from ${JSON.stringify(createImportPath(file, resolvePackageDependency("h3")))}`,
     `import { handleHostedVercelQueueCallback } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, missingQueueDefinitionError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("internal/runtime/state")))}`,
     "",
     `const name = ${JSON.stringify(name)}`,
     "",
-    "export default defineHandler(async (event) => {",
-    "  const definition = await loadQueueDefinition(name)",
-    "  if (!definition) throw missingQueueDefinitionError(name)",
-    "  return await handleHostedVercelQueueCallback(event, name, definition)",
-    "})",
+    "export default {",
+    "  async fetch(request) {",
+    "    const definition = await loadQueueDefinition(name)",
+    "    if (!definition) throw missingQueueDefinitionError(name)",
+    "    return await handleHostedVercelQueueCallback(request, name, definition)",
+    "  },",
+    "}",
     "",
   ].join("\n")
 }

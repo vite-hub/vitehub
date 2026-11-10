@@ -26,6 +26,6 @@ export default defineConfig({
     ],
     exports: { customExports: normalizePackageExports, inlinedDependencies: false },
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: true,
+    publint: "ci-only",
   },
 })
