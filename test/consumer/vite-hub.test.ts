@@ -693,8 +693,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["exec", "vite", "build"], appDir)
       expect(existsSync(join(appDir, ".output/server/index.mjs"))).toBe(true)
 
+      // The Console app is an optional peer too, so the Console asks for it.
       await writeFile(join(appDir, "vite.config.ts"), config(", console: { auth: false }, comments: false"), "utf8")
-      await run("pnpm", ["exec", "vite", "build"], appDir)
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/console-client")
 
       await writeFile(join(appDir, "vite.config.ts"), config(", agent: true"), "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/agent")
@@ -1118,6 +1119,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
+            "@vite-hub/console-client": specs["@vite-hub/console-client"],
             "@vite-hub/kv": specs["@vite-hub/kv"],
             nuxt: "4.6.2",
             unplugin: "3.3.0",

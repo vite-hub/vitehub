@@ -1060,6 +1060,7 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
+    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1145,6 +1146,7 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
+    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1260,6 +1262,9 @@
       "optional": true
     },
     "@vite-hub/connections": {
+      "optional": true
+    },
+    "@vite-hub/console-client": {
       "optional": true
     },
     "@vite-hub/content": {

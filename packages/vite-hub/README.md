@@ -17,7 +17,7 @@ pnpm add vite-hub
 
 If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script.
 
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
+`vite-hub` includes Env, Source, Logs, and the Console routes. Every other feature, and the Console app, is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
@@ -27,6 +27,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
+| `console` | `@vite-hub/console-client` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |

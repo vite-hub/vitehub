@@ -126,6 +126,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
+  // Static Console files that Nitro serves. Generated server code never imports them.
+  "@vite-hub/console-client": false,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,

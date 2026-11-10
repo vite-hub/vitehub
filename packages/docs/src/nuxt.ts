@@ -568,6 +568,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
       }
     })
+    // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
+    // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
+    // the reader points at it or focuses it instead, unless the app chose when links prefetch.
+    if (!nuxt.options._layers.some(layer => layer.config.experimental?.defaults?.nuxtLink?.prefetchOn))
+      nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
