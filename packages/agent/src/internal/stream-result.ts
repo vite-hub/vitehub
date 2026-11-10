@@ -1,11 +1,9 @@
-import { hasRuntimeType } from "./runtime-type.ts"
-
 export type AsyncIterableReadableStream<T> = AsyncIterable<T> & ReadableStream<T>
 
 function hasAsyncIterator(value: unknown): boolean {
-  if (!hasRuntimeType(value, "object") || value === null) return false
+  if (typeof value !== "object" || value === null) return false
   try {
-    return hasRuntimeType(Reflect.get(value, Symbol.asyncIterator), "function")
+    return typeof Reflect.get(value, Symbol.asyncIterator) === "function"
   }
   catch {
     return false
@@ -18,7 +16,7 @@ export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown>
 
 function isReadableStream<T>(value: AsyncIterable<T>): value is AsyncIterableReadableStream<T> {
   try {
-    return hasRuntimeType(Reflect.get(value, "pipeThrough"), "function")
+    return typeof Reflect.get(value, "pipeThrough") === "function"
   }
   catch {
     return false

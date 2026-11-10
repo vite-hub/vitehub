@@ -4,6 +4,7 @@ import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRunt
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
+import { assertWorkflowDefinitionName } from "../definition.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -44,6 +45,7 @@ async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
       ? loaded.default
       : loaded)
     if (isWorkflowDefinition(definition)) {
+      assertWorkflowDefinitionName(name, definition)
       definitions.set(name, definition)
       continue
     }

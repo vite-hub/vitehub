@@ -304,7 +304,8 @@ export const comments = defineComments({
 ```
 
 ```ts [server/api/docs/[id]/comments.post.ts]
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { comments } from '../../../comments'
 import { canComment, requireUser } from '../../../utils/docs'
 
@@ -312,7 +313,7 @@ export default defineEventHandler(async (event) => {
   const user = await requireUser(event)
   const id = getRouterParam(event, 'id')!
   if (!await canComment(user, id)) throw new Error('You cannot comment on this document.')
-  const { body, quote, version } = await readBody<{ body: string, quote: string, version: number }>(event)
+  const { body, quote, version } = await readValidatedBody(event, body => v.parse(v.object({ body: v.string(), quote: v.string(), version: v.number() }), body))
   const [error, thread] = await comments.create({
     subject: { kind: 'doc', id },
     revision: version,
@@ -419,7 +420,7 @@ export const comments = defineComments({
 
 ViteHub reads the name without running the file, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when there are several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
 
-`vitehub({ comments: { database: 'team' } })` names it without the file. Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts`, turn on the `comments` option, or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+`vitehub({ comments: { database: 'team' } })` names it without the file. Run `vitehub database generate` and `vitehub database migrate` after you add `server/comments.ts`, turn on the `comments` option, or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
 
 ## Upgrade to one model
 
@@ -448,20 +449,20 @@ All statements run in one batch or transaction, so a failure changes nothing.
 Stop comment writes while you migrate, also from older app instances, and back up the Database first.
 ::
 
-**A ViteHub Database.** The migration must go in the migration history, so that `vitehub db generate` does not try to change the old table itself:
+**A ViteHub Database.** The migration must go in the migration history, so that `vitehub database generate` does not try to change the old table itself:
 
-1. Run `vitehub db generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub db generate` tries to move the tables again.
+1. Run `vitehub database generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub database generate` tries to move the tables again.
 2. Print the SQL and put it in that file, one statement before each `--> statement-breakpoint`:
 
 ```bash
 node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comments/database'; console.log(commentsMigrationSql({ from: 'live' }).join(';\n--> statement-breakpoint\n') + ';')"
 ```
 
-3. Run `vitehub db migrate --dry-run`, then `vitehub db migrate`.
+3. Run `vitehub database migrate --dry-run`, then `vitehub database migrate`.
 
-A Database that already has the comment operations' tables gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
+A Database that already has the comment operations' tables gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub database generate`.
 
-Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments checks the tables once per server process, so the next request after `vitehub db migrate` works without a restart.
+Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments checks the tables once per server process, so the next request after `vitehub database migrate` works without a restart.
 
 **A Database that `comments()` opens itself.** Comments owns the SQLite file, `env:` libSQL URL, and D1 binding of `comments()`, so it moves them itself. Before each server process's first query, it runs `migrateComments()` and creates missing tables. Requests wait for the move. To move the tables before a deploy, run `migrateComments(db)` with a Drizzle database. A second run does nothing:
 
@@ -717,7 +718,7 @@ Guests always post through the App, and so does anyone whose token fails. The po
 
 Changes do not wait for GitHub. Each thread has `forge` with `state` (`posted`, `pending`, or `failed` with the `error`) and the `url` of its comment. The thread's next change retries, and so does `comments.sync(threadId)`.
 
-GitHub ids live in the `vitehub_comment_forge` table. `comments()` creates it with the other tables. With `vitehub()`, run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
+GitHub ids live in the `vitehub_comment_forge` table. `comments()` creates it with the other tables. With `vitehub()`, run `vitehub database generate` and `vitehub database migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
 
 App mentions and thread numbers stay plain text on GitHub: `@ada` does not notify a GitHub user, and `#3` does not link issue 3.
 

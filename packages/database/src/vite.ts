@@ -3,7 +3,6 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -319,7 +318,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     } while (generation !== generatedArtifacts)
   }
 
-  // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
+  // `vitehub database generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
@@ -551,7 +550,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
       // Fail before bundling: without a D1 resource, the server bundle falls back to the Node libSQL client. Under Nuxt,
       // the module checks this in `nitro:config`, where it can see an alias that the app sets.
       const database = resolvedOptions()
-      if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command, getViteMode()) && resolveHostedProvider(resolved) === "cloudflare") {
+      if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command) && resolveHostedProvider(resolved) === "cloudflare") {
         const { unresolved } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved.root) })
         assertDefinitionD1Resources(runtimeConfig, contributions, unresolved.map(binding => binding.database))
       }
@@ -595,7 +594,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
         await siblingRuntimeGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command)) {
         resetRuntimeContribution()
         return
       }
@@ -655,4 +654,3 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
     },
   }
 }
-

@@ -29,7 +29,7 @@ interface DatabaseTableContributionFields extends DatabaseContributionFields {
 
 /**
  * Drizzle tables that another package adds to a Database Definition from its Vite plugin. The Database plugin merges
- * them into the generated Drizzle schema, so `vitehub db generate` writes their migrations and
+ * them into the generated Drizzle schema, so `vitehub database generate` writes their migrations and
  * `useDatabase(name).schema` holds them, without the application editing its Definition. `name` names the group of
  * tables, and `definition.export` names an export that holds an object of Drizzle tables.
  */
@@ -37,7 +37,7 @@ export type DatabaseContribution = Contribution & DatabaseTableContributionField
 
 /**
  * A Database Definition that another package adds from its Vite plugin, for example because the application has no
- * Database the package can use. It behaves like a discovered Definition: `vitehub db generate`, the runtime,
+ * Database the package can use. It behaves like a discovered Definition: `vitehub database generate`, the runtime,
  * provisioning, and inspection see it. Its migrations go where an application Definition with the same name keeps
  * them, so adding that Definition later continues the same history.
  */

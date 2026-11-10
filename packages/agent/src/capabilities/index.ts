@@ -39,6 +39,14 @@ export type {
 export {
   content,
 } from "./content.ts"
+export {
+  i18n,
+} from "./i18n.ts"
+export type {
+  I18nCapabilityOperation,
+  I18nCapabilityOptions,
+  I18nCapabilityToolPolicy,
+} from "./i18n.ts"
 export type {
   ContentCapabilityOperation,
   ContentCapabilityOptions,
@@ -261,6 +269,7 @@ export type {
   InputCommandAgentFinishHookContext,
   InputCommandAgentInputHookContext,
   InputCommandCall,
+  InputCommandConsole,
   InputCommandDeliveryMessage,
   InputCommandHooks,
   InputCommand,
