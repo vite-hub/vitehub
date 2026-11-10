@@ -126,6 +126,7 @@
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "marked": "catalog:realtime",
+    "modern-screenshot": "4.7.0",
     "nitro": "catalog:unjs",
     "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
