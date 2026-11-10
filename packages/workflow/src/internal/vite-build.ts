@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
@@ -184,6 +184,8 @@ export async function createVercelWorkflowTransformPlugin(rootDir: string): Prom
     ...plugin,
     setup: build => plugin.setup({
       ...build,
+      // Workflow and step IDs are paths relative to this directory. Match the native Workflow build, not the process directory.
+      initialOptions: { ...build.initialOptions, absWorkingDir: rootDir },
       onLoad: (options, callback) => build.onLoad(options, async (args) => {
         const source = await readFile(args.path, "utf8")
         return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
@@ -1516,6 +1518,9 @@ async function generateProviderOutputsWithinLock(
     : undefined
   let commitGeneratedArtifacts = async (): Promise<void> => {}
   let rollbackGeneratedArtifacts = async (): Promise<void> => {}
+  // Native Vercel Workflow and step IDs come from the source path. The retained copy has a new path on every build,
+  // so the native build reads the published copy, which the server function also imports.
+  let publishedSource = (file: string) => file
   const publishGeneratedArtifacts = async (): Promise<GeneratedWorkflowArtifacts> => {
     const generatedDir = resolve(options.rootDir, ".vitehub", productName)
     if (resolve(artifacts.generatedDir) === generatedDir) return artifacts
@@ -1523,11 +1528,11 @@ async function generateProviderOutputsWithinLock(
     const previousDir = `${generatedDir}.${randomUUID()}.previous`
     const hadPrevious = existsSync(generatedDir)
     let movedPrevious = false
+    const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
+    const publishedSourcesDir = resolve(generatedDir, "sources")
     try {
       await cp(artifacts.generatedDir, nextDir, { recursive: true })
-      const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
       if (existsSync(retainedSourcesDir)) {
-        const publishedSourcesDir = resolve(generatedDir, "sources")
         const nextSourcesDir = resolve(nextDir, "sources")
         await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
         await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
@@ -1576,6 +1581,10 @@ async function generateProviderOutputsWithinLock(
       publicationSettled = true
     }
     const publishedFile = (file: string) => resolve(generatedDir, relative(artifacts.generatedDir, file))
+    publishedSource = (file: string) => {
+      const path = relative(retainedSourcesDir, file)
+      return path && path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path) ? resolve(publishedSourcesDir, path) : file
+    }
     return {
       ...artifacts,
       cloudflareWorkerFile: publishedFile(artifacts.cloudflareWorkerFile),
@@ -1601,10 +1610,16 @@ async function generateProviderOutputsWithinLock(
   // The provider output transaction snapshots .vercel/output before this runs and restores it when this throws.
   const writeOutputs = async () => {
     const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
-    if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
+    const nativeDefinitions = artifacts.providerDefinitions.map(definition => ({
+      ...definition,
+      handler: publishedSource(definition.handler),
+      ...(definition.steps ? { steps: definition.steps.map(publishedSource) } : {}),
+    }))
+    const nativeAliases = Object.fromEntries(Object.entries({
       ...options.providerImportAliases,
       ...options.providerRuntimeImportAliases?.vercel,
-    }, artifacts.vercelNativeFiles)) {
+    }).map(([alias, target]) => [alias, publishedSource(target)]))
+    if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles)) {
       assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
     }
     const deploymentOutput: ProviderDeploymentOutputOptions = {
@@ -1640,10 +1655,7 @@ async function generateProviderOutputsWithinLock(
           })
         }
         if (vercelOutput) {
-          await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
-            ...options.providerImportAliases,
-            ...options.providerRuntimeImportAliases?.vercel,
-          }, artifacts.vercelNativeFiles, previousNativeOutput, options.bundleDefines)
+          await buildVercelNativeWorkflowOutput(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles, previousNativeOutput, options.bundleDefines)
         }
         else {
           await cleanVercelNativeWorkflowOutput(options.rootDir)

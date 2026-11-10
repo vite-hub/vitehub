@@ -22,7 +22,7 @@ catalogs:
       specifier: 3.0.65
       version: 3.0.65
     '@ai-sdk/provider':
-      specifier: 4.0.24
+      specifier: ^4.0.24
       version: 4.0.24
     '@ai-sdk/vue':
       specifier: 4.0.130
@@ -47,13 +47,13 @@ catalogs:
       version: 1.0.0-beta.16
   auth:
     '@better-auth/oauth-provider':
-      specifier: 1.7.15
+      specifier: ^1.7.15
       version: 1.7.15
     '@noble/hashes':
       specifier: ^2.2.0
       version: 2.4.0
     better-auth:
-      specifier: 1.7.15
+      specifier: ^1.7.15
       version: 1.7.15
     jose:
       specifier: ^6.2.12
@@ -510,7 +510,7 @@ catalogs:
       version: 0.11.0
   workflow:
     '@workflow/builders':
-      specifier: 5.0.6
+      specifier: ^5.0.6
       version: 5.0.6
     cron-schedule:
       specifier: ^6.0.0
@@ -551,7 +551,7 @@ overrides:
   uuid: ^11.1.0
   vite: npm:@voidzero-dev/vite-plus-core@0.3.3
   vue: 3.5.44
-  workflow: 5.2.3
+  workflow: ^5.2.3
 
 packageExtensionsChecksum: sha256-EN5fx8uOipDXMuAPAKPp6HUTszSWHhOJHioZQq82cSE=
 
@@ -583,6 +583,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25)
@@ -670,6 +673,9 @@ importers:
       oxlint-tsgolint:
         specifier: catalog:tooling
         version: 7.0.2003
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       tsrs:
         specifier: 0.20.0-ts7.1.0-beta
         version: 0.20.0-ts7.1.0-beta
@@ -3880,7 +3886,7 @@ importers:
         specifier: ^5.4.0
         version: 5.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(@vue/compiler-sfc@3.5.44)(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vue@3.5.44(typescript@6.0.3))
       workflow:
-        specifier: 5.2.3
+        specifier: ^5.2.3
         version: 5.2.3(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
       yjs:
         specifier: catalog:realtime
@@ -3959,7 +3965,7 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
       workflow:
-        specifier: 5.2.3
+        specifier: ^5.2.3
         version: 5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
     devDependencies:
       '@types/node':

@@ -49,6 +49,17 @@ describe("Comments page tool", () => {
     expect((await pageSession(app, "", "/private")).body.tools).toEqual([])
   })
 
+  it("loads the tool on a page that `page` maps to a subject the visitor may read", async () => {
+    const app = {}
+    install(app, {
+      subjects: [{ kind: "drop", scope: () => "drops" }],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+      authorize: ({ subject }) => subject?.kind === "drop" && subject.id === "abc",
+    })
+    expect((await pageSession(app, "", "/d/abc")).body.tools).toHaveLength(1)
+    expect((await pageSession(app, "", "/d/xyz")).body.tools).toEqual([])
+  })
+
   it.each([null, { id: "gh-ada", name: "Ada", github: { login: "ada", write: false } }])("offers the overlay for GitHub sign-in or account switching: %j", async (user) => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     const app = {}
