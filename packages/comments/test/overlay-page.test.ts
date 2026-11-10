@@ -298,40 +298,24 @@ describe("the Comments overlay on a page", () => {
     expect(shadow.querySelector(".cursor image, .cursor [onerror]")).toBeNull()
   })
 
-  it("links a saved draft to Content below the app base", async () => {
-    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+  it("names the hosted Console for a saved draft, without a link", async () => {
     await open()
     const title = await startEdit()
     title.textContent = "Updated"
     title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Review and publish"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("console.vitehub.dev"))
+    expect(shadow.querySelector(".toast a")).toBeNull()
   })
 
-  it("links a field that is not plain text to Content", async () => {
-    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "settings" }])
-    await open()
-    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
-    tool(tools.bar, "Edit text (E)")!.click()
-    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/_vitehub/content"]')?.textContent).toBe("Open Content"))
-  })
-
-  it("edits a text field in place even when the page has the Console tool", async () => {
-    await open()
-    tools.context.openTool.mockResolvedValue(true)
-    await startEdit()
-    expect(tools.context.openTool).not.toHaveBeenCalled()
-  })
-
-  it("opens a field that is not plain text in the Console window", async () => {
+  it("names the hosted Console for a field that is not plain text, and opens no page tool", async () => {
     vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "home/hero" }])
     await open()
-    tools.context.openTool.mockResolvedValue(true)
     await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
     tool(tools.bar, "Edit text (E)")!.click()
     document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    await vi.waitFor(() => expect(tools.context.openTool).toHaveBeenCalledWith("console", "/content/settings/home/hero"))
-    expect(shadow.querySelector('a[href="/_vitehub/content"]')).toBeNull()
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Edit it in the Console at console.vitehub.dev."))
+    expect(shadow.querySelector(".toast a")).toBeNull()
+    expect(tools.context.openTool).not.toHaveBeenCalled()
   })
 
   it("restores the published text on Escape and leaves an unchanged draft unsaved", async () => {

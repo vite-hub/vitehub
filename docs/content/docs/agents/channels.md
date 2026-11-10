@@ -965,7 +965,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to `/_vitehub/agents/~support/invocations/${invocationId.value}` with it.
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the hosted Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the hosted Console](/docs/development/console#links-to-the-hosted-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 

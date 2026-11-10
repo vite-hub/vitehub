@@ -89,7 +89,7 @@ Use `src/database.ts` or `server/databases/config.ts` for one default database. 
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
 
-Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database.
+Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names.
 
 In a Nuxt application, ViteHub also discovers Definitions in each layer's server directory. Definitions with the same name merge their tables into one database and one set of migrations in the application. The application Definition takes precedence over layer tables. When it sets `connection`, `cloudflare`, or `drizzle`, it replaces all layer options and must also set each option that a layer sets.
 
