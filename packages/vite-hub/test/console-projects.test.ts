@@ -294,6 +294,23 @@ describe("account Console", () => {
     // The Console server keeps the list, so the page never says that it ends with the page.
     expect(state.persistent.value).toBe(true)
   })
+
+  it("shows an account page in place before a project opens, and loads it from an open project", async () => {
+    const { module, state } = await account(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
+    state.gate.value = { kind: "empty" }
+    module.showConsoleAccountPage("team")
+    expect(state.gate.value).toEqual({ kind: "home", page: "team" })
+    expect(state.navigate).not.toHaveBeenCalled()
+
+    await module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "ready" })
+    // The router owns the path of an open project, so the Console loads the page.
+    module.showConsoleAccountPage("settings")
+    expect(state.navigate).toHaveBeenCalledWith("/settings")
+
+    module.openAccountProject(linked.id)
+    expect(state.navigate).toHaveBeenLastCalledWith("/")
+  })
 })
 
 describe("linking a project", () => {

@@ -155,13 +155,113 @@ export async function createConsoleTeam(name: string): Promise<void> {
 export async function inviteConsoleMember(email: string, role: "admin" | "member"): Promise<string> {
   const { data, error } = await auth().organization.inviteMember({ email: email.trim(), role })
   if (error || !data) throw failure(error, "The invitation was not created.")
-  return `${pageOrigin()}/invite/${encodeURIComponent(data.id)}`
+  return invitationLink(data.id)
 }
 
 export async function acceptConsoleInvitation(invitationId: string): Promise<void> {
   const { data, error } = await auth().organization.acceptInvitation({ invitationId })
   if (error || !data) throw failure(error, "The invitation was not accepted.")
   await switchConsoleTeam(data.invitation.organizationId)
+}
+
+/** A person in the active team. */
+export interface ConsoleTeamMember {
+  id: string
+  role: string
+  createdAt: string
+  user: { id: string, name: string, email: string, image?: string | null }
+}
+
+/** An invitation of the active team that nobody accepted yet. */
+export interface ConsoleTeamInvitation {
+  id: string
+  email: string
+  role: string
+  expiresAt: string
+  link: string
+}
+
+export interface ConsoleTeamDetails {
+  members: ConsoleTeamMember[]
+  invitations: ConsoleTeamInvitation[]
+}
+
+function invitationLink(id: string): string {
+  return `${pageOrigin()}/invite/${encodeURIComponent(id)}`
+}
+
+/** The members and the pending invitations of the active team. */
+export async function loadConsoleTeam(): Promise<ConsoleTeamDetails> {
+  const { data, error } = await auth().organization.getFullOrganization()
+  if (error || !data) throw failure(error, "The team did not load.")
+  return {
+    members: data.members.map(member => ({
+      id: member.id,
+      role: String(member.role),
+      createdAt: new Date(member.createdAt).toISOString(),
+      user: { id: member.user.id, name: member.user.name, email: member.user.email, image: member.user.image },
+    })),
+    invitations: data.invitations
+      .filter(invitation => invitation.status === "pending" && new Date(invitation.expiresAt).getTime() > Date.now())
+      .map(invitation => ({ id: invitation.id, email: invitation.email, role: String(invitation.role), expiresAt: new Date(invitation.expiresAt).toISOString(), link: invitationLink(invitation.id) })),
+  }
+}
+
+export async function removeConsoleMember(memberId: string): Promise<void> {
+  const { error } = await auth().organization.removeMember({ memberIdOrEmail: memberId })
+  if (error) throw failure(error, "The member was not removed.")
+}
+
+export async function cancelConsoleInvitation(invitationId: string): Promise<void> {
+  const { error } = await auth().organization.cancelInvitation({ invitationId })
+  if (error) throw failure(error, "The invitation was not canceled.")
+}
+
+export async function renameConsoleTeam(name: string): Promise<void> {
+  const trimmed = name.replace(/\s+/g, " ").trim()
+  if (!trimmed) throw new ConsoleAccountError("Enter a team name.")
+  const { error } = await auth().organization.update({ data: { name: trimmed } })
+  if (error) throw failure(error, "The team was not renamed.")
+}
+
+/** A passkey of the signed-in account. */
+export interface ConsolePasskey {
+  id: string
+  name?: string | null
+  createdAt?: string
+}
+
+export async function listConsolePasskeys(): Promise<ConsolePasskey[]> {
+  const { data, error } = await auth().passkey.listUserPasskeys()
+  if (error) throw failure(error, "The passkeys did not load.")
+  return (data ?? []).map(passkey => ({ id: passkey.id, name: passkey.name, ...(passkey.createdAt ? { createdAt: new Date(passkey.createdAt).toISOString() } : {}) }))
+}
+
+export async function deleteConsolePasskey(id: string): Promise<void> {
+  const { error } = await auth().passkey.deletePasskey({ id })
+  if (error) throw failure(error, "The passkey was not removed.")
+}
+
+/** The sign-in providers of the signed-in account, such as `github`. Passkeys are not in the list. */
+export async function listConsoleSignInProviders(): Promise<string[]> {
+  const { data, error } = await auth().listAccounts()
+  if (error) throw failure(error, "The sign-in methods did not load.")
+  return (data ?? []).map(account => account.providerId)
+}
+
+export async function renameConsoleAccount(name: string): Promise<void> {
+  const trimmed = name.replace(/\s+/g, " ").trim()
+  if (!trimmed) throw new ConsoleAccountError("Enter a name.")
+  const { error } = await auth().updateUser({ name: trimmed })
+  if (error) throw failure(error, "The name was not saved.")
+}
+
+/** What the Console knows about a linked app: it answers with its token, it still needs its variable, or it does not answer. */
+export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unreachable"
+
+/** Whether the app keeps the hash of its token: the Console server calls the app with the token. */
+export async function checkConsoleAccountProject(id: string): Promise<{ linked: boolean, status: number }> {
+  return json<{ linked: boolean, status: number }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
 }
 
 /** Link an app to the active team. The answer names the variable and the hash to set on the app. */

@@ -347,7 +347,7 @@ onBeforeUnmount(() => {
         </UDashboardSearchButton>
       </UTooltip>
       <!-- An `account` Console signs people in to itself, not to the app. -->
-      <ConsoleAccountMenu v-if="projects.mode === 'account'" :expanded="expanded" :appearance-items="appearance ? appearanceItems : []" />
+      <ConsoleAccountMenu v-if="projects.mode === 'account'" :expanded="expanded" />
       <UDropdownMenu
         v-else-if="appearance || signedIn || tokenSignedIn"
         :items="userMenuItems"

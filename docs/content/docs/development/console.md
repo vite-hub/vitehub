@@ -436,14 +436,14 @@ export default defineConfig({
 
 ### Hosted Console
 
-[console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in.
+[console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in. The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
 
 The Console server keeps a token for each linked project, encrypted, and calls the project's Console data routes with it. The app keeps only the SHA-256 of the token, and the browser never sees the token.
 
 To open a deployed app there:
 
 1. Set `console: { auth: "token" }` and deploy.
-2. Open [console.vitehub.dev](https://console.vitehub.dev), sign in, select **Link project**, and enter the app URL.
+2. Open [console.vitehub.dev](https://console.vitehub.dev) and sign in. **Get started** asks for the app URL. Later, select **+** next to **Apps** in the sidebar.
 3. The Console shows a variable and its value, such as `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_3F9A12BC=<hash>`. Set it on the server, deploy, and select **Check again**.
 
 Each link has its own variable, so the app can keep other Console tokens next to it. To unlink a project, unlink it in the Console and remove its variable from the app.

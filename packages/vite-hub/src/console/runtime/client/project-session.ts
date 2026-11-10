@@ -65,7 +65,18 @@ export type ConsoleProjectGate =
   | { kind: "account", invitation?: string }
   /** An `account` Console linked the project, but the project does not have the hash of its token yet. */
   | { kind: "setup", project: ConsoleAccountProject }
+  /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
+  | { kind: "home", page: ConsoleAccountPage }
   | { kind: "ready" }
+
+/** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
+export const consoleAccountPages = ["start", "team", "settings"] as const
+export type ConsoleAccountPage = typeof consoleAccountPages[number]
+
+function accountPageOf(pathname: string): ConsoleAccountPage | undefined {
+  const page = /^\/([a-z]+)\/?$/.exec(pathname)?.[1]
+  return consoleAccountPages.find(item => item === page)
+}
 
 /** What linking found: the saved project, the token step, or why it failed. */
 export type ConsoleProjectLinkResult =
@@ -785,7 +796,8 @@ function rememberedAccountProject(teamId: string | undefined): string | undefine
  * Start an `account` Console: read the session, then the projects of the active team from the Console server. Without
  * a session, or on an `/invite/<id>` page, the gate shows the sign-in page.
  */
-export async function startConsoleAccount(options: { home: string, navigate: (url: string) => void, pageOrigin: string, pathname: string }): Promise<void> {
+export async function startConsoleAccount(options: { home: string, navigate: (url: string) => void, pageOrigin: string, pathname: string, showPath: (path: string) => void }): Promise<void> {
+  showAccountPath = options.showPath
   // Only an `account` Console loads the Better Auth client.
   const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
   const account = await loadConsoleAccount().catch(() => undefined)
@@ -801,7 +813,42 @@ export async function startConsoleAccount(options: { home: string, navigate: (ur
   const started = startConsoleProjects({ base: "", home: options.home, mode: "account", navigate: options.navigate, pageOrigin: options.pageOrigin, storage })
   started.account.value = account
   const invitation = consoleInvitationOf(options.pathname)
+  const page = accountPageOf(options.pathname)
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }
+  else if (page) started.gate.value = { kind: "home", page }
+}
+
+/** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */
+let showAccountPath: ((path: string) => void) | undefined
+
+/**
+ * Show a page of an `account` Console outside the projects, such as `/team`. Before a project opens, the page changes in
+ * place. In an open project, the Console loads again, because the router owns the path there.
+ */
+export function showConsoleAccountPage(page: ConsoleAccountPage): void {
+  const projects = useState()
+  const path = `${projects.home.replace(/\/+$/, "")}/${page}`
+  if (projects.gate.value.kind === "ready") {
+    projects.navigate(path)
+    return
+  }
+  showAccountPath?.(path)
+  projects.gate.value = { kind: "home", page }
+}
+
+/** Open a project of the team from a page outside the projects. The Console loads again at its home path. */
+export function openAccountProject(id: string): void {
+  const projects = useState()
+  rememberAccountProject(projects.account.value?.teamId, id)
+  projects.navigate(projects.home)
+}
+
+/** Link an app to the active team, then open it. Until the app keeps the hash of its token, it opens on the setup step. */
+export async function linkAccountProject(url: string, label?: string): Promise<void> {
+  const { linkConsoleAccountProject } = await import("./account")
+  const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined)
+  rememberAccountProject(useState().account.value?.teamId, project.id)
+  reloadConsoleAccount()
 }
 
 /** Load the Console again from its home page, such as after a sign-in, a team switch, or a new project. */

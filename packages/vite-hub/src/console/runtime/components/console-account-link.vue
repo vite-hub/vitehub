@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 
-import { linkConsoleAccountProject } from "../client/account";
-import { rememberAccountProject, reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
+import { linkAccountProject } from "../client/project-session";
 
 /**
  * Link an app to the active team of an `account` Console. The Console server makes the token, and the Console then
  * opens the project, which shows the variable to set on the app until the app accepts the token.
  */
 const open = defineModel<boolean>("open", { required: true });
-const projects = useConsoleProjects();
 const url = ref("");
 const label = ref("");
 const busy = ref(false);
@@ -28,9 +26,7 @@ async function link(): Promise<void> {
   busy.value = true;
   problem.value = undefined;
   try {
-    const project = await linkConsoleAccountProject(url.value.trim(), label.value.trim() || undefined);
-    rememberAccountProject(projects.account.value?.teamId, project.id);
-    reloadConsoleAccount();
+    await linkAccountProject(url.value, label.value);
   }
   catch (error) {
     problem.value = error instanceof Error ? error.message : "Try again.";

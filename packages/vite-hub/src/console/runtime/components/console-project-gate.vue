@@ -15,7 +15,7 @@ import ConsoleProjectToken from "./console-project-token.vue";
 
 // Only an `account` Console shows these, so they load with the Better Auth client.
 const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
-const ConsoleAccountSetup = defineAsyncComponent(() => import("./console-account-setup.vue"));
+const ConsoleAccountShell = defineAsyncComponent(() => import("./console-account-shell.vue"));
 const ConsoleAccountSignIn = defineAsyncComponent(() => import("./console-account-sign-in.vue"));
 
 // The page reads the feature catalog, so it loads only on /new.
@@ -32,7 +32,8 @@ const busy = ref(false);
 const tokenError = shallowRef<ConsoleProjectProblem>();
 
 const current = computed(() => projects.current.value);
-const activeTeam = computed(() => projects.account.value?.teams.find(team => team.id === projects.account.value?.teamId));
+// A signed-in person of an `account` Console sees the sidebar of the team on every page before a project opens.
+const accountShell = computed(() => projects.mode === "account" && Boolean(projects.account.value) && ["home", "empty", "setup", "problem"].includes(gate.value.kind));
 const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
 const others = computed(() => projects.projects.value.filter(project => project.id !== current.value?.id));
 const switchItems = computed<DropdownMenuItem[][]>(() => [
@@ -72,6 +73,8 @@ onMounted(() => {
 <template>
   <ConsoleNewProject v-if="gate.kind === 'new'" />
 
+  <ConsoleAccountShell v-else-if="accountShell" />
+
   <div v-else-if="gate.kind === 'opening' || gate.kind === 'callback'" class="vitehub-console-boot">
     <div class="vh-primitive-rail">
       <div class="vh-primitive-rail__surface">
@@ -95,17 +98,6 @@ onMounted(() => {
 
       <ConsoleAccountSignIn v-if="gate.kind === 'account'" :invitation="gate.invitation" />
 
-      <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :project="gate.project" />
-
-      <template v-else-if="gate.kind === 'empty' && projects.mode === 'account'">
-        <div class="grid gap-1.5">
-          <h1 class="vitehub-project-gate__title">Link your first project</h1>
-          <p class="vitehub-project-gate__text">Link a deployed ViteHub app to {{ activeTeam?.name ?? "this team" }}. The Console server keeps its token, so the project opens in any browser where you sign in.</p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <UButton icon="i-lucide-link" label="Link project" @click="projects.linkOpen.value = true" />
-        </div>
-      </template>
 
       <template v-else-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
