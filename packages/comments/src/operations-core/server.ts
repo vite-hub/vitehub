@@ -47,9 +47,9 @@ function toUser(record: Record<string, unknown>): CommentUser | undefined {
 }
 
 /** People from a Better Auth instance, through its internal adapter. The generated Nitro plugin passes it when the app has Auth. */
-export function createAuthUsers(getAuth: () => object): CommentsPeople {
+export function createAuthUsers(getAuth: () => object | Promise<object>): CommentsPeople {
   // SAFETY: Better Auth instances, and the Auth of ViteHub, have `$context` with this internal adapter.
-  const adapter = async () => (await (getAuth() as BetterAuthUsers).$context).internalAdapter
+  const adapter = async () => (await (await getAuth() as BetterAuthUsers).$context).internalAdapter
   return {
     async byIds(ids) {
       if (!ids.length) return []

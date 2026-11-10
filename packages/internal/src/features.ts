@@ -20,7 +20,6 @@ export const featureIds = [
   "env",
   "i18n",
   "kv",
-  "logs",
   "observability",
   "queue",
   "rateLimit",
@@ -340,7 +339,7 @@ export default defineDatabase({
     hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
-    summary: "Source-text messages in Vue and server code, translated in the locale of each request.",
+    summary: "Messages with translation records for each locale and a locale for each request.",
     title: "I18n",
   }),
   kv: feature({
@@ -359,19 +358,12 @@ export default defineDatabase({
     summary: "Key-value storage with one API on every host.",
     title: "KV",
   }),
-  logs: feature({
-    docs: "/docs/logs",
-    hosts: everywhere("nitro", "Nitro"),
-    id: "logs",
-    summary: "Read an existing log source, or inspect a bounded Evlog buffer during development.",
-    title: "Logs",
-  }),
   observability: feature({
     docs: "/docs/agents/observability",
     hosts: everywhere("evlog", "Evlog"),
     id: "observability",
-    packages: ["@vite-hub/agent", "evlog"],
-    summary: "Agent telemetry, request logs, and papercut reports through Evlog.",
+    packages: ["evlog"],
+    summary: "Request logs through Evlog, the logs that the Console reads, and Agent telemetry with a service name.",
     title: "Observability",
   }),
   queue: feature({
@@ -386,7 +378,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
       deno: unsupported("No Deno Queue provider is provided."),
       dev: native("local", "Local provider", "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.", "single-host"),
-      netlify: unsupported("`vitehub({ queue: true })` has no provider option and fails on Netlify. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider."),
+      netlify: unsupported("Netlify has no Queue provider, so `vitehub({ queue })` fails on Netlify."),
       node: native("local", "Local provider", "The local provider runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "single-host"),
       vercel: native("vercel", "Vercel Queues", "Vercel Queues callbacks and runtime client."),
     },
@@ -549,6 +541,8 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
     const choice: unknown = value && typeof value === "object" && !Array.isArray(value) ? Reflect.get(value, key) : undefined
     return typeof choice === "string" ? choices[choice] ?? [] : []
   }))
+  // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
+  if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
