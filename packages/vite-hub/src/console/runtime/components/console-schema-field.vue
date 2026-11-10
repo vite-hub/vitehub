@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { CalendarDate, parseDate, Time } from "@internationalized/date";
-import { computed, ref, watch } from "vue";
+import { computed, defineAsyncComponent, ref, watch } from "vue";
 
 import { consoleFieldValueIssue, consoleValueParts, consoleValueSummary } from "../client/schema-form";
 import ConsoleMediaField from "./console-media-field.vue";
@@ -10,6 +9,9 @@ import ConsoleSchemaList from "./console-schema-list.vue";
 import type { ConsoleSchemaField, ConsoleSchemaFieldKind } from "../client/schema-form";
 
 defineOptions({ name: "ConsoleSchemaField" });
+
+// Date fields carry the date fields and calendars of Reka UI. They load when a form has one.
+const ConsoleSchemaDateInput = defineAsyncComponent(() => import("./console-schema-date-input.vue"));
 
 /**
  * One schema form field as a property row. The control follows the JSON Schema of the field: text, long text, number,
@@ -74,9 +76,6 @@ const icon = computed(() => {
   return props.field.image ? "i-lucide-image" : icons[props.field.kind];
 });
 const level = computed(() => props.depth ?? 0);
-
-// Date and time segments size to their digits instead of fixed cells, so `9/1/2026 00:00` reads as one value.
-const segment = "px-0.5 tabular-nums data-[segment=day]:w-auto data-[segment=month]:w-auto data-[segment=year]:w-auto data-[segment=hour]:w-auto data-[segment=minute]:w-auto data-[segment=literal]:px-0";
 
 // Ghost controls: no fill at rest, a fill on hover, and a ring on focus (Notion property values, Geist input ring).
 const ghost = "bg-transparent hover:bg-elevated/70 focus:bg-transparent disabled:bg-transparent ring-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
@@ -144,40 +143,6 @@ const enumValue = computed({
     model.value = value;
   },
 });
-
-// Dates are stored as ISO strings. A date field keeps `YYYY-MM-DD`; a date-time field edits the UTC date and time.
-function stored(): string {
-  return String(model.value) === model.value ? model.value : "";
-}
-const date = computed<CalendarDate | undefined>({
-  get: () => {
-    try {
-      return stored().length >= 10 ? parseDate(stored().slice(0, 10)) : undefined;
-    }
-    catch {
-      return undefined;
-    }
-  },
-  set: (value) => {
-    if (!value) {
-      model.value = undefined;
-      return;
-    }
-    const day = value.toString();
-    model.value = props.field.kind === "date" ? day : `${day}T${(time.value ?? new Time(0, 0)).toString().slice(0, 5)}:00.000Z`;
-  },
-});
-const time = computed<Time | undefined>({
-  get: () => {
-    const match = /T(\d{2}):(\d{2})/.exec(stored());
-    return match ? new Time(Number(match[1]), Number(match[2])) : undefined;
-  },
-  set: (value) => {
-    if (!date.value) return;
-    model.value = `${date.value.toString()}T${(value ?? new Time(0, 0)).toString().slice(0, 5)}:00.000Z`;
-  },
-});
-const calendarOpen = ref(false);
 
 // JSON fields keep their text while it is invalid, so a half-typed value is not lost.
 const jsonText = ref("");
@@ -424,37 +389,16 @@ function updateChild(name: string, value: unknown): void {
       :placeholder="field.required ? 'Choose…' : 'None'"
       :aria-invalid="error ? 'true' : undefined"
     />
-    <div v-else-if="field.kind === 'date' || field.kind === 'date-time'" class="flex min-w-0 flex-wrap items-center gap-x-1">
-      <UInputDate
-        :id="inputId"
-        v-model="date"
-        variant="ghost"
-        :ui="{ base: `${ghost} gap-0`, segment }"
-        :disabled="disabled"
-        :aria-label="field.kind === 'date-time' ? `${field.label} date` : field.label"
-        :aria-invalid="error ? 'true' : undefined"
-      >
-        <template #trailing>
-          <UPopover v-model:open="calendarOpen" :content="{ align: 'start' }">
-            <UButton variant="link" size="xs" icon="i-lucide-calendar" :aria-label="`Pick ${field.label.toLowerCase()} from a calendar`" class="px-0 text-dimmed hover:text-highlighted" :disabled="disabled" />
-            <template #content>
-              <UCalendar v-model="date" class="p-2" :ui="{ cellTrigger: 'tabular-nums' }" @update:model-value="calendarOpen = false" />
-            </template>
-          </UPopover>
-        </template>
-      </UInputDate>
-      <template v-if="field.kind === 'date-time'">
-        <UInputTime
-          v-model="time"
-          variant="ghost"
-          :hour-cycle="24"
-          :ui="{ base: `${ghost} gap-0`, segment }"
-          :disabled="disabled || !date"
-          :aria-label="`${field.label} time, UTC`"
-        />
-        <span class="text-xs text-dimmed">UTC</span>
-      </template>
-    </div>
+    <ConsoleSchemaDateInput
+      v-else-if="field.kind === 'date' || field.kind === 'date-time'"
+      :id="inputId"
+      v-model="model"
+      :kind="field.kind"
+      :label="field.label"
+      :ghost="ghost"
+      :disabled="disabled"
+      :invalid="Boolean(error)"
+    />
     <UInputTags
       v-else-if="field.kind === 'string-list'"
       :id="inputId"
