@@ -1788,6 +1788,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
+  if (options.i18n) {
+    await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion, projectRoot })
+    addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
+  }
   if (effectiveAuth) {
     const envOptions = options.env || {}
     const { default: hubAuthNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/nuxt")), "auth")
