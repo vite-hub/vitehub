@@ -151,7 +151,8 @@ describe("the Comments page tool", () => {
   it("keeps its segment hidden when the Comments session does not allow reading", async () => {
     site({ read: false, comment: false })
     const { bar } = await start()
-    await vi.waitFor(() => expect(document.querySelector("vitehub-comments")!.shadowRoot!.querySelector(".toast")).toBeTruthy())
-    expect(bar.hidden).toBe(true)
+    await vi.waitFor(() => expect(bar.hidden).toBe(true))
+    // A page load says nothing: there is nothing this person can do about it.
+    expect(document.querySelector("vitehub-comments")!.shadowRoot!.querySelector(".toast")).toBeNull()
   })
 })

@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { isIP } from "node:net"
 import { dirname, extname, join, resolve } from "node:path"
-import { parseJSONC, parseTOML } from "confbox"
+import { parseJSONC } from "confbox/jsonc"
+import { parseTOML } from "confbox/toml"
 
 const wranglerConfigFiles = ["wrangler.json", "wrangler.jsonc", "wrangler.toml"]
 
