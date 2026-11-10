@@ -1,8 +1,10 @@
-// pnpm writes node_modules/.modules.yaml with the install time in prunedAt and
-// the hoisted packages in a different order on every install. Vite reads this
-// file while it resolves a config, so the Vite+ task cache fingerprints it, and
-// a task cache restored on CI never replayed a build. Sorted keys and a fixed
-// prunedAt make two installs of the same lockfile write the same file.
+// Vite reads node_modules/.modules.yaml while it resolves a config, so the Vite+
+// task cache fingerprints it. pnpm writes the install time into prunedAt, and
+// when a package is installed in several versions it does not always hoist the
+// same one, so two fresh installs of one lockfile write different files and a
+// restored task cache never replays a build. Vite only needs virtualStoreDir.
+// pnpm only reads hoistedDependencies to unlink old hoisted packages on the next
+// install, which a CI job never runs.
 import { readFileSync, writeFileSync } from "node:fs"
 
 const file = process.argv[2] ?? "node_modules/.modules.yaml"
@@ -15,4 +17,5 @@ function sortKeys(value) {
 
 const modules = JSON.parse(readFileSync(file, "utf8"))
 modules.prunedAt = new Date(0).toUTCString()
+modules.hoistedDependencies = {}
 writeFileSync(file, `${JSON.stringify(sortKeys(modules), null, 2)}\n`)

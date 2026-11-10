@@ -19,7 +19,7 @@ function normalize(modules: object) {
 describe("stable pnpm modules state", () => {
   it("writes the same file for two installs of one lockfile", () => {
     const first = normalize({
-      hoistedDependencies: { "zod@4.6.7": { zod: "private" }, "vue@3.5.44": { vue: "private" } },
+      hoistedDependencies: { "zod@4.6.7": { zod: "private" }, "nuxt@4.5.2": { nuxt: "private" } },
       hoistPattern: ["*"],
       prunedAt: "Tue, 10 Nov 2026 08:41:49 GMT",
       virtualStoreDir: ".pnpm",
@@ -28,7 +28,7 @@ describe("stable pnpm modules state", () => {
       virtualStoreDir: ".pnpm",
       prunedAt: "Tue, 10 Nov 2026 08:42:15 GMT",
       hoistPattern: ["*"],
-      hoistedDependencies: { "vue@3.5.44": { vue: "private" }, "zod@4.6.7": { zod: "private" } },
+      hoistedDependencies: { "nuxt@4.6.4": { nuxt: "private" }, "zod@4.6.7": { zod: "private" } },
     })
     expect(second).toBe(first)
     expect(JSON.parse(first)).toMatchObject({ virtualStoreDir: ".pnpm", hoistPattern: ["*"] })
