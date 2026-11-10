@@ -8,7 +8,7 @@ import { readEnvironmentReports } from "./files.ts"
 import { createBundleReport, explainBundle, explainBundleRoute } from "./report.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { BundleComparison, BundleSide, BundleSideComparison } from "./types.ts"
+import type { BundleComparison, BundleFinding, BundleSide, BundleSideComparison } from "./types.ts"
 
 const reportUsage = "vitehub bundle [--against <report>] [--json]"
 const whyUsage = "vitehub bundle why <package|file|/route> [--json]"
@@ -94,6 +94,23 @@ function routeLines(explanation: NonNullable<ReturnType<typeof explainBundleRout
   return lines
 }
 
+function findingLines(findings: readonly BundleFinding[]): string[] {
+  if (!findings.length) return ["Checks: no findings.", ""]
+  const lines = [`Checks: ${findings.length} ${findings.length === 1 ? "finding" : "findings"}.`]
+  for (const finding of findings) {
+    lines.push(`  ${finding.severity} ${finding.code} (${finding.side}): ${finding.why}`)
+    if (finding.chain.length) lines.push(`    Chain: ${finding.chain.map(step => step.id).join(" → ")}`)
+    lines.push(`    Fix: ${finding.fix}`, `    Docs: ${finding.docs}`)
+  }
+  lines.push("")
+  return lines
+}
+
+/** Like `vite-doctor`: an error finding fails the command, a warning does not. */
+function exitCode(findings: readonly BundleFinding[]): number {
+  return findings.some(finding => finding.severity === "error") ? 1 : 0
+}
+
 /** `+1.2 kB`, `-300 B`, or `0 B`. */
 function formatDelta(bytes: number): string {
   return bytes > 0 ? `+${formatBytes(bytes)}` : bytes < 0 ? `-${formatBytes(-bytes)}` : "0 B"
@@ -141,6 +158,9 @@ function runReport(args: string[], context: ViteHubCliContext): number {
       "Shows the size of the last production build: client and server, the code that loads at startup, and the largest",
       "packages and folders. Needs a build with `bundle: true` in vitehub(). No dev server needed.",
       "",
+      "Then it runs the bundle checks. It exits with 1 when a finding is an error, such as a server over the host size",
+      "limit. Warnings, such as a package that this build never runs at startup but loads there, keep exit code 0.",
+      "",
       "With --against, it compares the last build with a saved report: the bytes of each side and of its startup",
       "code, and the groups that grew, shrank, were added, or were removed. Save the report before the change:",
       "",
@@ -177,19 +197,22 @@ function runReport(args: string[], context: ViteHubCliContext): number {
       return 1
     }
     const comparison = compareBundleReports(before, report)
-    context.stdout.write(parsed.json ? `${JSON.stringify(comparison, null, 2)}\n` : comparisonText(comparison))
-    return 0
+    context.stdout.write(parsed.json
+      ? `${JSON.stringify({ ...comparison, findings: report.findings }, null, 2)}\n`
+      : `${comparisonText(comparison)}${findingLines(report.findings).join("\n")}`)
+    return exitCode(report.findings)
   }
   if (parsed.json) {
     context.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-    return 0
+    return exitCode(report.findings)
   }
-  const lines = [`Bundle of the build from ${report.build}`, ""]
+  const lines = [`Bundle of the build from ${report.build}${report.host ? ` for ${report.host}` : ""}`, ""]
   if (report.server) lines.push(...sideLines("Server", report.server, "This code loads before the server answers its first request."), "")
   if (report.client) lines.push(...sideLines("Client", report.client, "Combined startup across all page entries; shared files count once."), "")
+  lines.push(...findingLines(report.findings))
   lines.push("Run `vitehub bundle why <package|file>` to see why something is in the output.", "")
   context.stdout.write(lines.join("\n"))
-  return 0
+  return exitCode(report.findings)
 }
 
 function runWhy(args: string[], context: ViteHubCliContext): number {

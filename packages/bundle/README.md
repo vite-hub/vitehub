@@ -45,6 +45,25 @@ The commands read `.vitehub/bundle/` and need no dev server. Development builds 
 
 The report joins the build environments. In Nuxt 5, Nitro bundles the SSR output, so the server part shows the SSR modules inside it instead of one large file.
 
+## Checks
+
+`vitehub bundle` ends with the problems that the report proves, and `--json` gives them in `findings`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, and the import chain from the server entry.
+
+- `BUNDLE_STARTUP_UNUSED` (warning): a package loads at server startup, and a feature of this build never runs it there. Features declare such packages from their resolved configuration in the Nitro hook `vitehub:bundle:rules`. The Database declares the libSQL client on a Cloudflare build where every Database is D1 or Postgres.
+- `BUNDLE_HOST_SIZE_LIMIT` (error): the server JavaScript is over the host limit. Cloudflare accepts a Worker up to 64 MiB before compression.
+
+An error makes the command exit with 1, so CI can run it after the build. A warning keeps exit code 0.
+
+A startup rule applies only when its packages are imported by its `owner` or each other. Imports from app code or another package suppress the finding, because the feature cannot prove what those consumers need.
+
+A feature adds a rule inside its Nitro module:
+
+```ts fragment
+nitro.hooks.hook("vitehub:bundle:rules", (rules) => {
+  rules.push({ owner: "@vite-hub/database", packages: ["@libsql/client"], why: "...", fix: "..." })
+})
+```
+
 ## How it works
 
 `hubBundle()` is a Vite plugin. In `writeBundle` it reads Rolldown's output chunks, `chunk.modules[id].renderedLength`, and `getModuleInfo()`, and writes `.vitehub/bundle/<environment>.json`. When Nitro bundles on its own, as in Nuxt 5, the plugin's Nitro module adds the same reader to Nitro's `build:config`. A new build removes the files of older builds.
