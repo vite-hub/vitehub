@@ -420,19 +420,23 @@ describe("Nitro dev handler", () => {
     expect(await response.json()).toEqual({ ok: true })
   })
 
-  it("renders a handler that passes the event to the owner export", () => {
+  it("renders a Fetchable route that passes the Request to the owner export", () => {
     expect(renderViteHubNitroDevHandler({ export: "handleTestDevRequest", module: "@vite-hub/test/runtime/console" })).toBe([
-      "import { defineEventHandler, handleTestDevRequest as handleViteHubDevRequest } from \"@vite-hub/test/runtime/console\"",
+      "import { handleTestDevRequest as handleViteHubDevRequest } from \"@vite-hub/test/runtime/console\"",
       "",
-      "export default defineEventHandler(event => handleViteHubDevRequest(event))",
+      "export default {",
+      "  fetch: request => handleViteHubDevRequest(request),",
+      "}",
       "",
     ].join("\n"))
-    expect(renderViteHubNitroDevHandler({ arguments: ['runtime-"key'], export: "handleTestDevRequest", module: "test" })).toContain('handleViteHubDevRequest(event, "runtime-\\\"key")')
+    expect(renderViteHubNitroDevHandler({ arguments: ['runtime-"key'], export: "handleTestDevRequest", module: "test" })).toContain('handleViteHubDevRequest(request, "runtime-\\\"key")')
     expect(renderViteHubNitroDevHandler({ context: { serverId: "a" }, contextModules: { registry: "#test/registry" }, export: "handleTestDevRequest", module: "test" })).toBe([
-      "import { defineEventHandler, handleTestDevRequest as handleViteHubDevRequest } from \"test\"",
+      "import { handleTestDevRequest as handleViteHubDevRequest } from \"test\"",
       "import viteHubDevContext0 from \"#test/registry\"",
       "",
-      "export default defineEventHandler(event => handleViteHubDevRequest(event, { ...{\"serverId\":\"a\"}, \"registry\": viteHubDevContext0 }))",
+      "export default {",
+      "  fetch: request => handleViteHubDevRequest(request, { ...{\"serverId\":\"a\"}, \"registry\": viteHubDevContext0 }),",
+      "}",
       "",
     ].join("\n"))
     expect(() => renderViteHubNitroDevHandler({ export: "default; evil()", module: "x" })).toThrow(TypeError)
