@@ -255,8 +255,12 @@ export interface PostgresTarget {
  * spellings), its `TimeZone`, or its role.
  */
 export async function readPostgresDatabaseKey(client: PostgresMigrationSql): Promise<string> {
-  const [row] = Array.from(await client.unsafe("select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started"))
-  return JSON.stringify([row?.database, row?.started])
+  return (await readPostgresIdentity(client)).key
+}
+
+async function readPostgresIdentity(client: PostgresMigrationSql) {
+  const [row] = Array.from(await client.unsafe("select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started, current_user as role, current_schemas(false) as schemas"))
+  return { key: JSON.stringify([row?.database, row?.started]), session: JSON.stringify([row?.role, row?.schemas]) }
 }
 
 /**
@@ -265,12 +269,20 @@ export async function readPostgresDatabaseKey(client: PostgresMigrationSql): Pro
  */
 async function groupPostgresTargets(targets: PostgresTarget[]): Promise<PostgresTarget[][]> {
   if (targets.length < 2) return targets.length ? [targets] : []
-  const groups = new Map<string, PostgresTarget[]>()
+  const groups = new Map<string, { session: string, targets: PostgresTarget[] }>()
   for (const target of targets) {
-    const key = await readPostgresDatabaseKey(target.client)
-    groups.set(key, [...groups.get(key) ?? [], target])
+    const { key, session } = await readPostgresIdentity(target.client)
+    const group = groups.get(key)
+    if (group && group.session !== session) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+        database: target.database.name,
+        problem: `It and the Database "${group.targets[0]!.database.name}" share one Postgres database but use different roles or schema search paths. Configure them with the same role and search_path so their migrations can run in one transaction.`,
+      })
+    }
+    if (group) group.targets.push(target)
+    else groups.set(key, { session, targets: [target] })
   }
-  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => group)
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => group.targets)
 }
 
 /**
@@ -281,23 +293,26 @@ async function groupPostgresTargets(targets: PostgresTarget[]): Promise<Postgres
 async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], options: MigrateOnStartOptions): Promise<PendingEntry[]> {
   const databases = group.map(target => target.database)
   const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
-  await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
-  const columns = Array.from(await sql.unsafe("select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'")).map(row => row.column_name)
-  if (!columns.length) {
+  const [existing] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations') as ledger"))
+  if (!existing?.ledger) {
+    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
     await sql.unsafe(createPostgresLedger)
   }
-  else if (!columns.includes("name")) {
-    const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${postgresLedger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
-    const { backfill, unmatched } = matchLedger(rows, migrations)
-    if (unmatched.length) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
-        database: databases[0]!.name,
-        problem: `Its Drizzle Kit 0.x ledger has ${unmatched.length} applied migration(s) (id ${unmatched.join(", ")}) that match no migration folder, so Drizzle 1.0 cannot upgrade it. Restore the missing migration folders.`,
-      })
+  else {
+    const columns = Array.from(await sql.unsafe("select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'")).map(row => row.column_name)
+    if (!columns.includes("name")) {
+      const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${postgresLedger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
+      const { backfill, unmatched } = matchLedger(rows, migrations)
+      if (unmatched.length) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: databases[0]!.name,
+          problem: `Its Drizzle Kit 0.x ledger has ${unmatched.length} applied migration(s) (id ${unmatched.join(", ")}) that match no migration folder, so Drizzle 1.0 cannot upgrade it. Restore the missing migration folders.`,
+        })
+      }
+      await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "name" text`)
+      await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`)
+      for (const { id, name } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "id" = $2`, [name, id])
     }
-    await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "name" text`)
-    await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`)
-    for (const { id, name } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "id" = $2`, [name, id])
   }
   const rows = Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
   const match = matchLedger(rows, migrations)

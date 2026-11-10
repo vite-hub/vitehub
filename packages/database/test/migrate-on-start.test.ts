@@ -549,7 +549,7 @@ describe("migratePostgres", () => {
    * A postgres.js client that records each query and answers the lock, identity, and ledger reads. `ledger` undefined
    * has no table; rows without `name` make a Drizzle Kit 0.x table.
    */
-  function fakeClient({ database = "app", events, fail, ledger, locked = true, started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean, started?: string }) {
+  function fakeClient({ database = "app", events, fail, ledger, locked = true, role = "app", schemas = ["public"], started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean, role?: string, schemas?: string[], started?: string }) {
     const queries: Array<[string, unknown[] | undefined]> = []
     const named = ledger?.every(row => row.name !== undefined)
     const sql: PostgresMigrationSql = {
@@ -558,7 +558,8 @@ describe("migratePostgres", () => {
         events?.push(`${database}: ${query}`)
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
         if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
-        if (query.startsWith("select current_database()")) return [{ database, started }]
+        if (query.startsWith("select current_database()")) return [{ database, role, schemas, started }]
+        if (query.startsWith("select to_regclass(")) return [{ ledger: ledger ? "drizzle.__drizzle_migrations" : null }]
         if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
         if (query.startsWith("SELECT id, hash, created_at FROM")) return (ledger ?? []).map(({ created_at, hash, id }) => ({ created_at: String(created_at), hash, id }))
         if (query.startsWith("select id, hash, created_at, name")) return (ledger ?? []).map(row => ({ ...row, created_at: String(row.created_at), name: row.name ?? null }))
@@ -578,7 +579,7 @@ describe("migratePostgres", () => {
     expect(queries).toEqual([
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local client_min_messages = warning", undefined],
-      ["CREATE SCHEMA IF NOT EXISTS \"drizzle\"", undefined],
+      ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
       ["CREATE TABLE a (id int)", undefined],
@@ -591,6 +592,12 @@ describe("migratePostgres", () => {
     const { client, queries } = fakeClient({})
     await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: () => {} })
     expect(queries.map(([query]) => query)).toContain(`CREATE TABLE IF NOT EXISTS ${ledgerTable} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())`)
+  })
+
+  it("runs no DDL when the ledger already lists every migration", async () => {
+    const { client, queries } = fakeClient({ fail: 'CREATE SCHEMA IF NOT EXISTS "drizzle"', ledger: [{ created_at: 1, hash: "hash-a0", id: 1, name: "a0" }] })
+    await expect(migratePostgres([{ client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} })).resolves.toEqual([])
+    expect(queries.map(([query]) => query).filter(query => /^(CREATE|ALTER|UPDATE|insert)/i.test(query))).toEqual([])
   })
 
   it("upgrades a Drizzle Kit 0.x ledger under the lock, like Drizzle 1.0", async () => {
@@ -672,6 +679,20 @@ describe("migratePostgres", () => {
     ], { log: () => {} })).rejects.toThrow("It and the Database \"first\" share one Postgres database, and both have the migration \"a0\" with different SQL.")
   })
 
+  it.each([
+    { role: "other" },
+    { schemas: ["other", "public"] },
+    { schemas: ["second", "first"] },
+  ])("refuses incompatible sessions on one database before taking any locks: %j", async (context) => {
+    const first = fakeClient({ schemas: ["first", "second"] })
+    const second = fakeClient({ schemas: ["first", "second"], ...context })
+    await expect(migratePostgres([
+      { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"])], name: "first" } },
+      { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED", why: expect.stringContaining("different roles or schema search paths") })
+    expect([...first.queries, ...second.queries].some(([query]) => query.includes("advisory") || /^(CREATE|ALTER|insert)/i.test(query))).toBe(false)
+  })
+
   it("keeps Definitions on different Postgres databases apart, and locks them in key order", async () => {
     const events: string[] = []
     const first = fakeClient({ database: "zeta", events, ledger: [{ created_at: 3, hash: "hash-a1", id: 1, name: "a1" }] })
@@ -693,6 +714,6 @@ describe("migratePostgres", () => {
       return [{ database: "app", started: "1794260759.623267" }]
     } })
     expect(key).toBe(JSON.stringify(["app", "1794260759.623267"]))
-    expect(queries).toEqual(["select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started"])
+    expect(queries).toEqual(["select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started, current_user as role, current_schemas(false) as schemas"])
   })
 })

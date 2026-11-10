@@ -438,7 +438,74 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     expect(log).toEqual(['[vitehub] Database "first": applied a0.', '[vitehub] Database "second": applied b0.'])
   })
 
-  it("groups sessions with different TimeZone values and roles as one database, and does not wait for its own lock", { timeout: 30_000 }, async () => {
+  it("starts as a runtime role with no DDL privileges when the owner has applied every migration", { timeout: 60_000 }, async () => {
+    const admin = connect(adminUrl!)
+    const role = `vitehub_runtime_${randomUUID().replaceAll("-", "").slice(0, 8)}`
+    await admin.unsafe(`create role ${role} login password 'runtime'`)
+    cleanups.push(() => admin.unsafe(`drop role if exists ${role}`))
+    const url = await createDatabase()
+    const owner = connect(url)
+    const { root } = await createProject([init, seed])
+    const server = await buildNodeServer(root, {})
+    await server.start(url)
+    const ledger = await readLedger(owner)
+    await owner.unsafe(`grant usage on schema public, drizzle to ${role}`)
+    await owner.unsafe(`grant select, insert, update, delete on all tables in schema public to ${role}`)
+    await owner.unsafe(`grant select on drizzle.__drizzle_migrations to ${role}`)
+    const runtimeUrl = new URL(url)
+    runtimeUrl.username = role
+    runtimeUrl.password = "runtime"
+    const runtime = connect(runtimeUrl.href)
+    expect(await runtime`select has_database_privilege(current_user, current_database(), 'CREATE') as ddl`).toEqual([{ ddl: false }])
+    expect((await server.start(runtimeUrl.href)).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(owner)).toEqual(ledger)
+  })
+
+  it("refuses Definitions with different roles on one database before creating any tables", { timeout: 30_000 }, async () => {
+    const admin = connect(adminUrl!)
+    const suffix = randomUUID().replaceAll("-", "").slice(0, 8)
+    const alpha = `vitehub_alpha_${suffix}`
+    const beta = `vitehub_beta_${suffix}`
+    await admin.unsafe(`create role ${alpha} login password 'test'`)
+    cleanups.push(() => admin.unsafe(`drop role if exists ${alpha}`))
+    await admin.unsafe(`create role ${beta} login password 'test'`)
+    cleanups.push(() => admin.unsafe(`drop role if exists ${beta}`))
+    const url = await createDatabase()
+    const owner = connect(url)
+    await owner.unsafe(`grant create on database ${new URL(url).pathname.slice(1)} to ${alpha}`)
+    await owner.unsafe(`create schema ${alpha} authorization ${alpha}`)
+    await owner.unsafe(`create schema ${beta} authorization ${beta}`)
+    const clients = [alpha, beta].map((role) => {
+      const roleUrl = new URL(url)
+      roleUrl.username = role
+      roleUrl.password = "test"
+      return connect(roleUrl.href)
+    })
+    const migration = { dataLoss: [], hash: "hash-b0", name: "b0", statements: ["CREATE TABLE b_items (id int)"], when: 1_000 }
+    await expect(migratePostgres([
+      { client: clients[0]!, database: { migrations: [], name: "alpha" } },
+      { client: clients[1]!, database: { migrations: [migration], name: "beta" } },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
+    expect(await owner`select to_regclass('public.b_items') as items, to_regclass('drizzle.__drizzle_migrations') as ledger`).toEqual([{ items: null, ledger: null }])
+  })
+
+  it("refuses different schema search paths for the same role on one database before creating any tables", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const owner = connect(url)
+    await owner.unsafe("create schema alpha")
+    await owner.unsafe("create schema beta")
+    const alpha = postgres(url, { connection: { search_path: "alpha,public" }, onnotice: () => {} })
+    const beta = postgres(url, { connection: { search_path: "beta,public" }, onnotice: () => {} })
+    cleanups.push(() => alpha.end(), () => beta.end())
+    const migration = { dataLoss: [], hash: "hash-b0", name: "b0", statements: ["CREATE TABLE b_items (id int)"], when: 1_000 }
+    await expect(migratePostgres([
+      { client: alpha, database: { migrations: [], name: "alpha" } },
+      { client: beta, database: { migrations: [migration], name: "beta" } },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
+    expect(await owner`select to_regclass('alpha.b_items') as alpha, to_regclass('beta.b_items') as beta, to_regclass('drizzle.__drizzle_migrations') as ledger`).toEqual([{ alpha: null, beta: null, ledger: null }])
+  })
+
+  it("groups sessions with different TimeZone values as one database, and does not wait for its own lock", { timeout: 30_000 }, async () => {
     // A plain role that owns the test database, so it can create the ledger and tables, but cannot call pg_control_system().
     const admin = connect(adminUrl!)
     const role = `vitehub_plain_${randomUUID().replaceAll("-", "").slice(0, 8)}`
@@ -453,10 +520,10 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     plainUrl.username = role
     plainUrl.password = "plain"
 
-    const utc = postgres(url, { connection: { TimeZone: "UTC" }, onnotice: () => {} })
+    const utc = postgres(plainUrl.href, { connection: { TimeZone: "UTC" }, onnotice: () => {} })
     const newYork = postgres(plainUrl.href, { connection: { TimeZone: "America/New_York" }, onnotice: () => {} })
     cleanups.push(() => utc.end(), () => newYork.end())
-    // The sessions read the server start time differently, and only one of them can read the system identifier.
+    // The sessions read the server start time differently; neither can read the system identifier.
     const [utcStart] = await utc`select pg_postmaster_start_time()::text as started`
     const [newYorkStart] = await newYork`select pg_postmaster_start_time()::text as started`
     expect(utcStart?.started).not.toBe(newYorkStart?.started)
