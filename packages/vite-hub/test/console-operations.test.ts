@@ -153,10 +153,10 @@ describe("operations that run app code", () => {
   })
 
   it("marks the workflow, queue, task, and schedule operations that start app code", async () => {
-    const { workflowOperations } = await import("@vite-hub/workflow/operations")
+    const { workflowOperations } = await import("../../workflow/dist/operations.js")
     // Generated code imports the Queue operations by file path. They are not a package export.
     const { queueOperations } = await import("../../queue/src/operations.ts")
-    const { scheduleOperations } = await import("@vite-hub/schedule/operations")
+    const { scheduleOperations } = await import("../../schedule/dist/operations.js")
     const { taskOperations } = await import("../src/task/operations.ts")
     const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()
     expect(invoking).toEqual(["queue.jobs-retry", "queue.send", "schedule.run", "schedule.start", "task.run", "workflow.resume", "workflow.start"])
