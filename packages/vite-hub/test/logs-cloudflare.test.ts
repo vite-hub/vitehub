@@ -6,7 +6,7 @@ async function configure(
   wrangler: Record<string, unknown> = {},
   preset: "cloudflare" | "node" = "cloudflare",
 ) {
-  const plugin = vitehub({ preset, logs }).find(
+  const plugin = vitehub({ preset, observability: { logs } }).find(
     (candidate) =>
       candidate &&
       typeof candidate === "object" &&

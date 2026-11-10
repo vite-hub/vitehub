@@ -204,6 +204,41 @@ export const VITEHUB_APP_BASE_URL = "__vitehubAppBaseURL" as const
  */
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
 /**
+ * Server Env declarations that ViteHub features add before `hubEnv()` builds the registry, such as the Server Env of
+ * discovered Channels. The application's `env.server` wins field by field.
+ */
+export const VITEHUB_ENV_SERVER = "__vitehubEnvServer" as const
+/** The deployment preset that `vitehub()` selected, such as `"cloudflare"`. */
+export const VITEHUB_DEPLOYMENT_PRESET = "__vitehubDeploymentPreset" as const
+/**
+ * Feature options that `vitehub()` and `vite-hub/nuxt` resolve for owner plugins during config hooks, such as the Queue
+ * provider of the host. Apps set features only in `vitehub()`, so this key is private.
+ */
+export const VITEHUB_FEATURES = "__vitehubFeatures" as const
+
+/** The features whose resolved options ViteHub passes to their owner plugins through the Vite config. */
+export type ViteHubResolvedFeature = "blob" | "database" | "queue" | "rateLimit" | "sandboxTask"
+
+/** The options that ViteHub resolved for a feature on this Vite config. The owner plugin names their type. */
+export function getResolvedFeatureOptions<T>(config: object, feature: ViteHubResolvedFeature): T | undefined {
+  const features: unknown = Reflect.get(config, VITEHUB_FEATURES)
+  if (!features || typeof features !== "object") return undefined
+  // SAFETY: Only ViteHub writes this private key, with the option type of the owner plugin for each feature.
+  return Reflect.get(features, feature) as T | undefined
+}
+
+/** Passes resolved options of a feature to its owner plugin. Call it from a config hook, before the owner reads them. */
+export function setResolvedFeatureOptions(config: object, feature: ViteHubResolvedFeature, value: unknown): void {
+  const features: unknown = Reflect.get(config, VITEHUB_FEATURES)
+  Reflect.set(config, VITEHUB_FEATURES, { ...(features && typeof features === "object" ? features : {}), [feature]: value })
+}
+
+/** The deployment preset that `vitehub()` selected on this Vite config. */
+export function getDeploymentPreset(config: object): string | undefined {
+  const preset: unknown = Reflect.get(config, VITEHUB_DEPLOYMENT_PRESET)
+  return typeof preset === "string" ? preset : undefined
+}
+/**
  * Set by `vite-hub/nuxt` when it replays Vite config hooks for `nuxt prepare`. Prepare uses `command: "build"` to write
  * the same types as the build, but it builds nothing.
  */
