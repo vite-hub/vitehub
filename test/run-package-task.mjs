@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 const DEFAULT_MAX_PARALLEL = 2
 // A package build writes only inside its own package, so builds run in dependency order, four at a time, like `vp run build`.
 const BUILD_MAX_PARALLEL = 4
-const LEADING_BUILD = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/
+const LEADING_BUILD = /^vp run (?:--cache )?-t ([@\w./-]+)#build(?:\s*&&\s*|$)/
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/env",
   "@vite-hub/gateways",

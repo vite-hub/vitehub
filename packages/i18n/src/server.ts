@@ -1,4 +1,5 @@
 import { setupI18n } from "@lingui/core"
+import { compileMessage } from "@lingui/message-utils/compileMessage"
 
 import { configureI18n, resolveRequestLocale, setI18nScope } from "./runtime.ts"
 
@@ -43,7 +44,18 @@ export function installI18nServer(nitroApp: NitroAppLike, options: I18nServerOpt
   const catalogs = Object.fromEntries(options.config.locales.map(locale => [locale, async () => ({ messages: options.messages[locale] ?? {} })]))
   configureI18n({ ...options.config, catalogs })
   const byRequest = new WeakMap<object, I18n>()
-  const create = (locale: string): I18n => setupI18n({ locale, messages: { [locale]: options.messages[locale] ?? {} } })
+  // Server code keeps the source text of each message. A message without a translation compiles it once here.
+  const compiled = new Map<string, ReturnType<typeof compileMessage>>()
+  const compile = (message: string) => {
+    let result = compiled.get(message)
+    if (!result) compiled.set(message, result = compileMessage(message))
+    return result
+  }
+  const create = (locale: string): I18n => {
+    const instance = setupI18n({ locale, messages: { [locale]: options.messages[locale] ?? {} } })
+    instance.setMessagesCompiler(compile)
+    return instance
+  }
 
   nitroApp.hooks.hook("request", (event) => {
     const instance = create(resolveRequestLocale(requestHeaders(event), options.config))
