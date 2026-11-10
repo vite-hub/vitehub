@@ -57,11 +57,9 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
     ...createConsoleAppAuthAccess({
       getAuthForRequest: authForRequest,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
-        if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
       },
       requireSession: event => {
-        if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
         return withAuthorization(true, () => undefined, definition)(event)
       },
       routes: routes.map((route, index) => ({ ...route, index, authorize: true })),
@@ -234,7 +232,7 @@ describe("Console reuses app Auth sign-in", () => {
   it("supplies the app Auth base path to the Console account menu", async () => {
     const { authForRequest } = await setup("/portal")
     installConsoleAccess({ mode: "auth", check: async () => undefined, ...createConsoleAppAuthPages(authForRequest) })
-    const page = await consolePage(requestEvent(new Request(`${origin}/portal/_vitehub`)))
+    const page = await consolePage.fetch(new Request(`${origin}/portal/_vitehub`))
     expect(await page.text()).toContain('<meta name="vitehub-console-auth-base" content="/portal/api/auth">')
   })
 
