@@ -146,7 +146,7 @@ const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 // The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
-const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 export default defineConfig({
   pack: [
