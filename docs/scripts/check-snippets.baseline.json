@@ -55,7 +55,7 @@
     "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'AgentDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, unknown>'.\n      Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'CodexDriver<unknown, unknown> | ClaudeCodeDriver<unknown, unknown>'.\n        Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'ClaudeCodeDriver<unknown, unknown>'.\n          Property '[providerAgentRuntime]' is missing in type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' but required in type 'ProviderAgentRuntimeCarrier'."
   },
   {
-    "id": "docs/content/docs/agents/sandboxes.md#a900a524eaf8",
+    "id": "docs/content/docs/agents/sandboxes.md#496567f8154e",
     "label": "server/agents/review/agent.ts",
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
@@ -70,7 +70,7 @@
     "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
   },
   {
-    "id": "docs/content/docs/blob/server-api.md#e7fc7fbe72c5",
+    "id": "docs/content/docs/blob/server-api.md#40d768790f89",
     "label": "server/api/files.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
@@ -210,17 +210,17 @@
     "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/database/server-api.md#6d9cea2fe68f",
+    "id": "docs/content/docs/database/server-api.md#1de41e225584",
     "label": "server/api/notes.get.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'notes' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
   },
   {
-    "id": "docs/content/docs/database/server-api.md#e4a3b26c7769",
+    "id": "docs/content/docs/database/server-api.md#b670c18de498",
     "label": "server/api/events.get.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'."
   },
   {
-    "id": "docs/content/docs/database/server-api.md#f322346ac6f0",
+    "id": "docs/content/docs/database/server-api.md#61de8494b7bc",
     "label": "server/utils/files.ts",
     "error": "TS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
   },
@@ -240,7 +240,7 @@
     "error": "TS2304 Cannot find name 'defineAgent'."
   },
   {
-    "id": "docs/content/docs/queue/limits-and-errors.md#2a4d4de7a8f8",
+    "id": "docs/content/docs/queue/limits-and-errors.md#f6a4c53b875d",
     "label": "server/api/signup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },

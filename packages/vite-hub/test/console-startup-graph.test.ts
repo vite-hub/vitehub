@@ -92,16 +92,19 @@ describe("Console server startup graph", () => {
         sections: ["kv"],
         catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         blobStores: [],
-        pageTools: true,
         access: { mode: "local" },
         runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
       })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual(["vite-hub/console/setup"])
-      expect(generated).toContain("installConsoleClient(")
+      for (const removed of ["installConsoleClient(", "installConsoleBuild(", "installConsolePageTool("]) {
+        expect(generated).not.toContain(removed)
+      }
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
-      expect(loaded).toContain("src/console/runtime/server/client-assets.ts")
+      for (const removed of ["client-assets.ts", "page-tool.ts"]) {
+        expect(loaded).not.toContain(`src/console/runtime/server/${removed}`)
+      }
       for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
         expect(loaded).not.toContain(lazy)
       }
