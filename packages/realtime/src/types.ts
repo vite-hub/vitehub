@@ -207,7 +207,7 @@ export interface DiscoveredRealtimeDefinition {
   source: "contributed" | "server-realtime"
 }
 
-export interface RealtimeModuleOptions {
+export interface RealtimeOptions {
   /**
    * The driver that runs the rooms. `cloudflare` uses one Durable Object per document. `memory` keeps rooms in one
    * process. `auto` (default) selects `cloudflare` on Cloudflare and `memory` in `vite dev`.

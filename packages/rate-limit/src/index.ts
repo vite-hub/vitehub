@@ -21,7 +21,7 @@ export type {
   RateLimitFailurePolicy,
   RateLimiter,
   RateLimitDriverName,
-  RateLimitModuleOptions,
+  RateLimitOptions,
   RateLimitPeekResult,
   RateLimitPolicy,
   RateLimitRejectedAttemptBehavior,

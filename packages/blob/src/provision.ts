@@ -11,7 +11,7 @@ import { readEnv } from "@vite-hub/internal/env"
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
 import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
-import type { BlobModuleOptions, CloudflareR2Jurisdiction, ResolvedBlobStoreConfig } from "./types.ts"
+import type { BlobOptions, CloudflareR2Jurisdiction, ResolvedBlobStoreConfig } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareR2Bucket {
@@ -241,17 +241,17 @@ async function ensureVercelBlobConnection(
   }
 }
 
-function resolvedStoreEntries(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): [string, ResolvedBlobStoreConfig][] {
+function resolvedStoreEntries(options: BlobOptions | undefined, env: Record<string, string | undefined>): [string, ResolvedBlobStoreConfig][] {
   const config = resolveBlobViteConfig(options, { env })
   if (config.blob === false) return []
   return Object.entries(config.blob.stores ?? { default: config.blob.store })
 }
 
-function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
+function resolvedStores(options: BlobOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
   return resolvedStoreEntries(options, env).map(([, store]) => store)
 }
 
-export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModuleOptions | undefined): ProvisionStep {
+export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobOptions | undefined): ProvisionStep {
   return {
     id: "blob:cloudflare-r2",
     provider: "cloudflare",
@@ -316,7 +316,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
   }
 }
 
-export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOptions | undefined): ProvisionStep {
+export function createBlobVercelProvisionStep(resolveOptions: () => BlobOptions | undefined): ProvisionStep {
   return {
     id: "blob:vercel-blob",
     provider: "vercel",

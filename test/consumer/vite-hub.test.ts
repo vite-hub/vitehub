@@ -658,7 +658,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
-        export default defineConfig({ env: { public: {} }, plugins: [vitehub({ preset: "cloudflare", blob: true, queue: true${features} })] })
+        export default defineConfig({ plugins: [vitehub({ env: { public: {} }, preset: "cloudflare", blob: true, queue: true${features} })] })
       `
       await Promise.all([
         writeFile(join(appDir, "vite.config.ts"), config(""), "utf8"),

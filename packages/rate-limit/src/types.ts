@@ -169,7 +169,7 @@ export interface CreateRateLimiterOptions extends RateLimitPolicy {
 /** The driver that stores Rate Limit counters. `auto` selects `cloudflare` on Cloudflare and `memory` in `vite dev`. */
 export type RateLimitDriverName = "auto" | "cloudflare" | "memory"
 
-export interface RateLimitModuleOptions {
+export interface RateLimitOptions {
   /** The driver of the counters. Defaults to `auto`. */
   driver?: RateLimitDriverName
   namespace?: string

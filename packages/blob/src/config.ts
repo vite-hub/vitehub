@@ -5,7 +5,7 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type {
-  BlobModuleOptions,
+  BlobOptions,
   BlobStoreConfig,
   BlobStoresConfig,
   CloudflareR2BlobStoreConfig,
@@ -269,7 +269,7 @@ function withoutModuleOptions(store: BlobStoreConfig): BlobStoreConfig {
   return copy
 }
 
-function hasStoresConfig(options: BlobModuleOptions | undefined): options is BlobStoresConfig {
+function hasStoresConfig(options: BlobOptions | undefined): options is BlobStoresConfig {
   if (!options || !Object.hasOwn(options, "stores")) return false
   // SAFETY: The own-property check above establishes that this read cannot come from an inherited prototype.
   return isPlainObject((options as { stores?: unknown }).stores)
@@ -311,7 +311,7 @@ function applyDevelopmentMode(
 }
 
 export function normalizeBlobOptions(
-  options: BlobModuleOptions | undefined,
+  options: BlobOptions | undefined,
   input: BlobResolutionInput = {},
 ): ResolvedBlobModuleOptions | undefined {
   if (options === false) {

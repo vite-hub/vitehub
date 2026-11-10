@@ -10,7 +10,7 @@ import type {
   DenoKVStoreConfig,
   FsLiteKVStoreConfig,
   InferredKVStoreConfig,
-  KVModuleOptions,
+  KVOptions,
   KVStoreConfig,
   KVStoresConfig,
   ResolvedCloudflareKVStoreConfig,
@@ -97,13 +97,13 @@ function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: 
   return stores ? { store, stores: { default: store, ...stores } } : { store }
 }
 
-function hasStoresConfig(options: KVModuleOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
+function hasStoresConfig(options: KVOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
   // SAFETY: The own-property check establishes stores exists; its value stays unknown until isPlainObject validates it.
   return !!options && Object.hasOwn(options, "stores") && isPlainObject(stores)
 }
 
 export function normalizeKVOptions(
-  options: KVModuleOptions | undefined,
+  options: KVOptions | undefined,
   input: KVResolutionInput = {},
 ): ResolvedKVModuleOptions | undefined {
   if (options === false) return

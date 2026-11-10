@@ -95,8 +95,7 @@ import { defineConfig } from "vite";
 import { workflowConfig } from "./server/workflow-runtime.ts";
 
 export default defineConfig({
-  plugins: [hubWorkflow()],
-  workflow: workflowConfig,
+  plugins: [hubWorkflow(workflowConfig)],
 });
 ```
 

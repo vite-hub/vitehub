@@ -191,10 +191,9 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { base: join(rootDir, ".data", "kv"), driver: "fs-lite" },
       logLevel: "silent",
       plugins: [
-        hubKv(),
+        hubKv({ base: join(rootDir, ".data", "kv"), driver: "fs-lite" }),
         {
           name: "missing-upstash-peer",
           resolveId(id) {
@@ -250,9 +249,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "cloudflare", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -303,13 +301,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKv({
         binding: "KV_CUSTOM",
         driver: "cloudflare",
         namespaceId: "namespace-id",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -356,9 +353,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "cloudflare", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -398,9 +394,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "cloudflare", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -437,9 +432,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { binding: "KV_CUSTOM", driver: "cloudflare", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ binding: "KV_CUSTOM", driver: "cloudflare", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -480,13 +474,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKv({
         binding: "SETTINGS",
         driver: "cloudflare",
         namespaceId: "11111111111111111111111111111111",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -531,13 +524,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKv({
         binding: "SETTINGS",
         driver: "cloudflare",
         namespaceName: "app-settings",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -565,11 +557,6 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
-        binding: "SETTINGS",
-        driver: "cloudflare",
-        namespaceId: "22222222222222222222222222222222",
-      },
       logLevel: "silent",
       plugins: [
         {
@@ -586,7 +573,11 @@ describe("KV Vite output", () => {
             },
           },
         },
-        hubKv(),
+        hubKv({
+          binding: "SETTINGS",
+          driver: "cloudflare",
+          namespaceId: "22222222222222222222222222222222",
+        }),
       ],
       root: rootDir,
     })
@@ -628,9 +619,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "fs-lite" })],
       root: rootDir,
     })
 
@@ -665,9 +655,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "fs-lite" })],
       root: rootDir,
     })
 
@@ -703,13 +692,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKv({
         binding: "NEW",
         driver: "cloudflare",
         namespaceId: "new-namespace",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -751,9 +739,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "fs-lite" })],
       root: rootDir,
     })
 
@@ -789,7 +776,6 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
       nitro: {
         cloudflare: {
@@ -801,7 +787,7 @@ describe("KV Vite output", () => {
           },
         },
       },
-      plugins: [hubKv()],
+      plugins: [hubKv({ driver: "fs-lite" })],
       root: rootDir,
     }
     // SAFETY: Vite preserves provider-owned Nitro configuration as an open custom field.

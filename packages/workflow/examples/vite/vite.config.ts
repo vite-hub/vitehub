@@ -11,8 +11,7 @@ export default defineConfig({
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },
-  plugins: [hubWorkflow()],
-  workflow: {
+  plugins: [hubWorkflow({
     driver: "vercel",
-  },
+  })],
 })

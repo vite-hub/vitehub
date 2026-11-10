@@ -9,7 +9,7 @@ import {
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -23,7 +23,7 @@ import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
-import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
+import type { RateLimitDeclaration, RateLimitOptions, RateLimitRuntimeConfig } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 // Generated code imports these modules by path, so they need no package export.
@@ -38,7 +38,7 @@ const pluginName = "@vite-hub/rate-limit/vite"
 const generatedNitroPlugin = ".vitehub/nitro/rate-limit/plugin.ts"
 const mergeNoExternal = createNoExternalAddition(packageName)
 
-export type RateLimitVitePluginOptions = RateLimitModuleOptions
+export type RateLimitVitePluginOptions = RateLimitOptions
 export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 type RateLimitConfig = UserConfig | ResolvedConfig
 
@@ -91,7 +91,7 @@ function resolveRateLimitNamespace(configured?: string): string | undefined {
   return configured?.trim() || undefined
 }
 
-function resolveDriver(options: RateLimitModuleOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
+function resolveDriver(options: RateLimitOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
   if (options.driver && options.driver !== "auto") return options.driver
   if (command === "serve") return "memory"
   const hosting = getHostingProvider(resolveHost({ nitro }))
@@ -103,15 +103,15 @@ function resolveDriver(options: RateLimitModuleOptions, command: "build" | "serv
   throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit driver cannot be inferred for a production build. Set rateLimit.driver to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
 }
 
-function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitModuleOptions, nitro: unknown): boolean {
+function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitOptions, nitro: unknown): boolean {
   // ViteHub records the deployment preset separately from its memory runtime driver in dev.
-  if ((config as { vitehub?: { preset?: string } }).vitehub?.preset === "cloudflare") return true
+  if (getDeploymentPreset(config) === "cloudflare") return true
   if (configured.driver === "cloudflare") return true
   return (configured.driver ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
-  let rateLimit: RateLimitModuleOptions = options
+  let rateLimit: RateLimitOptions = options
   let declarations: RateLimitDeclaration[] = []
   let cloudflareBindings = false
   // The dev server runs the memory driver, so it checks the policies that the Cloudflare build rejects.
@@ -168,7 +168,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     config: {
       order: "pre",
       handler(config, env) {
-        rateLimit = config.rateLimit ?? rateLimit
+        rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
         const configuredNitro = (config as { nitro?: unknown }).nitro
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: rateLimit.projectRoot })
         const configuredDriver = resolveDriver(rateLimit, env?.command ?? "serve", configuredNitro, true)
@@ -189,7 +189,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async configResolved(config) {
       resolved = config
-      rateLimit = config.rateLimit ?? rateLimit
+      rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const nitroCloudflare = resolveHost({ nitro: configuredNitro }) === "cloudflare"
@@ -238,11 +238,5 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         throw rateLimitErrorDiagnostics.RATE_LIMIT_B0004({ message: "[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves." })
       }
     },
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    rateLimit?: RateLimitModuleOptions
   }
 }

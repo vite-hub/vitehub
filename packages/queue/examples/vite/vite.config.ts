@@ -9,11 +9,10 @@ export default defineConfig({
     serverEntry: "./src/server.ts",
   },
   plugins: [
-    hubQueue(),
+    hubQueue({
+      driver: "vercel",
+      region: "fra1",
+    }),
     nitro(),
   ],
-  queue: {
-    driver: "vercel",
-    region: "fra1",
-  },
 })

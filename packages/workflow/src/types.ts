@@ -75,7 +75,7 @@ export type WorkflowModuleDriverOptions =
   | InferredWorkflowDriverOptions
   | WorkflowDriverOptions
 
-export type WorkflowModuleOptions =
+export type WorkflowOptions =
   | false
   | WorkflowModuleDriverOptions
 

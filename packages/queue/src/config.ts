@@ -4,7 +4,7 @@ import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
+import type { QueueOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface QueueResolutionInput {
@@ -70,7 +70,7 @@ function resolveDriver(options: Record<string, unknown>, hosting: string): Resol
   )
 }
 
-export function normalizeQueueOptions(options: QueueModuleOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
+export function normalizeQueueOptions(options: QueueOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
   if (options === false) return undefined
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw queueErrorDiagnostics.QUEUE_INVALID_CONFIG()

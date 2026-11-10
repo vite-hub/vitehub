@@ -501,14 +501,13 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
+  plugins: [hubWorkspace({
     store: {
       driver: "cloudflare",
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
     },
-  },
+  })],
 })
 ```
 

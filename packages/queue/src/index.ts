@@ -32,7 +32,7 @@ export type {
   QueueErrorCode,
   QueueHandler,
   QueueJob,
-  QueueModuleOptions,
+  QueueOptions,
   QueueModuleDriverOptions,
   QueueDriver,
   QueueDriverOptions,

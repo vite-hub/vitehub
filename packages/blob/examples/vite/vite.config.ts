@@ -9,11 +9,10 @@ export default defineConfig({
     serverEntry: "./src/server.ts",
   },
   plugins: [
-    hubBlob(),
+    hubBlob({
+      driver: "cloudflare",
+      bucketName: "vitehub-blob",
+    }),
     nitro(),
   ],
-  blob: {
-    driver: "cloudflare",
-    bucketName: "vitehub-blob",
-  },
 })

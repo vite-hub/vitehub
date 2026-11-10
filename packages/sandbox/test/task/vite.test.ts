@@ -7,6 +7,7 @@ import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
 import { build as viteBuild, type AliasOptions } from "vite"
 
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
@@ -141,12 +142,12 @@ afterEach(async () => {
 })
 
 describe("hubSandboxTask", () => {
-  it.each(["plugin", "config"] as const)("omits Sandbox Task Definitions disabled through %s", async (disabledBy) => {
+  it("omits Sandbox Task Definitions when the plugin is disabled", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask(disabledBy === "plugin" ? false : undefined)
+    const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
-    await configHook({ root: rootDir, ...(disabledBy === "config" ? { sandboxTask: false } : {}) }, { command: "build", mode: "production" })
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
 
     const inspectors = await collectViteHubDefinitionInspectors([plugin])
     expect(inspectors).toEqual([])
@@ -168,9 +169,9 @@ describe("hubSandboxTask", () => {
 
     const configResult = await configHook({
       root: rootDir,
-      sandboxTask: {
+      [VITEHUB_FEATURES]: { sandboxTask: {
         driver: "vercel",
-      },
+      } },
     }, {
       command: "serve",
       mode: "development",
@@ -198,7 +199,7 @@ describe("hubSandboxTask", () => {
     expect(providerImportAliases["vite-hub/sandbox/task"]).toBe(sandboxTaskAlias)
     expect(providerImportAliases["vitehub-sandbox-task-provider-loader"]).toBe(providerLoaderAlias)
 
-    await configHook({ root: rootDir, sandboxTask: false }, { command: "serve", mode: "development" })
+    await configHook({ root: rootDir, [VITEHUB_FEATURES]: { sandboxTask: false } }, { command: "serve", mode: "development" })
     await configResolved({ root: rootDir, resolve: { alias: [] } })
     expect(providerImportAliases).not.toHaveProperty("@vite-hub/sandbox/task")
     expect(providerImportAliases).not.toHaveProperty("vite-hub/sandbox/task")
@@ -1266,9 +1267,9 @@ describe("hubSandboxTask", () => {
 
     await configHook({
       root: rootDir,
-      sandboxTask: {
+      [VITEHUB_FEATURES]: { sandboxTask: {
         driver: "vercel",
-      },
+      } },
     }, {
       command: "serve",
       mode: "development",

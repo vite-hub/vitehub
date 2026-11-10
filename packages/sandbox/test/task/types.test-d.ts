@@ -1,5 +1,3 @@
-import type { UserConfig } from "vite"
-
 import { describe, expectTypeOf, it } from "vitest"
 
 import {
@@ -9,7 +7,7 @@ import {
   type SandboxTaskDefinition,
   type SandboxTaskRunResult,
 } from "../../src/task/index.ts"
-import { hubSandboxTask } from "../../src/task/vite.ts"
+import { hubSandboxTask, type SandboxTaskOptions } from "../../src/task/vite.ts"
 
 declare module "#vitehub-sandbox-task-registry" {
   interface SandboxTaskDefinitionModules {
@@ -25,16 +23,15 @@ declare module "#vitehub-sandbox-task-registry" {
 }
 
 describe("types", () => {
-  it("augments Vite user config with sandboxTask options", () => {
-    const config: UserConfig = {
-      sandboxTask: {
-        driver: "cloudflare",
-        binding: "SANDBOX",
-        name: "custom-sandbox",
-      },
+  it("types the sandboxTask plugin options", () => {
+    const options: SandboxTaskOptions = {
+      driver: "cloudflare",
+      binding: "SANDBOX",
+      name: "custom-sandbox",
     }
 
-    expectTypeOf(config.sandboxTask).toMatchTypeOf<AgentSandboxTaskConfig | false | undefined>()
+    expectTypeOf(options).toMatchTypeOf<AgentSandboxTaskConfig | false>()
+    expectTypeOf(hubSandboxTask).parameter(0).toMatchTypeOf<SandboxTaskOptions | undefined>()
   })
 
   it("types sandbox definitions and run results", async () => {

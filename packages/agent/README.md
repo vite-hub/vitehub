@@ -417,16 +417,17 @@ Chat History and the Concurrent Invocation Guard need an Agent State Provider wh
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite"
+import { hubAgent } from "@vite-hub/agent/vite"
 
 export default defineConfig({
-  agent: {
+  plugins: [hubAgent({
     providers: {
       state: {
         provider: "sqlite",
         url: process.env.VITEHUB_AGENT_STATE_URL,
       },
     },
-  },
+  })],
 });
 ```
 

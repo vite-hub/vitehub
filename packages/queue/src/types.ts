@@ -178,7 +178,7 @@ export type QueueModuleDriverOptions =
   | LocalQueueModuleDriverOptions
   | VercelQueueModuleDriverOptions
 
-export type QueueModuleOptions =
+export type QueueOptions =
   | false
   | (QueueSharedOptions & { base?: string; namePrefix?: string; driver?: undefined })
   | QueueModuleDriverOptions

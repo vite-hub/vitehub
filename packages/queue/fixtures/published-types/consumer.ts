@@ -1,8 +1,8 @@
 import type { Result } from "@vite-hub/runtime"
 
-import { dynamicQueue, type LocalQueueClient, type LocalQueueErrorCode, type LocalQueueDriverOptions, type LocalQueueSendBatchMessage, type QueueErrorCode, type QueueModuleOptions, type QueueSendResult } from "@vite-hub/queue"
+import { dynamicQueue, type LocalQueueClient, type LocalQueueErrorCode, type LocalQueueDriverOptions, type LocalQueueSendBatchMessage, type QueueErrorCode, type QueueOptions, type QueueSendResult } from "@vite-hub/queue"
 
-export const queueOptions = { driver: "cloudflare" } satisfies QueueModuleOptions
+export const queueOptions = { driver: "cloudflare" } satisfies QueueOptions
 
 export const localOptions = { driver: "local", base: "data/queue", queue: "welcome" } satisfies LocalQueueDriverOptions
 export function enqueueLocal(client: LocalQueueClient<{ email: string }>) {
