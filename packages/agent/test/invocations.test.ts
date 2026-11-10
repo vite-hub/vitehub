@@ -2335,6 +2335,41 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("keeps the children of a foreign AggregateError subclass with its own name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-aggregate-subclass",
+      observations: [],
+      status: "running",
+      traceId: "foreign-aggregate-subclass-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('new (class ValidationError extends AggregateError { name = "ValidationError" })([new Error("field invalid")], "validation failed")')
+
+    await store.update("foreign-aggregate-subclass", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-aggregate-subclass"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          errors: [{ message: "field invalid", name: "Error" }],
+          message: "validation failed",
+          name: "ValidationError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
   it("recognizes foreign errors when stack formatting returns a non-string", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({

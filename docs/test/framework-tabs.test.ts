@@ -146,13 +146,29 @@ function entries(code: string, open: number): Map<string, string> {
   return out
 }
 
+/** Compare nested object options per key so a Nuxt mode can override one field. */
+function flattenOptions(options: Map<string, string>, prefix = ""): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const [key, value] of options) {
+    const path = `${prefix}${key}`
+    const nested = value.startsWith("{") ? entries(value, 0) : undefined
+    if (nested?.size) {
+      for (const [key, value] of flattenOptions(nested, `${path}.`)) out.set(key, value)
+    }
+    else out.set(path, value)
+  }
+  return out
+}
+
 /**
  * The ViteHub options of a config as `key=value` lines: the argument of `vitehub(...)`, or the `vitehub` key of a
  * Nuxt config. A Vite config declares Env at its top level and Nuxt under `vitehub.env`, so `env` compares per key.
  */
-function vitehubOptions(source: string): string | undefined {
-  const code = dedent(source)
+function vitehubOptions(source: string, mode: "development" | "production"): string | undefined {
+  // Resolve the literal command condition used by the development-only Console auth example.
+  const code = dedent(source).replace(/command\s*===\s*(['"])serve\1\s*\?\s*(false|true|'[^']*'|"[^"]*")\s*:\s*(false|true|'[^']*'|"[^"]*")/g, mode === "development" ? "$2" : "$3")
   let options: Map<string, string>
+  let overrides = new Map<string, string>()
   let env = new Map<string, string>()
   const nuxt = code.indexOf("defineNuxtConfig(")
   if (nuxt >= 0) {
@@ -160,6 +176,11 @@ function vitehubOptions(source: string): string | undefined {
     const key = /^ {2}vitehub:\s*/m.exec(code.slice(nuxt))
     if (!key) return code.includes("vite-hub/nuxt") ? "" : undefined
     options = entries(code, nuxt + key.index + key[0].length)
+    const modeKey = new RegExp(`^ {2}\\$${mode}:\\s*`, "m").exec(code.slice(nuxt))
+    if (modeKey) {
+      const config = entries(code, nuxt + modeKey.index + modeKey[0].length).get("vitehub")
+      if (config?.startsWith("{")) overrides = entries(config, 0)
+    }
   }
   else {
     const call = /vitehub\(/.exec(code)
@@ -182,6 +203,8 @@ function vitehubOptions(source: string): string | undefined {
     for (const [key, value] of entries(optionEnv, 0)) env.set(key, value)
   }
   for (const [key, value] of env) options.set(`env.${key}`, value)
+  options = flattenOptions(options)
+  for (const [key, value] of flattenOptions(overrides)) options.set(key, value)
   return [...options].map(([key, value]) => `${key}=${value}`).sort().join("\n")
 }
 
@@ -205,11 +228,11 @@ describe("framework tabs", async () => {
     expect(wrong).toEqual([])
   })
 
-  it("passes the same ViteHub options in every tab", () => {
+  it.each(["development", "production"] as const)("passes the same ViteHub options in every tab in %s", (mode) => {
     const drift = pages.flatMap(({ page, blocks }) => {
       const byGroup = Map.groupBy(blocks.filter(block => block.group !== undefined), block => block.group!)
       return [...byGroup.values()].flatMap((group) => {
-        const options = new Set(group.map(block => vitehubOptions(block.code)).filter(option => option !== undefined))
+        const options = new Set(group.map(block => vitehubOptions(block.code, mode)).filter(option => option !== undefined))
         return options.size > 1 ? [`${page}:${group[0]!.line} ${[...options].join(" | ")}`] : []
       })
     })

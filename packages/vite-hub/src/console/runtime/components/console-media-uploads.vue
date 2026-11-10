@@ -58,11 +58,13 @@ const title = computed(() => {
 </template>
 
 <style>
+/* A floating panel: the theme's floating surface, 12px radius, and layered shadow. */
 .vitehub-media-uploads {
-  background: var(--ui-bg);
-  border-radius: 0.75rem;
+  backdrop-filter: blur(12px);
+  background: var(--vh-floating);
+  border-radius: calc(var(--ui-radius) * 3);
   bottom: 1rem;
-  box-shadow: 0 0 0 1px var(--ui-border), 0 1px 1px rgb(0 0 0 / 2%), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 8%);
+  box-shadow: var(--vh-shadow-floating);
   overflow: hidden;
   position: absolute;
   right: 1rem;

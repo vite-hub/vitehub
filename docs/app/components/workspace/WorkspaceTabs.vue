@@ -9,13 +9,9 @@ const value = defineModel<T>({ required: true });
 <template>
   <UTabs
     v-model="value"
-    :items="items.map(item => ({ ...item, slot: item.value, badge: item.badge ? { label: item.badge, color: 'neutral', variant: 'soft' } : undefined }))"
-    variant="link"
-    size="xs"
-    color="neutral"
+    :items="items.map(item => ({ ...item, slot: item.value }))"
     :unmount-on-hide="false"
     class="vh-tabs"
-    :ui="{ list: 'vh-tabs-list', trigger: 'h-9', content: 'vh-tabs-content data-[state=inactive]:hidden', indicator: 'bottom-0' }"
   >
     <template v-for="item in items" :key="item.value" #[item.value]>
       <slot :name="item.value" />
@@ -24,28 +20,28 @@ const value = defineModel<T>({ required: true });
 </template>
 
 <style scoped>
+/* The tabs fill the workspace panel: the strip keeps its height, and the active panel takes the rest. */
 .vh-tabs {
-  display: flex;
   min-width: 0;
   min-height: 0;
   flex: 1;
-  flex-direction: column;
   gap: 0;
 }
 
-.vh-tabs :deep(.vh-tabs-list) {
+.vh-tabs :deep([data-slot="list"]) {
   flex: none;
-  height: 2.25rem;
-  gap: 0.25rem;
-  border-bottom: 1px solid var(--ui-border);
-  padding: 0 0.25rem;
 }
 
-.vh-tabs :deep(.vh-tabs-content) {
+.vh-tabs :deep([data-slot="content"]) {
   position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
+}
+
+/* Reka keeps hidden panels mounted but visible, so they hide here. */
+.vh-tabs :deep([data-slot="content"][data-state="inactive"]) {
+  display: none;
 }
 </style>
