@@ -153,6 +153,10 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./vite",
     "./package.json",
   ],
+  "@vite-hub/console-client": [
+    "./manifest.json",
+    "./package.json",
+  ],
   "@vite-hub/content": [
     ".",
     "./cli",

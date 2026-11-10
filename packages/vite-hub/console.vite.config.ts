@@ -7,6 +7,7 @@ import { consoleAppConfig } from "./src/console/app.config";
 import { consoleContributedSectionIcons } from "./src/console/contributions";
 
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
+const consoleClientOutDir = resolve(import.meta.dirname, "../console-client/dist/client");
 
 const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
@@ -63,7 +64,8 @@ export default defineConfig({
     // Keep font assets portable in pnpm patches and self-contained Console bundles.
     assetsInlineLimit: filePath => /\.(?:woff2?|ttf|otf)$/.test(filePath) ? true : undefined,
     emptyOutDir: true,
-    outDir: resolve(import.meta.dirname, ".vitehub/console"),
+    // The Console app ships in its own package, @vite-hub/console-client. An app installs it only to serve the Console.
+    outDir: consoleClientOutDir,
     rolldownOptions: {
       // The `console` page tool is built after this, by page-tool.vite.config.ts, so it shares no chunks with the app.
       input: { main: resolve(clientRoot, "main.js") },

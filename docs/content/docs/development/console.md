@@ -88,7 +88,15 @@ Each Console build has an id, which changes only when the Console catalog or cli
 
 ## Enable the Console
 
-Set `console` in the ViteHub options. `console.auth` chooses who can open it, and every environment must set it:
+The Console app is its own package, `@vite-hub/console-client`, so an app without the Console does not install it. Add it before you turn the Console on:
+
+```bash [commands/install-console]
+pnpm add @vite-hub/console-client
+```
+
+`vitehub add console` adds it for you. If it is missing, the build stops and prints the same install command.
+
+Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:
 
 | `auth` | Who can open the Console |
 | --- | --- |
@@ -159,7 +167,7 @@ export default defineConfig({
 :::
 ::
 
-A standalone Nitro 3 app adds Nitro after ViteHub. The Console and its UI ship inside `vite-hub`, so you install no other package.
+A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies are prebuilt inside `@vite-hub/console-client`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

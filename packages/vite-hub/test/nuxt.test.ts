@@ -1184,7 +1184,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(development.nuxt).handlers).toContainEqual({ handler: expect.stringMatching(/server\/page\.get\.js$/), lazy: true, route: "/_vitehub/**" })
     expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
       baseURL: "/_vitehub/assets",
-      dir: expect.stringMatching(/console\/runtime\/public\/console$/),
+      dir: expect.stringMatching(/console-client\/dist\/client$/),
       fallthrough: false,
       maxAge: 31536000,
     }, {
