@@ -72,16 +72,19 @@ const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, 
  * the tab shows again, the network comes back, another tab signs out or updates the user, or the session expires. Use
  * `loadAuthClient()` for anything else, such as `$store`.
  */
-export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => createLazyAuthClient(() => options)
+export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => createLazyAuthClient(() => options, () => options)
 
-/** The client of `createAuthClient()`, with options that it reads when it loads Better Auth. */
-function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOptions: () => Option | undefined): VueAuthClient<Option> {
+/**
+ * The client of `createAuthClient()`. It runs `resolveOptions` when it loads Better Auth. `knownOptions` returns the
+ * options known before the load, such as `sessionOptions`, without loading anything.
+ */
+function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOptions: () => Option | undefined | Promise<Option | undefined>, knownOptions: () => Option | undefined = () => undefined): VueAuthClient<Option> {
   let loaded: Promise<VueAuthClient<Option>> | undefined
   let betterAuth: VueAuthClient<Option> | undefined
   // Run when Better Auth loads, before the first call runs, such as the session store that follows this client.
   const onLoad = new Set<(client: VueAuthClient<Option>) => void>()
-  const load = () => (loaded ??= import("better-auth/vue").then((module) => {
-    betterAuth = module.createAuthClient(resolveOptions())
+  const load = () => (loaded ??= Promise.all([import("better-auth/vue"), resolveOptions()]).then(([module, options]) => {
+    betterAuth = module.createAuthClient(options)
     for (const run of onLoad) run(betterAuth)
     onLoad.clear()
     return betterAuth
@@ -122,7 +125,7 @@ function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOpt
       get(_, key) {
         if (key === LOAD && !path.length) return load
         if (key === ON_LOAD && !path.length) return whenLoaded
-        if (key === OPTIONS && !path.length) return resolveOptions()
+        if (key === OPTIONS && !path.length) return knownOptions()
         // Like Better Auth's own client: no symbols, and never a thenable.
         if (typeof key !== "string" || key === "then" || key === "catch" || key === "finally") return undefined
         if (!path.length && /^use[A-Z]/.test(key)) return (...args: unknown[]) => hook(key, args)
@@ -374,10 +377,40 @@ export async function loadAuthClient<Client extends VueAuthClient<any>>(client: 
 }
 
 /**
- * The client of the auto-imported composables. In Nuxt, it uses the Auth Definition's `basePath` below the
- * `app.baseURL` of the page, also when `NUXT_APP_BASE_URL` sets it at runtime.
+ * The options of the app's Auth client, such as Better Auth's client plugins. Export them from `app/auth.client.ts` in
+ * a Nuxt app, or from `auth.client.ts` in the Vite root, and the default client, `useUserSession()`, and the Nuxt page
+ * guard use them.
  */
-export const authClient: VueAuthClient<{}> = createLazyAuthClient(() => ({ basePath: defaultBasePath ?? resolveAuthMountPath("/api/auth") }))
+export function defineAuthClient<Option extends BetterAuthClientOptions>(options: Option): Option {
+  return options
+}
+
+declare global {
+  namespace ViteHub {
+    /** Generated declarations set `client` to the type of the options in the app's `auth.client.ts`. */
+    interface AuthRegistry {}
+  }
+}
+
+/** The client options that generated declarations register from the app's `auth.client.ts`. Without one, none. */
+type RegisteredClientOptions<TRegistry> = TRegistry extends { client: infer TOptions }
+  // An `any` type, such as from a file that the app's tsconfig cannot resolve, keeps the plain client.
+  ? 0 extends 1 & TOptions ? {} : TOptions extends BetterAuthClientOptions ? TOptions : {}
+  : {}
+
+/** The type of the default client: Better Auth's Vue client with the options of the app's `auth.client.ts`. */
+export type RegisteredAuthClient<TRegistry = ViteHub.AuthRegistry> = VueAuthClient<RegisteredClientOptions<TRegistry>>
+
+/**
+ * The client that the composables and the Nuxt page guard share. On first use, it loads `better-auth/vue` and the app's
+ * `auth.client.ts` together, and the options of that file replace the defaults. In Nuxt, the default `basePath` is the
+ * Auth Definition's `basePath` below the `app.baseURL` of the page, also when `NUXT_APP_BASE_URL` sets it at runtime.
+ */
+// SAFETY: `RegisteredAuthClient` has the options of the same `auth.client.ts`, from the generated registry.
+export const authClient = createLazyAuthClient(async () => {
+  const { default: options } = await import("#vitehub/auth/client")
+  return { basePath: defaultBasePath ?? resolveAuthMountPath("/api/auth"), ...options }
+}) as RegisteredAuthClient
 
 /** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
 export function provideAuthClient(client: VueAuthClient<any>): void {
@@ -422,6 +455,8 @@ export type SignOutOptions<Client extends VueAuthClient<any> = typeof authClient
 }
 
 export interface UserSession<Client extends VueAuthClient<any> = typeof authClient> {
+  /** The Auth client of this session, with the endpoints of its client plugins, such as `client.admin.listUsers()`. */
+  client: Client
   data: ComputedRef<ClientSession<Client> | null>
   error: ComputedRef<BetterFetchError | null>
   /** The id of the administrator who opened this session as `user`, or `null`. Better Auth's admin plugin sets it. */
@@ -464,6 +499,7 @@ function createUserSession<Client extends VueAuthClient<any>>(client: Client, st
   // SAFETY: `read()` returns the session of this client, or `null`.
   const refresh = store.read as () => Promise<ClientSession<Client> | null>
   return {
+    client,
     data: computed(() => state.value.data),
     error: computed(() => state.value.error),
     impersonatedBy: computed(() => {

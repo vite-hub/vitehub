@@ -325,7 +325,7 @@ export default defineNuxtConfig({
 
 ## Client-side Auth
 
-Vue apps can use ViteHub's Better Auth client and normalized session composable directly. `useUserSession()` exposes the current `user` and `session`, sign-in and sign-out actions, and `loggedIn`, `pending`, and `ready` computed refs.
+Vue apps can use ViteHub's Better Auth client and normalized session composable directly. `useUserSession()` exposes the current `user` and `session`, sign-in and sign-out actions, `loggedIn`, `pending`, and `ready` computed refs, and the Better Auth `client`.
 
 ```ts
 // lib/auth-client.ts
@@ -362,7 +362,26 @@ export const authClient = createAuthClient({
 export const userSession = useUserSession(authClient);
 ```
 
-The exported `createAuthClient` keeps Better Auth's option and plugin inference for custom base paths and client plugins. The zero-config composables use ViteHub's shared default client. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
+To add Better Auth client plugins to the default client, export its options from `auth.client.ts` in the Vite root, which is `app/auth.client.ts` in a Nuxt app. `hubAuth()` finds the file. The default client loads it together with `better-auth/vue` on first use, and `useUserSession()`, `useAuthClient()`, and the Nuxt page guard share that one client. The generated `.vitehub/types/auth.d.ts` registers the type of the file, so `client.admin` is typed. Restart the dev server after you add or remove the file.
+
+```ts
+// app/auth.client.ts
+import { adminClient } from "better-auth/client/plugins";
+import { defineAuthClient } from "@vite-hub/auth/vue";
+
+export default defineAuthClient({
+  plugins: [adminClient()],
+});
+```
+
+```ts fragment
+import { useUserSession } from "@vite-hub/auth/vue";
+
+const { client } = useUserSession();
+const { data } = await client.admin.listUsers({ query: { limit: 10 } });
+```
+
+The exported `createAuthClient` keeps Better Auth's option and plugin inference for a second client with its own base path or plugins. The zero-config composables use ViteHub's shared default client. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
 
 The client loads `better-auth/vue` the first time you use it, not when you create it. An app can create its client in a plugin, and only the pages that sign in or read the session download Better Auth. Calls such as `signIn.social()` wait for the load. `useSession()` and `useUserSession()` return their refs at once: they are pending until the client loads in the browser. In Nuxt, they start with the session that the server read for the request, so they are settled during server rendering and hydration. The browser then does not load Better Auth or read the session again until the session can change: a call such as `signOut()`, `refresh()`, the tab shows again, the network comes back, another tab signs out or updates the user, Better Auth's `refetchInterval` passes, or the session expires. Like Better Auth, it waits while the browser is offline. Better Auth then starts with the server's session, so a read that fails does not sign the page out. So without a page guard, a page that only shows the user reads the session once, on the server. When the server's session is unknown, such as on a prerendered page, the browser loads Better Auth at once. For a member that is not a call or a hook, such as `$store`, get Better Auth's own client with `loadAuthClient()`:
 

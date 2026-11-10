@@ -30,6 +30,10 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
+// The app's `auth.client.ts`, which `hubAuth()` serves as `#vitehub/auth/client`.
+const appClient = vi.hoisted(() => ({ options: { plugins: [{ id: "admin-client" }] } }))
+vi.mock("#vitehub/auth/client", () => ({ default: appClient.options }))
+
 const { authClient, createAuthClient, loadAuthClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 const signedIn = { session: { id: "s" }, user: { id: "u", name: "Ada" } }
@@ -75,6 +79,22 @@ describe("Vue Auth composables", () => {
     expect(useSession()).toBeDefined()
   })
 
+  it("creates the default client with the options of the app's auth.client.ts, on the first call", async () => {
+    const session = useUserSession()
+    expect(session.client).toBe(authClient)
+    expect(betterAuth.created).toEqual([])
+
+    await session.client.signIn.social({ provider: "github" })
+    await useAuthClient().signOut()
+    expect(betterAuth.created).toEqual([{ basePath: "/api/auth", plugins: [{ id: "admin-client" }] }])
+    expect(betterAuth.calls).toEqual([["signIn.social", { provider: "github" }], ["signOut"]])
+  })
+
+  it("returns the client that it was given", () => {
+    const client = createAuthClient({ basePath: "/auth" })
+    expect(useUserSession(client).client).toBe(client)
+  })
+
   it("creates Better Auth's client on the first call, not before", async () => {
     const client = createAuthClient({ basePath: "/auth" })
     useUserSession(client)
@@ -93,7 +113,7 @@ describe("Vue Auth composables", () => {
     // The Nuxt plugin sets the path after this entry loads: `defineAuth({ basePath: '/auth' })` below `app.baseURL` `/app/`.
     vue.setDefaultAuthBasePath("/app/auth")
     await vue.useUserSession().signOut()
-    expect(betterAuth.created).toEqual([{ basePath: "/app/auth" }])
+    expect(betterAuth.created).toEqual([{ basePath: "/app/auth", plugins: [{ id: "admin-client" }] }])
   })
 
   it("is not a thenable, so awaiting it gives the client back", async () => {
@@ -248,7 +268,8 @@ describe("Vue Auth composables", () => {
     stubBrowser()
     setSessionSeedResolver(() => signedIn)
     const scope = effectScope()
-    const [session, can] = scope.run(() => [useUserSession(createAuthClient()), useSession()])!
+    const client = createAuthClient()
+    const [session, can] = scope.run(() => [useUserSession(client), useSession(client)])!
     await settle()
     expect(session.loggedIn.value).toBe(true)
     expect(can!.value.data).toEqual(signedIn)

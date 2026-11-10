@@ -62,6 +62,9 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
+// The app's `auth.client.ts`, which `hubAuth()` serves as `#vitehub/auth/client`.
+vi.mock("#vitehub/auth/client", () => ({ default: { plugins: [{ id: "admin-client" }] } }))
+
 type Plugin = { setup: (app: { payload: typeof mocks.payload, runWithContext?: <T>(run: () => T) => T }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
 // Each test gets new modules, so the default client and its session start empty.
 let plugin: Plugin
@@ -161,7 +164,7 @@ describe("Nuxt session and page guard", () => {
     useUserSession()
 
     expect(mocks.createAuthClient).toHaveBeenCalledOnce()
-    expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth" })
+    expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth", plugins: [{ id: "admin-client" }] })
     expect(mocks.useSession).toHaveBeenCalledOnce()
     expect(mocks.getSession).toHaveBeenCalledTimes(3)
     mocks.state.value = session
@@ -174,7 +177,27 @@ describe("Nuxt session and page guard", () => {
     vi.stubGlobal("window", {})
     const result = await plugin.setup({ payload: mocks.payload })
     await result!.provide.vitehubAuthClient.getSession()
-    expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth" })
+    expect(mocks.createAuthClient).toHaveBeenCalledWith(expect.objectContaining({ basePath: "/app/auth" }))
+  })
+
+  it("uses the client of the composables, with the plugins of auth.client.ts, in the page guard", async () => {
+    // A new page load: no Better Auth client exists yet.
+    vi.resetModules()
+    const { useAuthClient, useUserSession } = await import("../src/vue.ts")
+    const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as { default: Plugin }
+    vi.stubGlobal("window", {})
+    mocks.state.value = null
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    const { client } = useUserSession()
+    await client.getSession()
+
+    expect(client).toBe(useAuthClient())
+    // One Better Auth client serves the guard and the page.
+    expect(mocks.createAuthClient).toHaveBeenCalledTimes(1)
+    expect(mocks.createAuthClient).toHaveBeenCalledWith(expect.objectContaining({ plugins: [{ id: "admin-client" }] }))
+    expect(mocks.getSession).toHaveBeenCalledTimes(2)
   })
 
   it("updates useUserSession() with the answer of a guard read", async () => {
@@ -286,7 +309,7 @@ describe("Nuxt default client", () => {
     expect(mocks.useSession).toHaveBeenCalledOnce()
 
     // One Better Auth client serves the composables and the page guard.
-    expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/app/auth" }]])
+    expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/app/auth", plugins: [{ id: "admin-client" }] }]])
   })
 
   it("calls Auth below a runtime app.baseURL in the browser, such as one that NUXT_APP_BASE_URL sets", async () => {
@@ -298,7 +321,7 @@ describe("Nuxt default client", () => {
 
     await fresh.vue.useAuthClient().getSession()
 
-    expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/preview/auth" }]])
+    expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/preview/auth", plugins: [{ id: "admin-client" }] }]])
   })
 
   it("reads the session on the server at the Nitro route, without the runtime app.baseURL that Nuxt's $fetch adds", async () => {

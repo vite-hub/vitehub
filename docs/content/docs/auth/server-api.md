@@ -27,6 +27,7 @@ icon: i-lucide-code-2
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
 | `useAbility`, `Can` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. |
 | `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `vite-hub/auth/vue` | Read session state and call Better Auth from Vue. Better Auth loads on first use. |
+| `defineAuthClient` from `vite-hub/auth/vue` | Set the [client plugins](#client-plugins) of the default client in `auth.client.ts`. |
 | `authenticated` from `vite-hub/auth/agent` | Turn a Better Auth session into an Agent Invoker (who calls the Agent). |
 | `agentAuth` from `vite-hub/auth/agent` | The `auth` primitive that generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user from `actor.meta.authUserId`, or returns `null`. `authenticated()` sets `authUserId` for a request with a session. Channel and anonymous Actors have none, unless your `invoker.resolve` adds it. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Handle missing sessions and provider failures by Auth error code. |
@@ -35,7 +36,7 @@ icon: i-lucide-code-2
 
 ViteHub mounts the Auth route at `/api/auth/**`, so same-origin apps need no route file.
 
-In Vue, `useUserSession()` gives you `user`, `session`, sign-in and sign-out actions, and the `loggedIn`, `pending`, and `ready` refs.
+In Vue, `useUserSession()` gives you `user`, `session`, sign-in and sign-out actions, the `loggedIn`, `pending`, and `ready` refs, and the Better Auth `client`.
 
 ```ts [lib/auth-client.ts]
 import { useUserSession } from 'vite-hub/auth/vue'
@@ -68,7 +69,33 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
 
-For Better Auth client plugins, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. A custom client must include the app base path in `basePath`, such as `/app/auth`.
+### Client plugins
+
+To use Better Auth client plugins, such as `adminClient()`, export their options from `app/auth.client.ts` in a Nuxt app, or from `auth.client.ts` in the Vite root. The default client, `useUserSession()`, `useAuthClient()`, and the Nuxt page guard then use one client with these plugins.
+
+```ts [app/auth.client.ts]
+import { adminClient } from 'better-auth/client/plugins'
+import { defineAuthClient } from 'vite-hub/auth/vue'
+
+export default defineAuthClient({
+  plugins: [adminClient()],
+})
+```
+
+```vue [app/pages/admin.vue]
+<script setup lang="ts">
+definePageMeta({ auth: 'user' })
+
+const { client } = useUserSession()
+const { data } = await client.admin.listUsers({ query: { limit: 10 } })
+</script>
+```
+
+- `defineAuthClient()` takes the options of Better Auth's `createAuthClient()`. ViteHub sets `basePath`. In Nuxt, it is the `basePath` of the Auth Definition, below `app.baseURL`.
+- The client imports the file together with Better Auth, on first use, not when the app starts.
+- ViteHub writes the type of the file to `.vitehub/types/auth.d.ts`, so `client.admin` and the other plugin endpoints are typed. Restart the dev server after you add or remove the file.
+
+For a second client, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. A custom client must include the app base path in `basePath`, such as `/app/auth`.
 
 Better Auth loads on the first Auth request, the first request an access route matches, or the first Console request with `console: { auth: "app" }`. A separate `console.auth` Definition still loads it at startup. Importing `vite-hub/auth/server` also loads it, so import it in routes, not in a Nitro plugin or global middleware. A cold start then does not compile it.
 

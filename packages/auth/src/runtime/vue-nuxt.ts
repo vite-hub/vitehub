@@ -111,7 +111,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     // The server reads the session in process, where Nitro serves Auth below the base path of the build. The browser
     // calls Auth below the `app.baseURL` of the page, which `NUXT_APP_BASE_URL` can set at runtime.
     const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth", "window" in globalThis ? runtimeConfig.app?.baseURL : undefined)
-    // The page guard and the auto-imported composables share the default client, so they call the same Auth path, and
+    // The page guard and the auto-imported composables share the default client, with the plugins of the app's `auth.client.ts`. They
+    // call the same Auth path, and
     // a read of the guard updates every component.
     setDefaultAuthBasePath(basePath)
     const seed = useState(stateKey, () => undefined) as { value: unknown }
