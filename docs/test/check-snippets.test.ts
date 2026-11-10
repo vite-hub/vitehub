@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, compareBaseline, extractBlocks, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -132,5 +132,35 @@ describe("documentation snippet check", () => {
     expect(failures.map(failure => [failure.snippet.file.slice(page.length + 1), failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["server/api/broken.ts", [2322]],
     ])
+  }, 60_000)
+
+  it("checks ability names and arguments against the page's shared rules", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/abilities-test")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), label, line: 1, page: "abilities-test.md" })
+    const rules = snippet("shared/abilities.ts", [
+      'import { defineAbilities } from "@vite-hub/auth/abilities"',
+      'export default defineAbilities({ "posts.edit": (user, post: { authorId: string }) => user.id === post.authorId })',
+    ].join("\n"))
+    const consumer = (name: string, argument: string) => snippet("server/check.ts", [
+      'import type { AbilityArgs, AbilityName } from "@vite-hub/auth/abilities"',
+      `export const name: AbilityName = ${JSON.stringify(name)}`,
+      `export const args: AbilityArgs<"posts.edit"> = [${argument}]`,
+    ].join("\n"))
+
+    expect(checkSnippets([rules, consumer("posts.edit", '{ authorId: "author" }')]).failures).toEqual([])
+    const failures = checkSnippets([rules, consumer("posts.delete", '{ authorId: 123 }')]).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322, 2322]])
+  }, 60_000)
+
+  it("checks the Workflow README steps against generated declarations", async () => {
+    const root = join(repoRoot, "packages/workflow")
+    const snippets = collectSnippets([{ file: join(root, "README.md"), root }])
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations).toHaveLength(1)
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+
+    const misspelled = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace("steps.sendWelcome(user)", "steps.sendWelcomeEmail(user)") }))
+    const failures = checkSnippets(misspelled, declarations).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2551]])
   }, 60_000)
 })

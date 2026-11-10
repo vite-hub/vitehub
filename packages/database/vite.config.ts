@@ -87,6 +87,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

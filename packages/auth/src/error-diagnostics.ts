@@ -90,7 +90,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0015: withFix("Pass your handler function, for example `withAuth((event, { user }) => ({ id: user.id }))`."),
     AUTH_R0016: withFix("Set `VITEHUB_SECRET` to at least 32 random characters. Run `openssl rand -base64 32` to make one."),
     AUTH_R0017: withFix("Add `requireAuth()` or `requireAuthorization()` to the middleware of the route, then call `getAuthorization(event)` in its handler."),
-    AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub db generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
+    AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub database generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
     AUTH_R0020: withFix("Add the named rule to `shared/abilities.ts` with `defineAbilities()`, or use an existing ability name."),
     AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
   },
