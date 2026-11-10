@@ -45,7 +45,7 @@ function resolvePlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: st
 }
 
 /**
- * Lists the Provider Output that a Deployment Plan writes, for `vitehub inspect provider-output`.
+ * Lists the Provider Output that a Deployment Plan writes, for `vitehub inspect output`.
  * Paths use the resolved Nitro output directory when the host provides one.
  */
 export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: string): ViteHubProviderOutputEntry[] {

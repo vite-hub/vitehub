@@ -1,6 +1,4 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
-import { Request as UndiciRequest } from "undici"
-import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
@@ -11,57 +9,6 @@ import { dynamicQueue } from "./client.ts"
 import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 
 export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefined = vercelWaitUntil
-
-function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object") return false
-
-  // Request accessors perform a non-spoofable internal-slot check. Keep the
-  // accessors from trusted implementations instead of reading candidate
-  // prototypes, which ordinary objects can control.
-  const getters = [
-    Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get,
-    Object.getOwnPropertyDescriptor(UndiciRequest.prototype, "url")?.get,
-  ].filter((getter): getter is NonNullable<typeof getter> => typeof getter === "function")
-
-  return getters.some((getter) => {
-    try {
-      getter.call(value)
-      return true
-    } catch {
-      return false
-    }
-  })
-}
-
-async function toRequest(event: {
-  method?: string
-  request?: Request
-}) {
-  // `instanceof` can invoke a proxy's traps; treat hostile callback values as
-  // non-Requests and let the existing H3 normalization handle them.
-  let sameRealmRequest = false
-  try {
-    sameRealmRequest = event.request instanceof Request
-  } catch {
-    sameRealmRequest = false
-  }
-  if (sameRealmRequest) {
-    // SAFETY: The guarded instanceof check confirms the value is a Request from this realm.
-    return event.request as Request
-  }
-  if (isRequestLike(event.request)) {
-    return event.request
-  }
-
-  // SAFETY: Non-Request callback inputs use the H3 event shape accepted by these helpers.
-  const h3Event = event as never
-  const body = await readRawBody(h3Event)
-  return new Request(getRequestURL(h3Event), {
-    body: body || undefined,
-    headers: getRequestHeaders(h3Event),
-    method: event.method || "POST",
-  })
-}
 
 function createVercelJobHandler(definition: QueueDefinition) {
   return async (payload: unknown, metadata?: unknown) => {
@@ -102,11 +49,14 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
   }
 }
 
-export async function handleHostedVercelQueueCallback(event: { method?: string, request?: Request }, name: string, definition: QueueDefinition): Promise<unknown> {
+/** Handle one Vercel Queue delivery. The generated consumer route is a Fetchable module that passes its Request here. */
+export async function handleHostedVercelQueueCallback(request: Request, name: string, definition: QueueDefinition): Promise<Response> {
   const queue = await dynamicQueue.use(name)
   if (queue.provider !== "vercel") {
     throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "vercel", provider: queue.provider })
   }
 
-  return await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(await toRequest(event))
+  const result = await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(request)
+  if (result instanceof Response) return result
+  return result === undefined ? new Response(null, { status: 204 }) : Response.json(result)
 }

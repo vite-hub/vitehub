@@ -11,8 +11,8 @@ export default defineConfig({
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },
-  plugins: [hubEnv({ prefix: "VITEHUB_" })],
-  env: {
+  plugins: [hubEnv({
+    prefix: "VITEHUB_",
     define: {
       __APP_VERSION__: env({
         mode: "build",
@@ -30,5 +30,5 @@ export default defineConfig({
         token: env({ secret: true, source: env.source("GITHUB_TOKEN") }),
       },
     },
-  },
+  })],
 })
