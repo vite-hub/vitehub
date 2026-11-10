@@ -23,7 +23,11 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`useTranslations()` saves and publishes translations in a Workspace, and `i18n.workspace` is not set.",
       fix: "Define a Workspace with retained history, such as `server/workspaces/translations/config.ts`, and set `i18n: { workspace: \"translations\" }`. Without a Workspace, translations are records in `locales/<locale>/`.",
     },
-    // Runtime errors. `setLocale()` returns them as `[error, undefined]`.
+    // Runtime errors. `setLocale()` and `useTranslations()` return them as `[error, undefined]`.
+    I18N_INVALID_TRANSLATION: {
+      why: ({ problem }: { problem: string }) => `The translation was not saved. ${problem}`,
+      fix: "Write the translation in ICU MessageFormat, and keep every `{placeholder}` and `<0>` tag of the source text.",
+    },
     I18N_UNKNOWN_LOCALE: {
       why: ({ locale, locales }: { locale: string, locales: readonly string[] }) => `\`${locale}\` is not one of the configured locales: ${locales.join(", ")}.`,
       fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales`.",
