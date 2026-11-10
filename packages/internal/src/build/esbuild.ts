@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { build as bundle, type Plugin } from "esbuild"
+import type { Plugin } from "esbuild"
 
 import { isPlainObject } from "../object.ts"
 import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
@@ -480,6 +480,8 @@ export async function bundleEsmEntry(
   outfile: string,
   options: BundleEsmEntryOptions = {},
 ): Promise<void> {
+  // Load esbuild when an entry is bundled, so code that only imports these helpers does not load it.
+  const { build: bundle } = await import("esbuild")
   options.signal?.throwIfAborted()
   const format = options.format || "esm"
   const platform = options.platform || "neutral"

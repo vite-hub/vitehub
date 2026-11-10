@@ -9,7 +9,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { parseJSONC } from "confbox/jsonc"
 import { parseTOML } from "confbox/toml"
-import { transform } from "esbuild"
 import { findNearestFile } from "pkg-types"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -516,6 +515,8 @@ function installGeneratedTypeScriptCompiler(config: Record<string, unknown>, gen
     async transform(code, id) {
       const file = id.split("?", 1)[0]!.replace(/\\/g, "/")
       if (!file.startsWith(root) || !file.endsWith(".ts")) return
+      // Only a relocated build directory needs this compiler, so other builds and dev servers do not load esbuild.
+      const { transform } = await import("esbuild")
       const result = await transform(code, { format: "esm", loader: "ts", sourcefile: file, sourcemap: true })
       return { code: result.code, map: result.map }
     },

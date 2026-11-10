@@ -5,8 +5,6 @@ import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { build } from "esbuild"
-
 import { createImportPath } from "./paths.ts"
 import { maskLiterals, scanModule } from "./scan-module.ts"
 
@@ -576,6 +574,8 @@ function traceComputedModuleSources(
 async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
+  // Load esbuild when a trace runs, so code that only imports these helpers does not load it.
+  const { build } = await import("esbuild")
   const physicalRoot = realpathSync(root)
   const traceBuildVariants = [
     { platform: "node" as const },
