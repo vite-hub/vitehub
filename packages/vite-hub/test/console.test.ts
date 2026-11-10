@@ -75,8 +75,7 @@ import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { allowed, consoleAccess } from "./support/console-access.ts"
-import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 import { consoleEvent } from "./console-event.ts"
 
 const invocationHandler = allowed(invocationHandlerRoute)
@@ -212,7 +211,7 @@ describe("Agent invocation console", () => {
     await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
   })
 
-  it("registers the standalone console UI and invocation API with Nitro", async () => {
+  it("registers the Console endpoint and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
       await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "console-host" })}\n`)
@@ -220,7 +219,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "node",
         sections: ["agents", "usage", "blob", "kv"],
       })
@@ -239,6 +238,7 @@ describe("Agent invocation console", () => {
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
+        "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",
@@ -248,7 +248,7 @@ describe("Agent invocation console", () => {
         expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
       ])
       expect(config.nitro.plugins).toContain(resolve(root, ".vitehub/nitro/console/plugin.mjs"))
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
+      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"], "cloudflare-access")`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([`,
@@ -275,7 +275,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "node",
         sections: [],
       })
@@ -290,7 +290,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).not.toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","databases"])`)
+      expect(generated).not.toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","databases"], "cloudflare-access")`)
       expect(generated).not.toContain("installConsoleDatabase(")
     }
     finally {
@@ -306,7 +306,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(inheritedRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "node",
         sections: ["databases"],
       })
@@ -338,7 +338,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false },
+        console: productionConsole,
         preset: "node",
         runtimeCapabilityImports: {
           blob: "vite-hub/blob",
@@ -374,7 +374,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: productionConsole, preset: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -383,6 +383,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         `${mount}/_vitehub/rpc/**`,
         `${mount}/_vitehub/env/manage`,
         `${mount}/_vitehub/channels/replay`,
@@ -401,7 +402,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: productionConsole, preset: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -415,6 +416,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         "/portal/_vitehub/rpc/**",
         "/portal/_vitehub/env/manage",
         "/portal/_vitehub/channels/replay",
@@ -491,7 +493,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["blob"],
@@ -507,6 +509,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
@@ -530,7 +533,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default"],
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["blob"],
@@ -559,7 +562,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "hidden.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         sections: ["kv"],
       })
@@ -573,12 +576,12 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/mcp"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/**", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/mcp"])
       expect(config.nitro?.handlers.find(handler => handler.route === "/_vitehub/env/manage")).toMatchObject({ method: "post" })
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from "vite-hub/console/setup"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], "cloudflare-access")`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("installConsoleKV")
       expect(generated).not.toContain("hidden.agent")
@@ -598,7 +601,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugins = vitehub({
-        console: { auth: false, authorize: hostManagedAuthorize, mcpClient: true },
+        console: { ...productionConsole, mcpClient: true },
         env: false,
         preset,
       })
@@ -620,7 +623,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      const sections = generated.match(/installConsoleSections\([^,\n]+, (\[[^\n]*?\])\)/)?.[1]
+      const sections = generated.match(/installConsoleSections\([^,\n]+, (\[[^\n]*?\])(?:, "cloudflare-access")?\)/)?.[1]
       expect(sections).toBeDefined()
       expect(JSON.parse(sections!)).toContain("mcp-client")
       expect(JSON.parse(sections!).includes("kv")).toBe(enabled)
@@ -635,7 +638,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["queues"],
@@ -671,7 +674,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(customServerDir, "workflows"), { recursive: true })
       await writeFile(join(customServerDir, "workflows", "custom.ts"), "export default null\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         sections: ["workflows"],
       })
@@ -703,7 +706,7 @@ describe("Agent invocation console", () => {
         `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["workspaces"],
@@ -720,7 +723,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/setup"`)
       expect(generated).toContain(`import("vite-hub/console/definitions")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not initialize")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -740,7 +743,7 @@ describe("Agent invocation console", () => {
         `export default defineDatabase({ schema: { notes, users } })\nthrow new Error("The Console must not evaluate Database Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["databases"],
@@ -757,6 +760,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
@@ -767,7 +771,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import("vite-hub/console/database")`)
       expect(generated).toContain(`import("vite-hub/database/drizzle")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/config.ts","name":"default","source":"server-database-default"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -788,7 +792,7 @@ describe("Agent invocation console", () => {
         `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["queues"],
@@ -804,12 +808,13 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":{"definitions":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -834,7 +839,7 @@ describe("Agent invocation console", () => {
         ].join("\n"),
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["rate-limits"],
@@ -850,6 +855,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
@@ -858,7 +864,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/setup"`)
       expect(generated).toContain(`import("vite-hub/console/definitions")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -875,7 +881,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(hostServerDir, "upload.ts"), 'requireRateLimit(event, "uploads", { limit: 25, window: "10s" })\n')
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["rate-limits"],
@@ -915,7 +921,7 @@ describe("Agent invocation console", () => {
         `const scheduleCron = process.env.SCHEDULE_CRON || "0 10 * * *"\nexport default defineSchedule({ cron: scheduleCron, handler() {} })\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["schedules"],
@@ -931,6 +937,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/schedules/run",
@@ -940,7 +947,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/setup"`)
       expect(generated).toContain(`import("vite-hub/console/definitions")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"], "cloudflare-access")`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
@@ -969,7 +976,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugins = vitehub({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         database: { projectRoot: "packages/database" },
         preset: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
@@ -1008,7 +1015,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(projectRoot, "packages/api/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       await writeFile(join(viteRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         databaseDiscoveryRoot: "packages/api",
         preset: "cloudflare",
         resolveKV: () => false,
@@ -1042,7 +1049,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["rate-limits", "sandbox-tasks", "schedules"],
@@ -1074,7 +1081,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
         sections: ["sandbox-tasks"],
@@ -1099,7 +1106,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("allows host-managed production Console builds on non-Node hosts", async () => {
+  it("rejects host-managed production Console builds on non-Node hosts", async () => {
     const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -1108,21 +1115,18 @@ describe("Agent invocation console", () => {
     await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
       command: "build",
       mode: "production",
-    }])).resolves.toBeUndefined()
+    }])).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
   })
 
-  it("warns when a production build has no Console sign-in", async () => {
+  it("rejects a production build with no Console sign-in", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-open-build-"))
     try {
-      const warn = vi.fn()
       for (const consoleOptions of [{ auth: false }, { auth: false, authorize: hostManagedAuthorize }] as const) {
         const plugin = consoleVitePlugin({ console: consoleOptions, preset: "node" })
         const config = { root }
-        await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-        await callPluginHook(plugin.configResolved, {}, [Object.assign(config, { base: "/", command: "build", logger: { info: () => undefined, warn } })])
+        await expect(callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }]))
+          .rejects.toMatchObject({ code: "VITE_HUB_B0022", message: expect.stringContaining('console.auth false is for development. Use auth: "token"') })
       }
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(warn).toHaveBeenCalledWith(consoleOpenAccessWarning)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1139,7 +1143,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-invoke-"))
     try {
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize, invoke },
+        console: { ...productionConsole, invoke },
         preset: "node",
         sections: ["agents"],
       })
@@ -1243,7 +1247,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-managed-host-"))
     try {
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "node",
         sections: ["agents"],
       })
@@ -1972,7 +1976,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset: "node",
         sections: ["agents"],
       })
@@ -4055,7 +4059,7 @@ describe("Agent invocation console", () => {
     try {
       const development = command === "serve"
       const mode = development ? "production" : "development"
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: productionConsole, preset: "node", sections: [] })
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command, mode }])
       const initial = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")

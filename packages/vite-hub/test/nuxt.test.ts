@@ -31,7 +31,6 @@ import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
-import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { resolveConsoleSections } from "../src/console/internal.ts"
 
 // Nuxt's Nitro 2 receives this module after every other Nitro module.
@@ -119,7 +118,7 @@ import { logsVitePlugin } from "../src/logs-vite.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
 import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const nitroInitHooks: Array<(instance: { options: { handlers: Array<{ handler: string, route: string, middleware?: boolean }>, output: { serverDir: string } }, hooks: { hook: (name: string, callback: () => Promise<void>) => void } }) => void> = []
@@ -952,7 +951,7 @@ describe("ViteHub Nuxt integration", () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     const nitroConfig: Record<string, unknown> = {}
 
-    await viteHubNuxtModule({ comments: false, console: { auth: false }, preset: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ comments: false, console: productionConsole, preset: "cloudflare" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
     const kvConfig = (nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]
@@ -995,7 +994,7 @@ describe("ViteHub Nuxt integration", () => {
     }])
     const nitroConfig: Record<string, unknown> = {}
 
-    await viteHubNuxtModule({ comments: false, console: { auth: false }, kv: true, preset: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ comments: false, console: productionConsole, kv: true, preset: "cloudflare" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
     expect((nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]).toBeUndefined()
@@ -1009,7 +1008,7 @@ describe("ViteHub Nuxt integration", () => {
     }])
     const nitroConfig: Record<string, unknown> = {}
 
-    await viteHubNuxtModule({ comments: false, console: { auth: false }, kv: true, preset: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ comments: false, console: productionConsole, kv: true, preset: "cloudflare" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
     expect((nitroConfig.alias as Record<string, string> | undefined)?.["@vite-hub/kv/runtime/upstash-driver"]).toBeUndefined()
@@ -1193,7 +1192,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule(
       {
         agent: true,
-        comments: false, console: { auth: false, authorize: hostManagedAuthorize },
+        comments: false, console: productionConsole,
         kv: true,
         preset: "node",
       },
@@ -1218,7 +1217,7 @@ describe("ViteHub Nuxt integration", () => {
         preset: "node",
         connections: true,
         database: true,
-        console: dev ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
+        console: dev ? { auth: false } : productionConsole,
       }, application.nuxt)
       await configure()
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -1321,7 +1320,7 @@ describe("ViteHub Nuxt integration", () => {
     await rm(plugin, { force: true })
     const discovery = createNuxt(true)
     discovery.nuxt.options.vitehubCliDiscovery = true
-    await viteHubNuxtModule({ preset: "node", agent: true, console: { auth: false, authorize: hostManagedAuthorize } }, discovery.nuxt)
+    await viteHubNuxtModule({ preset: "node", agent: true, console: productionConsole }, discovery.nuxt)
     await discovery.runNitroConfigHook({})
 
     // CLI discovery resolves no Console access, so a plugin that it wrote would differ and rebuild the dev server.
@@ -1351,7 +1350,7 @@ describe("ViteHub Nuxt integration", () => {
       preset: "node",
       dataDir: "/tmp/vitehub-nuxt/persistent data",
       agent: true,
-      ...(consoleOn ? { console: { auth: false, authorize: hostManagedAuthorize } } : {}),
+      ...(consoleOn ? { console: productionConsole } : {}),
     }, application.nuxt)
 
     await expect(generatedAgentJournal(application)).resolves.toContain(
@@ -1369,7 +1368,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({
       preset: "cloudflare",
       agent: true,
-      ...(consoleOn ? { console: { auth: false, authorize: hostManagedAuthorize } } : {}),
+      ...(consoleOn ? { console: productionConsole } : {}),
       database: true,
     }, application.nuxt)
 
@@ -1384,7 +1383,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({
       preset: "cloudflare",
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
+      console: productionConsole,
       database: { driver: "d1" },
     }, application.nuxt)
     const generated = await generatedAgentJournal(application)
@@ -1441,7 +1440,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({
       preset: "cloudflare",
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
+      console: productionConsole,
       database: true,
     }, application.nuxt)
     const generated = await generatedAgentJournal(application)
@@ -1482,7 +1481,7 @@ describe("ViteHub Nuxt integration", () => {
       config: () => resolvedFeatures({ database }),
     }])
     await viteHubNuxtModule({
-      preset: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize },
+      preset: "cloudflare", agent: true, console: productionConsole,
       database: { binding: "INITIAL_DB", databaseId: "initial-id", databaseName: "initial", driver: "d1" },
     }, application.nuxt)
     const generated = await generatedAgentJournal(application, true)
@@ -1505,7 +1504,7 @@ describe("ViteHub Nuxt integration", () => {
       },
     }])
     await viteHubNuxtModule({
-      preset: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize },
+      preset: "cloudflare", agent: true, console: productionConsole,
       database: { databaseId: "initial-id", databaseName: "initial", projectRoot: "custom-server/initial" },
     }, application.nuxt)
     const generated = await generatedAgentJournal(application, true)
@@ -1523,7 +1522,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({
       preset: "cloudflare",
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
+      console: productionConsole,
       database: { projectRoot: "custom-server/data" },
     }, application.nuxt)
     const generated = await generatedAgentJournal(application)
@@ -1547,7 +1546,7 @@ describe("ViteHub Nuxt integration", () => {
       await viteHubNuxtModule({
         preset: "cloudflare",
         agent: true,
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         database: databaseProjectRoot ? { projectRoot: databaseProjectRoot } : true,
       }, application.nuxt)
       const generated = await readFile(resolve(directory, ".vitehub/nitro/agent/invocations.mjs"), "utf8")
@@ -1564,7 +1563,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({
       preset: "cloudflare",
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
+      console: productionConsole,
       database: { connection: { url: "libsql://journal.example.com" } },
     }, application.nuxt)
 
@@ -1592,7 +1591,7 @@ describe("ViteHub Nuxt integration", () => {
     const development = createNuxt(true)
 
     await viteHubNuxtModule({
-      comments: false, console: { auth: false },
+      comments: false, console: productionConsole,
       kv: {
         stores: {
           cache: { base: ".vitehub/data/cache", driver: "fs-lite" },
@@ -1621,7 +1620,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.runDevToolsCustomTabsHook()).toEqual([])
 
     const production = createNuxt(false)
-    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
+    await viteHubNuxtModule({ console: productionConsole, preset: "node" }, production.nuxt)
 
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('installConsoleDevelopment("/tmp/vitehub-nuxt", false)')
     expect(production.runDevToolsCustomTabsHook()).toEqual([])
@@ -1632,7 +1631,7 @@ describe("ViteHub Nuxt integration", () => {
   it.each([["/", ""], ["/portal/", "/portal"]])("mounts every Console route once below Nuxt app.baseURL %s", async (baseURL, mount) => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options, { app: { baseURL } })
-    await viteHubNuxtModule({ console: { auth: false }, preset: "vercel" }, production.nuxt)
+    await viteHubNuxtModule({ console: productionConsole, preset: "vercel" }, production.nuxt)
 
     // SAFETY: The Console adds Nitro handler and public asset records; the assertions read their paths.
     const { handlers, publicAssets } = nitroOptions(production.nuxt) as { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL?: string }> }
@@ -1774,7 +1773,7 @@ describe("ViteHub Nuxt integration", () => {
       config: () => resolvedFeatures({ database: false }),
     }])
 
-    await viteHubNuxtModule({ comments: false, console: { auth: false }, database: true, preset: "node" }, development.nuxt)
+    await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, preset: "node" }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/_vitehub/api/definitions")
@@ -1964,7 +1963,7 @@ describe("ViteHub Nuxt integration", () => {
       config: () => resolvedFeatures({ queue: false }),
     }])
 
-    await viteHubNuxtModule({ comments: false, console: { auth: false }, preset: "node", queue: true }, replayed.nuxt)
+    await viteHubNuxtModule({ comments: false, console: productionConsole, preset: "node", queue: true }, replayed.nuxt)
     const replayedNitroConfig = nitroOptions(replayed.nuxt)
     await replayed.runNitroConfigHook(replayedNitroConfig)
     await expect(generatedConsoleSections()).resolves.not.toContain("queues")
@@ -2065,7 +2064,7 @@ describe("ViteHub Nuxt integration", () => {
     await writeFile(entry, 'throw new Error("Console discovery must not execute the Comments module")\n')
     const application = createNuxt(false)
     try {
-      await viteHubNuxtModule({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node" }, application.nuxt)
+      await viteHubNuxtModule({ console: productionConsole, preset: "node" }, application.nuxt)
       expect(resolveConsoleSections()).toContain("comments")
       await expect(generatedConsoleSections()).resolves.toContain("comments")
       const config = nitroOptions(application.nuxt)
@@ -2115,7 +2114,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
 
-      await viteHubNuxtModule({ comments: false, console: { auth: false }, preset: "node", workspace: true }, development.nuxt)
+      await viteHubNuxtModule({ comments: false, console: productionConsole, preset: "node", workspace: true }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/setup"`)
@@ -2141,7 +2140,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
 
-      await viteHubNuxtModule({ comments: false, console: { auth: false }, database: true, preset: "node" }, development.nuxt)
+      await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, preset: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
         handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { route: "/_vitehub/mcp" }],
       })
@@ -2211,7 +2210,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
 
-      await viteHubNuxtModule({ comments: false, console: { auth: false }, preset: "node", queue: true }, development.nuxt)
+      await viteHubNuxtModule({ comments: false, console: productionConsole, preset: "node", queue: true }, development.nuxt)
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
       expect(nitroConfig).toMatchObject({
@@ -2273,7 +2272,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
       await viteHubNuxtModule({
-        comments: false, console: { auth: false },
+        comments: false, console: productionConsole,
         preset: "node",
         rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
       }, development.nuxt)
@@ -2310,7 +2309,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
 
-      await viteHubNuxtModule({ comments: false, console: { auth: false }, preset: "node", schedule: true }, development.nuxt)
+      await viteHubNuxtModule({ comments: false, console: productionConsole, preset: "node", schedule: true }, development.nuxt)
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
       expect(nitroConfig).toMatchObject({
@@ -2378,7 +2377,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
 
-      await viteHubNuxtModule({ comments: false, console: { auth: false }, preset: "cloudflare", sandboxTask: true }, development.nuxt)
+      await viteHubNuxtModule({ comments: false, console: productionConsole, preset: "cloudflare", sandboxTask: true }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/setup"`)
@@ -2392,7 +2391,7 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("allows host-managed production Console on non-Node hosts", async () => {
+  it("rejects host-managed production Console on non-Node hosts", async () => {
     const development = createNuxt(true)
     await expect(viteHubNuxtModule({ agent: true, console: { auth: false }, preset: "cloudflare" }, development.nuxt)).resolves.toBeUndefined()
     expect(development.nuxt.options.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
@@ -2402,14 +2401,14 @@ describe("ViteHub Nuxt integration", () => {
       agent: true,
       console: { auth: false, authorize: hostManagedAuthorize },
       preset: "cloudflare",
-    }, production.nuxt)).resolves.toBeUndefined()
+    }, production.nuxt)).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
   })
 
   it("passes host-managed invocation into the Nuxt Console plugin", async () => {
     const production = createNuxt(false)
     await viteHubNuxtModule({
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize, invoke: true },
+      console: { ...productionConsole, invoke: true },
       preset: "node",
     }, production.nuxt)
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -2422,7 +2421,7 @@ describe("ViteHub Nuxt integration", () => {
   it.each(["databaseUrl", "observations", "retention"])("rejects the removed console.%s option in Nuxt", async (key) => {
     await expect(viteHubNuxtModule({
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize, [key]: {} },
+      console: { ...productionConsole, [key]: {} },
       preset: "node",
     }, createNuxt(true).nuxt)).rejects.toThrow(`agent: { invocations: { ${key} } }`)
   })
@@ -2436,18 +2435,16 @@ describe("ViteHub Nuxt integration", () => {
       .rejects.toThrow("console.auth is required")
   })
 
-  it("allows a production Console without sign-in and warns", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    try {
-      await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(false).nuxt)).resolves.toBeUndefined()
-      expect(warn).toHaveBeenCalledWith(consoleOpenAccessWarning)
-      warn.mockClear()
-      await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(true).nuxt)).resolves.toBeUndefined()
-      expect(warn).not.toHaveBeenCalledWith(consoleOpenAccessWarning)
-    }
-    finally {
-      warn.mockRestore()
-    }
+  it("rejects a production Console without sign-in", async () => {
+    await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(false).nuxt))
+      .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+    await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(true).nuxt)).resolves.toBeUndefined()
+  })
+
+  it.each(["_prepare", "vitehubCliDiscovery"])("allows auth: false during Nuxt %s", async (key) => {
+    const { nuxt } = createNuxt(false)
+    Object.assign(nuxt.options, { [key]: true })
+    await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, nuxt)).resolves.toBeUndefined()
   })
 
   it("discovers callback-backed Auth policy for a production Console", async () => {
@@ -2572,7 +2569,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await viteHubNuxtModule({
         connections: { management: true },
         database: preset === "cloudflare" ? { databaseId: "connections-id", databaseName: "connections" } : true,
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         preset,
       }, production.nuxt)
       const config = nitroOptions(production.nuxt)
@@ -2677,7 +2674,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   it("mounts the Console routes below the Nitro base, which is the Nuxt app base URL", async () => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
-    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
+    await viteHubNuxtModule({ console: productionConsole, preset: "node" }, production.nuxt)
     await production.runNitroConfigHook(nitroOptions(production.nuxt))
 
     const config = nitroOptions(production.nuxt)
@@ -2692,7 +2689,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it.each([false, { provider: "cloudflare-access" }] as const)("preserves application OAuth discovery routes with Nuxt Console auth %j", async (auth) => {
-    const application = createNuxt(false)
+    const application = createNuxt(auth === false)
     const applicationHandlers = [
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/**",
@@ -2741,7 +2738,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       // Nuxt sets the Vite root to srcDir, which is `app/` in a Nuxt 4 app.
       const production = createNuxt(false)
       production.nuxt.options.vite.root = production.nuxt.options.srcDir
-      await viteHubNuxtModule({ console: { auth: false, authorize: "./server/console-authorize.ts" }, preset: "node" }, production.nuxt)
+      await viteHubNuxtModule({ console: { auth: "token", authorize: "./server/console-authorize.ts" }, preset: "node" }, production.nuxt)
       await production.runNitroConfigHook(nitroOptions(production.nuxt))
       expect(await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).toContain(pathToFileURL(authorize).href)
 
