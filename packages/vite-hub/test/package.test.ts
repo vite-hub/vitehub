@@ -163,6 +163,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/comments/runtime/console",
   "@vite-hub/content/operations",
   "@vite-hub/database/runtime/cloudflare-env",
+  "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/content/runtime/console",
