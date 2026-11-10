@@ -11,6 +11,7 @@ import { parseJSONC } from "confbox/jsonc"
 import { parseTOML } from "confbox/toml"
 import { transform } from "esbuild"
 import { findNearestFile } from "pkg-types"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
@@ -63,7 +64,7 @@ import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
-const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
+const databaseRuntimeState = ownModule(import.meta.url, "internal/database-runtime-state")
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 
@@ -1198,13 +1199,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     workflow: effectiveWorkflow,
   })
   const runtimeCapabilityImports = {
-    blob: consoleBlobEnabled ? "vite-hub/_internal/blob" : false,
+    blob: consoleBlobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: consoleOptions ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...ownerModules.emailVite ? { email: "vite-hub/email/server" } : {},
-    ...ownerModules.kvVite ? { kv: "vite-hub/_internal/kv" } : {},
+    ...ownerModules.kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
   const consoleInvocationRootState = createConsoleInvocationRootState()
   const consoleInvokeEnabled = consoleOptions ? consoleOptions.invoke ?? Boolean(nuxt.options.dev) : false
