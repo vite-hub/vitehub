@@ -1092,9 +1092,6 @@ importers:
 
   packages/auth:
     dependencies:
-      '@cloudflare/workers-types':
-        specifier: ^5.20261016.1
-        version: 5.20261019.1
       '@noble/hashes':
         specifier: catalog:auth
         version: 2.4.0
@@ -1113,9 +1110,6 @@ importers:
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
-      bun-types:
-        specifier: ^1.4.3
-        version: 1.4.3
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
@@ -1132,6 +1126,9 @@ importers:
       '@better-auth/oauth-provider':
         specifier: catalog:auth
         version: 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3)))(better-call@1.4.4(zod@4.6.7))
+      '@cloudflare/workers-types':
+        specifier: ^5.20261016.1
+        version: 5.20261019.1
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -1147,6 +1144,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      bun-types:
+        specifier: ^1.4.3
+        version: 1.4.3
       happy-dom:
         specifier: 20.14.5
         version: 20.14.5
@@ -1198,6 +1198,9 @@ importers:
       '@supabase/storage-js':
         specifier: catalog:storage
         version: 2.117.2
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2151,6 +2154,9 @@ importers:
       '@comark/html':
         specifier: catalog:markdown
         version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -2595,6 +2601,9 @@ importers:
       '@upstash/redis':
         specifier: catalog:storage
         version: 1.39.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2835,6 +2844,9 @@ importers:
 
   packages/rate-limit:
     dependencies:
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3147,6 +3159,9 @@ importers:
 
   packages/schedule:
     dependencies:
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3925,6 +3940,9 @@ importers:
 
   packages/workflow:
     dependencies:
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
@@ -4011,6 +4029,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.67.5)
