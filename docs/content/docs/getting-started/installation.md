@@ -212,6 +212,12 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 [vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
+When an installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
+
+```text [output/unsupported-package.txt]
+[vitehub] drizzle-orm 0.44.7 is installed, but vite-hub 0.1.0 supports drizzle-orm@^0.45.3. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@^0.45.3'
+```
+
 ::details{summary="Which features need their own package?"}
 `vite-hub` includes Env, Source, Logs, and the Console endpoint. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
