@@ -93,8 +93,43 @@ export const optionalFeaturePackages = {
 
 export type OptionalFeature = keyof typeof optionalFeaturePackages
 
-/** Whether the app installed `packageName`, as `vite-hub` resolves it. */
+/**
+ * The results of `isPackageInstalled` in this process. Each lookup resolves from `vite-hub` itself, so the package name
+ * is the key. A dev start asks for the same packages two or three times, and most of them are missing.
+ */
+const packageChecks = new Map<string, boolean>()
+
+/** Whether the app installed `packageName`, as `vite-hub` resolves it. The result stays until `forgetPackageChecks`. */
 export function isPackageInstalled(packageName: string): boolean {
+  let installed = packageChecks.get(packageName)
+  if (installed === undefined) {
+    installed = resolvesPackage(packageName)
+    packageChecks.set(packageName, installed)
+  }
+  return installed
+}
+
+/**
+ * Forgets the results of `isPackageInstalled`, so that the next check sees the packages that the app installed or
+ * removed since then. The `vite-hub/dependencies` plugin calls it when the dev server or the build closes.
+ */
+export function forgetPackageChecks(): void {
+  packageChecks.clear()
+}
+
+let startedPackageChecks = false
+
+/**
+ * Forgets the results of an earlier start. `vitehub()` calls it each time Vite loads the app config. A Vite restart
+ * creates the new server before it closes the old one, so `closeBundle` comes after the config hooks of the new server.
+ * The first start keeps the results of the checks that the import of `vite-hub` made.
+ */
+export function startPackageChecks(): void {
+  if (startedPackageChecks) forgetPackageChecks()
+  startedPackageChecks = true
+}
+
+function resolvesPackage(packageName: string): boolean {
   try {
     import.meta.resolve(`${packageName}/package.json`)
     return true
@@ -159,7 +194,11 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
 
 /** Throws when an enabled feature misses one of its packages. */
 export function assertFeaturePackages(features: readonly OptionalFeature[]): void {
-  const missing = features.filter(feature => !optionalFeaturePackages[feature].every(isPackageInstalled))
+  const isMissing = (feature: OptionalFeature) => !optionalFeaturePackages[feature].every(isPackageInstalled)
+  if (!features.some(isMissing)) return
+  // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
+  forgetPackageChecks()
+  const missing = features.filter(isMissing)
   if (missing.length) throw missingFeaturePackagesError(missing)
 }
 

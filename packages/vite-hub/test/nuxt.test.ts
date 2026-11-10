@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
 import { resolveConfig } from "vite"
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import {
   getResolvedFeatureOptions,
@@ -34,6 +34,7 @@ import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
 
 // Nuxt's Nitro 2 receives this module after every other Nitro module.
 const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
@@ -587,6 +588,9 @@ describe("ViteHub Nuxt integration", () => {
         return resolved
       },
     })
+    // The earlier tests found the owners in this process. A new process checks them again.
+    forgetPackageChecks()
+    onTestFinished(forgetPackageChecks)
     try {
       for (const [source, owner] of facades) {
         await expect(bundleFacade(source)).rejects.toMatchObject({
@@ -598,6 +602,7 @@ describe("ViteHub Nuxt integration", () => {
     finally {
       hooks.deregister()
     }
+    // The owners are back, as after `pnpm add`. The import that failed now resolves.
     for (const [source] of facades) await expect(bundleFacade(source)).resolves.toBeDefined()
   })
 
@@ -608,6 +613,7 @@ describe("ViteHub Nuxt integration", () => {
         return nextResolve(specifier, context)
       },
     })
+    forgetPackageChecks()
     try {
       expect(await viteHubNuxtModule.getModuleDependencies()).toEqual({})
       const { nuxt, runIconHook } = createNuxt()
@@ -617,6 +623,7 @@ describe("ViteHub Nuxt integration", () => {
     }
     finally {
       hooks.deregister()
+      forgetPackageChecks()
     }
   })
 
