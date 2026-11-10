@@ -91,10 +91,7 @@ describe("Console Auth package exports", () => {
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
-const consolidatedOwnerExports = new Set([
-  "@vite-hub/docs/navigation",
-  "@vite-hub/workspace/ai",
-]);
+const consolidatedOwnerExports = new Set(["@vite-hub/docs/navigation"]);
 
 const lowLevelOwnerExports = new Set([
   // The Console reads the hashed entry names of the prebuilt Console app.
@@ -102,12 +99,8 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/comments/testing",
   // Comments imports the guard of public writes; apps use defineForm().
   "@vite-hub/forms/guard",
-  "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",
-  "@vite-hub/agent/mcp/stdio",
-  "@vite-hub/agent/messages",
-  "@vite-hub/agent/output",
   "@vite-hub/agent/observability/host",
   "@vite-hub/agent/observability/posthog",
   "@vite-hub/blob/served",
@@ -199,7 +192,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata";
   if (packageName === "@vite-hub/cli") return "framework tooling";
-  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
+  if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path))

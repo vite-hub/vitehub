@@ -342,6 +342,25 @@ describe("framework generated types", () => {
     await expect(readFile(join(viteRoot, ".vitehub/types.d.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("clears declarations from disabled plugins before collecting generated types", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const workflowTypes = join(root, ".vitehub/workflow.d.ts")
+    await writeFile(workflowTypes, 'import "../server/workflows/removed-step.ts"\n')
+    await writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n")
+    await configResolved(viteHubTypesPlugin())({ root: viteRoot })
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./workflow.d.ts")
+
+    const plugin = viteHubTypesPlugin({ disabledTypeFiles: ["workflow.d.ts"] })
+    await config(plugin)({ root: viteRoot })
+    await configResolved(plugin)({ root: viteRoot })
+
+    await expect(readFile(workflowTypes, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    const entry = await readFile(join(root, ".vitehub/types.d.ts"), "utf8")
+    expect(entry).not.toContain("workflow.d.ts")
+    expect(entry).toContain("./env/env.d.ts")
+    await expect(readFile(join(root, ".vitehub/env/env.d.ts"), "utf8")).resolves.toBe("interface ImportMetaEnv {}\n")
+  })
+
   it("ignores directory symlinks that revisit a generated type directory", async () => {
     const { root, viteRoot } = await createNestedProject()
     const generatedTypes = join(root, ".vitehub/types")
@@ -430,9 +449,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/source/collections.d.ts")
     await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
-    )
-    await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).resolves.toBe(
-      '/// <reference path="./collections.d.ts" />\n',
     )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
   })
@@ -2215,7 +2231,6 @@ export const content = defineContent(${options})
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
       await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
-      await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )

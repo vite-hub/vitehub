@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
+import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -40,6 +40,7 @@ beforeEach(() => {
 afterEach(async () => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
   await new Promise(resolve => setTimeout(resolve, 0))
+  stopViteHubPageTools()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-tools-off")) element.remove()
   localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""

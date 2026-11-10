@@ -58,7 +58,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/ai-sdk.ts",
       "src/capabilities.ts",
       "src/channels.ts",
       "src/index.ts",
@@ -66,10 +65,7 @@ export default defineConfig({
       "src/internal/workspace/internal/runtime/hosted-vercel-blob.ts",
       "src/internal/workspace/runtime.ts",
       "src/env-identity.ts",
-      "src/messages.ts",
       "src/mcp.ts",
-      "src/mcp/stdio.ts",
-      "src/output.ts",
       "src/process-host.ts",
       "src/provider-agent.ts",
       "src/cloudflare.ts",
