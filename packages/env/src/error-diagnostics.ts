@@ -39,6 +39,7 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0026: withFix("Remove the option. `vitehub env <command> --help` lists the options."),
     ENV_R0027: withFix("Add `vitehub()` or `hubEnv()` to the Vite plugins of the selected stage."),
     ENV_R0028: withFix("This is a ViteHub bug. Report it at https://github.com/vite-hub/vitehub/issues with the message and your Vite config."),
+    ENV_R0029: withFix("Pass a non-empty module specifier and an export name that is a JavaScript identifier, for example `env.schemaFrom('./server/env.schema.ts', 'apiUrl')`. Use `env.schemaFrom()` only in `env.server`. Elsewhere, pass the schema object itself."),
     ENV_B0001: withFix("Add `vitehub()` or `hubEnv()` to the Vite plugins once. If it is there, report a ViteHub bug at https://github.com/vite-hub/vitehub/issues with your Vite config."),
     ENV_B0002: withFix("Rename the key in `hubEnv({ providers })`, for example `vault` or `aws_secrets`. Use at most 64 characters."),
     ENV_B0003: withFix("Set the provider to a module specifier, for example `'./server/env-provider.ts'` or a package name."),
