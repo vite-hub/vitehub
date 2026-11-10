@@ -56,7 +56,7 @@ When the handle returns `[error, value]`, the tool throws the error or returns t
 
 ## Requirements
 
-- Enable KV. Generated Agent routes then pass `kv` from `@vite-hub/kv` to the Capability.
+- Enable KV. Generated Agent routes then pass `kv` from `vite-hub/kv` to the Capability.
 - Without a `kv` handle, loading tools fails with `Capability "kv" requires the kv primitive to be configured.` and the Agent Driver gets no KV tools.
 - `store` needs a KV handle with `store()`.
 

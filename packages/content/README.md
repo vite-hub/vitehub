@@ -28,24 +28,22 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
-`sqlite()` from `@vite-hub/content/sqlite` is an in-memory database for index
-plugins such as `sqlite-full-text-search`. It uses Node SQLite on Node and
-SQLite WASM on Cloudflare Workers, where the `workerd` export condition selects
-it. When `server/content.ts` imports it, the generated
-`.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
-because a Worker compiles WebAssembly only then.
+Install Comark when importing a parse plugin directly:
+
+```sh
+pnpm add comark
+```
 
 ```ts
-import knap from "comark-knap"
+import { defineContent } from "@vite-hub/content"
+import { glob } from "@vite-hub/source"
+import headings from "comark/plugins/headings"
 
 export const content = defineContent({
   markdown: {
     plugins: [
-      knap({
-        variables: {
-          environment: process.env.NODE_ENV,
-        },
-      }),
+      // Read each page description from its first blockquote
+      headings({ descriptionTag: "blockquote" }),
     ],
   },
   source: glob({ cwd: "docs", include: "**/*.md" }),
@@ -55,6 +53,13 @@ export const content = defineContent({
 Use per-render Markdown APIs when plugin values must come from an individual
 request or invocation. Content parsing and cache refreshes use the plugin list
 configured on the content runtime.
+
+`sqlite()` from `@vite-hub/content/sqlite` is an in-memory database for index
+plugins such as `sqlite-full-text-search`. It uses Node SQLite on Node and
+SQLite WASM on Cloudflare Workers, where the `workerd` export condition selects
+it. When `server/content.ts` imports it, the generated
+`.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
+because a Worker compiles WebAssembly only then.
 
 Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
 
@@ -108,6 +113,7 @@ documents({
 ```
 
 ```ts
+// server/content.ts
 import { defineContent } from "@vite-hub/content"
 import { documents } from "@vite-hub/content/collections"
 import cms from "@vite-hub/cms"
@@ -178,21 +184,29 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 `content.preview.enable(event)` signs an HMAC token with `VITEHUB_CONTENT_KEY` (32 random bytes as base64 or hex) and sets it as an `HttpOnly`, `SameSite=Strict` cookie for one hour by default. A request with a valid cookie reads `draft` through `/api/content/**`, `content.get()`/`list()`/`navigation()`/`search()`, and collection `get()`/`list()`, and gets `Cache-Control: private, no-store`. The grant lives in `AsyncLocalStorage` for that request only.
 
 ```ts
-if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
-await content.preview.enable(event, { maxAge: 900 })
-content.preview.disable(event)
-await content.preview.run(event, () => content.collection("posts").get("hello")) // outside Nitro
+// server/api/preview.post.ts
+import { withAuth } from "@vite-hub/auth/server"
+import type { H3Event } from "h3"
+import { createError, defineEventHandler } from "h3"
+import { content } from "../content"
+
+export default defineEventHandler(withAuth(async (event: H3Event, { user }) => {
+  if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
+  return await content.preview.enable(event, { maxAge: 900 }) // content.preview.disable(event) clears it
+}))
 ```
 
-ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 4 (Nitro 2) apps. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
+Outside Nitro, such as in a test, run a read in preview yourself: `await content.preview.run(event, () => content.collection("posts").get("hello"))`.
 
-The same plugin serves preview frames, such as the side browser of the Console document editor. A frame posts a form to the page URL with `?vitehub-content-preview` (`contentPreviewFrameParameter`), whose field of the same name holds `{ token, document? }` as JSON. `content.preview.sign({ collection, id })` returns a token for that one document, without a cookie; check `content.can()` with `read` first. The page runs as a `GET` of its own URL. Collection `get()`/`list()` without `ref` or `revision` return the posted version of the signed document, or its stored draft, so edits that were not saved render through the real routes. Every other read, other documents and collections included, is `published`. Nothing is stored. A form without a valid frame token, with another document, or from another site, gets 403. A frame token never works as the preview cookie. A redirect of the page to the same origin becomes a `307` with `?vitehub-content-preview=<hop>`, so the browser posts the same form there and selects and sets cookies itself; a redirect to another origin or past five gets an error page with `<meta name="vitehub-content-preview-error">` (`contentPreviewErrorName`). A request with `?vitehub-content-published` (`contentPreviewPublishedParameter`), or a same-origin `Referer` with it, reads `published` with or without a preview cookie, nested runs included, and leaves the cookie unchanged; the Console Published view uses it. An HTTP redirect from such a request to the same host name gets the parameter in its `Location`, so the destination reads `published` too.
+ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 5 apps. It imports `@vite-hub/content/preview` and loads `server/content.ts` on the first request with a preview cookie, a preview frame, or `?vitehub-content-published`, so the server starts without the Content runtime. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
+
+The same plugin serves preview frames, for an editor that shows one document in a frame. The page preview of the Console that the app served used them, and is removed. A frame posts a form to the page URL with `?vitehub-content-preview` (`contentPreviewFrameParameter`), whose field of the same name holds `{ token, document? }` as JSON. `content.preview.sign({ collection, id })` returns a token for that one document, without a cookie; check `content.can()` with `read` first. The page runs as a `GET` of its own URL. Collection `get()`/`list()` without `ref` or `revision` return the posted version of the signed document, or its stored draft, so edits that were not saved render through the real routes. Every other read, other documents and collections included, is `published`. Nothing is stored. A form without a valid frame token, with another document, or from another site, gets 403. A frame token never works as the preview cookie. A redirect of the page to the same origin becomes a `307` with `?vitehub-content-preview=<hop>`, so the browser posts the same form there and selects and sets cookies itself; a redirect to another origin or past five gets an error page with `<meta name="vitehub-content-preview-error">` (`contentPreviewErrorName`). A request with `?vitehub-content-published` (`contentPreviewPublishedParameter`), or a same-origin `Referer` with it, reads `published` with or without a preview cookie, nested runs included, and leaves the cookie unchanged. An HTTP redirect from such a request to the same host name gets the parameter in its `Location`, so the destination reads `published` too.
 
 The `content()` Agent Capability from `@vite-hub/agent/capabilities` gives an Agent tools to list, read, save drafts, publish, and schedule collections and singletons, typed by each collection's fields. It checks `content.can()` with the Invocation's Actor and the Auth user it stands for, for each document it shows or changes. Publishing, scheduling, and cancelling a schedule require approval by default and use exactly the draft digests in the call. Saves honor edit leases unless the Capability sets `lease: "override"`.
 
 `content.sessions` keeps presence and edit leases in the Database of the Workspace history: `report()` every 15 seconds, `acquire()` on the first edit, `release()` when the editor closes, and `list()` for list rows. While one session holds a document's lease, `save()`, `remove()`, and `restore()` from other callers throw `CONTENT_LEASE_HELD`; pass `{ session }` from the holder's tab, or `{ lease: "override" }`. Add `contentSessionsSchema` from `@vite-hub/content/database` next to `workspaceHistorySchema`. `documents({ editing: { lease: false } })` keeps presence without the lease.
 
-With Realtime enabled on a host with a room authority, ViteHub contributes a `content` Realtime Definition from `contentRealtime(content)` in `@vite-hub/content/realtime`: several people edit one Markdown document at once, the room saves into `draft` with `ifDigest`, and it holds the edit lease as `kind: 'live'`. `contentRealtimeEditor()` in `@vite-hub/content/editor` adapts Comark UI's shared editor codec to the room. The Console uses `createContentEditorCodec()` from that same entry, with the same schema and loss check; unknown components, slots, task lists, and media survive an edit. `defineContent({ live: false })` keeps one editor at a time.
+With Realtime enabled on a host with a room authority, ViteHub contributes a `content` Realtime Definition from `contentRealtime(content)` in `@vite-hub/content/realtime`: several people edit one Markdown document at once, the room saves into `draft` with `ifDigest`, and it holds the edit lease as `kind: 'live'`. `contentRealtimeEditor()` in `@vite-hub/content/editor` adapts Comark UI's shared editor codec to the room. The live editor of the Console that the app served is removed; build your own on this room. The Console uses `createContentEditorCodec()` from that same entry, with the same schema and loss check; unknown components, slots, task lists, and media survive an edit. `defineContent({ live: false })` keeps one editor at a time.
 
 ## SEO
 

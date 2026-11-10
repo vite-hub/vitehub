@@ -1,1 +1,1 @@
-export { sqlite } from "@vite-hub/content/sqlite"
+export * from "@vite-hub/content/sqlite"

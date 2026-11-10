@@ -1,7 +1,7 @@
 import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { withConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { manageConsoleEnv } from "./env.ts"
 import { consoleRoute } from "./request.ts"
 
@@ -15,6 +15,6 @@ import type { ConsoleRoute } from "./request.ts"
 const consoleEnvManageRoute: ConsoleRoute = consoleRoute(withConsoleCors(withConsoleAccess((event, access) => {
   const request = getStandardContext(event).req
   const origin = request.headers.get("origin")
-  return manageConsoleEnv(request, origin && isConsoleCrossOriginBearerCall(request, access) ? { allowedOrigin: origin } : {})
+  return manageConsoleEnv(request, origin && isConsoleCrossOriginCall(request, access) ? { allowedOrigin: origin } : {})
 }, { section: "env", write: true })))
 export default consoleEnvManageRoute

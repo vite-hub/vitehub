@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { builtInChannelEnv, channelEnvValue } from "../src/channel-env.ts"
 import { discoverAgentChannelEnv, discoverBuiltInChannelUses } from "../src/channel-env-discovery.ts"
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 
 const kinds = Object.keys(builtInChannelEnv)
@@ -1302,7 +1301,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const context = { cloudflare: { env: { TELEGRAM_BOT_TOKEN: "host-token" } } } as never
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
     await expect(channel.adapter(context)).resolves.toEqual({ name: "telegram" })
     expect(createTelegramAdapter).toHaveBeenCalledWith({ botToken: "server-token", secretToken: "server-secret" })
     expect(useServerEnv).toHaveBeenCalledWith()
@@ -1318,7 +1317,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { telegram } = await import("../src/channels.ts")
     const channel = telegram({ botToken: "option-token", webhookSecret: false })
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await channel.adapter({} as never)
     expect(createTelegramAdapter).toHaveBeenCalledWith({ allowUnverifiedWebhooks: true, botToken: "option-token" })
@@ -1332,7 +1331,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { telegram } = await import("../src/channels.ts")
     const channel = telegram()
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await channel.adapter({ cloudflare: { env: { TELEGRAM_BOT_TOKEN: "host-token", TELEGRAM_WEBHOOK_SECRET_TOKEN: "stale-secret" } } } as never)
     expect(createTelegramAdapter).toHaveBeenCalledWith({ botToken: "host-token" })
@@ -1345,7 +1344,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { telegram } = await import("../src/channels.ts")
     const channel = telegram()
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(channel.adapter({ cloudflare: { env: { TELEGRAM_BOT_TOKEN: "host-token" } } } as never)).rejects.toThrow()
   })
@@ -1358,7 +1357,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { telegram } = await import("../src/channels.ts")
     const channel = telegram()
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(channel.adapter({ cloudflare: { env: { TELEGRAM_BOT_TOKEN: "host-token" } } } as never)).rejects.toBe(missing)
   })
@@ -1376,7 +1375,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { telegram } = await import("../src/channels.ts")
     const channel = telegram({ webhookSecret: false })
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await channel.adapter({} as never)
     expect(createTelegramAdapter).toHaveBeenCalledWith({ allowUnverifiedWebhooks: true, botToken: "provider-token" })
@@ -1394,7 +1393,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
       await expect(discord({ adapter }).send("Hello", { recipient: "discord:channel" })).resolves.toEqual({ id: "sent" })
     } else {
       const channel = discord({ adapter })
-      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
       // SAFETY: The resolver only reads the host bindings from this context.
       await channel.adapter({} as never)
     }
@@ -1417,7 +1416,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
       await expect(discord({ adapter }).send("Hello", { recipient: "discord:channel" })).resolves.toEqual({ id: "sent" })
     } else {
       const channel = discord({ adapter })
-      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
       // SAFETY: The resolver only reads the host bindings from this context.
       await channel.adapter({} as never)
     }
@@ -1445,7 +1444,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { discord } = await import("../src/channels.ts")
     const channel = discord({ adapter: true })
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(channel.adapter({} as never)).resolves.toMatchObject({ name: "discord" })
     expect(createDiscordAdapter).toHaveBeenCalledWith({ applicationId: "app-id", botToken: "bot-token", publicKey: "public-key" })
@@ -1461,7 +1460,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { teams } = await import("../src/channels.ts")
     const channel = teams({ adapter: { userName: "support" } })
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Teams adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(channel.adapter({} as never)).resolves.toMatchObject({ name: "teams" })
     expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "app-id", appPassword: "app-password", appTenantId: "tenant-id", userName: "support" })
@@ -1475,7 +1474,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { teams } = await import("../src/channels.ts")
     const channel = teams({ adapter: { appId: () => "resolved-app-id" } })
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Teams adapter resolver.")
     await expect(channel.adapter({} as never)).resolves.toMatchObject({ name: "teams" })
     expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "resolved-app-id" })
   })
@@ -1487,7 +1486,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     const { teams } = await import("../src/channels.ts")
     const channel = teams()
 
-    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+    if (typeof channel.adapter !== "function") throw new Error("Expected Teams adapter resolver.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await channel.adapter({ cloudflare: { env: { TEAMS_APP_ID: "app-id", TEAMS_APP_PASSWORD: "app-password", TEAMS_APP_TENANT_ID: "tenant-id", TEAMS_API_URL: "https://smba.example" } } } as never)
     expect(createTeamsAdapter).toHaveBeenCalledWith({ apiUrl: "https://smba.example", appId: "app-id", appPassword: "app-password", appTenantId: "tenant-id" })
