@@ -1,3 +1,7 @@
+import { defineHandler } from "h3"
+
+import type { EventHandlerWithFetch } from "h3"
+
 import { blobSignedRoute, rejectTooLarge, verifyFsRequest } from "../internal/fs-sign.ts"
 import { blob } from "./storage.ts"
 
@@ -19,13 +23,7 @@ export async function handleSignedBlobRequest(request: Request): Promise<Respons
   const verified = await verifyFsRequest(request, signedPath(request))
   if (verified instanceof Response) return verified
   const storage = blob.store(verified.store)
-  if (verified.method === "GET") {
-    // H3 adds the headers that middleware set before this route over the returned Response. A signed link expires,
-    // so drop an earlier Cache-Control and keep the private policy of `serve()`.
-    const { res } = (request as Request & { "~standard"?: { res: { headers?: Headers } } })["~standard"] ?? {}
-    res?.headers?.delete("cache-control")
-    return storage.serve(request, verified.path)
-  }
+  if (verified.method === "GET") return storage.serve(request, verified.path)
 
   const { maxSize } = verified
   let tooLarge = false
@@ -47,6 +45,15 @@ export async function handleSignedBlobRequest(request: Request): Promise<Respons
   return new Response(null, { headers: object.httpEtag ? { ETag: object.httpEtag } : {} })
 }
 
-const signedRoute: { fetch: (request: Request) => Promise<Response> } = { fetch: handleSignedBlobRequest }
+/**
+ * The route that Nitro mounts. It is an H3 handler, so it controls the response of its event in each mount, also
+ * without Standard Context. A direct call can use its `fetch`.
+ */
+const signedRoute: EventHandlerWithFetch = defineHandler((event) => {
+  // H3 adds the headers that middleware set before this route over the returned Response. A signed link expires,
+  // so drop an earlier Cache-Control and keep the private policy of `serve()`.
+  event.res.headers.delete("cache-control")
+  return handleSignedBlobRequest(event.req)
+})
 
 export default signedRoute

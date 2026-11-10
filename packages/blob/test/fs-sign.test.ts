@@ -99,10 +99,14 @@ describe("signed requests of the fs driver", () => {
     expect(await (await blob.get("uploads/ü.txt"))[1]?.text()).toBe("hallo")
   })
 
-  it("keeps its private cache policy over a Cache-Control that middleware set", async () => {
+  // `hubBlob()` with `nitro()` alone has no Standard Context. The route must keep its policy in both mounts.
+  it.each([
+    ["with Standard Context", true],
+    ["without Standard Context", false],
+  ])("keeps its private cache policy over a Cache-Control that middleware set, %s", async (_, standard) => {
     // H3 adds the headers that middleware set over the returned Response. A shared cache must not keep a signed
     // download after the link expires.
-    const app = new H3({ onRequest: event => installStandardContext(event) })
+    const app = new H3(standard ? { onRequest: event => installStandardContext(event) } : {})
     app.use((event) => {
       setResponseHeader(event, "Cache-Control", "public, max-age=3600")
       event.res.headers.set("x-middleware", "yes")
