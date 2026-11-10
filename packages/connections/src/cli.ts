@@ -154,7 +154,7 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
   operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
 })) })
 
-async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
+async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect: RequestInit["redirect"] = "manual"): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
   // Completion consumes one-use state before exchanging the token (up to 30 seconds), verifying identity,
@@ -171,9 +171,10 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
         origin: base.origin,
       },
       method: "POST",
+      // Keep Console credentials and management actions on the selected app origin.
+      redirect,
       signal: AbortSignal.timeout(seconds * 1_000),
     }
-    if (redirect) init.redirect = redirect
     response = await (options.fetch ?? fetch)(endpoint, init)
     text = await response.text()
   }

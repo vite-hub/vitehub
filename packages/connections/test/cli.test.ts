@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -227,6 +228,55 @@ describe("vitehub connections", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([301, 302, 303, 307, 308])("refuses a cross-origin %i redirect without forwarding Console credentials", async (status) => {
+    const sent: Record<string, string | string[] | undefined>[] = []
+    const forwarded: Record<string, string | string[] | undefined>[] = []
+    let location = ""
+    const destination = createServer((request, response) => {
+      forwarded.push(request.headers)
+      request.resume()
+      response.setHeader("content-type", "application/json")
+      response.end(JSON.stringify({ connections: [] }))
+    })
+    const app = createServer((request, response) => {
+      sent.push(request.headers)
+      request.resume()
+      response.writeHead(status, { location })
+      response.end()
+    })
+    try {
+      await new Promise<void>(resolve => destination.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>(resolve => app.listen(0, "127.0.0.1", resolve))
+      const destinationAddress = destination.address()
+      const appAddress = app.address()
+      if (!destinationAddress || typeof destinationAddress === "string" || !appAddress || typeof appAddress === "string") throw new Error("Expected local test listeners")
+      location = `http://127.0.0.1:${destinationAddress.port}/redirected`
+      const output = { stderr: "", stdout: "" }
+      const context = {
+        env: {
+          CF_ACCESS_CLIENT_ID: "access-id",
+          CF_ACCESS_CLIENT_SECRET: "access-secret",
+          VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token",
+          VITEHUB_CONSOLE_COOKIE: "session=console",
+        },
+        stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+        stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+      }
+      const result = await runConnectionsCli("list", ["--url", `http://127.0.0.1:${appAddress.port}`], context)
+      expect(sent).toMatchObject([{ "authorization": "Bearer console-token", "cookie": "session=console", "cf-access-client-id": "access-id", "cf-access-client-secret": "access-secret" }])
+      expect(forwarded).toEqual([])
+      expect(result).toBe(1)
+      expect(output.stdout).toBe("")
+      expect(output.stderr).toContain(`returned ${status}`)
+    }
+    finally {
+      for (const server of [app, destination]) {
+        server.closeAllConnections()
+        await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      }
     }
   })
 
