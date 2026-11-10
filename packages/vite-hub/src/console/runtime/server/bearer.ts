@@ -1,4 +1,5 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { JSONWebKeySet } from "jose"
 import type { verifyConsoleJwt } from "./bearer-jwt.ts"
@@ -54,10 +55,6 @@ const probeOrigin = "https://mcp-probe.invalid"
 const clockToleranceSeconds = 30
 const states = new WeakMap<object, Promise<ConsoleOAuthState>>()
 const rejections = new WeakSet<Response>()
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 /** The bearer token of a request, or undefined. */
 export function bearerToken(request: Request): string | undefined {

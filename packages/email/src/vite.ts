@@ -13,6 +13,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -121,10 +122,6 @@ interface InternalEmailVitePluginOptions {
   hosting?: string
   runtimeEnvImport?: string
   workflowProvider?: string
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: Record<string, unknown> } {

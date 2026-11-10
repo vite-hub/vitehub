@@ -5,6 +5,7 @@ import { executeSchedule } from "./execute.ts"
 import { getStartedScheduleRuntime, setStartedScheduleRuntime } from "./state.ts"
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import type { StartedScheduleRuntime } from "./state.ts"
@@ -128,10 +129,6 @@ export function createKVStartedScheduleStore(options: KVStartedScheduleStoreOpti
       await kv.set(key(schedule.id), serialize(schedule))
     },
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function unwrapStartableDefinition(loaded: unknown): ScheduleDefinition | undefined {

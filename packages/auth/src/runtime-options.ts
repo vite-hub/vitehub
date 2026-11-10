@@ -2,6 +2,7 @@ import { memoryAdapter } from "better-auth/adapters/memory"
 import { createAuthMiddleware } from "better-auth/api"
 import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
@@ -31,10 +32,6 @@ import type {
   AuthRuntimeOptionsResolver,
   AuthSessionOptions,
 } from "./types.ts"
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function isAuthDatabaseMetadata(value: unknown): boolean {
   return value === true
