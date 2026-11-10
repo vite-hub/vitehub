@@ -70,7 +70,7 @@ createApp(App).use(await createI18n()).mount("#app")`,
         {
           path: "nuxt.config.ts",
           language: "typescript",
-          content: `// Nuxt 5. Install: pnpm add vite-hub @vite-hub/i18n
+          content: `// Nuxt 5. Install: pnpm add vite-hub @vite-hub/i18n nuxt@npm:nuxt-nightly@5x
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({

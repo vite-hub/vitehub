@@ -2,7 +2,6 @@ import { hkdfSync } from "node:crypto"
 
 import { defineAuth } from "@vite-hub/auth"
 import { stateless } from "@vite-hub/auth/presets"
-import { createAuthForRequest } from "@vite-hub/auth/server"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
@@ -12,7 +11,7 @@ import { forgetGitHubToken, rememberGitHubToken } from "../forge/tokens.ts"
 import { commentsRoute } from "../page.ts"
 import { requestOf } from "./request.ts"
 
-import type { H3Event } from "h3"
+import type { createAuthForRequest } from "@vite-hub/auth/server"
 import type { CommentsGitHubAccess, CommentsRequestEvent, CommentsUser } from "../types.ts"
 
 /** The Server Env names of the OAuth client that people sign in to Comments with: a GitHub App's, or an OAuth App's. */
@@ -38,7 +37,7 @@ export interface CommentsGitHubLogin {
   /** The person signed in with GitHub, with what they may do in the repository. Null without a session. */
   user(event: CommentsRequestEvent): Promise<CommentsUser | null>
   /** The sign-in, callback, and sign-out routes under `/api/_vitehub/comments/auth/`. */
-  handle(event: H3Event, path: string): Promise<Response>
+  handle(request: Request & CommentsRequestEvent, path: string): Promise<Response>
 }
 
 function serverEnv(name: string): string | undefined {
@@ -77,7 +76,8 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
   const instances = new Map<string, BetterAuth>()
   const access = new Map<string, CommentsGitHubAccess & { until: number }>()
 
-  function auth(event: CommentsRequestEvent, request: Request): BetterAuth {
+  // Better Auth loads on the first GitHub sign-in request, not when the Comments runtime starts.
+  async function auth(event: CommentsRequestEvent, request: Request): Promise<BetterAuth> {
     const clientId = serverEnv(githubLoginEnv.clientId)!
     const clientSecret = serverEnv(githubLoginEnv.clientSecret)!
     const secret = sessionSecret()
@@ -102,7 +102,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
         // The app's own Auth may use Better Auth's default cookie names.
         advanced: { cookiePrefix: "vitehub_comments" },
       }))
-      instance = createAuthForRequest(definition, request, undefined, event)
+      instance = (await import("@vite-hub/auth/server")).createAuthForRequest(definition, request, undefined, event)
       if (instances.size > 20) instances.clear()
       instances.set(key, instance)
     }
@@ -143,7 +143,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
     async user(event) {
       if (!configured()) return null
       const request = requestOf(event)
-      const instance = auth(event, request)
+      const instance = await auth(event, request)
       const session = await instance.api.getSession({ headers: request.headers })
       const user: unknown = session?.user
       if (!user || typeof user !== "object" || !("id" in user) || typeof user.id !== "string") return null
@@ -156,12 +156,11 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
       const name = "name" in user && typeof user.name === "string" && user.name ? user.name : githubAccess.login
       return { ...user, id: user.id, name, github: githubAccess }
     },
-    async handle(event, path) {
+    async handle(request, path) {
       if (!configured()) {
         return Response.json({ error: { code: "COMMENTS_SIGN_IN_OFF", why: "This site has no GitHub sign-in for Comments.", fix: `Set ${githubLoginEnv.clientId} and ${githubLoginEnv.clientSecret} on the server.` } }, { status: 404 })
       }
-      const request = requestOf(event)
-      const instance = auth(event, request)
+      const instance = await auth(request, request)
       const url = new URL(request.url)
       // Starts the GitHub sign-in, then comes back to the page with comment mode on.
       if (path === "/auth/github" && request.method === "GET") {

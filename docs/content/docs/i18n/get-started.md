@@ -12,7 +12,7 @@ Write a page and a server route in English. Then translate them to Spanish. A re
 
 You write no message keys. You write the English text, and ViteHub makes the keys for you.
 
-Start with the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Run the commands from the app root. You need no provider account. i18n needs Nitro 3, so this tutorial does not work in a Nuxt 4 app. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
+Start with the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Run the commands from the app root. You need no provider account. i18n needs Nitro 3. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
 
 Add the i18n package, Vue, and the Vue plugin for Vite:
 
@@ -24,8 +24,37 @@ pnpm add -D @vitejs/plugin-vue
 ::tutorial-step{title="Enable i18n"}
 ## Enable i18n
 
-Add `i18n` to the `vitehub()` options in `vite.config.ts`, and add the Vue plugin. Keep your other plugins and options.
+Add `i18n` to the ViteHub options. In a Vite app, also add the Vue plugin. Keep your other plugins and options.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { preset: "node", i18n: { locales: ["en", "es"] } },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
@@ -39,6 +68,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 The first locale is the **source locale**. It is the language that you write in the code. Here it is English. Every other locale is a translation.
 

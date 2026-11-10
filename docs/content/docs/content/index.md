@@ -8,13 +8,13 @@ icon: i-lucide-file-text
 ---
 
 ::product-hero{tagline="Turn Markdown files into pages you can read, list, and search, and let people edit and publish them." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ```ts [server/content.ts]
   import sqlite from 'comark-content/database/sqlite-node'
   import sqliteFullTextSearch
     from 'comark-content/plugins/sqlite-full-text-search'
   import { defineContent } from 'vite-hub/content'
-  import { glob } from 'vite-hub/source/glob'
+  import { glob } from 'vite-hub/source'
 
   export const content = defineContent({
     // Keep a search index in SQLite
@@ -80,7 +80,7 @@ icon: i-lucide-file-text
   :::
 ::
 
-The search examples use optional plugins from `comark-content`. See [search configuration](/docs/content/configure#providers) for installation and storage options. Reading and rendering Markdown needs no separate Comark setup.
+Search uses optional `comark-content` plugins. [Search configuration](/docs/content/configure#providers) shows how to install them and where they store data. You need no Comark setup to read and render Markdown.
 
 ::product-features
   :::product-feature-item{title="Write pages in Markdown" icon="i-lucide-file-text" to="/docs/content/get-started#define-and-read-content"}
@@ -92,7 +92,7 @@ The search examples use optional plugins from `comark-content`. See [search conf
   :::
 
   :::product-feature-item{title="Search every page" icon="i-lucide-search" to="/docs/content/configure#providers"}
-  Add the full-text search plugin. It keeps its search index in SQLite.
+  Add the full-text search plugin. It keeps its index in SQLite.
   :::
 
   :::product-feature-item{title="URLs, head tags, and a sitemap" icon="i-lucide-search-check" to="/docs/content/seo"}
@@ -100,15 +100,15 @@ The search examples use optional plugins from `comark-content`. See [search conf
   :::
 
   :::product-feature-item{title="Publish reviewed drafts on a schedule" icon="i-lucide-calendar-clock" to="/docs/content/scheduling"}
-  `content.schedule()` publishes exactly what was reviewed at a later time, run by a Schedule Definition on every host.
+  `content.schedule()` publishes the reviewed version later. A Schedule Definition runs it on every host.
   :::
 
   :::product-feature-item{title="One editor at a time, and everyone sees who" icon="i-lucide-users" to="/docs/content/editing-together"}
-  Presence and edit leases in the history Database. Writes from anyone else fail with `CONTENT_LEASE_HELD`.
+  See who is editing. While one person holds the edit lease, writes from others fail with `CONTENT_LEASE_HELD`.
   :::
 
   :::product-feature-item{title="Edit, publish, and schedule from the terminal" icon="i-lucide-terminal-square" to="/docs/content/cli"}
-  `vitehub content` lists, edits, and diffs drafts, then publishes or schedules exactly what you reviewed through the running dev server.
+  `vitehub content` lists, edits, and diffs drafts in the running dev server, then publishes or schedules what you reviewed.
   :::
 
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
@@ -116,19 +116,19 @@ The search examples use optional plugins from `comark-content`. See [search conf
   :::
 
   :::product-feature-item{title="Edit, then publish" icon="i-lucide-file-pen" to="/docs/content/configure#document-collections"}
-  A collection holds pages that people edit in your app. Each save is a draft. Visitors see only what you publish.
+  People edit collection pages in your app. Each save is a draft. Visitors see only what you publish.
   :::
 
   :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/cms"}
-  `extends: cms` adds the Workspace, its history tables, and a Database when the app has none.
+  `extends: cms` adds the Workspace, its history tables, and a Database if the app has none.
   :::
 
   :::product-feature-item{title="Let an Agent draft, publish, and schedule documents" icon="i-lucide-bot" to="/docs/content/agent-capability"}
-  `content()` gives an Agent typed tools for each collection and singleton. Your `authorize` policy decides what it may read and change, and publishing asks for approval.
+  `content()` gives an Agent typed tools for each collection and singleton. Your `authorize` policy decides what it may read and change. Publishing asks for approval.
   :::
 
   :::product-feature-item{title="Check every field" icon="i-lucide-list-checks" to="/docs/content/configure#fields"}
-  Give each field at the top of a page a rule, such as a title that is not empty. A save with a bad field fails.
+  Give each front matter field a rule, such as "title is not empty". A save with a bad field fails.
   :::
 ::
 
