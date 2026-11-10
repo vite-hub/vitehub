@@ -1,4 +1,6 @@
 import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/esbuild"
+import { ownModule } from "@vite-hub/internal/build/paths"
+import { workflowRuntimeModule } from "./internal/runtime-modules.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
@@ -36,6 +38,9 @@ interface WorkflowNitroConfigOptions {
   viteConfig?: UserConfig
 }
 
+/** Other owners write Workflow runtime paths into their generated code with this. */
+export { workflowRuntimeModule }
+
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
   vitehub?: ViteHubInspectionPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
@@ -44,9 +49,9 @@ export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironment
       prepareScheduleRuntime?: (artifactDir?: string, config?: ResolvedConfig) => Promise<{
         bundleAlias: Record<string, string>
         bundlePlugins?: EsbuildPlugin[]
-        importBase: string
         native: boolean
         registryFile: string
+        runtimeModules: { state: string, vercelVite: string }
       } | undefined>
     }
   }
@@ -217,8 +222,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (config.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
       ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, retainedAgentInstructions)
-    const importBase = internalOptions?.importBase ?? workflowPackageName
-    const projectRequire = createRequire(resolve(config.root, "package.json"))
     const retainedAliases = retainedSources ? retainProviderOutputAliases(aliases, retainedSources) : aliases
     const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, retainedAliases, artifacts.vercelNativeFiles)
     const workflowRequire = native ? createRequire(import.meta.url) : undefined
@@ -226,8 +229,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     return {
       bundleAlias: {
         ...retainedAliases,
-        [`${importBase}/runtime/state`]: projectRequire.resolve(`${importBase}/runtime/state`),
-        [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
         ...(workflowApi && workflowRequire
           ? {
               "@workflow/core/runtime/world-target": resolveVercelWorkflowWorld(workflowApi),
@@ -240,9 +241,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         createOptionalViteDevtoolsPlugin(rootDir),
         ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
       ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
-      importBase,
       native,
       registryFile: artifacts.registryFile,
+      runtimeModules: { state: workflowRuntimeModule("state"), vercelVite: workflowRuntimeModule("vercel-vite") },
     }
   }
 
@@ -422,7 +423,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     vitehub: {
       // The Console, `vitehub workflow`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: "@vite-hub/workflow/operations" }],
+      operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: ownModule(import.meta.url, "operations") }],
       inspect: () => {
         const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
         const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions?.hosting ?? "vercel")

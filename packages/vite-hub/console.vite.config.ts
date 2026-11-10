@@ -39,6 +39,7 @@ export default defineConfig({
     alias: {
       "vite-hub/agent/vue": resolve(import.meta.dirname, "../agent/src/vue.ts"),
       "vite-hub/source/client": resolve(import.meta.dirname, "../source/src/client.ts"),
+      "shiki/wasm": resolve(clientRoot, "shiki-wasm.ts"),
       "vue-router": resolve(import.meta.dirname, "node_modules/vue-router"),
     },
     dedupe: ["vue", "vue-router"],
@@ -65,6 +66,9 @@ export default defineConfig({
         // the root class and read the origin-wide `vueuse-color-scheme` key of the host app.
         colorMode: false,
         dts: false,
+        // Generate the theme classes of the Nuxt UI components that the Console and `@vite-hub/ui` use, not all 125.
+        experimental: { componentDetection: true },
+        scanPackages: ["@vite-hub/ui"],
         icon: {
           clientBundle: {
             // Contributed sections declare their icons in owner packages, which the scan does not read.

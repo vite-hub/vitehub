@@ -4,7 +4,14 @@ import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
 
+import { consoleRuntimeDigestFile, digestConsoleRuntime } from "../src/console/runtime-digest.ts"
+
 describe("Console package assets", () => {
+  it("ships the digest of the packaged Console runtime", () => {
+    const runtime = fileURLToPath(new URL("../dist/console/runtime", import.meta.url))
+    expect(readFileSync(resolve(runtime, consoleRuntimeDigestFile), "utf8").trim()).toBe(digestConsoleRuntime(runtime))
+  })
+
   it("keeps lazy chunk URLs relative to the mounted bundle", () => {
     const assets = fileURLToPath(new URL("../../console-client/dist/client", import.meta.url))
     const [entry] = globSync("console-*.js", { cwd: assets })

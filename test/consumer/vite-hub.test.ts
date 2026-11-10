@@ -1611,9 +1611,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
 
       expect(authTypes).toContain("namespace ViteHub")
       expect(authServerTypes).toContain("vite-hub/auth/server")
-      expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
+      // The Blob plugin imports its runtime state by file path, not through a package export.
+      expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(envServer).toContain("vite-hub/env/server")
-      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
+      expect(scheduleRegistryTypes).toContain("vite-hub/schedule")
 
       expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
       expect(existsSync(queueCallback)).toBe(false)
@@ -1665,13 +1666,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(agentRoute).toContain("vite-hub/_internal/agent/internal/workspace/runtime")
       expect(authTypes).toContain("namespace ViteHub")
       expect(authServerTypes).toContain("vite-hub/auth/server")
-      expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
+      // The Blob plugin imports its runtime state by file path, not through a package export.
+      expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(emailTemplate).toContain("Welcome")
       expect(envServer).toContain("vite-hub/env/server")
       expect(workflowRegistry).toContain("vite-hub/_internal/agent")
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
-      expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
-      expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
+      expect(workflowRegistry).toMatch(/[\\/]workflow[\\/]dist[\\/]runtime[\\/]execute\.js"/)
+      expect(workflowRegistry).toMatch(/[\\/]workflow[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
       expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/task/runtime/state")
       expect(workflowRegistry).not.toContain("vite-hub/sandbox/task")
