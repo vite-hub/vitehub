@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
+import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { anchor, createComments } from "./harness.ts"
 
 import type { CommentsContent, CommentsHandlerOptions } from "../src/runtime/handler.ts"
@@ -428,6 +429,73 @@ describe("Comments API", () => {
     })
     expect(response.status).toBe(200)
     expect(body.data).toMatchObject({ subject: { kind: "page", id: "/pricing" }, context: { url: "https://public.test/pricing" } })
+  })
+
+  it("answers the page itself as the subject without `page`", async () => {
+    const { call } = await setup()
+    const { body } = await call("/session?page=/pricing/?preview=1")
+    expect(body.data.subject).toEqual({ kind: "page", id: "/pricing" })
+    expect(body.data).not.toHaveProperty("revision")
+  })
+
+  it("maps a page to the subject that `page` gives, and keeps overlay threads on it", async () => {
+    const urls: string[] = []
+    const checked: unknown[] = []
+    const content = fakeContent()
+    const { call } = await setup({ content, options: {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url, event }) => {
+        expect(event).toBeInstanceOf(Request)
+        expect(event["~standard"].req).toBe(event)
+        urls.push(`${url.href} ${typeof event["~standard"]}`)
+        const id = url.pathname.match(/^\/d\/([^/]+)$/)?.[1]
+        return id ? { kind: "drop", id, revision: 3 } : undefined
+      },
+      authorize: ({ subject }) => {
+        checked.push(subject)
+        return subject?.kind === "drop" && subject.id === "abc"
+      },
+    } })
+    const session = await call("/session?page=/d/abc/")
+    expect(session.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3, can: { read: true, comment: true } })
+    expect(urls).toEqual(["http://site.test/d/abc object"])
+    expect(checked).toContainEqual({ kind: "drop", id: "abc" })
+    // Other pages keep the default page subject.
+    expect((await call("/session?page=/pricing")).body.data).toMatchObject({ subject: { kind: "page", id: "/pricing" }, can: { read: false } })
+
+    const context = { url: "http://site.test/d/abc?token=secret" }
+    const created = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Hi" } })
+    expect(created.response.status).toBe(200)
+    expect(created.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3, context: { url: "http://site.test/d/abc" } })
+
+    // The overlay may not start a thread on a subject that `page` did not give for its page.
+    for (const json of [
+      { subject: { kind: "page", id: "/d/abc" }, anchor, context, body: "Page" },
+      { subject: { kind: "drop", id: "xyz" }, anchor, context, body: "Other drop" },
+    ]) {
+      const refused = await call("/threads", { method: "POST", json })
+      expect([refused.response.status, refused.body.error?.code]).toEqual([400, "COMMENTS_INVALID_INPUT"])
+    }
+    // The error names the subject that the page maps to.
+    const other = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "xyz" }, anchor, context, body: "Other drop" } })
+    expect(other.body.error?.why ?? JSON.stringify(other.body.error)).toContain("drop:abc")
+    // The revision that the overlay read stays when it is not newer than the page subject's: a new version came out
+    // while the person typed. A newer one becomes the page subject's.
+    const read = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Read on 2", revision: 2 } })
+    expect(read.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 2 })
+    const ahead = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Ahead", revision: 9 } })
+    expect(ahead.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
+    expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(3)
+    // A create with a page and no page context starts on the subject and the revision that the page maps to.
+    const byPage = await call("/threads", { method: "POST", json: { page: "/d/abc", anchor, body: "From the API" } })
+    expect(byPage.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
+    await call(`/threads/${encodeURIComponent(byPage.body.data.id)}`, { method: "DELETE" })
+    // `?page=` lists the threads of the subject that the page maps to, as the overlay sees them.
+    expect((await call("/threads?page=/d/abc")).body.data.map((thread: { subject: unknown }) => thread.subject)).toEqual(Array.from({ length: 3 }, () => ({ kind: "drop", id: "abc" })))
+
+    // Field edits check the policy on the subject of the page.
+    expect((await call(`/fields?page=/d/abc&field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(200)
+    expect((await call(`/fields?page=/pricing&field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(403)
   })
 
   it("keeps the page context, and adds the build and the component files that only the server knows", async () => {

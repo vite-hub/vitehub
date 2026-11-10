@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 import { EventEmitter } from "node:events"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { useViteHubDevPeerKey, viteHubDevPeerDevHandler, viteHubDevPeerHeader, viteHubDevPeerKeyEnv } from "../src/dev-peer.ts"
 import { createStandaloneOperationHandler } from "../src/operations-dev.ts"
@@ -129,8 +129,8 @@ describe("standalone operation installation", () => {
     try {
       vi.stubEnv(viteHubDevPeerKeyEnv, undefined)
       const { installStandaloneOperationRpc } = await import("../src/operations-vite.ts")
-      const config = { root, plugins: [{ name: "kv", vitehub: { operations: [{ module: "@vite-hub/kv/operations" }] } }] }
-      await installStandaloneOperationRpc(config, "serve", "@vite-hub/kv/operations")
+      const config = { root, plugins: [{ name: "@vite-hub/kv/vite", vitehub: { operations: [{ module: "/kv/dist/operations.js" }] } }] }
+      await installStandaloneOperationRpc(config, "serve", "/kv/dist/operations.js")
       const nitro = Reflect.get(config, "nitro") as { devHandlers: Array<{ handler?: unknown }> }
       expect(nitro.devHandlers.map(entry => entry.handler)).toEqual([viteHubDevPeerDevHandler])
       // The worker that the dev server starts inherits the key of this process.
@@ -139,10 +139,36 @@ describe("standalone operation installation", () => {
     finally { await rm(root, { force: true, recursive: true }) }
   })
 
+  it.each(["kv-first", "forms-first"])("refreshes discovered Forms operations with relocated owner modules: %s", async (order) => {
+    const root = await mkdtemp(join(import.meta.dirname, ".operations-install-"))
+    try {
+      const { installStandaloneOperationRpc } = await import("../src/operations-vite.ts")
+      const kvModule = "/kv/dist/operations.js"
+      const formsModule = "@vite-hub/forms/operations"
+      let discovered = false
+      const kv = { name: "@vite-hub/kv/vite", vitehub: { operations: [{ module: kvModule }] } }
+      const forms = { name: "@vite-hub/forms/vite", vitehub: { operations: () => discovered ? [{ module: formsModule }] : [] } }
+      const config = { root, plugins: order === "kv-first" ? [kv, forms] : [forms, kv] }
+      const handler = join(root, ".vitehub/nitro/operations/rpc.mjs")
+      await installStandaloneOperationRpc(config, "serve", kvModule)
+      expect(await readFile(handler, "utf8")).not.toContain(formsModule)
+
+      discovered = true
+      await installStandaloneOperationRpc(config, "serve", formsModule)
+      const source = await readFile(handler, "utf8")
+      expect(source).toContain(`import { createStandaloneOperationHandler } from ${JSON.stringify(order === "kv-first" ? kvModule : formsModule)}`)
+      expect(source).toContain(`import * as source${order === "kv-first" ? 1 : 0} from ${JSON.stringify(formsModule)}`)
+      const nitro = Reflect.get(config, "nitro") as { handlers: Array<{ handler: string }>, devHandlers: Array<{ handler?: unknown }> }
+      expect(nitro.handlers).toEqual([{ handler, route: "/_vitehub/rpc/__call" }])
+      expect(nitro.devHandlers.map(entry => entry.handler)).toEqual([viteHubDevPeerDevHandler])
+    }
+    finally { await rm(root, { force: true, recursive: true }) }
+  })
+
   it.each(["build", "root-disabled", "console"])("leaves the transport absent when another policy owns it: %s", async (mode) => {
     const { installStandaloneOperationRpc } = await import("../src/operations-vite.ts")
     const config = { root: "/unused", plugins: mode === "build" ? [] : [{ name: mode === "console" ? "vite-hub/console" : "vite-hub/dependencies" }] }
-    await installStandaloneOperationRpc(config, mode === "build" ? "build" : "serve", "@vite-hub/kv/operations")
+    await installStandaloneOperationRpc(config, mode === "build" ? "build" : "serve", "/kv/dist/operations.js")
     expect(Reflect.get(config, "nitro")).toBeUndefined()
   })
 })
