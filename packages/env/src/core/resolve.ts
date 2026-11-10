@@ -23,23 +23,25 @@ import type {
   EnvSourceContext,
   EnvValueSchema,
   EnvVariableDeclaration,
-  EnvViteConfigOptions,
+  EnvOptions,
   ResolvedEnvEntry,
 } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 
 const execFileAsync = promisify(execFile)
 
-export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined, _target: "vite"): void {
+const envOptionKeys = new Set<string>(["define", "diagnostics", "prefix", "projectRoot", "providers", "public", "runtimeImports", "server"] satisfies (keyof EnvOptions)[])
+
+export function validateEnvConfigShape(config: EnvOptions | undefined, _target: "vite"): void {
   if (!config) {
     return
   }
 
-  const viteConfig = config as EnvViteConfigOptions
+  const viteConfig = config
   for (const key of Object.keys(viteConfig)) {
-    if (key !== "define" && key !== "public" && key !== "server") {
+    if (!envOptionKeys.has(key)) {
       const path = `env.${key}`
-      throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Vite env config only supports env.public, env.define, and env.server.`)
+      throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Declare Env in env.public, env.define, and env.server.`)
     }
   }
 

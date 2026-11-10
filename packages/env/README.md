@@ -33,12 +33,11 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     public: {
       appName: env({ default: "ViteHub App", mode: "build" }),
     },
-  },
+  })],
 });
 ```
 
@@ -63,21 +62,20 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     server: {
       airtableToken: env({
         secret: true,
         source: env.source("AIRTABLE_TOKEN"),
       }),
     },
-  },
+  })],
 });
 ```
 
 ```ts
 // server/sync.ts
-import type { ViteHubContext } from "@vite-hub/env/server";
+import type { ViteHubContext } from "@vite-hub/runtime";
 import { useServerEnv } from "#vitehub/env/server";
 
 export async function sync(event: ViteHubContext) {
@@ -162,8 +160,7 @@ import { envSchema, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: envSchema(new URL("./.env.example", import.meta.url)),
+  plugins: [hubEnv(envSchema(new URL("./.env.example", import.meta.url)))],
 });
 ```
 
@@ -192,7 +189,7 @@ The [runnable schema lab](./examples/schema-lab/README.md) builds a browser bund
 
 ## Presets
 
-Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
+Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env`.
 
 | Preset | Declares |
 | --- | --- |
@@ -220,8 +217,6 @@ import { env, hubEnv } from "@vite-hub/env/vite"
 export default {
   plugins: [hubEnv({
     providers: { credentials: "./server/env/credentials.ts" },
-  })],
-  env: {
     server: {
       gatewayKey: env({ secret: true }),
       githubToken: env({
@@ -229,14 +224,14 @@ export default {
         source: env.provider("credentials", "github/token"),
       }),
     },
-  },
+  })],
 }
 ```
 
 ```ts
 // server/env/credentials.ts
-import { defineEnvProvider } from "@vite-hub/env/provider"
-import type { SecretEnv } from "@vite-hub/env/secret"
+import { defineEnvProvider } from "@vite-hub/env"
+import type { SecretEnv } from "@vite-hub/env"
 
 export default defineEnvProvider<{ gatewayKey: SecretEnv<string> }>({
   async read({ env, keys, signal }) {

@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { runInNewContext } from "node:vm"
 
-import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
+import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 import { afterEach, expect, it, vi } from "vitest"
 import { createMemoryHistory, createRouter, isNavigationFailure } from "vue-router"
 
@@ -39,7 +39,7 @@ it("remembers only the document actually opened when a leave guard cancels navig
 afterEach(async () => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Turn off ViteHub tools"]')?.click()
   await new Promise(resolve => setTimeout(resolve, 0))
-  for (const element of document.querySelectorAll("vitehub-tools-off")) element.remove()
+  stopViteHubPageTools()
   localStorage.removeItem("vitehub-tools-off")
   history.replaceState(null, "", "/")
   vi.unstubAllGlobals()

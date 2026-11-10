@@ -19,7 +19,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     await writeFile(join(root, "bot", "skills", "review", "references", "evidence.md"), "Use the mounted evidence.\n")
     await symlink("../bot/skills", join(root, "bot-dev", "skills"))
     const plugin = join(root, "plugin.mjs")
-    await writeConsoleNitroPlugin(plugin, root, ["agents"], [{ name: "bot-dev", handler }], { agents: [], content: {} }, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["agents"], catalog: { agents: [{ name: "bot-dev", handler }], content: {} }, blobStores: [], invoke: true })
     const generated = await readFile(plugin, "utf8")
     const agentUrl = pathToFileURL(handler).href
     const skillsImport = agentRuntimeModule("runtime/workflow")
@@ -39,10 +39,10 @@ it("loads colocated Skills into the production Console definition", async () => 
       .replace(`import(${JSON.stringify(skillsImport)})`, "Promise.resolve({ agentWithColocatedSkills: withSkills })")
       .replace(`import(${JSON.stringify(agentUrl)})`, "Promise.resolve(agentModule)")
       .replace("export default function", "function")
-    const execute = new Function("installConsoleSections", "installOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installAgents", "withSkills", "agentModule", source)
+    const execute = new Function("installConsoleSections", "installOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installAgents", "withSkills", "agentModule", "installConsoleClient", source)
     const installOperations = vi.fn()
     let loadRuntime: (() => Promise<() => void>) | undefined
-    execute(() => {}, installOperations, (load: () => Promise<() => void>) => { loadRuntime = load }, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })
+    execute(() => {}, installOperations, (load: () => Promise<() => void>) => { loadRuntime = load }, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition }, () => {})
     expect(installOperations).not.toHaveBeenCalled()
     const installRuntime = await loadRuntime?.()
     expect(installOperations).not.toHaveBeenCalled()
