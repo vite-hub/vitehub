@@ -1,13 +1,12 @@
 import { defineDiagnostics } from "nostics"
 
+import { commentsClientCodes } from "../client-diagnostics.ts"
+
 // Each code identifies one failure site. Keep published codes stable.
 export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/comments/diagnostics",
   codes: {
-    COMMENTS_R0001: {
-      why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
-      fix: "Pass an element, a non-empty selection, or a point that is over an element of the page.",
-    },
+    ...commentsClientCodes,
     COMMENTS_R0002: {
       why: ({ id }: { id: string }) => `The comment thread "${id}" does not exist.`,
       fix: "List the threads again, because someone may have deleted this one.",
@@ -60,10 +59,6 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
       fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
     },
-    COMMENTS_R0015: {
-      why: "The comment list kept changing while its pages were loading.",
-      fix: "Refresh again. The previous cache is kept until two complete scans agree.",
-    },
     COMMENTS_R0016: {
       why: "The thread is resolved, so it takes no new replies.",
       fix: "Reopen the thread first, or pass { allowResolved: true } to comments.reply() when your UI allows replies to resolved threads.",
@@ -93,6 +88,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_R0021: {
       why: "Comments stores attachments with storeAttachment, but has no readAttachment to read them back.",
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
+    },
+    COMMENTS_R0022: {
+      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
+      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,

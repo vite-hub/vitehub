@@ -51,6 +51,29 @@ OpenWorkflow resolves storage at runtime in this order:
 
 With the `node` preset, ViteHub selects OpenWorkflow. You do not configure a provider:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workflow: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -59,8 +82,10 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', workflow: true })],
 })
 ```
+:::
+::
 
-- `runWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
+- `startWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
 - Each server starts the OpenWorkflow worker when it starts. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
 - With a Postgres Default Database, OpenWorkflow keeps its runs in that database, in the `openworkflow` schema. Without one, set `OPENWORKFLOW_POSTGRES_URL`. A `DATABASE_URL` alone is not used, the same as for Queue and Realtime. Without either, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only, and the server logs that at boot.
 - Several servers can use the same Postgres database. When they start together, one server at a time creates the `openworkflow` schema. A server tries a Postgres advisory lock in a short transaction, and a server that does not get it waits without a connection. The server that gets it holds the lock until OpenWorkflow has set up the schema. OpenWorkflow migrates on its own connection, so that server needs two connections. When it gets no second connection in 10 seconds, for example behind a pooler with one server connection, it reports `WORKFLOW_R0037`, does not start the setup, and tries again later. Raise the pool size, or set up the schema once through a direct connection and then set `postgres.runMigrations: false`. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
@@ -75,6 +100,29 @@ Every worker registers the Workflow files that ViteHub discovers, such as `serve
 
 Set `worker: false` when a separate process runs the Workflows. The web servers then only put runs in storage.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workflow: { worker: false } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: { worker: false } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -83,5 +131,7 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', workflow: { worker: false } })],
 })
 ```
+:::
+::
 
 The [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) shows the worker process. Give it the same storage as the servers.

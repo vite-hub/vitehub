@@ -4,7 +4,7 @@ import { useDatabase } from "vite-hub/database/drizzle"
 import { kv } from "vite-hub/kv"
 import { dynamicQueue } from "vite-hub/queue"
 import { setupViteHubTest } from "vite-hub/test"
-import { runWorkflow } from "vite-hub/workflow"
+import { startWorkflow } from "vite-hub/workflow"
 
 import signup from "../server/api/signup.post.ts"
 import resetSignups from "../server/schedules/reset-signups.ts"
@@ -53,11 +53,11 @@ test("each test starts with empty storage", async () => {
 })
 
 test("keeps configured provider rules and Definition lookup in app tests", async () => {
-  await expect(dynamicQueue.run("misspelled", {})).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
-  await expect(runWorkflow("misspelled", {})).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
-  expect(await dynamicQueue.run("welcome", { userId: 1 }, { contentType: "json" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+  await expect(dynamicQueue.send("misspelled", {})).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+  await expect(startWorkflow("misspelled", {})).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
+  expect(await dynamicQueue.send("welcome", { userId: 1 }, { contentType: "json" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   expect(hub.jobs).toEqual([])
-  expect(await runWorkflow("onboarding", { userId: 1 })).toMatchObject({ provider: "vercel", status: "queued" })
+  expect(await startWorkflow("onboarding", { userId: 1 })).toMatchObject({ provider: "openworkflow", status: "queued" })
 })
 
 test("the nightly Schedule resets the counter", async () => {

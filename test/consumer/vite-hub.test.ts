@@ -658,7 +658,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
-        export default defineConfig({ env: { public: {} }, plugins: [vitehub({ preset: "cloudflare", blob: true, queue: true${features} })] })
+        export default defineConfig({ plugins: [vitehub({ env: { public: {} }, preset: "cloudflare", blob: true, queue: true${features} })] })
       `
       await Promise.all([
         writeFile(join(appDir, "vite.config.ts"), config(""), "utf8"),
@@ -1269,7 +1269,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ]))
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
-          import { runBrowserContent } from "@vite-hub/browser/actions"
+          import { runBrowserContent } from "@vite-hub/browser"
           export async function load() {
             return await runBrowserContent("https://example.com")
           }
@@ -1446,7 +1446,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       await run("pnpm", ["run", "typecheck"], appDir)
       const generatedEnvTypes = await readFile(join(appDir, ".vitehub/env/server.d.ts"), "utf8")
-      expect(generatedEnvTypes).toContain('import("vite-hub/env/server").EnvAccessContext')
+      expect(generatedEnvTypes).toMatch(/import\("[^"\n]*[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"\)\.EnvAccessContext/)
       expect(generatedEnvTypes).not.toContain('import("@vite-hub/env/bridge")')
       await writeFile(join(appDir, "env-typecheck.json"), JSON.stringify({
         compilerOptions: {
@@ -1609,9 +1609,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
 
       expect(authTypes).toContain("namespace ViteHub")
       expect(authServerTypes).toContain("vite-hub/auth/server")
-      expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
-      expect(envServer).toContain("vite-hub/env/server")
-      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
+      // The Blob plugin imports its runtime state by file path, not through a package export.
+      expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
+      expect(envServer).toMatch(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"/)
+      expect(scheduleRegistryTypes).toContain("vite-hub/schedule")
 
       expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
       expect(existsSync(queueCallback)).toBe(false)
@@ -1659,22 +1660,25 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8"),
         readFile(join(appDir, ".vercel/output/config.json"), "utf8"),
       ])
-      expect(agentRoute).toContain("vite-hub/_internal/agent")
-      expect(agentRoute).toContain("vite-hub/_internal/agent/internal/workspace/runtime")
+      // Generated Agent, Workflow, and Workspace code imports owner files by path, not through package exports.
+      expect(agentRoute).toMatch(/[\\/]agent[\\/]dist[\\/]server[\\/]internal\.js"/)
+      expect(agentRoute).toMatch(/[\\/]agent[\\/]dist[\\/]internal[\\/]workspace[\\/]runtime\.js"/)
+      expect(agentRoute).not.toContain("vite-hub/_internal")
       expect(authTypes).toContain("namespace ViteHub")
       expect(authServerTypes).toContain("vite-hub/auth/server")
-      expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
+      // The Blob plugin imports its runtime state by file path, not through a package export.
+      expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(emailTemplate).toContain("Welcome")
-      expect(envServer).toContain("vite-hub/env/server")
-      expect(workflowRegistry).toContain("vite-hub/_internal/agent")
+      expect(envServer).toMatch(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"/)
+      expect(workflowRegistry).toMatch(/[\\/]agent[\\/]dist[\\/]runtime[\\/]workflow\.js"/)
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
-      expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
-      expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
+      expect(workflowRegistry).toMatch(/[\\/]workflow[\\/]dist[\\/]runtime[\\/]execute\.js"/)
+      expect(workflowRegistry).toMatch(/[\\/]workflow[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
-      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/task/runtime/state")
+      expect(workflowRegistry).not.toContain("sandbox/task/runtime/state")
       expect(workflowRegistry).not.toContain("vite-hub/sandbox/task")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
-      expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
+      expect(workspacePlugin).toMatch(/[\\/]workspace[\\/]dist[\\/]runtime\.js"/)
       expect(nativeWorkflow).toContain('"use workflow"')
       expect(nativeWorkflow).toContain('"use step"')
       expect(nativeWorkflow).not.toContain("vitehub.email.definition")

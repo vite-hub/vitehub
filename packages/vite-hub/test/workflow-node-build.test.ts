@@ -44,7 +44,7 @@ async function postToBuiltServer(root: string, path: string, body: unknown): Pro
   }
 }
 
-it.each([true, false])("runs a discovered Workflow from only the deployed Node output (initial Workflow: %s)", async (initialWorkflow) => {
+it("runs a discovered Workflow from only the deployed Node output", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-build-"));
   const deploymentRoot = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-deployment-"));
   try {
@@ -71,10 +71,10 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
       join(root, "server/api/onboard.post.ts"),
       [
         `import { defineEventHandler, readBody } from "h3"`,
-        `import { getWorkflowRun, runWorkflow } from "vite-hub/workflow"`,
+        `import { getWorkflowRun, startWorkflow } from "vite-hub/workflow"`,
         ``,
         `export default defineEventHandler(async (event) => {`,
-        `  const run = await runWorkflow("onboard-user", await readBody(event))`,
+        `  const run = await startWorkflow("onboard-user", await readBody(event))`,
         `  let state = await getWorkflowRun("onboard-user", run.id)`,
         `  for (let attempt = 0; state.status !== "completed" && attempt < 50; attempt++) {`,
         `    await new Promise(done => setTimeout(done, 20))`,
@@ -89,11 +89,9 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
     const builder = await createBuilder({
       logLevel: "silent",
-      workflow: initialWorkflow ? { provider: "vercel" } : false,
       plugins: [
         nitro() as never,
-        vitehub({ preset: "node", workflow: true }),
-        { name: "final-workflow-config", config: () => ({ workflow: { provider: "vercel" } }) },
+        vitehub({ preset: "node", workflow: { provider: "vercel" } }),
       ],
       root,
     });

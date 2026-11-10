@@ -5,7 +5,7 @@ import { readProvisionedId } from "@vite-hub/internal/provision-state"
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
+import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, mayUseRemoteLibsql, serializeGeneratedRegistry } from "../config.ts"
 import { implicitDefaultDatabaseContributions } from "../contributions.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
@@ -39,6 +39,18 @@ export function usesD1HttpOnly(runtimeConfig: ResolvedDBViteConfig) {
     && runtimeConfig.definitions.every(definition => isStaticD1HttpDefinition(definition.handler))
 }
 
+/**
+ * Reports whether a SQLite Database of the app can query a libSQL server. A hosted runtime opens libSQL only for a
+ * remote URL, so without one the build ships no libSQL client: a Cloudflare build then reaches its Databases through
+ * D1 only.
+ */
+export function usesRemoteLibsql(runtimeConfig: ResolvedDBViteConfig): boolean {
+  return runtimeConfig.definitions.some((definition) => {
+    const database = runtimeConfig.databases[definition.name]
+    return database?.dialect !== "postgresql" && (!database || mayUseRemoteLibsql(definition.handler, database))
+  })
+}
+
 function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
   const imports = runtimeConfig.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
@@ -59,7 +71,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     databaseEntries,
     postgresConnectionImport: createImportPath(file, resolveRuntimeModule("runtime/postgres-connection")),
     imports: [
-      ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesD1HttpOnly(runtimeConfig) ? "runtime/d1" : "runtime/hosted")))}`] : []),
+      ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesRemoteLibsql(runtimeConfig) ? "runtime/hosted" : "runtime/d1")))}`] : []),
       ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
       "",
       ...imports,
@@ -67,12 +79,9 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
   })
 }
 
-/** Writes hosted modules before a framework resolves its generated runtime aliases. */
-export async function writeHostedDatabaseRuntimeModules(
-  generatedDir: string,
-  runtimeConfig: ResolvedDBViteConfig,
-  providers: readonly DBProvider[] = ["cloudflare", "vercel"],
-) {
+/** Fails when a Cloudflare runtime module would hold a native D1 Database without a resolved resource. */
+export function assertHostedDatabaseRuntimeResources(runtimeConfig: ResolvedDBViteConfig, providers: readonly DBProvider[] = ["cloudflare", "vercel"]) {
+  if (!providers.includes("cloudflare")) return
   const unprojectedNativeDatabases = runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
     if (database?.dialect === "postgresql") return false
@@ -81,14 +90,25 @@ export async function writeHostedDatabaseRuntimeModules(
     return (projection?.resource === "opaque" || (projection?.resource === "configured" && !projection.binding))
       && cloudflare && !cloudflare.http && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
-  if (providers.includes("cloudflare") && unprojectedNativeDatabases.length) {
+  if (unprojectedNativeDatabases.length) {
     const opaqueNativeDatabases = unprojectedNativeDatabases.filter(name => runtimeConfig.definitionDefaults.cloudflareProjections[name]?.resource === "opaque")
     if (opaqueNativeDatabases.length) {
       throw databaseErrorDiagnostics.DATABASE_OPAQUE_CLOUDFLARE_CONFIG({ databases: opaqueNativeDatabases })
     }
     throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values" })
   }
-  if (providers.includes("cloudflare")) resolveCloudflareD1Bindings(runtimeConfig)
+  resolveCloudflareD1Bindings(runtimeConfig)
+}
+
+/**
+ * Writes hosted modules before a framework resolves its generated runtime aliases. A build calls
+ * `assertHostedDatabaseRuntimeResources` first; `nuxt prepare` writes the modules for types without the check.
+ */
+export async function writeHostedDatabaseRuntimeModules(
+  generatedDir: string,
+  runtimeConfig: ResolvedDBViteConfig,
+  providers: readonly DBProvider[] = ["cloudflare", "vercel"],
+) {
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
   const normalizedRuntimeConfig = { ...runtimeConfig, definitionDefaults }
   const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")

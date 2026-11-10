@@ -75,10 +75,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
-    workflow: {
-      provider: 'openworkflow',
-      sqlite: { path: '.data/workflows.sqlite' },
-    },
+    workflow: true,
   },
 })
 ```
@@ -94,10 +91,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      workflow: {
-        provider: 'openworkflow',
-        sqlite: { path: '.data/workflows.sqlite' },
-      },
+      workflow: true,
     }),
     nitro(),
   ],
@@ -180,12 +174,12 @@ Start the run with an id from the order:
 
 ```ts [server/api/checkout.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
   if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
-  return runWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
+  return startWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
 })
 ```
 
@@ -193,7 +187,7 @@ Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency k
 
 ## Inspect the run
 
-`runWorkflow()` returns the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
+`startWorkflow()` returns the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
 
 ```bash [Terminal]
 pnpm vitehub workflow start checkout --payload '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
@@ -201,7 +195,7 @@ pnpm vitehub workflow get <runId>
 pnpm vitehub inspect definitions --kind workflow
 ```
 
-The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `runWorkflow()` only puts the run in storage. The worker in your server executes it, and the run stays `queued` until a worker takes it. To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
+The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `startWorkflow()` only puts the run in storage. The worker in your server executes it, and the run stays `queued` until a worker takes it. To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
 
 ## Durable steps on Vercel
 

@@ -214,7 +214,7 @@ function checkDefinition(definition: unknown): void {
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
 /** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
-export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "check", "plan", "apply", "host", "explain", "link", "unlink", "deploy", "deployments"]
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments"]
 
 /** CLI namespaces owned by built-in commands. */
 export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
@@ -250,7 +250,7 @@ export function isOperation(value: unknown): value is AnyOperation {
 
 /** The contribution of one plugin: operations, or a module that exports them. */
 export interface OperationContributionEntry {
-  /** Module the app imports, such as `@vite-hub/content/operations`. */
+  /** The absolute path of the module that generated code imports, such as `ownModule(import.meta.url, "operations")`. */
   module: string
   /** Named export that holds an operation or an array of operations. Defaults to `default`. */
   export?: string

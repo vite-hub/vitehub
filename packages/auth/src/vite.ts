@@ -14,6 +14,7 @@ import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 import { sendWebResponse } from "./node-response.ts"
 import { setRequestClientAddress } from "./client-address.ts"
+import { authTableNames } from "./table-names.ts"
 
 export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
   return basePath === "/" && status === 404
@@ -26,7 +27,7 @@ import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type {
   AuthDefinition,
-  AuthModuleOptions,
+  AuthOptions,
   ResolvedAuthViteConfig,
 } from "./types.ts"
 
@@ -66,6 +67,8 @@ export interface AuthDatabaseContribution {
   database: string
   dialect: "postgresql" | "sqlite"
   definition: { module: string, export: "authPostgresSchema" | "authSqliteSchema" }
+  /** The schema keys and SQL names of the tables, so the Database lists them without loading the schema module. */
+  tables: Readonly<Record<string, string>>
   reason: string
 }
 
@@ -106,12 +109,10 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
   nitro: Record<string, unknown>
   projectRoot: string
   serverDirs?: string[]
-  viteAuth?: AuthModuleOptions
 }): Record<string, unknown> {
   const viteConfig: UserConfig & { nitro: Record<string, unknown> } = {
     root: options.projectRoot,
     nitro: options.nitro,
-    auth: options.viteAuth,
     ...(options.serverDirs ? { [VITEHUB_SERVER_DIRS]: options.serverDirs } : {}),
   }
   // SAFETY: This hook mutates the supplied Nitro config because Vite concatenates returned arrays.
@@ -337,21 +338,17 @@ function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
   return value.default ?? value.definition
 }
 
-export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
+export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
   const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
   let serverDirs: string[] | undefined
   let serverEnv = false
 
-  function resolvedOptions(): AuthModuleOptions | undefined {
-    return resolved?.auth ?? options
-  }
-
   function refreshRuntimeConfig(): ResolvedAuthViteConfig | undefined {
     if (!resolved) return
-    runtimeConfig = resolveAuthViteConfig(resolvedOptions(), resolved.root, { serverDirs })
-    runtimeConfig ??= resolveAuthViteConfig(resolvedOptions(), resolveViteHubProjectRoot(resolved.root), { serverDirs })
+    runtimeConfig = resolveAuthViteConfig(options, resolved.root, { serverDirs })
+    runtimeConfig ??= resolveAuthViteConfig(options, resolveViteHubProjectRoot(resolved.root), { serverDirs })
     resetAuth()
     return runtimeConfig
   }
@@ -364,9 +361,9 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       refresh: refreshRuntimeConfig,
     },
     vitehub: {
-      cli: async () => resolvedOptions() === false ? undefined : (await import("./cli.ts")).createAuthCliContributor(),
+      cli: async () => options === false ? undefined : (await import("./cli.ts")).createAuthCliContributor(),
       async databases(context) {
-        const authOptions = resolvedOptions()
+        const authOptions = options
         if (authOptions === false) return []
         const root = context.projectRoot ?? context.root
         const discovery = { serverDirs: context.serverDirs?.slice() ?? serverDirs }
@@ -379,11 +376,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           database,
           dialect,
           definition: { module: `${importBase}/schema`, export: dialect === "postgresql" ? "authPostgresSchema" : "authSqliteSchema" },
+          tables: authTableNames,
           reason: "Stores the Better Auth users, sessions, accounts, and verifications, the admin() fields, and the Console MCP OAuth clients and tokens of authDatabase().",
         }]
       },
       inspect: () => {
-        if (resolvedOptions() === false) return
+        if (options === false) return
         return {
           definitions: [{
             kind: "auth",
@@ -399,10 +397,8 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
     config(config, env) {
       const configRoot = config.root || process.cwd()
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      // SAFETY: Vite config may include the Auth module options supplied by the integration.
-      const authOptions = (config as { auth?: AuthModuleOptions }).auth ?? options
-      const authConfig = resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
-        ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
+      const authConfig = resolveAuthViteConfig(options, configRoot, { serverDirs })
+        ?? resolveAuthViteConfig(options, resolveViteHubProjectRoot(configRoot), { serverDirs })
       // Integrations such as the Nuxt module call this hook without a Vite environment.
       const dev = env?.command === "serve"
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig, dev)
@@ -528,8 +524,3 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    auth?: AuthModuleOptions
-  }
-}

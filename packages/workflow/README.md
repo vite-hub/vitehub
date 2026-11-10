@@ -95,8 +95,7 @@ import { defineConfig } from "vite";
 import { workflowConfig } from "./server/workflow-runtime.ts";
 
 export default defineConfig({
-  plugins: [hubWorkflow()],
-  workflow: workflowConfig,
+  plugins: [hubWorkflow(workflowConfig)],
 });
 ```
 
@@ -106,7 +105,7 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ### Run an OpenWorkflow worker
 
-`runWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. Servers that start together set up the OpenWorkflow schema one at a time, so they do not fail with `duplicate key value violates unique constraint`. A server tries a Postgres advisory lock (`pg_try_advisory_xact_lock`) in a short transaction, and waits without a connection when another server holds it. OpenWorkflow does not export its migrations, so they run on their own connection while the lock transaction holds another. The server that gets the lock first checks for that second connection and stops with `WORKFLOW_R0037` when it gets none in 10 seconds, then holds the lock until the setup ends. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup or the worker start fails, the server reports the error and tries again, with a delay that grows to 30 seconds, until it works or the server closes. `WORKFLOW_R0036` stops the retries, because only a configuration change fixes it. `WORKFLOW_R0037` (no second connection in 10 seconds) is retried, because a full pool frees connections later. `installOpenWorkflow()` resolves to `true` when the worker runs.
+`startWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. Servers that start together set up the OpenWorkflow schema one at a time, so they do not fail with `duplicate key value violates unique constraint`. A server tries a Postgres advisory lock (`pg_try_advisory_xact_lock`) in a short transaction, and waits without a connection when another server holds it. OpenWorkflow does not export its migrations, so they run on their own connection while the lock transaction holds another. The server that gets the lock first checks for that second connection and stops with `WORKFLOW_R0037` when it gets none in 10 seconds, then holds the lock until the setup ends. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup or the worker start fails, the server reports the error and tries again, with a delay that grows to 30 seconds, until it works or the server closes. `WORKFLOW_R0036` stops the retries, because only a configuration change fixes it. `WORKFLOW_R0037` (no second connection in 10 seconds) is retried, because a full pool frees connections later. `installOpenWorkflow()` resolves to `true` when the worker runs.
 
 Every worker registers the discovered Workflow Definitions of the build registry when it starts, and any worker can claim a run. So OpenWorkflow runs only those definitions. A definition that code registers later, such as an inline `createWorkflow(name, handler)` or an Agent Workflow, runs inline in the request process, with `metadata.mode` set to `"inline"` and a warning. In `vite dev`, a changed Workflow file replaces the worker; the old backend stays open until the old worker finishes its runs.
 
@@ -127,7 +126,7 @@ Keep this process running while it should consume queued runs, and do not start 
 
 ```ts fragment
 // server/api/onboard.post.ts
-import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow";
+import { getWorkflowRun, startWorkflow } from "@vite-hub/workflow";
 import { defineEventHandler, readBody } from "h3";
 import { installWorkflowRuntime } from "../workflow-runtime.ts";
 
@@ -135,24 +134,24 @@ installWorkflowRuntime();
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event);
-  const started = await runWorkflow("onboard-user", payload);
+  const started = await startWorkflow("onboard-user", payload);
 
   return await getWorkflowRun("onboard-user", started.id);
 });
 ```
 
-`runWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
 
 The other runtime helpers are:
 
-- `deferWorkflow()` starts through the deferred provider path when available.
+- `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
 - `cancelWorkflow()` cancels a native Vercel run or a pending or running OpenWorkflow run.
-- `resumeWorkflowSignal()` resumes a registered Vercel Workflow DevKit hook token.
-- `createWorkflow()` creates a named handle with `run`, `defer`, `getRun`, and `cancel` methods.
+- `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
+- `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 
 Unsupported provider operations fail with `WORKFLOW_OPERATION_UNSUPPORTED`; ViteHub does not pretend that an inline run was cancelled or resumed.
 
-`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, `runs-show`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs show <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports `@vite-hub/workflow/runtime/dev-runs`, which holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. The three commands fail there with `WORKFLOW_RUNS_UNAVAILABLE`.
+`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, `runs-show`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs show <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports the `runtime/dev-runs` module, by file path. It holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. The three commands fail there with `WORKFLOW_RUNS_UNAVAILABLE`.
 
 Inline runs buffer the response body before completion. Each inspection and duplicate start returns a fresh response, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
 
@@ -236,14 +235,14 @@ async function transcribe(recordingId: string) {
 
 ## Required handle input
 
-A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
+A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
-await welcome.run({ email: "ada@example.com" })
-// welcome.run() is a type error.
+await welcome.start({ email: "ada@example.com" })
+// welcome.start() is a type error.
 ```
 
 This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.

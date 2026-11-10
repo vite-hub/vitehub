@@ -39,7 +39,6 @@ describe("Workflow preparation for Schedule", () => {
           root,
           build: { outDir: "dist" },
           plugins: [],
-          workflow: { provider: "vercel" },
           resolve: { alias: [{ find: "build-alias", replacement: join(root, "alias.ts") }] },
           [VITEHUB_SERVER_DIRS]: [server],
         }
@@ -83,7 +82,6 @@ describe("Workflow preparation for Schedule", () => {
         const input: UserConfig & { [VITEHUB_SERVER_DIRS]?: string[] } = {
           root,
           plugins: [],
-          workflow: { provider: "vercel" },
           [VITEHUB_SERVER_DIRS]: [server],
         }
         await (plugin.config as { handler: (config: UserConfig, env: { command: string }) => Promise<void> }).handler(input, { command: "build" })
@@ -147,14 +145,13 @@ describe("Workflow preparation for Schedule", () => {
       const configs = ["first", "second"].map(name => ({
         root, command: "build", plugins: [], build: { outDir: "dist" },
         resolve: { alias: [{ find: "build-alias", replacement: join(root, name) }] },
-        workflow: { provider: "vercel" },
         define: { __VITEHUB_PUBLIC_URL__: JSON.stringify(`https://${sharedUrl ? "shared" : name}.example.com`) },
       } as unknown as ResolvedConfig))
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(config)
       for (const config of configs) useProviderOutputCatalog(config).replaceDeploymentContribution({ owner: "workflow", rootDir: root, write: async () => undefined })
       const clone = { ...Object.fromEntries(Object.entries(configs[1]!)), build: Object.fromEntries(Object.entries(configs[1]!.build)), define: configs[0]!.define }
       const context = { environment: { config: clone } }
-      expect(() => (plugin.buildStart as (this: typeof context) => void).call(context)).toThrow("Cannot identify the owning Workflow build")
+      await expect((plugin.buildStart as (this: typeof context) => Promise<void>).call(context)).rejects.toThrow("Cannot identify the owning Workflow build")
       await (plugin.buildEnd as (this: typeof context, error?: Error) => Promise<void>).call(context, new Error("Ambiguous build"))
       await (plugin.renderError as (this: typeof context, error: Error) => Promise<void>).call(context, new Error("Ambiguous render"))
       await (plugin.closeBundle as { handler(this: typeof context): Promise<void> }).handler.call(context)
@@ -171,7 +168,6 @@ describe("Workflow preparation for Schedule", () => {
       const configs = ["first", "second"].map(name => ({
         root, command: "build", plugins: [], build: { outDir: "dist" },
         resolve: { alias: [{ find: "build-alias", replacement: join(root, name) }] },
-        workflow: { provider: "vercel" },
         define: { __VITEHUB_PUBLIC_URL__: JSON.stringify(`https://${name}.example.com`) },
       } as unknown as ResolvedConfig))
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(config)

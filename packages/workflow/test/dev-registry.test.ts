@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -13,7 +14,7 @@ import * as devRegistry from "../src/internal/dev-registry.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "../src/types.ts"
+import type { ResolvedWorkflowOptions, WorkflowOptions } from "../src/types.ts"
 
 let root: string | undefined
 
@@ -42,7 +43,7 @@ async function createApp(): Promise<string> {
 
 type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 
-function configHook(options?: WorkflowModuleOptions): ConfigHook {
+function configHook(options?: WorkflowOptions): ConfigHook {
   const hook = hubWorkflow(options).config
   if (!hook || typeof hook === "function") throw new TypeError("Expected the hubWorkflow config hook to be an object hook.")
   expect(hook.order).toBe("pre")
@@ -59,8 +60,8 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 
 describe("Workflow dev registry", () => {
   it("generates a Nitro plugin that installs the development registry", () => {
-    const code = createWorkflowDevPluginModule({ provider: "vercel" }, "vite-hub/_internal/workflow")
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "vite-hub/_internal/workflow/runtime/state"`)
+    const code = createWorkflowDevPluginModule({ provider: "vercel" })
+    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
     expect(code).toContain(`import registry from "./dev-registry.mjs"`)
     expect(code).toContain("setWorkflowRuntimeRegistry(registry)")
     expect(code).not.toContain("enableWorkflowDevRuns")
@@ -68,9 +69,9 @@ describe("Workflow dev registry", () => {
   })
 
   it("turns on the run history only in `vite dev`", () => {
-    const code = createWorkflowDevPluginModule({ provider: "vercel" }, "vite-hub/_internal/workflow", true)
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "vite-hub/_internal/workflow/runtime/state"`)
-    expect(code).toContain(`import { enableWorkflowDevRuns } from "vite-hub/_internal/workflow/runtime/dev-runs"`)
+    const code = createWorkflowDevPluginModule({ provider: "vercel" }, true)
+    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
+    expect(code).toContain(`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
     expect(code).toContain("  enableWorkflowDevRuns()\n")
   })
 
@@ -84,66 +85,37 @@ describe("Workflow dev registry", () => {
     const projectRoot = await createApp()
     await configHook(workflow)({ root: projectRoot }, { command: "serve", mode: "development" })
 
-    // Execute the generated plugin with only its external Nitro and runtime state imports stubbed.
+    // Execute the generated plugin with Nitro and the worker stubbed. It imports the real Workflow runtime state by file path.
     const nitroDir = join(projectRoot, "node_modules/nitro")
-    const stateDir = join(projectRoot, "node_modules/@vite-hub/workflow")
     await mkdir(nitroDir, { recursive: true })
-    await mkdir(stateDir, { recursive: true })
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
-    await writeFile(join(stateDir, "package.json"), JSON.stringify({ type: "module", exports: { "./runtime/dev-runs": "./dev-runs.mjs", "./runtime/openworkflow-worker": "./openworkflow-worker.mjs", "./runtime/state": "./state.mjs" } }))
-    await writeFile(join(stateDir, "state.mjs"), [
-      "export let config, devRuns, registry, worker",
-      "export const setWorkflowRuntimeConfig = value => { config = value }",
-      "export const setWorkflowRuntimeRegistry = value => { registry = value }",
-      "export const enableDevRuns = () => { devRuns = true }",
-      "export const installWorker = app => { worker = { app, config, registry } }",
+    const pluginFile = join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")
+    expect(await readFile(pluginFile, "utf8")).toContain(`from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
+    const workerFile = join(projectRoot, "worker.mjs")
+    await writeFile(workerFile, [
+      `import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
+      "export const installOpenWorkflow = app => { app.worker = { config: getWorkflowRuntimeConfig(), registry: getWorkflowRuntimeRegistry() } }",
     ].join("\n"))
-    await writeFile(join(stateDir, "dev-runs.mjs"), "import { enableDevRuns } from './state.mjs'\nexport const enableWorkflowDevRuns = enableDevRuns\n")
-    await writeFile(join(stateDir, "openworkflow-worker.mjs"), "import { installWorker } from './state.mjs'\nexport const installOpenWorkflow = installWorker\n")
-    const pluginUrl = pathToFileURL(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")).href
-    const stateUrl = pathToFileURL(join(stateDir, "state.mjs")).href
-    const { default: startup } = await import(/* @vite-ignore */ pluginUrl)
-    const nitroApp = { hooks: { hook: () => {} } }
+    await writeFile(pluginFile, (await readFile(pluginFile, "utf8")).replace(workflowRuntimeModule("openworkflow-worker"), workerFile))
+    const { default: startup } = await import(/* @vite-ignore */ pathToFileURL(pluginFile).href)
+    const nitroApp = { worker: undefined }
     await startup(nitroApp)
-    const state = await import(/* @vite-ignore */ stateUrl)
-    expect(state.config).toEqual(workflow)
-    expect(state.registry).toHaveProperty("welcome")
-    expect(state.devRuns).toBe(true)
-    if (workflow.provider === "openworkflow") {
-      // OpenWorkflow is installed after the runtime config and registry.
-      expect(state.worker).toEqual({ app: nitroApp, config: workflow, registry: state.registry })
-    }
-    else {
-      expect(state.worker).toBeUndefined()
-    }
+    const state = await import(/* @vite-ignore */ pathToFileURL(workflowRuntimeModule("state")).href) as typeof import("../src/runtime/state.ts")
+    expect(state.getWorkflowRuntimeConfig()).toEqual(workflow)
+    expect(state.getWorkflowRuntimeRegistry()).toHaveProperty("welcome")
+    expect(nitroApp.worker).toEqual(workflow.provider === "openworkflow" ? { config: workflow, registry: state.getWorkflowRuntimeRegistry() } : undefined)
   })
 
-  it("installs OpenWorkflow in the startup plugin only for the openworkflow provider", () => {
+  it("installs OpenWorkflow after the runtime config and registry only for its provider", () => {
     for (const workflow of [{ provider: "openworkflow" }, { provider: "openworkflow", worker: false }] satisfies ResolvedWorkflowOptions[]) {
-      const code = createWorkflowDevPluginModule(workflow, "vite-hub/workflow")
-      expect(code).toContain(`import { installOpenWorkflow } from "vite-hub/workflow/runtime/openworkflow-worker"`)
-      expect(code).toContain("export default definePlugin((nitroApp) => {")
+      const code = createWorkflowDevPluginModule(workflow)
+      expect(code).toContain(`import { installOpenWorkflow } from ${JSON.stringify(workflowRuntimeModule("openworkflow-worker"))}`)
       expect(code.indexOf("installOpenWorkflow(nitroApp)")).toBeGreaterThan(code.indexOf("setWorkflowRuntimeRegistry(registry)"))
     }
-
     for (const workflow of [{ provider: "vercel" }, { provider: "cloudflare" }] satisfies ResolvedWorkflowOptions[]) {
-      const code = createWorkflowDevPluginModule(workflow, "vite-hub/workflow")
-      expect(code).not.toContain("openworkflow-worker")
-      expect(code).not.toContain("installOpenWorkflow")
+      expect(createWorkflowDevPluginModule(workflow)).not.toContain("installOpenWorkflow")
     }
-  })
-
-
-  it("uses the config hook override when resolving runtime options", async () => {
-    const projectRoot = await createApp()
-    await configHook({ provider: "vercel" })({
-      root: projectRoot,
-      workflow: { provider: "openworkflow", sqlite: { path: ".data/override.sqlite" } },
-    }, { command: "serve", mode: "development" })
-    const plugin = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(plugin).toContain('"provider":"openworkflow"')
-    expect(plugin).toContain('"path":".data/override.sqlite"')
   })
 
   it("adds the registry plugin before Nitro reads its config in development", async () => {
@@ -200,19 +172,14 @@ describe("Workflow dev registry", () => {
     const finalConfig = changedOption === "root" ? { root: finalRoot } : { root: projectRoot, __vitehubProjectRoot: finalRoot }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(finalConfig)
     const nitroDir = join(projectRoot, "node_modules/nitro")
-    const stateDir = join(projectRoot, "node_modules/@vite-hub/workflow")
     await mkdir(nitroDir, { recursive: true })
-    await mkdir(stateDir, { recursive: true })
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
-    await writeFile(join(stateDir, "package.json"), JSON.stringify({ type: "module", exports: { "./runtime/dev-runs": "./dev-runs.mjs", "./runtime/state": "./state.mjs" } }))
-    await writeFile(join(stateDir, "state.mjs"), "export let registry; export const setWorkflowRuntimeConfig = () => {}; export const setWorkflowRuntimeRegistry = value => { registry = value }\n")
-    await writeFile(join(stateDir, "dev-runs.mjs"), "export const enableWorkflowDevRuns = () => {}\n")
     const { default: startup } = await import(/* @vite-ignore */ pathToFileURL(startupPath).href)
     await startup()
-    const state = await import(/* @vite-ignore */ pathToFileURL(join(stateDir, "state.mjs")).href)
-    expect(state.registry).toHaveProperty("latest")
-    expect(state.registry).not.toHaveProperty("welcome")
+    const state = await import(/* @vite-ignore */ pathToFileURL(workflowRuntimeModule("state")).href) as typeof import("../src/runtime/state.ts")
+    expect(state.getWorkflowRuntimeRegistry()).toHaveProperty("latest")
+    expect(state.getWorkflowRuntimeRegistry()).not.toHaveProperty("welcome")
     expect(await readFile(join(finalRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("latest")
   })
 
@@ -258,42 +225,26 @@ describe("Workflow dev registry", () => {
     await configHook({ provider: "vercel" })(build, { command: "build", mode: "production" })
     expect(build.nitro).toBeUndefined()
 
-    const disabled: Record<string, unknown> = { root: projectRoot, workflow: false }
-    await configHook()(disabled, { command: "serve", mode: "development" })
+    const disabled: Record<string, unknown> = { root: projectRoot }
+    await configHook(false)(disabled, { command: "serve", mode: "development" })
     expect(disabled.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain("setWorkflowRuntimeConfig(false)")
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain("welcome")
   })
 
-  it("installs the final enabled registry after an initially disabled config", async () => {
+  it.each<{ workflow: WorkflowOptions, provider: string }>([
+    { workflow: { provider: "vercel" }, provider: "vercel" },
+    { workflow: { provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, provider: "openworkflow" },
+  ])("reserves the Node build bootstrap for $provider", async ({ workflow, provider }) => {
     const projectRoot = await createApp()
-    const plugin = hubWorkflow(false)
-    const hook = plugin.config
-    if (!hook || typeof hook !== "object") throw new TypeError("Expected config hook")
-    type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<void>
-    const config: Record<string, unknown> = { root: projectRoot, workflow: false }
-    await (hook.handler as unknown as ConfigHook)(config, { command: "serve", mode: "development" })
-    expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: { provider: "vercel" } })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain('"provider":"vercel"')
-    expect(generated).not.toContain("setWorkflowRuntimeConfig(false)")
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
-  })
-
-  it.each<{ initial: WorkflowModuleOptions, final: WorkflowModuleOptions, provider: string }>([
-    { initial: false, final: { provider: "vercel" }, provider: "vercel" },
-    { initial: { provider: "cloudflare" }, final: { provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, provider: "openworkflow" },
-  ])("reserves the Node build bootstrap for a final $provider override", async ({ initial, final, provider }) => {
-    const projectRoot = await createApp()
-    const plugin = hubWorkflow(initial, { hosting: "node" })
+    const plugin = hubWorkflow(workflow, { hosting: "node" })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     const config: Record<string, unknown> = { root: projectRoot }
     await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
     expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: final })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain(`"provider":"${provider}"`)
     // A build never records runs, so the bootstrap does not import the history.
@@ -379,10 +330,10 @@ describe("Workflow dev registry", () => {
     [{ postgres: { url: "postgres://localhost/dev" }, provider: "openworkflow" }, { postgres: { url: "postgres://localhost/dev" }, provider: "openworkflow" }],
     [{ provider: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }, { provider: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }],
   ])("keeps OpenWorkflow in vite dev on local storage unless remote is set: %j", (workflow, installed) => {
-    const code = createWorkflowDevPluginModule(workflow, "vite-hub/workflow", true)
+    const code = createWorkflowDevPluginModule(workflow, true)
     expect(code).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(installed)})`)
     // A build uses the configuration as it is.
-    expect(createWorkflowDevPluginModule(workflow, "vite-hub/workflow")).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`)
+    expect(createWorkflowDevPluginModule(workflow)).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`)
   })
 
   it("keeps the run history out of the import graph of every published runtime entry", async () => {
@@ -415,11 +366,11 @@ describe("Workflow dev registry", () => {
     { hosting: "node", workflow: false },
   ] as const)("leaves the reserved build bootstrap inert for $hosting with $workflow", async ({ hosting, workflow }) => {
     const projectRoot = await createApp()
-    const plugin = hubWorkflow({}, { hosting })
+    const plugin = hubWorkflow(workflow, { hosting })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).not.toContain("setWorkflowRuntimeConfig")
     expect(generated).not.toContain("dev-registry.mjs")
@@ -436,32 +387,6 @@ describe("Workflow dev registry", () => {
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain('"provider":"vercel"')
     expect(generated).not.toContain("setWorkflowRuntimeConfig(false)")
-  })
-
-  it("disables the generated startup registry after a final Workflow override", async () => {
-    const projectRoot = await createApp()
-    const plugin = hubWorkflow({ provider: "vercel" })
-    const hook = plugin.config
-    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
-    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "serve", mode: "development" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: false })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain("setWorkflowRuntimeConfig(false)")
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain('"welcome"')
-  })
-
-  it("uses final Workflow config from later config hooks", async () => {
-    const projectRoot = await createApp()
-    const plugin = hubWorkflow({ provider: "vercel" })
-    const hook = plugin.config
-    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
-    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "serve", mode: "development" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({
-      root: projectRoot, workflow: { provider: "openworkflow", sqlite: { path: "./final-workflow.sqlite" } },
-    })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain('"provider":"openworkflow"')
-    expect(generated).toContain("./final-workflow.sqlite")
   })
 
   it.each(["nested", "external"])("watches Workflow additions and deletions in %s roots", async (layout) => {

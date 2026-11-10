@@ -4,7 +4,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
-import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { defaultOpenWorkflowSqlitePath } from "../internal/openworkflow-defaults.ts"
 
@@ -408,7 +408,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   name: string,
   payload: TPayload | undefined,
   definition: WorkflowDefinition<TPayload, TResult>,
-  options: WorkflowDeferOptions,
+  options: WorkflowStartOptions,
   onDispatch?: () => void,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
