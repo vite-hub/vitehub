@@ -802,10 +802,13 @@ export async function startConsoleAccount(options: { home: string, navigate: (ur
   const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
   const account = await loadConsoleAccount().catch(() => undefined)
   const storage = memoryProjectStorage()
+  let missingApp = false
   if (account) {
     // A link to one app, `/?app=<id>`, opens that app. Other links open the app that this browser used last.
     const requested = new URLSearchParams(options.search ?? "").get("app") ?? undefined
     if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
+    // An app of another team, or one that is gone, opens Home instead of another app.
+    else if (requested) missingApp = true
     const remembered = rememberedAccountProject(account.teamId)
     const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
     storage.setItem(consoleProjectsStorageKey, JSON.stringify({
@@ -819,6 +822,7 @@ export async function startConsoleAccount(options: { home: string, navigate: (ur
   const page = accountPageOf(options.pathname)
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }
   else if (page) started.gate.value = { kind: "home", page }
+  else if (missingApp) started.gate.value = { kind: "home", page: "home" }
 }
 
 /** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */

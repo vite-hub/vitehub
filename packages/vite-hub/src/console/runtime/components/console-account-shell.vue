@@ -3,13 +3,14 @@ import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, wat
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
-import { accountAppStatusLabels, checkConsoleAccountProject } from "../client/account";
-import { accountProjectPath, forgetConsoleProject, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountAppStatusLabels, canManageConsoleProjects, checkConsoleAccountProject } from "../client/account";
+import { accountProjectPath, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
 import ConsoleAccountSetup from "./console-account-setup.vue";
+import ConsoleAccountUnlink from "./console-account-unlink.vue";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleToaster from "./console-toaster.vue";
@@ -26,9 +27,12 @@ const gate = projects.gate;
 const account = computed(() => projects.account.value);
 const team = computed(() => account.value?.teams.find(item => item.id === account.value?.teamId));
 const apps = computed<ConsoleAccountProject[]>(() => account.value?.projects ?? []);
+// Only owners and admins link apps, so only they see the controls for it.
+const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const status = reactive<Record<string, ConsoleAccountAppStatus>>({});
 const busy = ref(false);
 const navOpen = ref(false);
+const unlinking = ref(false);
 
 const page = computed(() => {
   if (gate.value.kind === "home") return gate.value.page;
@@ -127,7 +131,7 @@ async function retry(): Promise<void> {
 
         <div class="vitehub-console__section-heading vitehub-account-shell__heading">
           <span>Apps</span>
-          <UTooltip text="Link an app">
+          <UTooltip v-if="manage" text="Link an app">
             <UButton icon="i-lucide-plus" size="xs" variant="ghost" color="neutral" aria-label="Link an app" @click="projects.linkOpen.value = true" />
           </UTooltip>
         </div>
@@ -143,7 +147,7 @@ async function retry(): Promise<void> {
           <span class="min-w-0 flex-1 truncate">{{ appName(app) }}</span>
           <span class="sr-only">, {{ accountAppStatusLabels[status[app.id] ?? 'checking'] }}</span>
         </a>
-        <button v-if="!apps.length" type="button" class="vitehub-console__section-link" @click="projects.linkOpen.value = true">
+        <button v-if="!apps.length && manage" type="button" class="vitehub-console__section-link" @click="projects.linkOpen.value = true">
           <UIcon name="i-lucide-link" class="vitehub-console__section-icon" />
           <span class="truncate">Link your first app</span>
         </button>
@@ -166,7 +170,7 @@ async function retry(): Promise<void> {
 
     <UDashboardPanel id="console-account-page" :ui="{ body: 'p-0 sm:p-0' }">
       <template #header>
-        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :toggle="{ 'aria-label': 'Open navigation' }">
+        <UDashboardNavbar :as="{ title: 'div' }" :ui="{ root: 'border-b border-default' }" :toggle="{ 'aria-label': 'Open navigation' }">
           <template #title>
             <span class="flex min-w-0 items-center gap-2 text-sm">
               <template v-if="page !== 'settings'">
@@ -183,7 +187,7 @@ async function retry(): Promise<void> {
           <ConsoleAccountHome v-if="page === 'home'" :status="status" />
           <ConsoleAccountTeam v-else-if="page === 'team'" />
           <ConsoleAccountSettings v-else-if="page === 'settings'" />
-          <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" />
+          <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
           <div v-else-if="gate.kind === 'problem'" class="grid max-w-2xl gap-6">
             <header class="grid gap-1" role="alert">
               <h2 class="text-xl font-semibold text-highlighted">{{ gate.problem.title }}</h2>
@@ -192,8 +196,9 @@ async function retry(): Promise<void> {
             </header>
             <div class="flex flex-wrap gap-2">
               <UButton icon="i-lucide-refresh-cw" label="Try again" :loading="busy" @click="retry" />
-              <UButton v-if="projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" label="Unlink this app" @click="forgetConsoleProject(projects.current.value.id)" />
+              <UButton v-if="projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" label="Unlink this app" @click="unlinking = true" />
             </div>
+            <ConsoleAccountUnlink v-if="projects.current.value?.id" v-model:open="unlinking" :project-id="projects.current.value.id" :name="appName(projects.current.value)" />
           </div>
         </main>
       </template>
@@ -251,7 +256,8 @@ async function retry(): Promise<void> {
   background: var(--ui-success);
 }
 
-.vitehub-account-shell__dot[data-status="setup"] {
+.vitehub-account-shell__dot[data-status="setup"],
+.vitehub-account-shell__dot[data-status="unconfigured"] {
   background: var(--ui-warning);
 }
 

@@ -9,7 +9,7 @@ import ConsoleAccountSnippet from "./console-account-snippet.vue";
 
 /**
  * Home of an `account` Console. Until the team has a connected app, it is the setup checklist, and the first app is
- * linked here without a dialog. After that, it lists the apps, and the checklist folds into one row.
+ * linked here without a dialog. After that, it lists the apps.
  */
 const props = defineProps<{ status: Record<string, ConsoleAccountAppStatus> }>();
 
@@ -30,7 +30,7 @@ const linked = computed(() => apps.value.length > 0);
 const connected = computed(() => apps.value.some(app => props.status[app.id] === "connected"));
 const checking = computed(() => apps.value.some(app => props.status[app.id] === "checking"));
 // The app that step 3 opens: one that is not connected and not still being checked.
-const setupApp = computed(() => apps.value.find(app => props.status[app.id] === "setup" || props.status[app.id] === "unreachable"));
+const setupApp = computed(() => apps.value.find(app => ["setup", "unconfigured", "unreachable"].includes(props.status[app.id] ?? "checking")));
 // The required steps. Inviting people is optional, so it is not a step and does not count.
 const steps = computed(() => [
   { id: "account", done: true },
@@ -107,7 +107,8 @@ async function link(): Promise<void> {
       </div>
       <p class="text-sm text-pretty text-muted">
         <template v-if="linked">One step left. When the app accepts its token, its Console opens here for everyone in {{ teamName }}.</template>
-        <template v-else>{{ teamName }} is ready. Link an app to open its Console here, for everyone in the team, in any browser.</template>
+        <template v-else-if="manage">{{ teamName }} is ready. Link an app to open its Console here, for everyone in the team, in any browser.</template>
+        <template v-else>{{ teamName }} has no apps yet. Ask an owner or admin of the team to link one. It then opens here for you.</template>
       </p>
     </header>
 
@@ -271,10 +272,14 @@ async function link(): Promise<void> {
   padding-top: 1.25rem;
 }
 
-/* On a phone, the code and the form use the width under the step number too. */
+/* On a phone, the code and the form use the width under the step number too, so the open step has no rail. */
 @media (max-width: 639px) {
   .vitehub-account-step__wide {
     margin-inline-start: -2.5rem;
+  }
+
+  .vitehub-account-step[data-active] .vitehub-account-step__line {
+    visibility: hidden;
   }
 }
 

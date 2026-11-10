@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleSignInMethods } from "../client/account";
-import { acceptConsoleInvitation, loadConsoleSignInMethods, signInWithGitHub, signInWithPasskey, signUpWithPasskey } from "../client/account";
+import { acceptConsoleInvitation, linkConsoleGitHub, loadConsoleSignInMethods, signInWithGitHub, signInWithPasskey, signUpWithPasskey } from "../client/account";
 import { reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
 
 /**
@@ -63,10 +63,12 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
   <template v-if="account && invitation">
     <div class="grid gap-1.5">
       <h1 class="vitehub-project-gate__title">Join a team</h1>
-      <p class="vitehub-project-gate__text">You are signed in as {{ account.user.name }}. Accept the invitation to open the apps of its team.</p>
+      <p v-if="account.hasEmail" class="vitehub-project-gate__text">You are signed in as {{ account.user.name }}. Accept the invitation to open the apps of its team.</p>
+      <p v-else class="vitehub-project-gate__text">Invitations go to the email of a GitHub account, and {{ account.user.name }} signs in with a passkey only. Connect GitHub, and this page opens again to accept.</p>
     </div>
     <div class="flex flex-wrap gap-2">
-      <UButton label="Accept invitation" :loading="busy === 'accept'" @click="run('accept', () => acceptConsoleInvitation(invitation!))" />
+      <UButton v-if="account.hasEmail" label="Accept invitation" :loading="busy === 'accept'" @click="run('accept', () => acceptConsoleInvitation(invitation!))" />
+      <UButton v-else icon="i-lucide-github" label="Connect GitHub" :loading="busy === 'github'" @click="run('github', () => linkConsoleGitHub(`${projects.pageOrigin}${invitationPath}`))" />
       <UButton color="neutral" variant="ghost" label="Not now" @click="reloadConsoleAccount" />
     </div>
   </template>
@@ -74,7 +76,8 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
   <template v-else>
     <div class="grid gap-1.5">
       <h1 class="text-xl/7 font-semibold text-balance text-highlighted">{{ creating ? "Create your account" : invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
-      <p class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
+      <p v-if="invitation" class="vitehub-project-gate__text">This invitation is for a GitHub account. Continue with GitHub to accept it.</p>
+      <p v-else class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
     </div>
 
     <div v-if="!creating" class="grid gap-2">
@@ -98,7 +101,8 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
         :loading="busy === 'passkey'"
         @click="run('passkey', signInWithPasskey)"
       />
-      <p v-if="passkeys" class="mt-2 text-sm text-muted">
+      <!-- A new passkey account has no email, so it cannot accept an invitation. Invitation pages do not offer it. -->
+      <p v-if="passkeys && !invitation" class="mt-2 text-sm text-muted">
         New to ViteHub?
         <button ref="createLink" type="button" class="vitehub-account-sign-in__create" @click="creating = true">Create an account with a passkey</button>
       </p>

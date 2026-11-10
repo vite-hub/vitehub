@@ -41,13 +41,12 @@ async function link(): Promise<void> {
     <template #body>
       <form id="vitehub-account-link" class="grid gap-4" @submit.prevent="link">
         <ConsoleAccountSnippet />
-        <UFormField label="App URL" name="url" required>
+        <UFormField label="App URL" name="url" required :error="problem">
           <UInput v-model="url" required type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" class="w-full" autofocus />
         </UFormField>
         <UFormField label="Name" name="label" hint="Optional">
           <UInput v-model="label" class="w-full" />
         </UFormField>
-        <p v-if="problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
       </form>
     </template>
     <template #footer>

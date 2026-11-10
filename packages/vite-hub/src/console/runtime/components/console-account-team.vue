@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { canManageConsoleProjects, cancelConsoleInvitation, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
@@ -88,6 +88,8 @@ async function remove(): Promise<void> {
     toast.show({ title: `${member.user.name} removed from ${team.value?.name ?? "the team"}` });
     removing.value = undefined;
     await load();
+    // The removed row took its button along, so focus goes to the list heading once the dialog has closed.
+    void nextTick(() => setTimeout(() => document.getElementById("vitehub-team-members")?.focus(), 300));
   }
   catch (error) {
     toast.show({ title: error instanceof Error ? error.message : "Try again." });
@@ -132,7 +134,7 @@ async function rename(): Promise<void> {
     </section>
 
     <section class="grid gap-3" aria-labelledby="vitehub-team-members">
-      <h2 id="vitehub-team-members" class="text-sm font-semibold text-highlighted">
+      <h2 id="vitehub-team-members" tabindex="-1" class="text-sm font-semibold text-highlighted outline-none">
         People <span v-if="details" class="font-normal tabular-nums text-muted">{{ details.members.length }}</span>
       </h2>
       <p v-if="loadProblem" role="alert" class="text-[13px] text-error">{{ loadProblem }}</p>

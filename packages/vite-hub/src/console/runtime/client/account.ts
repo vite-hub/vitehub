@@ -256,14 +256,19 @@ export async function renameConsoleAccount(name: string): Promise<void> {
   if (error) throw failure(error, "The name was not saved.")
 }
 
-/** What the Console knows about a linked app: it answers with its token, it still needs its variable, or it does not answer. */
-export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unreachable"
+/**
+ * What the Console knows about a linked app: it accepts its token, it refuses the token (`setup`: the variable is missing
+ * or old), it answers but not as a Console app (`unconfigured`: no `console: { auth: "token" }`, or another error), or
+ * the Console cannot reach it.
+ */
+export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unconfigured" | "unreachable"
 
 /** What each status says, in the sidebar and on Home. */
 export const accountAppStatusLabels: Record<ConsoleAccountAppStatus, string> = {
   checking: "Checking",
   connected: "Connected",
   setup: "Variable not set",
+  unconfigured: "Not connected",
   unreachable: "Not reachable",
 }
 
@@ -282,7 +287,10 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
   if (result.linked) return { status: "connected", code: result.status }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
-  return { status: variableProblems.has(String(answerCode)) ? "setup" : "unreachable", code: result.status }
+  const code = String(answerCode)
+  // The Console server answers for the app when it cannot reach it, with a `CONSOLE_FORWARD_` code.
+  const status = variableProblems.has(code) ? "setup" : code.startsWith("CONSOLE_FORWARD_") ? "unreachable" : "unconfigured"
+  return { status, code: result.status }
 }
 
 /** Link an app to the active team. The answer names the variable and the hash to set on the app. */

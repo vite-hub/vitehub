@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
-import type { ConsoleAccountProject } from "../client/account";
+import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import { checkConsoleAccountProject } from "../client/account";
-import { forgetConsoleProject, openAccountProject } from "../client/project-session";
+import { openAccountProject } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleAccountUnlink from "./console-account-unlink.vue";
 
 /**
  * The step after linking an app to an `account` Console: the app must keep the hash of its token. The page shows the
  * line to set, and asks the Console server to check the app again.
  */
 const props = defineProps<{ project: ConsoleAccountProject }>();
+const emit = defineEmits<{ checked: [status: ConsoleAccountAppStatus] }>();
 
 const busy = ref(false);
 const copyState = ref<"copied" | "failed">();
@@ -31,18 +33,18 @@ async function check(): Promise<void> {
   const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date());
   try {
     const answer = await checkConsoleAccountProject(props.project.id);
+    emit("checked", answer.status);
     if (answer.status === "connected") {
       openAccountProject(props.project.id);
       return;
     }
-    result.value = answer.status === "setup"
-      ? `Checked at ${time}. ${host.value} does not accept the token yet. Set this variable, redeploy, and check again.`
-      : answer.code >= 500
-        ? `Checked at ${time}. ${host.value} returned a server error. Check its logs and try again.`
-        : `Checked at ${time}. ${host.value} answered ${answer.code}.`;
+    if (answer.status === "setup") result.value = `Checked at ${time}. ${host.value} does not accept the token yet. Set this variable, redeploy, and check again.`;
+    else if (answer.status === "unreachable") result.value = `Checked at ${time}. The Console could not reach ${host.value}. Check the URL and that the app is deployed.`;
+    else if (answer.code >= 500) result.value = `Checked at ${time}. ${host.value} returned a server error. Check its logs and try again.`;
+    else result.value = `Checked at ${time}. ${host.value} is not set up for the Console yet. Add console: { auth: 'token' }, redeploy, and check again.`;
   }
   catch {
-    result.value = `Checked at ${time}. The Console could not reach ${host.value}.`;
+    result.value = `Checked at ${time}. The Console did not answer. Check your connection and try again.`;
   }
   busy.value = false;
 }
@@ -79,18 +81,6 @@ async function check(): Promise<void> {
       <p role="status" class="text-[13px] leading-5 text-muted">{{ result }}</p>
     </div>
 
-    <UModal
-      v-model:open="unlinking"
-      :title="`Unlink ${name}?`"
-      description="The variable you set stops working. Linking the app again makes a new one."
-      :ui="{ content: 'sm:max-w-[440px]' }"
-    >
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Cancel" @click="unlinking = false" />
-          <UButton color="error" :label="`Unlink ${name}`" @click="forgetConsoleProject(project.id)" />
-        </div>
-      </template>
-    </UModal>
+    <ConsoleAccountUnlink v-model:open="unlinking" :project-id="project.id" :name="name" />
   </div>
 </template>

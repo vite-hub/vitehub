@@ -41,9 +41,10 @@ async function copy(): Promise<void> {
         :aria-label="`Copy ${snippet.file}`"
         @click="copy"
       />
-      <span role="status" class="sr-only">{{ copyState === "copied" ? "Copied" : copyState === "failed" ? "The browser blocked the clipboard" : "" }}</span>
+      <span role="status" class="sr-only">{{ copyState === "copied" ? "Copied" : copyState === "failed" ? "The browser blocked the clipboard. Select the code and copy it." : "" }}</span>
     </div>
     <pre class="overflow-x-auto p-3 font-mono text-xs leading-5 text-default">{{ snippet.code }}</pre>
+    <p v-if="copyState === 'failed'" class="border-t border-default px-3 py-2 text-[13px] text-error">The browser blocked the clipboard. Select the code and copy it.</p>
   </div>
 </template>
 

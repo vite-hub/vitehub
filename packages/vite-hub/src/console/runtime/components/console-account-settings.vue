@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsolePasskey } from "../client/account";
 import { addConsolePasskey, deleteConsolePasskey, linkConsoleGitHub, listConsolePasskeys, listConsoleSignInProviders, loadConsoleSignInMethods, renameConsoleAccount } from "../client/account";
@@ -61,7 +61,10 @@ async function removePasskey(): Promise<void> {
   const passkey = removing.value;
   if (!passkey) return;
   await run(passkey.id, () => deleteConsolePasskey(passkey.id), "Passkey removed");
+  const removed = !passkeys.value?.some(item => item.id === passkey.id);
   removing.value = undefined;
+  // The removed row took its button along, so focus goes to the list heading once the dialog has closed.
+  if (removed) void nextTick(() => setTimeout(() => document.getElementById("vitehub-settings-sign-in")?.focus(), 300));
 }
 
 async function save(): Promise<void> {
@@ -99,7 +102,7 @@ function added(value: string | undefined): string {
 
     <section class="grid gap-3" aria-labelledby="vitehub-settings-sign-in">
       <div class="flex items-center justify-between gap-2">
-        <h2 id="vitehub-settings-sign-in" class="text-sm font-semibold text-highlighted">Sign-in methods</h2>
+        <h2 id="vitehub-settings-sign-in" tabindex="-1" class="text-sm font-semibold text-highlighted outline-none">Sign-in methods</h2>
         <UButton v-if="passkeySupport" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Add a passkey" :loading="busy === 'passkey'" @click="run('passkey', addConsolePasskey, 'Passkey added')" />
       </div>
       <ul class="vitehub-account-list">
