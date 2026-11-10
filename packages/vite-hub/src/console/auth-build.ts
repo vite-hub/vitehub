@@ -144,7 +144,7 @@ export function consoleAuthMiddlewareFile(root: string): string {
 async function writeCloudflareAccessMiddleware(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL: string): Promise<CloudflareAccessConsoleAuthHandlers> {
   const middleware = consoleAuthMiddlewareFile(root)
   await writeFileIfChanged(middleware, [
-    'import { resolveServerEnv } from "vite-hub/env/server"',
+    'import { resolveServerEnv } from "vite-hub/env"',
     'import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access"',
     `const settings = JSON.parse(${JSON.stringify(JSON.stringify(config.settings))})`,
     "export default function viteHubConsoleAuthMiddleware(event) {",

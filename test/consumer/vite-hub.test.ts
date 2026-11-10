@@ -1271,7 +1271,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ]))
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
-          import { runBrowserContent } from "@vite-hub/browser/actions"
+          import { runBrowserContent } from "@vite-hub/browser"
           export async function load() {
             return await runBrowserContent("https://example.com")
           }
@@ -1448,7 +1448,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       await run("pnpm", ["run", "typecheck"], appDir)
       const generatedEnvTypes = await readFile(join(appDir, ".vitehub/env/server.d.ts"), "utf8")
-      expect(generatedEnvTypes).toContain('import("vite-hub/env/server").EnvAccessContext')
+      expect(generatedEnvTypes).toMatch(/import\("[^"\n]*[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"\)\.EnvAccessContext/)
       expect(generatedEnvTypes).not.toContain('import("@vite-hub/env/bridge")')
       await writeFile(join(appDir, "env-typecheck.json"), JSON.stringify({
         compilerOptions: {
@@ -1613,7 +1613,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(authServerTypes).toContain("vite-hub/auth/server")
       // The Blob plugin imports its runtime state by file path, not through a package export.
       expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
-      expect(envServer).toContain("vite-hub/env/server")
+      expect(envServer).toMatch(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"/)
       expect(scheduleRegistryTypes).toContain("vite-hub/schedule")
 
       expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
@@ -1671,7 +1671,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       // The Blob plugin imports its runtime state by file path, not through a package export.
       expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(emailTemplate).toContain("Welcome")
-      expect(envServer).toContain("vite-hub/env/server")
+      expect(envServer).toMatch(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"/)
       expect(workflowRegistry).toMatch(/[\\/]agent[\\/]dist[\\/]runtime[\\/]workflow\.js"/)
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
       expect(workflowRegistry).toMatch(/[\\/]workflow[\\/]dist[\\/]runtime[\\/]execute\.js"/)

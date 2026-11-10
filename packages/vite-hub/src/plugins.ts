@@ -244,6 +244,7 @@ function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImport
 
 // One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
+const envServerRuntimeImport = fileURLToPath(import.meta.resolve("@vite-hub/env/internal/server"))
 
 function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
   return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
@@ -1223,8 +1224,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         // Declared here so the Console Env page shows it, and the observability plugin reads it at startup.
         ...(observabilityOptions.posthog ? { server: { ...options.env ? options.env.server : undefined, observability: { posthog: { apiKey: observabilityOptions.posthog.apiKey } } } } : {}),
         runtimeImports: {
-          secret: "vite-hub/env/secret",
-          server: "vite-hub/env/server",
+          secret: "vite-hub/env",
+          server: envServerRuntimeImport,
           ...options.env?.runtimeImports,
         },
       })
@@ -1414,7 +1415,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: envServerRuntimeImport,
       workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
     } as EmailOptions))
   }
