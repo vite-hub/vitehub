@@ -55,6 +55,20 @@ describe("Auth Nuxt integration", () => {
     expect(declarations.join("\n")).toContain('auth?: import("@vite-hub/auth/nuxt").AuthPageMeta')
   })
 
+  it("links the definePageMeta({ auth }) type to the docs page that explains the page guard", async () => {
+    const hooks = new Map<string, (input: { declarations: string[] }) => void>()
+    const nuxt = { ...createNuxt(), hook: (name: string, handler: (input: { declarations: string[] }) => void) => hooks.set(name, handler) }
+    hubAuthNuxt({ env: false }, nuxt as never)
+    const declarations: string[] = []
+    hooks.get("prepare:types")?.({ declarations })
+
+    const path = /https:\/\/vitehub\.dev(\/docs\/[\w/-]+)/.exec(declarations.join("\n"))?.[1]
+    expect(path).toBe("/docs/auth/protect-pages")
+    const page = await readFile(new URL(`../../../docs/content${path}.md`, import.meta.url), "utf8")
+    expect(page).toContain("definePageMeta({ auth: 'user' })")
+    expect(page).toContain("definePageMeta({ auth: 'guest' })")
+  })
+
   it.each([false, { redirects: { login: "/module-login", guest: "/module-home" } }] as const)("uses module Auth options and ignores top-level Vite Auth %j", (auth) => {
     const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt", auth: { redirects: { login: "/sign-in", guest: "/home" } } }, runtimeConfig: {} } }
 
