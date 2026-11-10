@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: ENV_R0007 and ENV_R0024.
 export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
@@ -14,7 +15,6 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0004: dynamicError,
     ENV_R0005: dynamicError,
     ENV_R0006: dynamicError,
-    ENV_R0007: dynamicError,
     ENV_R0008: dynamicError,
     ENV_R0009: dynamicError,
     ENV_R0010: dynamicError,
@@ -31,7 +31,6 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0021: dynamicError,
     ENV_R0022: dynamicError,
     ENV_R0023: dynamicError,
-    ENV_R0024: dynamicError,
     ENV_R0025: dynamicError,
     ENV_R0026: dynamicError,
     ENV_R0027: dynamicError,
