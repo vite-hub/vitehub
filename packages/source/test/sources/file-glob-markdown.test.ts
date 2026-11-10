@@ -4,11 +4,8 @@ import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { clearSources, createSource, defineSources, registerSources, useSource } from "../../src/index.ts"
-import { file } from "../../src/file.ts"
-import type { FileSourceOptions } from "../../src/file.ts"
-import { glob } from "../../src/glob.ts"
-import { markdown } from "../../src/markdown.ts"
+import { clearSources, createSource, defineSources, file, glob, markdown, registerSources, useSource } from "../../src/index.ts"
+import type { FileSourceOptions } from "../../src/index.ts"
 
 const tempDirs: string[] = []
 

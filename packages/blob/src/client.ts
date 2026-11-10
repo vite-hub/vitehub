@@ -2,6 +2,9 @@
 // stay thin.
 import type { BlobMultipartPart, BlobObject } from "./types.ts"
 
+// Check a file's leading bytes in the browser before upload. The server root exports the same function.
+export { detectContentType } from "./content-type.ts"
+
 /** A `BlobObject` after JSON serialization: `uploadedAt` is an ISO string. */
 export type SerializedBlobObject = Omit<BlobObject, "uploadedAt"> & { uploadedAt: string }
 
