@@ -69,7 +69,7 @@ The loader, `loadViteHubPageTools()` from `@vite-hub/internal/runtime/page-tools
 
 A failed startup aborts that attempt's `signal` and removes its retained windows and exit guards. A failed tool, eager or lazy, keeps a retry button and receives a fresh context on retry. The pill remains while a tool is mounted or available to launch or retry. `stopViteHubPageTools()` aborts every tool's `signal` and removes the pill or the off mark with their page watchers, but keeps the browser's choices. Tests call it before their window closes. The retained-window APIs are described below. The loader runs only in the browser, so `tsconfig.browser.json` checks it with the DOM library. The names and the session reader that the server and the loader share are in `@vite-hub/internal/runtime/page-tools-shared`. This API is internal: apps do not use it.
 
-The Console and Comments are the page tools today. The Console registers `console`, a window that shows the Console in a same-origin frame, and `content`, the same window on the Content editor, for requests that its access policy accepts.
+Comments is the page tool today.
 
 Owner packages expose inspection data through `vitehub.inspect` on their Vite plugin. The contributor returns `definitions` inspectors and `providerOutput` entries from `@vite-hub/internal/inspect`. `vitehub inspect` and the Console render that data. They do not own it.
 
