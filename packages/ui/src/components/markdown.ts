@@ -6,6 +6,7 @@ import alert from "@comark/vue/plugins/alert";
 import attributes from "@comark/vue/plugins/attributes";
 import components from "@comark/vue/plugins/components";
 import frontmatter from "@comark/vue/plugins/frontmatter";
+import linkify from "@comark/vue/plugins/linkify";
 import taskList from "@comark/vue/plugins/task-list";
 import { defineComponent, getCurrentInstance, h, shallowRef, Suspense, type PropType } from "vue";
 import { markdownMath } from "../internal/markdown-math.ts";
@@ -83,9 +84,9 @@ export const Markdown = defineComponent({
     const defaults = useViteHubUI();
     return () => {
       const parserOptions = { ...props.options };
-      delete parserOptions.html;
       const builtInPlugins = [
         frontmatter(),
+        linkify(),
         alert(),
         taskList(),
         components(),
