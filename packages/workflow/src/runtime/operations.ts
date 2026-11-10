@@ -34,9 +34,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
-// Check the fields that the view reads, so a Response from another Fetch implementation also matches.
+/**
+ * Checks the Fetch Response fields, not one realm's constructor, so a Response from another Fetch implementation also
+ * matches. `status` and `headers` alone also match an HTTP client result, such as an Axios response, so the body fields
+ * are checked too. The Agent package has the same check.
+ */
 function isResponse(value: unknown): value is Response {
-  return isRecord(value) && typeof value.status === "number" && isRecord(value.headers) && typeof value.headers.get === "function"
+  if (typeof value !== "object" || value === null) return false
+  // SAFETY: each field is checked before the value is narrowed.
+  const response = value as { bodyUsed?: unknown, clone?: unknown, headers?: { get?: unknown } | null, status?: unknown, text?: unknown }
+  return typeof response.status === "number"
+    && typeof response.headers?.get === "function"
+    && typeof response.bodyUsed === "boolean"
+    && typeof response.clone === "function"
+    && typeof response.text === "function"
 }
 
 function jsonReplacer(_key: string, value: unknown): unknown {
