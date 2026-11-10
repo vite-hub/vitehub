@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
-import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
+import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { resolveConsoleClient } from "./client.ts"
@@ -84,6 +84,7 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "console", name: "console" },
   { exportName: "agentDb", name: "db" },
   { exportName: "email", name: "email" },
+  { exportName: "agentI18n", name: "i18n" },
   { exportName: "kv", name: "kv" },
 ]
 
@@ -170,20 +171,45 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
 }
 
+/** What the generated Console Nitro plugin installs. The Nuxt module and the Vite plugin both write it with these options. */
+export interface ConsoleNitroPluginOptions {
+  /** The generated plugin file. */
+  file: string
+  projectRoot: string
+  sections: readonly ConsoleSectionId[]
+  /** The discovered Agents, Schedules, operations, and section content. */
+  catalog: ConsoleBuildCatalog
+  blobStores: readonly string[]
+  /** Let the Console start Agent Invocations and run manual Schedules. */
+  invoke?: boolean
+  /** Write nothing when this returns `false`, such as after the dev server closed. */
+  active?: () => boolean
+  /** The Console Auth mode that the generated handlers serve, or `false` without Console Auth. */
+  independentAuth?: true | "cloudflare-access" | false
+  access?: ConsoleAccessBuild
+  runtimeCapabilityImports?: Record<string, false | string>
+  development?: boolean
+  applicationBase?: string
+  /** Add the Console link to the page tools pill. */
+  pageTools?: boolean
+}
+
 function renderConsoleNitroPlugin(
-  projectRoot: string,
-  configuredSections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  invoke = false,
-  independentAuth: true | "cloudflare-access" | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-  development = false,
-  applicationBase = "/",
-  pageTools = true,
+  {
+    projectRoot,
+    sections: configuredSections,
+    catalog,
+    blobStores,
+    invoke = false,
+    independentAuth = false,
+    access,
+    runtimeCapabilityImports,
+    development = false,
+    applicationBase = "/",
+    pageTools = true,
+  }: ConsoleNitroPluginOptions,
 ): string {
+  const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
@@ -273,25 +299,12 @@ function renderConsoleNitroPlugin(
   ].join("\n")
 }
 
-export async function writeConsoleNitroPlugin(
-  file: string,
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  invoke = false,
-  active: () => boolean = () => true,
-  independentAuth: true | "cloudflare-access" | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-  development = false,
-  applicationBase = "/",
-  pageTools = true,
-): Promise<string> {
+/** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
+export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
+  const { file, projectRoot, active = () => true } = options
   const identity = createConsoleInvocationsIdentity(projectRoot)
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, invoke, independentAuth, access, runtimeCapabilityImports, development, applicationBase, pageTools)
+  const rendered = renderConsoleNitroPlugin(options)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

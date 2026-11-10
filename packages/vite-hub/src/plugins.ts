@@ -1301,6 +1301,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
+    i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email/server" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1583,6 +1584,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
+    disabledTypeFiles: workflowEnabled ? [] : ["workflow.d.ts"],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. These plugins run its config hooks after ViteHub's, whether `vitehub()` includes Nitro
