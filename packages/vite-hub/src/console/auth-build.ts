@@ -302,8 +302,9 @@ export async function writeConsoleConnectionsActor(root: string, sessionActorMod
   await writeFileIfChanged(file, [
     'import { consoleConnectionsActor } from "vite-hub/console/sections"',
     ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
-    "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
+    // The Request carries the Standard Context of the event, so the Console access policy reads it like an event.
+    "export default function viteHubConsoleConnectionsActor(request) {",
+    `  return consoleConnectionsActor(request${sessionActorModule ? ', async () => { const user = await readConsoleUser(request); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))
