@@ -2,16 +2,19 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { ref } from "vue"
+import { createSSRApp, defineComponent, h, ref } from "vue"
+import { renderToString } from "vue/server-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import hubAuthNuxt from "../src/nuxt.ts"
+import { useUserSession } from "../src/vue.ts"
 
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
 import type { createAuthClient } from "../src/vue.ts"
 
 type Route = { fullPath: string, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
+type App = { runWithContext: <T>(run: () => T) => T, payload: { prerenderedAt?: number } }
 type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { login: string, guest: string } } }
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   state: { value: undefined as unknown },
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
+  app: {} as App,
   requestFetch: vi.fn(),
   getSession: vi.fn(),
   useSession: vi.fn(),
@@ -31,7 +35,7 @@ vi.mock("#app", () => ({
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = middleware },
   navigateTo: mocks.navigateTo,
-  tryUseNuxtApp: () => ({ runWithContext: <T>(run: () => T) => run() }),
+  tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
   useRequestFetch: () => mocks.requestFetch,
   useRuntimeConfig: () => mocks.config,
@@ -46,7 +50,7 @@ vi.mock("better-auth/vue", () => ({
 }))
 
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
-  default: { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
+  default: { setup: (app: { payload: typeof mocks.payload }) => { provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined }
 }
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
@@ -54,9 +58,10 @@ const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
-  mocks.state.value = undefined
+  mocks.state = { value: undefined }
   mocks.event = { req: { headers: new Headers({ cookie: "vitehub_session=1" }) }, res: { headers: new Headers() } }
   mocks.payload = {}
+  mocks.app = { runWithContext: run => run(), payload: mocks.payload }
   mocks.middleware = undefined
   mocks.getSession.mockResolvedValue({ data: session })
   mocks.useSession.mockReturnValue(ref({ data: null, isPending: true }))
@@ -79,6 +84,15 @@ async function configure(basePath?: string, appBaseURL = "/") {
 }
 
 const userPage: Route = { fullPath: "/private", meta: { auth: "user" } }
+
+/** Renders a page on the server with `count` components that call `useUserSession()`. */
+function renderPage(count: number): Promise<string> {
+  const User = defineComponent(() => {
+    const { user } = useUserSession()
+    return () => h("span", user.value?.id ?? "guest")
+  })
+  return renderToString(createSSRApp(() => h("main", Array.from({ length: count }, () => h(User)))))
+}
 
 describe("Nuxt session and page guard", () => {
   it.each(["server", "browser"])("skips session requests and middleware when Auth is disabled in the %s", async (host) => {
@@ -108,8 +122,8 @@ describe("Nuxt session and page guard", () => {
 
     await plugin.setup({ payload: mocks.payload })
 
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
     expect(mocks.requestFetch).toHaveBeenCalledWith(`${mountedPath}/get-session`, expect.anything())
-    expect(mocks.middleware?.(userPage)).toBeUndefined()
     expect(mocks.navigateTo).not.toHaveBeenCalled()
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
@@ -124,6 +138,51 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
+  })
+
+  it("does not read the session for an SSR page without a page guard or a session composable", async () => {
+    await plugin.setup(mocks.app)
+
+    expect(await mocks.middleware?.({ fullPath: "/", meta: {} })).toBeUndefined()
+    expect(await renderPage(0)).toBe("<main></main>")
+    expect(mocks.requestFetch).not.toHaveBeenCalled()
+    expect(mocks.state.value).toBeUndefined()
+  })
+
+  it("reads the session once for an SSR page with a page guard and session composables", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(await renderPage(2)).toBe("<main><span>u</span><span>u</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
+    expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
+  })
+
+  it("reads the session once for SSR components without a page guard, and renders the user", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+
+    expect(await renderPage(2)).toBe("<main><span>u</span><span>u</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
+    // The payload seeds the browser's composables, without the session token.
+    expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
+  })
+
+  it("keeps the session read of each SSR request apart", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    const first = { app: { ...mocks.app }, state: { value: undefined as unknown } }
+    const second = { app: { ...mocks.app }, state: { value: undefined as unknown } }
+    await plugin.setup(first.app)
+    await plugin.setup(second.app)
+
+    for (const request of [first, second]) {
+      mocks.app = request.app
+      mocks.state = request.state
+      expect(await renderPage(1)).toBe("<main><span>u</span></main>")
+    }
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(2)
+    expect(first.state.value).toEqual(second.state.value)
   })
 
   it("checks the configured client endpoint on every navigation without session watchers", async () => {
