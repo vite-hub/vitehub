@@ -69,7 +69,7 @@ const put = defineBlobOperation<{ contentType?: string, data: string, overwrite?
 })
 
 const del = defineBlobOperation<{ pathname: string, store?: string }, BlobDevDeleteResult>({
-  cli: { command: "del", positional: ["pathname"] },
+  cli: { command: "delete", positional: ["pathname"] },
   description: "Delete one blob.",
   input: v.object({ pathname, store }),
   kind: "destructive",

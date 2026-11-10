@@ -10,18 +10,21 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import pageSessionHandler from "../src/console/runtime/server/page-session.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
-import { requestEvent } from "./console-event.ts"
+import { requestEvent, routeRequest } from "./console-event.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 const pageToolsKey = Symbol.for("vitehub.page-tools")
 
 function sessionApp() {
   // A development Console without sign-in serves only this machine, so the page comes from a loopback peer.
-  return { fetch: (request: Request) => pageSessionHandler(requestEvent(request, { remoteAddress: "127.0.0.1" })) }
+  return { fetch: (request: Request) => pageSessionHandler.fetch(routeRequest(requestEvent(request, { remoteAddress: "127.0.0.1" }))) }
 }
 
 /** The tools that the page tools session allows for one page request under a Console access policy. */
@@ -60,7 +63,7 @@ describe("the Console page tool", () => {
 
   it("is allowed for people that the Console access policy accepts, for any section", async () => {
     const { body, cookie } = await sessionTools({ mode: "open" })
-    expect(body).toEqual({ tools: [{ id: "console", label: "Console", icon: "i-lucide-square-terminal", lazy: true, script: "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__" }] })
+    expect(body).toEqual({ tools: [{ id: "console", label: "Console", icon: "i-lucide-square-terminal", lazy: true, script: "/_vitehub/assets/page-tool-test.js" }] })
     expect(cookie).toContain("vitehub-tools=1")
     await expect(sessionTools({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })).resolves.toMatchObject({ body: { tools: [{ id: "console" }] } })
   })
@@ -165,15 +168,15 @@ describe("the Console Nitro configuration", () => {
 
       expect(config.nitro?.handlers).toContainEqual({ handler: expect.stringMatching(/server[/\\]page-session\.js$/), route: `${path}/_vitehub/page/session` })
       expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/page/assets`, dir: expect.stringMatching(/runtime[/\\]page$/) }))
-      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/assets`, dir: expect.stringMatching(/public[/\\]console$/) }))
+      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/assets`, dir: expect.stringMatching(/console-client[/\\]dist[/\\]client$/) }))
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(`installConsolePageTool(nitroApp, { base: ${JSON.stringify(path || "/")} })`)
       await expect(sessionTools({ mode: "open" }, {}, path)).resolves.toMatchObject({
-        body: { tools: [{ id: "console", script: `${path}/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__` }] },
+        body: { tools: [{ id: "console", script: `${path}/_vitehub/assets/page-tool-test.js` }] },
       })
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=19")`)
+      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=20")`)
       expect(transform(page!)).toBeUndefined()
       const script = page?.match(/<script[^>]*>([\s\S]*?)<\/script>/)?.[1]
       if (!script) throw new TypeError("Expected a page tools loader script")
@@ -188,7 +191,7 @@ describe("the Console Nitro configuration", () => {
         // Replace only the dynamic import so the browser's hint gate runs without fetching a browser module.
         runInNewContext(script.replace("import(", "load("), { URLSearchParams, location: { search }, document: { cookie }, load })
         expect(load).toHaveBeenCalledTimes(imports)
-        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=19`)
+        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=20`)
       }
     }
     finally {
@@ -231,6 +234,6 @@ describe("the Console below a Nitro baseURL", () => {
 describe("the Console page tool below an app base", () => {
   it("links to the Console assets below the base of the session route", async () => {
     const { body } = await sessionTools({ mode: "open" }, {}, "/portal")
-    expect(body).toMatchObject({ tools: [{ id: "console", script: "/portal/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__" }] })
+    expect(body).toMatchObject({ tools: [{ id: "console", script: "/portal/_vitehub/assets/page-tool-test.js" }] })
   })
 })

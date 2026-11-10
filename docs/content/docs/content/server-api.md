@@ -10,8 +10,9 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineContent` from `vite-hub/content` | Define the Content runtime in `server/content.ts`. |
-| `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or singleton, and mark a field optional. |
+| `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
+| `documents`, `singleton` from `vite-hub/content/collections` | Define an editable collection or a singleton. This entry needs `@vite-hub/workspace`. |
+| `optional` from `vite-hub/content` | Mark a field optional. |
 | `cms` from `vite-hub/cms` | Store collections with `defineContent({ extends: cms })`. See [CMS](/docs/cms). |
 | `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
 | `image`, `file` from `vite-hub/content` | [Blob reference](/docs/blob/server-api#blob-reference-schemas) fields. Blob owns them, and `vite-hub/blob` exports them too. |
@@ -21,7 +22,8 @@ icon: i-lucide-code-2
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
 | `contentSource` from `vite-hub/content` | Adapt one Source with Comark options such as `prefix` and `schema`, and a sitemap [`url`](/docs/content/seo#source-urls). |
 | `renderContentHtml` from `vite-hub/content` | [Render a document to HTML](/docs/content/configure#render-html-on-the-server) in a server route without a framework. |
-| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime from an H3 or Nitro route in another server. |
+| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime as a Fetchable route, `{ fetch(request) }`, in another server. Nitro and H3 accept it as a route handler. |
+| `generateContentTypes`, `defineContentTypesPlugin` from `vite-hub/content` | Generate the [Content types](#types), or write them from a Nitro plugin in development. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Mark the element that renders a field, and read its [field address](#field-addresses). |
@@ -62,6 +64,24 @@ Comark Content owns the parsed document cache. ViteHub sends each cache call to 
 | `content.cache.get(key)`, `content.cache.set(key, value)` | Reads or writes one cache entry. |
 | `content.cache.keys(name?)`, `content.cache.clear(name?)` | Lists or clears entries of one instance or all. |
 | `content.cache.snapshot(name, options?)` | Refreshes one instance and builds a Comark cache artifact. |
+
+### Types
+
+`vite dev` types the `data` of `content.get()`, `content.list()`, and `content.query()` for you. When the server starts, and again after Content changes, ViteHub writes `.vitehub/types/content.d.ts` from the schema of each Source and collection. A collection uses its fields. Comark infers the schema of a Source from its documents.
+
+```ts [server/api/about.get.ts] fragment
+import { defineEventHandler } from 'h3'
+import { content } from '../content'
+
+export default defineEventHandler(async () => {
+  const page = await content.get('/about')
+  return page?.data.title // string, from the frontmatter of docs/about.md
+})
+```
+
+A path or name that the file does not list has `data` typed as `Record<string, any>`. `.vitehub` is not committed, so a fresh checkout, such as in CI, has no file: `get()` and `list()` use that type, and `query()` rows use `Record<string, unknown>`. To type check with the file there, write the output of `generateContentTypes(content, { moduleName: "vite-hub/content" })` from `vite-hub/content` to `.vitehub/types/content.d.ts` in a script that loads your Content. Generation reads every Source and the `published` ref of every collection in the background. A failure prints one `Could not generate Content types` warning.
+
+In development, Content lists a new or renamed Source file after a restart or `content.cache.refresh(name)`, and the types follow the same list.
 
 ### Client
 
