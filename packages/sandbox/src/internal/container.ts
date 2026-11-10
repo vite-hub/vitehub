@@ -30,6 +30,7 @@ export interface ContainerSandboxCredential {
  */
 export type ContainerSandboxEgress = "none" | "open" | { allow: readonly string[] };
 
+/** Requires rootful Docker Engine 28 or newer on native Linux, through a local or remote Docker context. */
 export interface ContainerSandboxOptions {
   /** Image for the Sandbox container. It must have `sh`, coreutils, and GNU `find`, and `git` for a checkout. */
   image: string;
@@ -260,6 +261,23 @@ async function startContainer(
     const major = /^v?(\d+)\./.exec(version.stdout.trim());
     if (!major || Number(major[1]) < 28)
       throw invalid("Container Sandbox requires Docker Engine 28 or newer for isolated bridge gateway mode.");
+    const details = await required(docker(["info", "--format", "{{json .}}"], { signal }), "check the Docker daemon platform");
+    const unsupportedPlatform = () => invalid("Container Sandbox requires rootful Docker Engine on native Linux. Docker Desktop, OrbStack, WSL, and rootless Docker are not supported because their host routes bypass isolated bridge gateway mode.");
+    let platform: { OSType?: unknown; OperatingSystem?: unknown; KernelVersion?: unknown; SecurityOptions?: unknown };
+    try {
+      platform = JSON.parse(details.stdout);
+    } catch {
+      throw unsupportedPlatform();
+    }
+    // Check the daemon rather than the CLI host so remote native Linux contexts work.
+    // VM host aliases and rootless networking can bypass Moby's isolated bridge.
+    if (!platform || platform.OSType !== "linux"
+      || typeof platform.OperatingSystem !== "string" || !platform.OperatingSystem.trim()
+      || typeof platform.KernelVersion !== "string" || !platform.KernelVersion.trim()
+      || /docker desktop|orbstack|rancher desktop|colima|linuxkit|microsoft|wsl/i.test(`${platform.OperatingSystem} ${platform.KernelVersion}`)
+      || !Array.isArray(platform.SecurityOptions)
+      || platform.SecurityOptions.some(option => typeof option !== "string" || /rootless/i.test(option)))
+      throw unsupportedPlatform();
     // An internal bridge normally still exposes host services at its gateway. Isolated
     // gateway mode leaves the host bridge without an address.
     await required(docker([

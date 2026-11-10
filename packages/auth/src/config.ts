@@ -8,7 +8,7 @@ import { discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
-  AuthModuleOptions,
+  AuthOptions,
   ResolvedAuthAccessRoute,
   ResolvedAuthDatabaseConfiguration,
   ResolvedAuthSecondaryStorageConfiguration,
@@ -307,7 +307,7 @@ function readAuthSecondaryStorageConfig(body: ObjectExpression | undefined, allo
 }
 
 export function resolveAuthViteConfig(
-  options?: AuthModuleOptions,
+  options?: AuthOptions,
   rootDir: string = process.cwd(),
   discovery: { serverDirs?: string[] } = {},
 ): ResolvedAuthViteConfig | undefined {

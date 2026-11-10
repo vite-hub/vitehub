@@ -17,6 +17,8 @@ const nitroRuntime = /[\\/]nitro(?:pack)?[\\/]dist[\\/]runtime[\\/]/
 const cacheImport = /(?:^|\/)cache\.mjs$/
 const ruleHandlersModule = /[\\/]nitro[\\/]dist[\\/]runtime[\\/]internal[\\/]route-rule-handlers\.mjs$/
 const ruleHandlersImport = /(?:^|\/)route-rule-handlers(?:\.mjs)?$/
+const seamImports = /(?:^|\/)(?:cache\.mjs|route-rule-handlers(?:\.mjs)?)$/
+const seamModules = /^\0vitehub-nitro-cache:/
 
 interface ResolvedModule {
   external?: boolean | string
@@ -31,8 +33,14 @@ interface ResolveContext {
 export interface NitroCacheBypassPlugin {
   enforce: "pre"
   name: "vite-hub/nitro-cache-bypass"
-  load(id: string): string | null
-  resolveId(this: ResolveContext, source: string, importer: string | undefined, options?: Record<string, unknown>): Promise<string | null>
+  load: {
+    filter: { id: RegExp }
+    handler(id: string): string | null
+  }
+  resolveId: {
+    filter: { id: RegExp }
+    handler(this: ResolveContext, source: string, importer: string | undefined, options?: Record<string, unknown>): Promise<string | null>
+  }
 }
 
 function seam(flavor: string, path: string): string {
@@ -98,25 +106,31 @@ export function nitroCacheBypass(): NitroCacheBypassPlugin {
   return {
     name: "vite-hub/nitro-cache-bypass",
     enforce: "pre",
-    async resolveId(source, importer, options = {}) {
-      if (!importer || importer.startsWith(virtualPrefix)) return null
-      // Nitro 3 imports its rule handlers from the generated routing module, which is not in its runtime folder.
-      const rules = ruleHandlersImport.test(source)
-      if (!rules && (!cacheImport.test(source) || !nitroRuntime.test(importer))) return null
-      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-      if (!resolved || resolved.external) return null
-      // Another plugin's nested resolve can reach this hook again and hand back the seam's own id.
-      if (resolved.id.startsWith(virtualPrefix)) return resolved.id
-      const path = resolved.id.split("?", 1)[0]!
-      if (rules) return ruleHandlersModule.test(path) ? `${virtualPrefix}rules:${resolved.id}` : null
-      const match = cacheModule.exec(path)
-      return match ? `${virtualPrefix}${match[1]}:${resolved.id}` : null
+    resolveId: {
+      filter: { id: seamImports },
+      async handler(source, importer, options = {}) {
+        if (!importer || importer.startsWith(virtualPrefix)) return null
+        // Nitro 3 imports its rule handlers from the generated routing module, which is not in its runtime folder.
+        const rules = ruleHandlersImport.test(source)
+        if (!rules && (!cacheImport.test(source) || !nitroRuntime.test(importer))) return null
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+        if (!resolved || resolved.external) return null
+        // Another plugin's nested resolve can reach this hook again and hand back the seam's own id.
+        if (resolved.id.startsWith(virtualPrefix)) return resolved.id
+        const path = resolved.id.split("?", 1)[0]!
+        if (rules) return ruleHandlersModule.test(path) ? `${virtualPrefix}rules:${resolved.id}` : null
+        const match = cacheModule.exec(path)
+        return match ? `${virtualPrefix}${match[1]}:${resolved.id}` : null
+      },
     },
-    load(id) {
-      if (!id.startsWith(virtualPrefix)) return null
-      const rest = id.slice(virtualPrefix.length)
-      const separator = rest.indexOf(":")
-      return seam(rest.slice(0, separator), rest.slice(separator + 1))
+    load: {
+      filter: { id: seamModules },
+      handler(id) {
+        if (!id.startsWith(virtualPrefix)) return null
+        const rest = id.slice(virtualPrefix.length)
+        const separator = rest.indexOf(":")
+        return seam(rest.slice(0, separator), rest.slice(separator + 1))
+      },
     },
   }
 }

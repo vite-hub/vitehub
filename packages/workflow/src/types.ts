@@ -75,7 +75,7 @@ export type WorkflowModuleProviderOptions =
   | InferredWorkflowProviderOptions
   | WorkflowProviderOptions
 
-export type WorkflowModuleOptions =
+export type WorkflowOptions =
   | false
   | WorkflowModuleProviderOptions
 
@@ -182,18 +182,15 @@ export type WorkflowStartArguments<TPayload> = undefined extends TPayload
 
 export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   cancel: (id: string) => Promise<WorkflowRun<unknown, unknown>>
-  defer: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload>>
+  /** Starts a run after the response, through `waitUntil`. A failure goes to the log. */
+  defer: (...args: WorkflowStartArguments<TPayload>) => void
   getRun: (id: string) => Promise<WorkflowRun<unknown, unknown>>
   name: string
-  run: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
+  start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
 export interface WorkflowStartOptions {
   id?: string
-}
-
-export interface WorkflowDeferOptions extends WorkflowStartOptions {
-  deferred?: boolean
 }
 
 export interface WorkflowSignalResult {

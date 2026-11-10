@@ -18,8 +18,8 @@ export const featureIds = [
   "database",
   "email",
   "env",
+  "i18n",
   "kv",
-  "logs",
   "observability",
   "queue",
   "rateLimit",
@@ -79,6 +79,11 @@ export interface FeatureStarter {
   file: (name: string) => string
   /** The source of a minimal Definition named `name`. */
   template: (name: string) => string
+  /**
+   * Earlier versions of `template`. `vitehub remove` deletes a file only when it equals the current or an earlier
+   * starter, so keep the old template here when you change one.
+   */
+  previousTemplates?: readonly ((name: string) => string)[]
   /**
    * Other files, relative to the project root, that already define the Definition `name` or that the owner rejects
    * next to it. The starter is not written when one exists.
@@ -266,6 +271,8 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
+    // The prebuilt Console app. `vite-hub` serves it at `/_vitehub` when the app installed it.
+    packages: ["@vite-hub/console-client"],
     summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
     title: "Console",
   }),
@@ -329,6 +336,14 @@ export default defineDatabase({
     summary: "Typed environment variables and secrets, validated at build and at runtime.",
     title: "Env",
   }),
+  i18n: feature({
+    docs: "/docs/i18n",
+    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
+    id: "i18n",
+    packages: ["@vite-hub/i18n"],
+    summary: "Messages with translation records for each locale and a locale for each request.",
+    title: "I18n",
+  }),
   kv: feature({
     developmentOverrides: ["netlify"],
     docs: "/docs/kv",
@@ -345,19 +360,12 @@ export default defineDatabase({
     summary: "Key-value storage with one API on every host.",
     title: "KV",
   }),
-  logs: feature({
-    docs: "/docs/logs",
-    hosts: everywhere("nitro", "Nitro"),
-    id: "logs",
-    summary: "Read an existing log source, or inspect a bounded Evlog buffer during development.",
-    title: "Logs",
-  }),
   observability: feature({
     docs: "/docs/agents/observability",
     hosts: everywhere("evlog", "Evlog"),
     id: "observability",
-    packages: ["@vite-hub/agent", "evlog"],
-    summary: "Agent telemetry, request logs, and papercut reports through Evlog.",
+    packages: ["evlog"],
+    summary: "Request logs through Evlog, the logs that the Console reads, and Agent telemetry with a service name.",
     title: "Observability",
   }),
   queue: feature({
@@ -372,7 +380,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
       deno: unsupported("No Deno Queue provider is provided."),
       dev: native("local", "Local provider", "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.", "single-host"),
-      netlify: unsupported("`vitehub({ queue: true })` has no provider option and fails on Netlify. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider."),
+      netlify: unsupported("Netlify has no Queue provider, so `vitehub({ queue })` fails on Netlify."),
       node: native("local", "Local provider", "The local provider runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "single-host"),
       vercel: native("vercel", "Vercel Queues", "Vercel Queues callbacks and runtime client."),
     },
@@ -535,8 +543,11 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
     const choice: unknown = value && typeof value === "object" && !Array.isArray(value) ? Reflect.get(value, key) : undefined
     return typeof choice === "string" ? choices[choice] ?? [] : []
   }))
+  // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
+  if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  if (id === "observability" && options?.posthog) selected.push("posthog-node")
   return [...new Set([...definition.packages, ...selected])]
 }
 
@@ -558,7 +569,7 @@ export function featureSupport(id: FeatureId, host: FeatureHost, preset?: Deploy
 
 /**
  * The features that `enabled` turn on through implications on `preset`, without the ones already in `enabled`.
- * Implications chain, so Console turns on Comments, which turns on Database.
+ * This follows implications transitively.
  * `disabled` lists features that the app sets to `false`; an implication never turns them on.
  */
 export function impliedFeatures(enabled: readonly FeatureId[], preset: DeploymentPreset, disabled: readonly FeatureId[] = []): FeatureId[] {

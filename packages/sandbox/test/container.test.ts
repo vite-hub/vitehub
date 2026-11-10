@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 /** A Docker CLI stand-in that records each call and answers the broker readiness probe. */
-async function fakeDocker(options: { processes?: boolean; failSignals?: boolean; serverVersion?: string } = {}) {
+async function fakeDocker(options: { processes?: boolean; failSignals?: boolean; serverVersion?: string; serverInfo?: Record<string, unknown> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-container-"));
   temporary.push(root);
   const log = join(root, "calls.jsonl");
@@ -32,6 +32,12 @@ const pidIndex = argv.findIndex(arg => arg.startsWith("/vitehub/.pids/"))
 const script = argv[argv.indexOf("-c") + 1] || ""
 const signal = script.includes("pid=$(cat")
 if (argv[0] === "version") process.stdout.write(${JSON.stringify(options.serverVersion ?? "29.1.3")})
+if (argv[0] === "info") process.stdout.write(${JSON.stringify(JSON.stringify(options.serverInfo ?? {
+  KernelVersion: "6.8.0-51-generic",
+  OSType: "linux",
+  OperatingSystem: "Ubuntu 24.04.1 LTS",
+  SecurityOptions: ["name=apparmor", "name=seccomp,profile=builtin", "name=cgroupns"],
+}))})
 if (${!!options.processes} && ((pidIndex >= 0 && argv[pidIndex + 1].includes("sleep 1")) || signal)) {
   if (signal && ${!!options.failSignals}) {
     process.stderr.write("signal exec failed")
@@ -108,6 +114,22 @@ describe("container Sandbox runtime", () => {
     const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, image: "node:24", kind: "container" } }, {});
     await expect(sandbox.open()).rejects.toThrow(/requires Docker Engine 28 or newer/);
     expect((await fake.calls()).map(call => call.argv[0])).toEqual(["version"]);
+  });
+
+  it.each([
+    { KernelVersion: "6.10.14-linuxkit", OSType: "linux", OperatingSystem: "Docker Desktop", SecurityOptions: [] },
+    { KernelVersion: "6.14.8-orbstack", OSType: "linux", OperatingSystem: "OrbStack", SecurityOptions: [] },
+    { KernelVersion: "5.15.167.4-microsoft-standard-WSL2", OSType: "linux", OperatingSystem: "Ubuntu 24.04", SecurityOptions: [] },
+    { KernelVersion: "6.8.0-generic", OSType: "linux", OperatingSystem: "Ubuntu 24.04", SecurityOptions: ["name=rootless"] },
+    { KernelVersion: "10.0", OSType: "windows", OperatingSystem: "Windows Server", SecurityOptions: [] },
+    {},
+  ])("rejects unsupported daemon $OperatingSystem before creating resources", async (serverInfo) => {
+    for (const egress of ["none", "open"] as const) {
+      const fake = await fakeDocker({ serverInfo });
+      const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, egress, image: "node:24", kind: "container" } }, {});
+      await expect(sandbox.open()).rejects.toThrow(/requires rootful Docker Engine on native Linux/);
+      expect((await fake.calls()).map(call => call.argv[0])).toEqual(["version", "info"]);
+    }
   });
 
   it("keeps credential values off the Docker command line and out of the Sandbox", async () => {
@@ -227,9 +249,9 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
       const subnet = execFileSync("docker", ["network", "inspect", network, "--format", "{{(index .IPAM.Config 0).Subnet}}"], { encoding: "utf8" }).trim();
       const gateway = subnet.split("/")[0]!.replace(/\.\d+$/, ".1");
       const defaultGateway = execFileSync("docker", ["network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"], { encoding: "utf8" }).trim();
-      for (const host of new Set([gateway, defaultGateway])) {
-        // A TCP socket ignores every proxy environment variable. On Linux the listener
-        // shares the Docker host; Docker Desktop also checks that the VM gateway is blocked.
+      for (const host of new Set([gateway, defaultGateway, "host.docker.internal"])) {
+        // Run against a local native Linux daemon so the listener shares the Docker host.
+        // A TCP socket ignores every proxy environment variable.
         const result = await session.exec("node", ["-e", `
           const socket = require('node:net').connect(${address.port}, ${JSON.stringify(host)});
           socket.on('connect', () => process.exit(1));

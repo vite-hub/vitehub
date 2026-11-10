@@ -5,6 +5,7 @@ import type {
 } from "@vite-hub/agent";
 import * as v from "valibot";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
+import { consoleHttpError } from "./http-error.ts";
 
 export interface ConsoleUsageCost {
   display: string;
@@ -209,10 +210,7 @@ export function usageQueryWindow(options: UsageQuery): {
         throw new Error("Cursor does not match this query");
       }
     } catch {
-      throw Object.assign(
-        viteHubErrorDiagnostics.VITE_HUB_R0115({ message: "Invalid usage cursor" }),
-        { statusCode: 400, statusMessage: "Invalid usage cursor" },
-      );
+      throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0115({ message: "Invalid usage cursor" }));
     }
   }
   const now = new Date(after?.to ?? options.now ?? Date.now());
@@ -602,10 +600,7 @@ function usageTime(
 }
 
 function consoleError(message: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0072({ message }), {
-    statusCode: 400,
-    statusMessage: message,
-  });
+  return consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0072({ message }));
 }
 
 export async function createUsageSummary(
