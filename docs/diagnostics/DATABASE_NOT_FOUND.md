@@ -10,7 +10,7 @@ ViteHub throws `DATABASE_NOT_FOUND` when you select a database by a name that ha
 ViteHub discovers one Database for each Definition. A Named Database gets its name from `src/<name>.database.ts` or `server/databases/<name>/config.ts`. The Default Database is `default`. The error comes from these calls:
 
 - The Agent `db()` Capability with a `database` option. It calls `agentDb.database(name)`, which throws for an unknown name.
-- `vitehub db export --database <name>`. The command prints the error and exits with code 1.
+- `vitehub database export --database <name>`. The command prints the error and exits with code 1.
 - A query on the Default Database when the app has only Named Databases. The Nuxt module and hosted Cloudflare and Vercel builds report this case as `DATABASE_NOT_FOUND` for `default`. Other runtimes report [`DATABASE_DISABLED`](/docs/database/diagnostics/database_disabled).
 
 `useDatabase(name)` does not throw this error. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`.
@@ -33,7 +33,7 @@ For the Default Database case, select the Named Database that has the tables, as
 
 ## Check the fix
 
-Run `vitehub inspect definitions --kind database`. It lists the discovered databases with their names and files. The name in your code must be in that list. For the export command, run `vitehub db export --database <name>` with a listed name.
+Run `vitehub inspect definitions --kind database`. It lists the discovered databases with their names and files. The name in your code must be in that list. For the export command, run `vitehub database export --database <name>` with a listed name.
 
 ## Related
 

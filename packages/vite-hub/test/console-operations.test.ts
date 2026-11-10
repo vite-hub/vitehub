@@ -1,4 +1,3 @@
-import { defineHandler, H3Event } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
@@ -92,7 +91,7 @@ describe("operations that run app code", () => {
     await expect((await call("fixture.start")).json()).resolves.toEqual({ ok: true, value: { started: true } })
   })
 
-  it("hands them the server event of the request, for app hooks that read its session", async () => {
+  it("hands them the request event, the Request with its Standard Context, for app hooks that read its session", async () => {
     let seen: unknown
     const probe = defineOperation({
       description: "Keep the event.",
@@ -107,14 +106,15 @@ describe("operations that run app code", () => {
     })
     installConsoleSections("/work/app", ["fixture"])
     installConsoleOperations([{ operations: [probe], plugin: "fixture-plugin" }])
-    const response = await defineHandler(consoleRpcHandler).fetch(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+    const response = await consoleRpcHandler.fetch(new Request("http://vitehub.local/_vitehub/rpc/__call", {
       body: JSON.stringify({ input: {}, operation: "fixture.event" }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1", cookie: "sid=ada" },
       method: "POST",
     }))
     expect(response.status).toBe(200)
-    expect(seen).toBeInstanceOf(H3Event)
-    expect((seen as H3Event).req.headers.get("cookie")).toBe("sid=ada")
+    expect(seen).toBeInstanceOf(Request)
+    expect(seen).toHaveProperty("~standard")
+    expect((seen as Request).headers.get("cookie")).toBe("sid=ada")
   })
 
   async function advertised(): Promise<unknown> {

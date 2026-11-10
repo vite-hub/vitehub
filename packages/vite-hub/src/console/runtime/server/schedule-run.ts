@@ -5,12 +5,12 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { getConsoleSchedules } from "./definitions.ts"
-import { consoleRequestText, consoleRequestURL } from "./request.ts"
+import { consoleRequestText, consoleRequestURL, consoleRoute } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { ScheduleRunRecord } from "@vite-hub/schedule"
-import type { H3Event } from "h3"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 export interface ConsoleScheduleRun {
   completedAt?: string
@@ -133,7 +133,7 @@ const unsignedRunMessage = "This route takes signed dispatches only, or a bearer
  * A JSON content type and the origin check keep other sites out, as in Channel replay. A listed origin of
  * `console.origins` may call it with the verified token.
  */
-async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAccess): Promise<Response> {
+async function runScheduleWithConsoleAccess(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
   // Only a verified bearer runs a Schedule here. A session next to an unverified bearer value does not.
   if (access.via === undefined) return failure(unsignedRunMessage, 401)
   const request = getStandardContext(event).req
@@ -156,17 +156,18 @@ async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAcces
     : failure(outcome.message, outcome.status)
 }
 
-const consoleScheduleRunHandler: (event: H3Event) => Promise<Response> = withConsoleCors(withConsoleAccess(runScheduleWithConsoleAccess, { section: "schedules", write: true }))
+const consoleScheduleRunHandler: (event: ConsoleRequestEvent) => Promise<Response> = withConsoleCors(withConsoleAccess(runScheduleWithConsoleAccess, { section: "schedules", write: true }))
 
-const unsignedScheduleRunHandler: (event: H3Event) => Promise<Response> = withConsoleCors(async () => failure(unsignedRunMessage, 401))
+const unsignedScheduleRunHandler: (event: ConsoleRequestEvent) => Promise<Response> = withConsoleCors(async () => failure(unsignedRunMessage, 401))
 
 /**
  * A signed dispatch is its own authority and never falls back to Console access. A request with `Authorization: Bearer`
  * goes through the Console access check, as every Console data route does. Any other request gets `401`.
+ * `POST <base>/_vitehub/schedules/run`
  */
-const scheduleRunHandler = async (event: H3Event): Promise<Response> => {
+const scheduleRunRoute: ConsoleRoute = consoleRoute(async (event) => {
   const { req: request, runtime } = getStandardContext(event)
   if (hasViteHubDispatch(request.headers)) return await handleDispatchScheduleRunRequest(request, runtime?.cloudflare?.env)
   return /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "") ? await consoleScheduleRunHandler(event) : await unsignedScheduleRunHandler(event)
-}
-export default scheduleRunHandler
+})
+export default scheduleRunRoute

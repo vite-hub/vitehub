@@ -5,7 +5,6 @@ import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { defineOperation } from "@vite-hub/internal/operations"
 import { admin, jwt } from "better-auth/plugins"
-import { defineHandler } from "h3"
 import * as v from "valibot"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -13,15 +12,14 @@ import { consoleMcpOAuth, consoleResourceOf } from "../src/console/auth.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
-import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
-import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
+import consoleMcpAuthorizationServerRoute from "../src/console/runtime/server/mcp-authorization-server.ts"
+import consoleMcpMetadataRoute from "../src/console/runtime/server/mcp-metadata.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
-import authManageHandler from "../src/console/runtime/server/auth-manage.ts"
-import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import authManageRoute from "../src/console/runtime/server/auth-manage.ts"
+import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
+import scheduleRunRoute from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
-import { requestEvent } from "./console-event.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
 
@@ -170,7 +168,7 @@ async function consoleTokens(options: { cookie?: string, resource?: string, scop
 }
 
 function rpc(token: string | undefined, operation: string, input: Record<string, unknown>, origin = local): Promise<Response> {
-  return defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__call`, {
+  return consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
     body: JSON.stringify({ input, operation }),
     headers: { "content-type": "application/json", origin, "sec-fetch-site": "cross-site", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     method: "POST",
@@ -271,7 +269,7 @@ describe("OAuth Console tokens", () => {
 
   it("challenges a read-only token for the write scope on uploads", async () => {
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
-    const response = await defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__upload?section=fixture`, {
+    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=fixture`, {
       headers: { authorization: `Bearer ${access_token}`, origin: local },
       method: "POST",
     }))
@@ -286,11 +284,11 @@ describe("OAuth Console tokens", () => {
   ] as const)("challenges a token without the %s scope on Auth management", async (kind, granted, body) => {
     installConsoleSections("console-oauth-auth-manage", ["auth"])
     const { access_token } = await consoleTokens({ scope: granted })
-    const response = await authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
+    const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
       body: JSON.stringify(body),
       headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
       method: "POST",
-    })))
+    }))
     expect(response.status).toBe(403)
     expect(response.headers.get("www-authenticate")).toContain(`error="insufficient_scope", scope="vitehub:${kind}"`)
     expect(response.headers.get("access-control-allow-origin")).toBe(local)
@@ -300,11 +298,11 @@ describe("OAuth Console tokens", () => {
     installConsoleSections("console-oauth-auth-manage", ["auth"])
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
     for (const body of [{ action: "ban" }, { operation: "unknown" }]) {
-      const response = await authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
+      const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
         body: JSON.stringify(body),
         headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
         method: "POST",
-      })))
+      }))
       expect(response.status).toBe(400)
       expect(response.headers.has("www-authenticate")).toBe(false)
       await expect(response.json()).resolves.toMatchObject({ message: "Invalid Auth Console request." })
@@ -317,11 +315,11 @@ describe("OAuth Console tokens", () => {
     database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
     const member = await signUp("member@example.com")
     const { access_token } = await consoleTokens({ cookie: administrator.cookie })
-    const manage = (body: Record<string, unknown>) => authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
+    const manage = (body: Record<string, unknown>) => authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
       body: JSON.stringify(body),
       headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
       method: "POST",
-    })))
+    }))
     const description = await manage({ operation: "describe" })
     expect(description.status, await description.clone().text()).toBe(200)
     await expect(description.json()).resolves.toMatchObject({ actions: { ban: { enabled: true }, impersonate: { enabled: false } } })
@@ -349,11 +347,11 @@ describe("OAuth Console tokens", () => {
     const administrator = await signUp("admin@example.com")
     database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
     const { access_token } = await consoleTokens()
-    const response = await authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
+    const response = await authManageRoute.fetch(new Request(`${app}/_vitehub/auth/manage`, {
       body: JSON.stringify({ action: "ban", userId: administrator.id }),
       headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "cookie": administrator.cookie, "origin": local, "x-vitehub-console": "1" },
       method: "POST",
-    })))
+    }))
     expect(response.status).toBe(403)
     expect(database.prepare('SELECT "banned" FROM "user" WHERE "id" = ?').get(administrator.id)?.banned).toBeFalsy()
   })
@@ -407,7 +405,7 @@ describe("OAuth Console tokens", () => {
   })
 
   it("runs a Schedule with a write token from a listed origin, and refuses a read-only token", async () => {
-    const run = (token: string) => defineHandler(scheduleRunHandler).fetch(new Request(`${app}/_vitehub/schedules/run`, {
+    const run = (token: string) => scheduleRunRoute.fetch(new Request(`${app}/_vitehub/schedules/run`, {
       body: JSON.stringify({ name: "nightly" }),
       headers: { "authorization": `Bearer ${token}`, "content-type": "application/json", "origin": local },
       method: "POST",
@@ -507,14 +505,14 @@ describe("OAuth Console tokens", () => {
     const metadataUrl = `${app}/.well-known/oauth-protected-resource/_vitehub`
     expect(response.headers.get("www-authenticate")).toBe(`Bearer realm="vitehub-console", resource_metadata="${metadataUrl}"`)
     expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
-    const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(metadataUrl, { headers: { origin: hosted } }))
+    const metadata = await consoleMcpMetadataRoute.fetch(new Request(metadataUrl, { headers: { origin: hosted } }))
     expect(metadata.status, await metadata.clone().text()).toBe(200)
     await expect(metadata.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/auth`], resource: consoleResource, scopes_supported: ["vitehub:read", "vitehub:write", "offline_access"] })
     expect(metadata.headers.get("access-control-allow-origin")).toBe(hosted)
     // The MCP document stays where MCP clients look.
-    const mcp = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+    const mcp = await consoleMcpMetadataRoute.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
     await expect(mcp.json()).resolves.toMatchObject({ resource: mcpResource })
-    const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/auth`, { headers: { origin: hosted } }))
+    const server = await consoleMcpAuthorizationServerRoute.fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/auth`, { headers: { origin: hosted } }))
     expect(server.status).toBe(200)
     await expect(server.json()).resolves.toMatchObject({ client_id_metadata_document_supported: true, code_challenge_methods_supported: ["S256"] })
     expect(server.headers.get("access-control-allow-origin")).toBe(hosted)
@@ -541,7 +539,7 @@ describe("OAuth Console tokens", () => {
       mode: "auth",
       oauth: { auth: request => real(request) as unknown as ConsoleOAuthAuth, path: "/_vitehub/mcp", resource: mcpResource, verify: verifyConsoleJwt },
     })
-    const response = await defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__call`, {
+    const response = await consoleRpcRoute.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
       body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
       headers: { "authorization": "Bearer app-key", "content-type": "application/json", "x-vitehub-console": "1" },
       method: "POST",
@@ -570,10 +568,10 @@ describe("an Auth without the Console resource", () => {
     }))
     real = request => createAuthForRequest(definition, request)
     await (await real(new Request(app)).$context).runMigrations()
-    const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource/_vitehub`))
+    const metadata = await consoleMcpMetadataRoute.fetch(new Request(`${app}/.well-known/oauth-protected-resource/_vitehub`))
     expect(metadata.status).toBe(503)
     await expect(metadata.json()).resolves.toMatchObject({ message: expect.stringContaining(consoleResource) })
-    expect((await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))).status).toBe(200)
+    expect((await consoleMcpMetadataRoute.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))).status).toBe(200)
     const response = await rpc("aaa.bbb.ccc", "fixture.greet", { name: "Ada" })
     // The session check answers, without a resource_metadata that the app cannot serve.
     expect(response.status).toBe(401)

@@ -2,7 +2,7 @@ import { defineDatabase } from "vite-hub/database"
 import { contentSessionsSchema } from "vite-hub/content/database"
 import { workspaceHistorySchema } from "vite-hub/workspace/blob-database"
 
-// Literal keys, because `vitehub db generate` on this base only finds tables written out in `schema` (fixed by #2377).
+// Literal keys, because `vitehub database generate` on this base only finds tables written out in `schema` (fixed by #2377).
 export default defineDatabase({
   name: "content",
   schema: {

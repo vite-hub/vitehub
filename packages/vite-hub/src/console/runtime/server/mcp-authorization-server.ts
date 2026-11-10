@@ -2,9 +2,9 @@ import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { consoleRequest, installedConsoleOAuth } from "./access.ts"
 import { resolveConsoleOAuth } from "./bearer.ts"
 import { withListedConsoleOrigin } from "./cors.ts"
-import { isConsoleDevelopmentRuntime } from "./request.ts"
+import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 
-import type { H3Event } from "h3"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const prefix = "/.well-known/oauth-authorization-server"
 
@@ -15,12 +15,12 @@ const prefix = "/.well-known/oauth-authorization-server"
  * document below its own base path only, which a client that starts from the MCP endpoint never asks. A Console on an
  * origin in `console.origins` can read it.
  */
-const consoleMcpAuthorizationServerHandler: (event: H3Event) => Promise<Response> = async (event) => {
+const consoleMcpAuthorizationServerRoute: ConsoleRoute = consoleRoute(async (event) => {
   const request = consoleRequest(event)
   return withListedConsoleOrigin(await serverMetadata(event, request), request)
-}
+})
 
-async function serverMetadata(event: H3Event, request: Request): Promise<Response> {
+async function serverMetadata(event: ConsoleRequestEvent, request: Request): Promise<Response> {
   const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff" }
   const oauth = installedConsoleOAuth()
   if (!oauth) return Response.json({ code: "CONSOLE_NOT_FOUND", message: "This Console does not use OAuth sign-in for MCP." }, { headers, status: 404 })
@@ -36,4 +36,4 @@ async function serverMetadata(event: H3Event, request: Request): Promise<Respons
   return Response.json(metadata, { headers: { ...headers, "cache-control": "public, max-age=15, stale-while-revalidate=15" }, status: 200 })
 }
 
-export default consoleMcpAuthorizationServerHandler
+export default consoleMcpAuthorizationServerRoute

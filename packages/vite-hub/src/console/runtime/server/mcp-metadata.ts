@@ -2,9 +2,9 @@ import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { consoleRequest, installedConsoleOAuth } from "./access.ts"
 import { consoleMcpScopes, resolveConsoleOAuth } from "./bearer.ts"
 import { withListedConsoleOrigin } from "./cors.ts"
-import { isConsoleDevelopmentRuntime } from "./request.ts"
+import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 
-import type { H3Event } from "h3"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff" }
 
@@ -17,12 +17,12 @@ const headers = { "cache-control": "no-store", "x-content-type-options": "nosnif
  * not sign in with OAuth has no such server and answers 404. One whose Auth lacks what OAuth needs answers 503 with the
  * fix. A Console on an origin in `console.origins` can read the documents.
  */
-const consoleMcpMetadataHandler: (event: H3Event) => Promise<Response> = async (event) => {
+const consoleMcpMetadataRoute: ConsoleRoute = consoleRoute(async (event) => {
   const request = consoleRequest(event)
   return withListedConsoleOrigin(await metadata(event, request), request)
-}
+})
 
-async function metadata(event: H3Event, request: Request): Promise<Response> {
+async function metadata(event: ConsoleRequestEvent, request: Request): Promise<Response> {
   const oauth = installedConsoleOAuth()
   if (!oauth) return Response.json({ code: "CONSOLE_NOT_FOUND", message: "This Console does not use OAuth sign-in for MCP." }, { headers, status: 404 })
   const state = await resolveConsoleOAuth(oauth, event, request, isConsoleDevelopmentRuntime())
@@ -44,4 +44,4 @@ async function metadata(event: H3Event, request: Request): Promise<Response> {
   return document(state.resource, "ViteHub Console")
 }
 
-export default consoleMcpMetadataHandler
+export default consoleMcpMetadataRoute
