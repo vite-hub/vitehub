@@ -7,27 +7,25 @@ navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---
 
-A Queue separates accepting work from running the handler. `runQueue()` sends
-a typed payload to the configured provider and returns when the provider accepts
-the message. The handler runs later, often in another process or region.
+A Queue splits two steps: accepting work and running it. `sendQueue()` sends a
+typed payload to the provider and returns when the provider accepts it. The
+handler runs later, often in another process or region.
 
 ## Acceptance is not completion
 
-The result from `runQueue()` tells you whether the provider accepted the job.
-It does not contain the handler result. Give the job an id or an application
-key when you need to show progress, then store the final state in a durable
-primitive such as [KV](/docs/kv) or [Database](/docs/database).
+`sendQueue()` tells you only that the provider accepted the job, not what the
+handler returned. To show progress, give the job an id or your own key, and
+store the final state in [KV](/docs/kv) or a [Database](/docs/database).
 
 ## Delivery can happen again
 
-Providers retry failed delivery. Write handlers so a second delivery is safe.
-Use an idempotency key before sending an email, charging a card, or changing a
-record. See [Queue limits and errors](/docs/queue/limits-and-errors) for
-provider limits and failure codes.
+Providers retry failed delivery, so a second delivery must be safe. Use an
+idempotency key before you send an email, charge a card, or change a record.
+See [limits and errors](/docs/queue/limits-and-errors).
 
 On the `node` preset, the local provider stores jobs in `.vitehub/data/queue`
-and runs them in the server process. The jobs survive a restart on the same
-disk, but one host owns them. On Cloudflare and Vercel, the Vite integration
-generates provider output and the provider delivers the jobs. In `vite dev`,
-every app runs its jobs in the dev server with the rules of its provider. See
+and runs them in the server process. Jobs survive a restart on the same disk,
+but stay on one host. On Cloudflare and Vercel, the Vite plugin generates
+provider output, and the provider delivers the jobs. In `vite dev`, jobs run
+in the dev server with the rules of the provider. See
 [Queue hosts](/docs/queue/hosts).
