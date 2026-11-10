@@ -126,8 +126,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
-  // Static Console files that Nitro serves. Generated server code never imports them.
-  "@vite-hub/console-client": false,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
@@ -453,7 +451,7 @@ export interface ViteHubOptions {
    * in the Database that `database` names, and enable `database` when it is unset.
    */
   connections?: boolean | ConnectionsOptions
-  /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
@@ -1471,8 +1469,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
-    // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
-    ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
     imports: {
       auth: "vite-hub/comments/runtime/auth",
       blob: "vite-hub/blob",

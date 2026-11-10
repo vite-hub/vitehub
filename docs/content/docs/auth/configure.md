@@ -265,7 +265,7 @@ The hook runs on every Better Auth path that refreshes a stored session: `/get-s
 
 With the session cookie, Auth also sets `vitehub_session=1`, with the same lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes. Better Auth clears both together, such as on sign-out. It is not `HttpOnly`, so page scripts can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [page tools](/docs/comments/configure#turn-comment-mode-on-and-off) read it to load comment mode right after sign-in.
 
-When a session starts or ends, Auth clears the `vitehub-tools` cookie of the [ViteHub tools pill](/docs/development/console#open-the-console-from-the-apps-pages). The next page checks if the new person may use the Console or Comments, so the pill appears at sign-in and goes away at sign-out. A session refresh keeps the cookie.
+When a session starts or ends, Auth clears the `vitehub-tools` cookie of the [ViteHub tools pill](/docs/comments/configure#turn-comment-mode-on-and-off). The next page checks if the new person may use Comments, so the pill appears at sign-in and goes away at sign-out. A session refresh keeps the cookie.
 
 ## Keep users in the app Database
 
@@ -342,7 +342,7 @@ Set this variable on the host, for example as a Worker secret:
 VITEHUB_ADMIN_CLAIM=sha256:3f9a...
 ```
 
-Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in, open `/_vitehub`, and enter the code under **Claim code** on the Access denied page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
+Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then open `/_vitehub/sign-in`, sign in, and enter the code under **Claim code**. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
 
 The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
 

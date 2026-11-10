@@ -60,7 +60,6 @@ the same behavior.
 | `vite-hub/agent/runtime/process` | Adaptive per-process Agent capacity for self-hosted Node apps. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | Define a Console-owned Auth Definition and its access policy. |
-| `vite-hub/console/auth/client` | Configure Console Auth client plugins and setup. |
 | `vite-hub/console/auth/cloudflare-access` | Verify Cloudflare Access tokens for the Console guard. |
 | `vite-hub/console/auth/inline` | Build the Node-only inline GitHub Console Auth Definition. |
 | `vite-hub/console/blob` | Registers read-only Blob inspection for framework servers. |

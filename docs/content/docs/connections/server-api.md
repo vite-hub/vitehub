@@ -45,7 +45,7 @@ Add `?return=/path` to the connect route to pick the page to return to, such as 
 - A success returns to that page after two seconds and shows a **Back to Connections** link. Without `return`, it asks the user to close the tab.
 - A failure shows the error code, the fix, a docs link, and the same link, and stays.
 
-The action route takes only `POST`, so `GET /_vitehub/connections` shows the Console Connections page.
+The action route takes only `POST`.
 
 ### Origin checks
 
@@ -88,7 +88,7 @@ The CLI calls the management route of a running dev server with the Console on. 
 | --- | --- |
 | `vitehub connections list` | List Connections and their status. |
 | `vitehub connections inspect <name>` | Show one Connection: account, scopes, and actions. |
-| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the Console connect URL. |
+| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the connect URL. |
 | `vitehub connections set-key <name>` | Store the key of an API key Connection from stdin. |
 | `vitehub connections activity <name>` | Show audited calls, refreshes, and denials. |
 | `vitehub connections approvals [approve\|deny <id>]` | List, approve, or deny pending writes. |
