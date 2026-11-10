@@ -1926,13 +1926,13 @@ describe("Agent invocation console", () => {
     installConsoleSections("/second", ["kv"])
     installConsoleProjectName("/second", "second-app")
 
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
       projectName: "second-app",
       sections: ["kv"],
     })
 
     scope[consoleSectionsRootKey] = "/first"
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
       projectName: "first-app",
       sections: ["agents"],
     })
@@ -1953,7 +1953,7 @@ describe("Agent invocation console", () => {
 
     expect(resolveConsoleProjectRoot()).toBe("/first")
     expect(resolveConsoleInvocations()).toBe(first)
-    expect(listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({ sections: ["kv"] })
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({ sections: ["kv"] })
   })
 
   it("rebinds already evaluated Agent realms to a refreshed fixture revision", async () => {

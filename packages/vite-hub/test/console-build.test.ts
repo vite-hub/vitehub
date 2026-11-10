@@ -89,7 +89,7 @@ describe("Console build id", () => {
     installConsoleSections("/second", ["kv"])
     installConsoleBuild("/second", "bbbbbbbbbbbbbbbb")
 
-    expect(listConsoleSections(await consoleAccess(event()))).toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
+    expect(await listConsoleSections(await consoleAccess(event()))).toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
   })
 
   it("is read with the Console navigation", async () => {

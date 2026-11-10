@@ -824,7 +824,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             </ul>
           </section>
           <button v-if="filtered" type="button" class="usage-filters__clear" @click="clearFilters">Clear filters</button>
-          <p class="usage-filters__note">Filters apply to every view. Est. spend adds the cost that each session recorded, estimated or reported. <code>vitehub usage get</code> reads the same data.</p>
+          <p class="usage-filters__note">Filters apply to every view. Est. spend adds the cost that each session recorded, estimated or reported. <code>vitehub agent usage</code> reads the same data.</p>
         </aside>
       </div>
     </template>
