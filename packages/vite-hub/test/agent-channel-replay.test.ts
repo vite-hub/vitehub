@@ -9,8 +9,9 @@ import { expect, it } from "vitest"
 
 import { runAgentChannelReplayCli } from "../../agent/src/internal/channel-replay-cli.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../../agent/src/invocation-stream.ts"
+import { agentRuntimeModule } from "../../agent/src/vite.ts"
 
-it("journals authenticated Vite SSR dry-run replays in the host Console database", async () => {
+it("journals authenticated Vite SSR dry-run replays in the configured Agent journal", async () => {
   // Load the built host integration, as an application does, without typechecking unrelated primitives here.
   const hostEntry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
   const nitroEntry = createRequire(import.meta.url).resolve("nitro/vite")
@@ -18,7 +19,7 @@ it("journals authenticated Vite SSR dry-run replays in the host Console database
   const { vitehub } = await import(hostEntry) as { vitehub: (options: Record<string, unknown>) => PluginOption }
   const root = await mkdtemp(join(tmpdir(), "vitehub-replay-console-"))
   const packageRoot = fileURLToPath(new URL("../../agent", import.meta.url))
-  const databaseUrl = `file:${join(root, "configured-console.sqlite")}`
+  const databaseUrl = `file:${join(root, "configured-journal.sqlite")}`
   let server: Awaited<ReturnType<typeof createServer>> | undefined
   const client = createClient({ url: databaseUrl })
   try {
@@ -29,12 +30,12 @@ it("journals authenticated Vite SSR dry-run replays in the host Console database
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/support.ts"), `
 import { defineAgent } from '@vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from '@vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'
 import { channelDelivery } from '@vite-hub/agent/capabilities'
 export default defineAgent({ runtime: false, workspace: { mode: 'read' },
   driver: { async run({ tools, input }) { if (input.context?.skipDelivery) return 'No delivery'; await tools.send_message.execute({ message: 'Synthetic raw draft' }); return 'Synthetic final answer' } },
   capabilities: [channelDelivery({ required: true, channel: { name: 'teams', send: async () => { throw new Error('Connector must never run') } }, options: {} , format: message => 'Formatted: ' + message })],
-  channels: { mailbox: defineChannel('mailbox', { messages: false,
+  channels: { mailbox: channelAdapter('mailbox', { messages: false,
     webhooks: { secretHeader: 'x-signature', secretToken: 'secret', signature: 'github-sha256' },
     history: { key: item => item.id, thread: item => item.thread, collection: {
       parseQuery: async query => { if (query.turns !== 'last') throw new Error('Expected turns query'); return query },
@@ -46,13 +47,13 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
 `)
     await writeFile(join(root, "authorize.ts"), "export default () => ({ actor: { id: 'test', name: 'Test' }, mode: 'admin' })\n")
     server = await createServer({ root, configFile: false, appType: "custom", logLevel: "silent",
-      plugins: [vitehub({ preset: "node", agent: true, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
-        console: { databaseUrl, auth: false, authorize: "./authorize.ts" },
+      plugins: [vitehub({ preset: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
+        console: { auth: false, authorize: "./authorize.ts" },
       }), nitro()],
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.
       resolve: { alias: {
         "@vite-hub/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
-        "vite-hub/_internal/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
+        [agentRuntimeModule("server/internal")]: join(packageRoot, "src/server/internal.ts"),
       } },
       server: { port: 0, watch: null, fs: { allow: [root, join(packageRoot, "../..")] } },
     })

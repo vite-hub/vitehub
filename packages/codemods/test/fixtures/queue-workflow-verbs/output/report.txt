@@ -1,0 +1,26 @@
+queue-workflow-verbs: renamed the Queue and Workflow verbs in 9 file(s)
+Dry run: no files were written.
+
+Files to change (9):
+  app/components/QueueButton.vue
+  server/api/complete.post.ts
+  server/api/notify.post.ts
+  server/api/retry.post.ts
+  server/utils/barrel.ts
+  server/utils/dispatch.ts
+  server/utils/shadow.ts
+  server/utils/test-setup.ts
+  server/workflows/welcome.ts
+
+Manual follow-ups (4):
+  1. server/utils/dispatch.ts:18 This still names `runQueue`, for example in a mock or a string. The export is now `sendQueue`.
+  2. server/utils/shadow.ts:1 `runQueue` is also declared in this file, so the codemod imports `sendQueue` as `runQueue`. Rename the calls to `sendQueue` by hand.
+  3. server/utils/test-setup.ts:4 This still names `runWorkflow`, for example in a mock or a string. The export is now `startWorkflow`.
+  4. server/workflows/welcome.ts:5 `reminder` is a Workflow handle that this file exports. Rename `.run()` to `.start()` where other files call it.
+
+Notes:
+  - `deferQueue()`, `deferWorkflow()`, and the `defer()` method of a Workflow handle return nothing. A failure goes to the log.
+  - 2 `deferWorkflow()` call(s) read the run, so they now call `startWorkflow()`, which returns it.
+
+Next steps:
+  - Run your typecheck. It finds the Workflow handle calls in files that import a handle from another file.

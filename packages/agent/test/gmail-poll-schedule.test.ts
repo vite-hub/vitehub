@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { build } from "esbuild"
+import { resolveConfig } from "vite"
 import { expect, it, vi } from "vitest"
 import { createNetlifyScheduleFunctionOutputs } from "../../schedule/src/internal/provider-output.ts"
 import { hubAgent } from "../src/vite.ts"
@@ -53,6 +55,8 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
     await build({
       entryPoints: [input], outfile: output, bundle: true, platform: "node", format: "esm", packages: "external", tsconfigRaw: { compilerOptions: {} },
       plugins: [{ name: "generated-agent-runtime", setup(builder) {
+        // Schedule owns this dependency. Bundle it before moving its runtime into Agent's dist directory.
+        builder.onResolve({ filter: /^cron-schedule$/ }, args => ({ path: createRequire(args.importer).resolve(args.path) }))
         builder.onResolve({ filter: /^#vitehub\/agent\/registry$/ }, () => ({ path: aliases["#vitehub/agent/registry"]! }))
         builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === "@vite-hub/agent" ? "." : `.${args.path.slice("@vite-hub/agent".length)}`].import) }))
       } }],
@@ -122,18 +126,50 @@ it("installs the Deno polling host before importing cron registrations", async (
   }
 }, 30_000)
 
-it("bundles the Channel host from the retained Netlify Agent registry", async () => {
+it("registers a named Channel from retained Netlify Agent sources", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-netlify-output-"))
   try {
     vi.stubEnv("VITEHUB_HOSTING", "netlify")
-    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await cp(resolve(import.meta.dirname, "../node_modules"), join(root, "node_modules"), { recursive: true })
+    await symlink(resolve(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/agent"), "dir")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "named-channel-output", type: "module" }))
     await mkdir(join(root, "server/agents"), { recursive: true })
-    await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
-    const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.com" } } })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
+    await mkdir(join(root, "server/channels"), { recursive: true })
+    await writeFile(join(root, "server/channel-options.ts"), "export const adapter = { userName: 'Bot' }\n")
+    await writeFile(join(root, "server/channels/teams.ts"), [
+      "import { defineChannel } from '@vite-hub/channels'",
+      "import { teams } from '@vite-hub/agent/channels'",
+      "import { adapter } from '../channel-options'",
+      "export default defineChannel({ adapter: teams({ adapter }) })",
+    ].join("\n"))
+    await writeFile(join(root, "server/agents/poller.ts"), [
+      "import { defineAgent as makeAgent } from '@vite-hub/agent'",
+      "export default makeAgent({ channels: /* retained */ ['teams'], runtime: false, driver: { run: () => 'ok' } })",
+    ].join("\n"))
+    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { inspection: true } })
+    const config = await resolveConfig({ root, configFile: false, build: { outDir: "dist" } }, "build")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     await (plugin.buildEnd as () => Promise<void>)()
+    // Provider Output is deferred. It must no longer need the live Channel or its import closure.
+    await rm(join(root, "server"), { recursive: true })
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
     await expect(readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")).resolves.not.toHaveLength(0)
+    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", [
+      "const { default: handler } = await import(process.argv[1])",
+      "const response = await handler(new Request('https://example.com/api/_vitehub/agents/poller/inspection'), { params: { agent: 'poller' } })",
+      "console.log(response.status)",
+      "console.log(await response.text())",
+    ].join("\n"), pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href])
+    expect(stdout).toContain("200\n")
+    expect(stdout).toContain('"name":"poller"')
+    const retainedAgent = join(root, ".vitehub/agent/sources/0/server/agents/poller.ts")
+    const source = await readFile(retainedAgent, "utf8")
+    const channelImport = source.match(/import vitehubChannel0 from "([^"]+)"/)?.[1]
+    expect(channelImport).toMatch(/^\.\.?\//)
+    if (!channelImport) throw new Error("Expected a retained Channel import")
+    const retainedChannel = resolve(dirname(retainedAgent), channelImport)
+    await expect(readFile(retainedChannel, "utf8")).resolves.toContain("teams({ adapter })")
+    await expect(readFile(resolve(dirname(retainedChannel), "../channel-options.ts"), "utf8")).resolves.toContain("userName: 'Bot'")
   }
   finally {
     vi.unstubAllEnvs()
@@ -153,7 +189,7 @@ it("installs configured workspace dependency loaders in the retained polling hos
       providers: { state: { provider: "libsql", url: "libsql://state.example.com" } },
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     } as never)
@@ -173,7 +209,7 @@ it("installs configured workspace dependency loaders in the retained polling hos
     const handler = await readFile(handlers[0]!, "utf8")
     expect(handler).toContain("vitehubSetWorkspaceDependencyRuntimeLoaders({")
     expect(handler).toContain('sandboxTask: () => import("vite-hub/sandbox/task")')
-    expect(handler).toContain('sandboxTaskRuntimeState: () => import("vite-hub/_internal/sandbox/task/runtime/state")')
+    expect(handler).toContain('sandboxTaskRuntimeState: () => import("/sandbox/dist/task/runtime/state.js")')
     expect(handler).toContain('shellWorkspace: () => import("vite-hub/shell/workspace")')
   }
   finally {

@@ -1,6 +1,6 @@
 ---
 title: Sandbox limits and errors
-description: Know Sandbox timeouts, cancellation, and session reuse on each provider, and check a Sandbox before you ship it to production.
+description: Sandbox timeouts, cancellation, and session reuse on each provider, and checks before production.
 navigation.title: Limits and errors
 navigation.order: 8
 icon: i-lucide-circle-alert
@@ -8,22 +8,26 @@ icon: i-lucide-circle-alert
 
 ## Limits
 
-- One timeout bounds one execution attempt after provider startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the full `runSandboxTask()` call take longer.
-- Pass an `AbortSignal` to `runSandboxTask()` when the caller owns a cancellation boundary. Cancellation stops cancellable provider work and preserves the caller's abort reason. The Definition timeout remains an independent per-attempt limit, and queueing or provider startup can make the full call take longer.
-- Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a unique Sandbox for each run unless you set `sandboxId`.
-- A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest, and serializes runs with the same ID in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
+- A timeout limits one attempt after the provider starts. It covers package setup, staging, and execution. Queueing, Sandbox startup, and retry delays can make the full `runSandboxTask()` call take longer.
+- To cancel a run, pass an `AbortSignal` to `runSandboxTask()`. Cancellation stops provider work that can stop and keeps your abort reason. The task timeout still applies to each attempt on its own.
+- Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a new Sandbox for each run unless you set `sandboxId`.
+- A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes the run's files after each attempt, caches prepared projects by digest, and runs calls with the same ID one at a time in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
 
 ## Cleanup failures
 
-`runSandboxTask()` returns a non-2xx response if Cloudflare cannot remove invocation-local files from a Sandbox that stays open after the run, even when the handler succeeds. A failed cleanup can leave those files in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing it removes those files, so ViteHub does not delete them separately. Session cleanup failures also return a non-2xx response.
+`runSandboxTask()` returns a non-2xx response when Cloudflare cannot remove the run's files from a Sandbox that stays open, even when the handler succeeds. The files can then stay in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing removes the files. A failed session cleanup also returns a non-2xx response.
 
-If execution and cleanup both fail, the response keeps the primary error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()` directly, the thrown error retains both failures in an `AggregateError` in its cause chain. Provider diagnostics remain available through causes. JSON responses omit causes.
+If execution and cleanup both fail, the response keeps the first error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()`, the thrown error keeps both failures in an `AggregateError` in its cause chain, with provider details. JSON responses omit causes.
+
+## Cloudflare retries
+
+The Cloudflare runtime retries only requests that are safe to repeat: session cleanup, file reads, full file writes, file deletes, file listing, and recursive directory creation. It retries when Cloudflare marks the error `retryable`. With no flag, it retries temporary failures, such as a Container that is still starting. It does not retry when the Durable Object is `overloaded` or the error has `retryable: false`, even during Container startup.
+
+The runtime does not retry `session.exec()`, a new process, a file move, or a port exposure once the request can reach the Container. If the response is lost, the command may have run, and a retry could run it twice. A Container that is still starting never got the command, so ViteHub retries that case. The error keeps the Cloudflare flag in `error.data.retryable` and the original error in `error.cause`. Retry yourself only when running twice is safe.
 
 ## Production checks
 
-A Definition name and its payload select work. They are not a permission boundary. Code inside the Sandbox can use the filesystem, environment, network, credentials, and child processes that the provider exposes.
-
-Inspect that authority before execution when your policy depends on it:
+A task name and payload select work. They do not limit permissions. Code in the Sandbox can use the filesystem, environment, network, credentials, and child processes that the provider gives it. Inspect that access before execution when your policy needs it:
 
 ```ts [server/sandbox-authority.ts]
 import { resolveSandboxTaskRunner } from '@vite-hub/sandbox/task'
@@ -32,6 +36,6 @@ const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)
 ```
 
-Apply provider controls such as Vercel `networkPolicy`. Keep secrets in server environment or provider configuration. Do not treat container execution alone as authorization for untrusted code.
+Use provider controls such as Vercel `networkPolicy`. Keep secrets in the server environment or provider config. A container alone does not make untrusted code safe to run.
 
-Run `vitehub inspect definitions` to list discovered Sandbox Task Definitions without starting a server.
+Run `vitehub inspect definitions` to list Sandbox Tasks without starting a server.

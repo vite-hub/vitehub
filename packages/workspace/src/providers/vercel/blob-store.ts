@@ -5,6 +5,7 @@ import { ownedBlobPrefix } from "../../storage/owned-blob-prefix.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createCurrentSnapshotFromStore, diffSnapshots } from "../../storage/utils.ts"
 
+import type { VercelBlobSdk } from "@vite-hub/blob/internal/vercel-blob"
 import type {
   DiffOptions,
   GlobOptions,
@@ -87,35 +88,6 @@ function parseBlobListResponse(value: unknown): BlobListResult {
   }
 }
 
-type VercelBlobModule = {
-  del(key: string, options?: { token?: string }): Promise<void>
-  get(key: string, options: { access: "private" | "public", token?: string, useCache?: boolean, headers?: Record<string, string> }): Promise<{
-    blob: { contentType: string, size: number }
-    statusCode: 200
-    stream: ReadableStream<Uint8Array>
-  } | { statusCode: 304, stream: null } | null>
-  head(key: string, options?: { token?: string }): Promise<{ contentType?: string, pathname: string, size: number, uploadedAt: Date }>
-  list(options: { cursor?: string, limit?: number, prefix: string, token?: string }): Promise<{
-    blobs: Array<{ pathname: string, size?: number, uploadedAt?: Date }>
-    cursor?: string
-    hasMore?: boolean
-  }>
-  put(key: string, body: Blob | Uint8Array | string, options: {
-    access: "private" | "public"
-    addRandomSuffix: boolean
-    allowOverwrite: boolean
-    contentType?: string
-    token?: string
-  }): Promise<unknown>
-}
-
-function isMissingBlobError(error: unknown) {
-  return error instanceof Error && (
-    error.name === "BlobNotFoundError"
-    || /requested blob does not exist/i.test(error.message)
-  )
-}
-
 function joinBlobPath(...parts: string[]) {
   return parts.map(part => normalizeWorkspacePath(part)).filter(Boolean).join("/")
 }
@@ -138,6 +110,9 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   const blob = await importVercelBlobPeer()
   const access = options.access || "private"
   return {
+    isMissing(error: unknown): boolean {
+      return error instanceof blob.BlobNotFoundError
+    },
     async delete(key: string): Promise<void> {
       await blob.del(key, auth(options))
     },
@@ -165,7 +140,7 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
     },
     async head(key: string): Promise<BlobListItem | undefined> {
       const result = await blob.head(key, auth(options)).catch((error: unknown) => {
-        if (isMissingBlobError(error)) return undefined
+        if (error instanceof blob.BlobNotFoundError) return undefined
         throw error
       })
       if (!result) return undefined
@@ -195,10 +170,10 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   }
 }
 
-async function importVercelBlobPeer(): Promise<VercelBlobModule> {
+async function importVercelBlobPeer(): Promise<VercelBlobSdk> {
   const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
   // @vercel/blob is about 480 KB. Load it with the first Blob call, not with every server start.
-  return testImport ? await testImport() as VercelBlobModule : await import("@vercel/blob") as VercelBlobModule
+  return testImport ? await testImport() as VercelBlobSdk : (await import("@vite-hub/blob/internal/vercel-blob")).vercelBlob
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {
@@ -291,7 +266,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         }
         else {
           await client.delete(attributesKey).catch((error: unknown) => {
-            if (!isMissingBlobError(error)) throw error
+            if (!client.isMissing(error)) throw error
           })
         }
       }

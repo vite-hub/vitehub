@@ -30,7 +30,8 @@ describe("usage Capability", () => {
     { cost: 1e21, usd: "1000000000000000000000" },
   ])("preserves provider cost $cost as decimal USD", async ({ cost, usd }) => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing })],
@@ -41,7 +42,7 @@ describe("usage Capability", () => {
       }) },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       usageRecord: { cost: { display: `$${usd}`, estimated: false, source: "provider", usd } },
     })
     expect(pricing).not.toHaveBeenCalled()
@@ -99,7 +100,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability()],
@@ -124,7 +126,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "log breakfast" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "log breakfast" })).resolves.toMatchObject({
       text: "ok",
     })
 
@@ -236,7 +238,8 @@ describe("usage Capability", () => {
     })))
     vi.stubGlobal("fetch", fetch)
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const call = {
       model: "gpt-6-astra",
@@ -257,7 +260,7 @@ describe("usage Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(finish.mock.calls[0]![0].invocation.usage?.cost).toMatchObject({
       source: "models.dev",
       usd: "0.4",
@@ -272,7 +275,8 @@ describe("usage Capability", () => {
     })))
     vi.stubGlobal("fetch", fetch)
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability()],
@@ -295,7 +299,7 @@ describe("usage Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(finish.mock.calls[0]![0].invocation.usage?.calls?.[0]?.cost).toBeDefined()
     expect(finish.mock.calls[0]![0].invocation.usage?.calls?.[1]?.cost).toBeUndefined()
     expect(finish.mock.calls[0]![0].invocation.usage?.cost).toBeUndefined()
@@ -305,7 +309,8 @@ describe("usage Capability", () => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing: false })],
@@ -319,7 +324,7 @@ describe("usage Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(finish.mock.calls[0]![0].extensions.get("usage")).toBe(finish.mock.calls[0]![0].invocation.usage)
     expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("cost")
@@ -340,7 +345,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability()],
@@ -360,7 +366,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
       usage: {
@@ -389,7 +395,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability()],
       driver: {
@@ -402,7 +409,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: This fixture's Driver returns the runAgent object shape inspected below.
-    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+    const result = await runAgentWithContext(agent, runtime(), { prompt: "hello" }) as {
       usageRecord?: { cost?: unknown }
     }
     expect(result.usageRecord?.cost).toBeUndefined()
@@ -411,7 +418,8 @@ describe("usage Capability", () => {
 
   it("supports custom pricing without provider dependencies", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn(() => ({
       usd: "0.42",
       estimated: false,
@@ -436,7 +444,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(pricing).toHaveBeenCalledWith(expect.objectContaining({
       model: "custom/model",
@@ -452,7 +460,8 @@ describe("usage Capability", () => {
 
   it("adds display to custom USD pricing", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({
@@ -472,7 +481,7 @@ describe("usage Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(finish.mock.calls[0]![0].invocation.usage?.cost).toEqual({
       display: "~$0.00125",
@@ -484,7 +493,8 @@ describe("usage Capability", () => {
 
   it("leaves malformed provider cost metadata best-effort", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const legacyCost = { amount: "0.01", currency: "USD" }
     const agent = defineAgent({
       capabilities: [usageCapability()],
@@ -499,7 +509,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
       usageRecord: { cost: legacyCost },
     })
@@ -516,7 +526,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability()],
       driver: {
@@ -533,7 +544,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       usageRecord: {
         cost: {
           display: "~$0.000014",
@@ -554,7 +565,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability()],
       driver: {
@@ -571,7 +583,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const result = await runAgent(agent, runtime(), { prompt: "hello" })
+    const result = await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(result).toMatchObject({
       usageRecord: {
@@ -605,7 +617,8 @@ describe("usage Capability", () => {
 
   it("enriches canonical usage without requiring a finish hook", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
       estimated: true,
@@ -625,7 +638,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
       usageRecord: {
         cost: {
@@ -641,7 +654,8 @@ describe("usage Capability", () => {
 
   it("prices usage records before yielding them from streamAgent", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
       estimated: true,
@@ -665,7 +679,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
+    const stream = await streamAgentInline(agent, runtime(), { prompt: "hello" })
     const events = []
     // SAFETY: streamAgent returns an async iterable for its default output mode.
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
@@ -692,7 +706,8 @@ describe("usage Capability", () => {
   it("prices UI message stream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
       capabilities: [usageCapability({
@@ -719,7 +734,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: The selected UI message output mode returns a readable stream.
-    const stream = await streamAgent(agent, {
+    const stream = await streamAgentInline(agent, {
       ...runtime(),
       traceLog,
     }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
@@ -737,7 +752,8 @@ describe("usage Capability", () => {
   it("prices toUIMessageStream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
       capabilities: [usageCapability({
@@ -771,7 +787,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: The selected UI message output mode returns a readable stream.
-    const stream = await streamAgent(agent, {
+    const stream = await streamAgentInline(agent, {
       ...runtime(),
       traceLog,
     }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
@@ -789,7 +805,8 @@ describe("usage Capability", () => {
   it("prices distinct preserved UI stream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
       capabilities: [usageCapability({
@@ -826,7 +843,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: This fixture's Driver exposes the UI message stream method inspected below.
-    const result = await runAgent(agent, {
+    const result = await runAgentWithContext(agent, {
       ...runtime(),
       traceLog,
     }, { prompt: "hello" }) as { toUIMessageStream: () => ReadableStream<unknown> }
@@ -844,7 +861,8 @@ describe("usage Capability", () => {
   it("prices serialized UI message response usage before returning it", async () => {
     const { readUIMessageStream } = await import("ai")
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const { uiMessageStreamFromResponse } = await import("../src/stream-output.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
@@ -872,7 +890,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: The selected UI message output mode returns a Response.
-    const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
+    const response = await streamAgentInline(agent, runtime(), { prompt: "hello" }, {
       output: "ui-message-stream",
     }) as Response
     // SAFETY: The synthetic streaming response has a byte body, which the AI SDK reader accepts after conversion.
@@ -886,7 +904,8 @@ describe("usage Capability", () => {
   ])("prices native response usage after a renderer returns a $kind async iterable", async ({ hybrid }) => {
     const { readUIMessageStream } = await import("ai")
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const { uiMessageStreamFromResponse } = await import("../src/stream-output.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
@@ -947,7 +966,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: The selected UI message output mode returns a Response.
-    const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
+    const response = await streamAgentInline(agent, runtime(), { prompt: "hello" }, {
       output: "ui-message-stream",
     }) as Response
 
@@ -967,7 +986,8 @@ describe("usage Capability", () => {
 
   it("returns stream results before their usage promise settles", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
@@ -984,7 +1004,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const pending = streamAgent(agent, runtime(), { prompt: "hello" })
+    const pending = streamAgentInline(agent, runtime(), { prompt: "hello" })
     const outcome = await Promise.race([
       pending.then(() => "returned"),
       new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
@@ -999,7 +1019,8 @@ describe("usage Capability", () => {
 
   it("returns runAgent stream results before their usage promise settles", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
@@ -1016,7 +1037,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const pending = runAgent(agent, runtime(), { prompt: "hello" })
+    const pending = runAgentWithContext(agent, runtime(), { prompt: "hello" })
     const outcome = await Promise.race([
       pending.then(() => "returned"),
       new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
@@ -1031,7 +1052,8 @@ describe("usage Capability", () => {
 
   it("does not await unresolved result usage when a runAgent stream is closed early", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const usage = new Promise(() => {})
     const finish = vi.fn()
     const agent = defineAgent({
@@ -1051,7 +1073,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: This fixture's runAgent result exposes its Driver stream.
-    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as { stream: AsyncIterable<unknown> }
+    const result = await runAgentWithContext(agent, runtime(), { prompt: "hello" }) as { stream: AsyncIterable<unknown> }
     const consume = (async () => {
       for await (const _chunk of result.stream) break
     })()
@@ -1066,7 +1088,8 @@ describe("usage Capability", () => {
 
   it("attaches deferred usage to returned plain stream results", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
     const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
       resolveUsage = resolve
@@ -1091,7 +1114,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: This fixture's runAgent result exposes its Driver stream and deferred usage record.
-    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+    const result = await runAgentWithContext(agent, runtime(), { prompt: "hello" }) as {
       stream: AsyncIterable<unknown>
       usageRecord?: { cost?: { usd: string } }
     }
@@ -1102,7 +1125,8 @@ describe("usage Capability", () => {
 
   it("attaches deferred usage to returned UI message stream results", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
     const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
       resolveUsage = resolve
@@ -1132,7 +1156,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: This fixture's runAgent result exposes its UI stream and deferred usage record.
-    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+    const result = await runAgentWithContext(agent, runtime(), { prompt: "hello" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
       usageRecord?: { cost?: { usd: string } }
     }
@@ -1143,7 +1167,8 @@ describe("usage Capability", () => {
 
   it("does not await unresolved UI usage when a streamAgent result is closed early", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing: () => undefined })],
@@ -1165,7 +1190,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: The selected UI message output mode is consumed through its async iterable interface.
-    const stream = await streamAgent(agent, runtime(), { prompt: "hello" }, { output: "ui-message-stream" }) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(agent, runtime(), { prompt: "hello" }, { output: "ui-message-stream" }) as AsyncIterable<unknown>
     const consume = (async () => {
       for await (const _chunk of stream) break
     })()
@@ -1180,7 +1205,8 @@ describe("usage Capability", () => {
 
   it("does not await unresolved event usage when a streamAgent result is closed early", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing: () => undefined })],
@@ -1199,7 +1225,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: streamAgent returns an async iterable for its default output mode.
-    const stream = await streamAgent(agent, runtime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(agent, runtime(), { prompt: "hello" }) as AsyncIterable<unknown>
     const consume = (async () => {
       for await (const _chunk of stream) break
     })()
@@ -1214,7 +1240,8 @@ describe("usage Capability", () => {
 
   it("normalizes observed usage when a streamAgent result is closed early", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing: () => undefined })],
@@ -1242,7 +1269,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: streamAgent returns an async iterable for its default output mode.
-    const stream = await streamAgent(agent, {
+    const stream = await streamAgentInline(agent, {
       ...runtime(),
       run: { runId: "run-1" },
     }, { prompt: "hello" }) as AsyncIterable<unknown>
@@ -1260,7 +1287,8 @@ describe("usage Capability", () => {
 
   it("returns runAgent UI message results before their usage promise settles", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
@@ -1282,7 +1310,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const pending = runAgent(agent, runtime(), { prompt: "hello" })
+    const pending = runAgentWithContext(agent, runtime(), { prompt: "hello" })
     const outcome = await Promise.race([
       pending.then(() => "returned"),
       new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
@@ -1297,7 +1325,8 @@ describe("usage Capability", () => {
 
   it("returns streamAgent UI message results before their usage promise settles", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
@@ -1319,7 +1348,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const pending = streamAgent(agent, runtime(), { prompt: "hello" }, { output: "ui-message-stream" })
+    const pending = streamAgentInline(agent, runtime(), { prompt: "hello" }, { output: "ui-message-stream" })
     const outcome = await Promise.race([
       pending.then(() => "returned"),
       new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
@@ -1333,7 +1362,8 @@ describe("usage Capability", () => {
   })
 
   it("preserves resolved stream usage for finish hooks without eager extensions", async () => {
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       driver: {
@@ -1353,7 +1383,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
+    const stream = await streamAgentInline(agent, runtime(), { prompt: "hello" })
     // SAFETY: streamAgent returns an async iterable for its default output mode.
     for await (const _chunk of stream as AsyncIterable<unknown>) {}
 
@@ -1367,7 +1397,8 @@ describe("usage Capability", () => {
 
   it("prices usage records before yielding runAgent streams", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
       estimated: true,
@@ -1395,7 +1426,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const stream = await runAgent(agent, runtime(), { prompt: "hello" })
+    const stream = await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     const events = []
     // SAFETY: This fixture's runAgent result is the Driver's async iterable stream.
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
@@ -1424,7 +1455,8 @@ describe("usage Capability", () => {
 
   it("prices usage carried by raw finish chunks before yielding", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
       estimated: true,
@@ -1450,7 +1482,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const stream = await runAgent(agent, runtime(), { prompt: "hello" })
+    const stream = await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     const chunks = []
     // SAFETY: This fixture's runAgent result is the Driver's async iterable stream.
     for await (const chunk of stream as AsyncIterable<unknown>) chunks.push(chunk)
@@ -1484,7 +1516,8 @@ describe("usage Capability", () => {
 
   it("preserves richer raw usage while attaching the canonical record", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const usage = {
       inputTokens: 10,
       outputTokens: 2,
@@ -1509,7 +1542,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const result = await runAgent(agent, runtime(), { prompt: "hello" })
+    const result = await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     // SAFETY: This fixture's Driver result retains the usage promise supplied above.
     expect((result as { usage?: unknown }).usage).toBe(usage)
     expect(result).toMatchObject({
@@ -1523,7 +1556,8 @@ describe("usage Capability", () => {
 
   it("returns the enriched resolved record when usage metadata is added", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability({
         pricing: () => ({
@@ -1547,7 +1581,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       ...runtime(),
       run: { runId: "run-1" },
     }, { prompt: "hello" })).resolves.toMatchObject({
@@ -1567,7 +1601,8 @@ describe("usage Capability", () => {
 
   it("enriches immutable driver results without mutating them", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const result = Object.freeze({
       text: "ok",
       usage: {
@@ -1589,7 +1624,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       usageRecord: {
         cost: {
           usd: "0.02",
@@ -1601,7 +1636,8 @@ describe("usage Capability", () => {
 
   it("enriches immutable usage records through a mutable canonical copy", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const usageRecord = Object.freeze({
       usage: {
         inputTokens: 10,
@@ -1625,7 +1661,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       usageRecord: {
         cost: {
           usd: "0.02",
@@ -1637,7 +1673,8 @@ describe("usage Capability", () => {
 
   it("wraps class-backed results without cloning their private state", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     class DriverResult {
       #value = "preserved"
       text = "ok"
@@ -1666,7 +1703,7 @@ describe("usage Capability", () => {
       },
     })
 
-    const enriched = await runAgent(agent, runtime(), { prompt: "hello" })
+    const enriched = await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(enriched).toBe(result)
     expect(enriched).toMatchObject({
       usageRecord: {
@@ -1680,7 +1717,8 @@ describe("usage Capability", () => {
 
   it("preserves class-backed stream results while enriching their streams", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     class DriverStreamResult {
       #value = "preserved"
       stream = (async function* () {
@@ -1722,7 +1760,7 @@ describe("usage Capability", () => {
     })
 
     // SAFETY: This fixture's Driver returns the DriverStreamResult instance created above.
-    const enriched = await runAgent(agent, runtime(), { prompt: "hello" }) as DriverStreamResult
+    const enriched = await runAgentWithContext(agent, runtime(), { prompt: "hello" }) as DriverStreamResult
     expect(enriched).toBe(result)
     expect(enriched.value()).toBe("preserved")
     const text = []
@@ -1741,7 +1779,8 @@ describe("usage Capability", () => {
 
   it("preserves Agent success when eager usage extraction fails", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing })],
@@ -1753,7 +1792,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
     })
     expect(pricing).not.toHaveBeenCalled()
@@ -1761,7 +1800,8 @@ describe("usage Capability", () => {
 
   it("does not resolve unrelated lazy finish extensions during eager-only work", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const lazy = vi.fn(() => {
       throw new Error("lazy extension should not run")
     })
@@ -1790,7 +1830,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
     })
     expect(pricing).toHaveBeenCalledOnce()
@@ -1805,7 +1845,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const usageRecord = {
       usage: {
         totalTokens: 12,
@@ -1822,7 +1863,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       usageRecord: {
         usage: {
           totalTokens: 12,
@@ -1837,7 +1878,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability()],
       driver: {
@@ -1852,7 +1894,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
       usageRecord: {
         usage: {
@@ -1873,7 +1915,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability()],
@@ -1893,8 +1936,8 @@ describe("usage Capability", () => {
       },
     })
 
-    await runAgent(agent, runtime(), { prompt: "first" })
-    await runAgent(agent, runtime(), { prompt: "second" })
+    await runAgentWithContext(agent, runtime(), { prompt: "first" })
+    await runAgentWithContext(agent, runtime(), { prompt: "second" })
 
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(finish.mock.calls[0]![0].invocation.usage?.cost).toBeUndefined()
@@ -1921,7 +1964,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability()],
       driver: {
@@ -1937,9 +1981,9 @@ describe("usage Capability", () => {
       },
     })
 
-    const first = await runAgent(agent, runtime(), { prompt: "first" })
+    const first = await runAgentWithContext(agent, runtime(), { prompt: "first" })
     vi.advanceTimersByTime(60 * 60_000)
-    const second = await runAgent(agent, runtime(), { prompt: "second" })
+    const second = await runAgentWithContext(agent, runtime(), { prompt: "second" })
 
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(first).toMatchObject({ usageRecord: { cost: { usd: "0.000014" } } })
@@ -1962,7 +2006,8 @@ describe("usage Capability", () => {
     vi.stubGlobal("fetch", fetch)
 
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [usageCapability()],
       driver: {
@@ -1978,10 +2023,10 @@ describe("usage Capability", () => {
       },
     })
 
-    await runAgent(agent, runtime(), { prompt: "prime" })
+    await runAgentWithContext(agent, runtime(), { prompt: "prime" })
     vi.advanceTimersByTime(60 * 60_000)
-    const first = runAgent(agent, runtime(), { prompt: "first" })
-    const second = runAgent(agent, runtime(), { prompt: "second" })
+    const first = runAgentWithContext(agent, runtime(), { prompt: "first" })
+    const second = runAgentWithContext(agent, runtime(), { prompt: "second" })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
     resolveRefresh(Response.json(modelsDevCatalog("custom", "model", {
       input: 2,
@@ -2005,7 +2050,8 @@ describe("usage Capability", () => {
     },
   ])("preserves usage and Agent success when pricing $name", async ({ pricing }) => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCapability({ pricing })],
@@ -2024,7 +2070,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
     })
 
@@ -2042,7 +2088,8 @@ describe("usage Capability", () => {
 
   it("keeps provider-reported cost without resolving another price", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn()
     const finish = vi.fn()
     const reportedCost = {
@@ -2070,7 +2117,7 @@ describe("usage Capability", () => {
       },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(pricing).not.toHaveBeenCalled()
     expect(finish.mock.calls[0]![0].invocation.usage?.cost).toEqual({
@@ -2081,7 +2128,8 @@ describe("usage Capability", () => {
 
   it("prices compound calls independently before aggregating their cost", async () => {
     const { usage: usageCapability } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const pricing = vi.fn(async ({ model }: { model?: string }) => ({
       estimated: true,
       source: "test",
@@ -2103,7 +2151,7 @@ describe("usage Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
 
     expect(pricing).toHaveBeenCalledTimes(2)
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({

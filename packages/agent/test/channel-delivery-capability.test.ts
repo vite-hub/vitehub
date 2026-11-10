@@ -3,10 +3,11 @@ import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { runAgentInline, runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { replayChannel } from "../src/channel-replay.ts"
 import { channelDelivery, inputCommands } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent, streamAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent } from "../src/index.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createMessage, getMessageText } from "../src/messages.ts"
 
@@ -23,8 +24,8 @@ function createChannel(error?: Error) {
   return {
     name: "teams",
     send: vi.fn(async (_text: string, _options: { recipient: string }) => error
-      ? [error, null] as [Error, null]
-      : [null, { deliveryId: "delivery-1" }] as [null, { deliveryId: string }]),
+      ? [error, undefined] as [Error, undefined]
+      : [undefined, { deliveryId: "delivery-1" }] as [undefined, { deliveryId: string }]),
   }
 }
 
@@ -60,8 +61,8 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { prompt: "Write" })
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_TOOL_CONFLICT" })
-    expect(result).toBeNull()
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_TOOL_CONFLICT" })
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
     expect(execute).not.toHaveBeenCalled()
     expect(channel.send).not.toHaveBeenCalled()
@@ -79,8 +80,8 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { prompt: "/debug" })
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED", details: { attempts: 0, tool: "send_message" } })
-    expect(result).toBeNull()
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED", details: { attempts: 0, tool: "send_message" } })
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
     expect(channel.send).not.toHaveBeenCalled()
   })
@@ -98,9 +99,9 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { prompt: "/debug" })
-    expect(error).toBeNull()
-    expect(result).toBeInstanceOf(Response)
-    expect(result).toMatchObject({ status: 204 })
+    expect(error).toBeUndefined()
+    expect(result?.raw).toBeInstanceOf(Response)
+    expect(result?.raw).toMatchObject({ status: 204 })
     expect(run).not.toHaveBeenCalled()
     expect(channel.send).not.toHaveBeenCalled()
   })
@@ -119,7 +120,7 @@ describe("channelDelivery()", () => {
       capabilities: order === "before" ? [delivery, other] : [other, delivery],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledWith("Hello", { recipient: "user:1" })
   })
 
@@ -135,7 +136,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledTimes(1)
     expect(channel.send).toHaveBeenCalledWith("Roast", { recipient: "user:1" })
   })
@@ -148,7 +149,7 @@ describe("channelDelivery()", () => {
         await expect(tools.send_message!.execute!({ message: "Draft reply" })).resolves.toMatchObject({ sent: true })
       }),
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" } })],
-      channels: { mailbox: defineChannel("mailbox", {
+      channels: { mailbox: channelAdapter("mailbox", {
         history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
         triggers: { received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "Write" } }) }) },
       }) },
@@ -156,7 +157,7 @@ describe("channelDelivery()", () => {
     })
 
     if (mode === "replay") await expect(replayChannel(agent, "mailbox", { dryRun: true })).resolves.toMatchObject({ processed: 1, failed: 0 })
-    else await expect(runAgent(agent, { dryRun: true, prompt: "Write" })).resolves.toEqual([null, "done"])
+    else await expect(runAgent(agent, { dryRun: true, prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).not.toHaveBeenCalled()
     const page = await invocations.list()
     const record = page.invocations[0] && await invocations.get(page.invocations[0].id)
@@ -177,7 +178,7 @@ describe("channelDelivery()", () => {
       invocations,
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, format: message => `Formatted: ${message}` })],
     })
-    await expect(runAgent(agent, { dryRun, prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { dryRun, prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     if (dryRun) expect(channel.send).not.toHaveBeenCalled()
     else expect(channel.send).toHaveBeenCalledWith("Formatted: Raw draft", { recipient: "user:1" })
     const page = await invocations.list()
@@ -195,8 +196,8 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { prompt: "Write" })
-    expect(result).toBeNull()
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED", message: "[vitehub] The Agent finished without a successful send_message call." })
+    expect(result).toBeUndefined()
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED", message: "[vitehub] The Agent finished without a successful send_message call." })
     expect(channel.send).not.toHaveBeenCalled()
   })
 
@@ -217,7 +218,7 @@ describe("channelDelivery()", () => {
       invocations,
     })
 
-    await expect(runAgent(agent, { prompt: "Write the brief" })).resolves.toEqual([null, "sent"])
+    await expect(runAgent(agent, { prompt: "Write the brief" })).resolves.toEqual([undefined, expect.objectContaining({ text: "sent" })])
     expect(turns).toHaveLength(2)
     expect(turns[1]!.messages.map(message => [message.role, getMessageText(message)])).toEqual([
       ["user", "Write the brief"],
@@ -253,7 +254,7 @@ describe("channelDelivery()", () => {
     })
 
     const [error] = await runAgent(agent, { messages: [createMessage({ role: "user", text: "Write" })] })
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED", details: { attempts: 0, reminders: 2, tool: "send_message" } })
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED", details: { attempts: 0, reminders: 2, tool: "send_message" } })
     expect(turns).toHaveLength(3)
     expect(turns[2]!.map(message => [message.role, getMessageText(message)])).toEqual([
       ["user", "Write"],
@@ -283,7 +284,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, reminder: true })],
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Write the brief" })
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Write the brief" })
     expect(channel.send).toHaveBeenCalledExactlyOnceWith("Morning brief", { recipient: "user:1" })
     const reminderPrompt = model.doGenerateCalls[1]!.prompt.filter(message => message.role !== "system")
     expect(reminderPrompt).toEqual([
@@ -306,7 +307,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, reminder: { turns: 3 } })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([expect.objectContaining({ code: "CHANNEL_DELIVERY_REQUIRED", details: expect.objectContaining({ attempts: 1, reminders: 0 }) }), null])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([expect.objectContaining({ code: "AGENT_RUN_FAILED", cause: expect.objectContaining({ code: "CHANNEL_DELIVERY_REQUIRED", details: expect.objectContaining({ attempts: 1, reminders: 0 }) }) }), undefined])
     expect(runs).toBe(1)
     expect(channel.send).toHaveBeenCalledOnce()
   })
@@ -342,7 +343,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, reminder: true })],
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() } as never, { prompt: "Write" })
+    const stream = await streamAgentInline(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() } as never, { prompt: "Write" })
     for await (const _event of stream as AsyncIterable<unknown>) { /* drain */ }
     expect(run).toHaveBeenCalledTimes(2)
     expect(channel.send).toHaveBeenCalledExactlyOnceWith("Morning brief", { recipient: "user:1" })
@@ -381,7 +382,7 @@ describe("channelDelivery()", () => {
     })
 
     const [error] = await runAgent(agent, { prompt: "Write" })
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED" })
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED" })
     expect(validate).toHaveBeenCalledTimes(2)
     expect(channel.send).toHaveBeenCalledTimes(1)
   })
@@ -398,7 +399,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, format })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledExactlyOnceWith("Formatted", { recipient: "user:1" })
   })
 
@@ -413,7 +414,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, format })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledExactlyOnceWith("Formatted", { recipient: "user:1" })
   })
 
@@ -460,7 +461,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, validate, format })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(validate).toHaveBeenCalledTimes(1)
     expect(format).toHaveBeenCalledTimes(1)
     expect(channel.send).toHaveBeenCalledTimes(1)
@@ -480,7 +481,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, format: async message => message })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledTimes(1)
   })
 
@@ -492,7 +493,7 @@ describe("channelDelivery()", () => {
     })
 
     const [error] = await runAgent(agent, { prompt: "Write" })
-    expect(error).toMatchObject({ message: "Driver failed" })
+    expect(error?.cause).toMatchObject({ message: "Driver failed" })
     expect(channel.send).not.toHaveBeenCalled()
   })
 
@@ -511,11 +512,8 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { prompt: "Write" })
-    expect(error).toBeNull()
-    expect(result).toBeInstanceOf(Response)
-    if (!(result instanceof Response)) throw new Error("Expected Response")
-    if (sends) await expect(result.text()).resolves.toBe("done")
-    else await expect(result.text()).rejects.toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED" })
+    if (sends) expect(result?.text).toBe("done")
+    else expect(error).toMatchObject({ code: "AGENT_RUN_FAILED", cause: expect.objectContaining({ code: "CHANNEL_DELIVERY_REQUIRED" }) })
   })
 
   it.each(["response", "stream"] as const)("does not require delivery after cancelling a %s", async (output) => {
@@ -530,8 +528,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true })],
     })
 
-    const [error, result] = await runAgent(agent, { prompt: "Write" })
-    expect(error).toBeNull()
+    const result = await runAgentInline(agent, { runtime: "unknown", waitUntil: () => {} }, { prompt: "Write" })
     if (result instanceof Response) {
       await expect(result.body!.cancel()).resolves.toBeUndefined()
     }
@@ -559,7 +556,7 @@ describe("channelDelivery()", () => {
       })],
     })
 
-    await expect(runAgent(agent, { prompt: "Write", context: { thread: "thread-1" } })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write", context: { thread: "thread-1" } })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledWith("thread-1: Suggested reply", { recipient: "user:1" })
   })
 
@@ -578,13 +575,12 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true })],
     })
     const options = {
-      output: "drained" as const,
       schedule,
       tools: { github_api_get: { name: "github_api_get", execute: vi.fn(async () => ({ data: [] })) } },
     }
 
-    await expect(runAgent(agent, { prompt: "Write" }, options)).resolves.toEqual([null, "done"])
-    await expect(runAgent(agent, { prompt: "Write" }, options)).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { prompt: "Write" }, options)).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
+    await expect(runAgent(agent, { prompt: "Write" }, options)).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(channel.send).toHaveBeenCalledTimes(2)
   })
 
@@ -600,13 +596,13 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true })],
     })
 
-    const [error, result] = await runAgent(agent, { prompt: "Write" }, { output: "drained" })
+    const [error, result] = await runAgent(agent, { prompt: "Write" })
     if (sends) {
-      expect(error).toBeNull()
-      expect(result).toBe("done")
+      expect(error).toBeUndefined()
+      expect(result?.text).toBe("done")
     }
     else {
-      expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED" })
+      expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED" })
     }
   })
 
@@ -625,8 +621,8 @@ describe("channelDelivery()", () => {
       capabilities: [delivery],
     })
 
-    await expect(runAgent(agent, { context: { recipient: "user:a" }, prompt: "Write" })).resolves.toEqual([null, "done"])
-    await expect(runAgent(agent, { context: { recipient: "user:b" }, prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { context: { recipient: "user:a" }, prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
+    await expect(runAgent(agent, { context: { recipient: "user:b" }, prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(resolveOptions).toHaveBeenCalledTimes(2)
     expect(channel.send.mock.calls).toEqual([
       ["One", { recipient: "user:a" }],
@@ -654,9 +650,9 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { dryRun, prompt: "Write" })
-    expect(result).toBeNull()
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_OPTIONS", details: { tool: "send_message" }, message: "[vitehub] send_message could not resolve its send options." })
-    expect((error as Error).cause).toBe(cause)
+    expect(result).toBeUndefined()
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_OPTIONS", details: { tool: "send_message" }, message: "[vitehub] send_message could not resolve its send options." })
+    expect((error?.cause as Error | undefined)?.cause).toBe(cause)
     expect(run).not.toHaveBeenCalled()
     expect(channel.send).not.toHaveBeenCalled()
   })
@@ -671,7 +667,7 @@ describe("channelDelivery()", () => {
       capabilities: [channelDelivery({ channel, format: message => `Formatted: ${message}`, onDelivered, options: { recipient: "user:1" } })],
     })
 
-    await expect(runAgent(agent, { dryRun, prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { dryRun, prompt: "Write" })).resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(onDelivered).toHaveBeenCalledTimes(1)
     const [message, receipt, context] = onDelivered.mock.calls[0]!
     expect(message).toBe("Draft")
@@ -693,9 +689,9 @@ describe("channelDelivery()", () => {
     })
 
     const [error, result] = await runAgent(agent, { dryRun, prompt: "Write" })
-    expect(result).toBeNull()
-    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_HOOK_FAILED", details: { deliveryId: dryRun ? expect.stringMatching(/^dry-run:/) : "delivery-1", dryRun, tool: "send_message" } })
-    expect((error as Error).cause).toBe(cause)
+    expect(result).toBeUndefined()
+    expect(error?.cause).toMatchObject({ code: "CHANNEL_DELIVERY_HOOK_FAILED", details: { deliveryId: dryRun ? expect.stringMatching(/^dry-run:/) : "delivery-1", dryRun, tool: "send_message" } })
+    expect((error?.cause as Error | undefined)?.cause).toBe(cause)
     expect(channel.send).toHaveBeenCalledTimes(dryRun ? 0 : 1)
     const page = await invocations.list()
     const record = await invocations.get(page.invocations[0]!.id)

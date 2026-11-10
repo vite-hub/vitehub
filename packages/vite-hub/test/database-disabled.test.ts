@@ -86,11 +86,11 @@ describe("vitehub() without database", () => {
     const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
-    const resolveId = guard?.resolveId
-    if (typeof resolveId !== "function") throw new TypeError("Expected the disabled Database guard.")
+    const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
+    if (!resolveId) throw new TypeError("Expected the disabled Database guard.")
     // SAFETY: The guard reads only the import source and importer.
     expect(resolveId.call({} as never, "vite-hub/database/drizzle", join(root, "src/server.ts"), {} as never)).toBeUndefined()
-    expect((await runDb(root, plugins, ["db", "--help"])).stdout).toContain("generate")
+    expect((await runDb(root, plugins, ["database", "--help"])).stdout).toContain("generate")
   })
 
   it("lets a composed Database integration without Definitions provide the runtime", async () => {
@@ -101,8 +101,8 @@ describe("vitehub() without database", () => {
     const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
-    const resolveId = guard?.resolveId
-    if (typeof resolveId !== "function") throw new TypeError("Expected the disabled Database guard.")
+    const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
+    if (!resolveId) throw new TypeError("Expected the disabled Database guard.")
     // SAFETY: The guard reads only the import source and importer.
     expect(resolveId.call({} as never, "vite-hub/database/drizzle", join(root, "src/server.ts"), {} as never)).toBeUndefined()
   })
@@ -124,19 +124,19 @@ describe("vitehub() without database", () => {
     const root = await createProject({ "server/databases/config.ts": databaseDefinition })
     const plugins = vitehub({ preset: "node", env: false })
 
-    const help = await runDb(root, plugins, ["db", "--help"])
+    const help = await runDb(root, plugins, ["database", "--help"])
     expect(help.exitCode).toBe(0)
     expect(help.stdout).toContain("Database is disabled. Set `database: true` in vitehub() to enable Database.")
 
-    const generate = await runDb(root, plugins, ["db", "generate"])
+    const generate = await runDb(root, plugins, ["database", "generate"])
     expect(generate.exitCode).toBe(1)
     expect(generate.stderr).toBe("[vitehub] Database is disabled, so ViteHub ignores the discovered Database Definitions. Set `database: true` in vitehub() to enable Database.\n")
   })
 
-  it("adds no db commands when the project defines no Database", async () => {
+  it("adds no database commands when the project defines no Database", async () => {
     const root = await createProject({ "src/server.ts": "export {}\n" })
-    const result = await runDb(root, vitehub({ preset: "node", env: false }), ["db", "--help"])
+    const result = await runDb(root, vitehub({ preset: "node", env: false }), ["database", "--help"])
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("Unknown ViteHub CLI namespace: db")
+    expect(result.stderr).toContain("Unknown ViteHub CLI namespace: database")
   })
 })

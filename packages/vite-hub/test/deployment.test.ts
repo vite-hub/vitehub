@@ -5,6 +5,8 @@ import { join } from "node:path"
 import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { getDeploymentPreset } from "@vite-hub/internal/build/vite"
+
 import { detectPreset } from "../src/deployment.ts"
 import { vitehub } from "../src/index.ts"
 
@@ -75,15 +77,23 @@ describe("vitehub() without a preset", () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     vi.stubEnv(name, value)
     const config = await buildConfig()
-    expect(config.vitehub).toEqual({ preset })
+    expect(getDeploymentPreset(config)).toBe(preset)
     expect(config.nitro?.preset).toBe(nitroPreset)
   })
 
   it("builds for Node when no variable names a host", async () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     const config = await buildConfig()
-    expect(config.vitehub).toEqual({ preset: "node" })
+    expect(getDeploymentPreset(config)).toBe("node")
     expect(config.nitro?.preset).toBe("node-server")
+  })
+
+  it("needs no options", async () => {
+    for (const variable of hostVariables) vi.stubEnv(variable, "")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-no-options-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const config = await resolveConfig({ root, plugins: [vitehub()] }, "build")
+    expect(getDeploymentPreset(config)).toBe("node")
   })
 
   it("follows NITRO_PRESET instead of failing on a conflict", async () => {

@@ -9,7 +9,8 @@ import { useChatGPTCredential } from "../../connections/src/internal/agent-crede
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createChatGPTFake } from "../../connections/test/chatgpt-fake.ts"
 import { createStore } from "../../connections/test/helpers.ts"
-import { codexDriver, defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import type { AgentRunInput } from "../src/types.ts"
 
 const cleanup: Array<() => Promise<void>> = []
@@ -57,7 +58,7 @@ async function fixture(options: { expiresIn?: number } = {}) {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
     capabilities: { connections: { runtime: () => runtime, useChatGPTCredential: useChatGPTCredential(runtime) } },
   }
-  return { agent, calls, fake, root, runtime, store, run: (messages?: AgentRunInput["messages"]) => runAgent(agent, host, { messages, prompt: messages ? undefined : "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
+  return { agent, calls, fake, root, runtime, store, run: (messages?: AgentRunInput["messages"]) => runAgentWithContext(agent, host, { messages, prompt: messages ? undefined : "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
 }
 
 realCodex("runs a Capability and shell through real Codex without exposing the access token", async () => {

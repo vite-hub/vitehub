@@ -23,7 +23,7 @@ export const SourceLanding = {
           path: "server/api/docs.get.ts",
           language: "typescript",
           content:
-            'import { defineEventHandler } from "nitro/h3"\nimport { createSource } from "vite-hub/source"\nimport { glob } from "vite-hub/source/glob"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
+            'import { defineEventHandler } from "nitro/h3"\nimport { createSource, glob } from "vite-hub/source"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
         },
         { path: "docs/intro.md", language: "markdown", content: "# Introduction\n\nRead this content through Source." },
       ],
@@ -42,7 +42,7 @@ export const SourceLanding = {
           path: "server/api/docs.get.ts",
           language: "typescript",
           content:
-            'import { defineEventHandler } from "nitro/h3"\nimport { createSource } from "vite-hub/source"\nimport { glob } from "vite-hub/source/glob"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
+            'import { defineEventHandler } from "nitro/h3"\nimport { createSource, glob } from "vite-hub/source"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
         },
         { path: "docs/intro.md", language: "markdown", content: "# Introduction\n\nRead this content through Source." },
       ],
@@ -51,7 +51,7 @@ export const SourceLanding = {
       framework: "nuxt",
       label: "Nuxt",
       files: [
-        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "nuxt dev"\n  },\n  "dependencies": {\n    "nuxt": "^4.0.0",\n    "h3": "^1.15.4",\n    "vite-hub": "latest"\n  }\n}' },
+        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "engines": {\n    "pnpm": ">=11.5.0"\n  },\n  "scripts": {\n    "dev": "nuxt dev"\n  },\n  "dependencies": {\n    "nuxt": "npm:nuxt-nightly@5x",\n    "h3": "2.0.8",\n    "vite-hub": "latest"\n  }\n}' },
         {
           path: "nuxt.config.ts",
           language: "typescript",
@@ -61,7 +61,7 @@ export const SourceLanding = {
           path: "server/api/docs.get.ts",
           language: "typescript",
           content:
-            'import { defineEventHandler } from "h3"\nimport { createSource } from "vite-hub/source"\nimport { glob } from "vite-hub/source/glob"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
+            'import { defineEventHandler } from "h3"\nimport { createSource, glob } from "vite-hub/source"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
         },
         { path: "docs/intro.md", language: "markdown", content: "# Introduction\n\nRead this content through Source." },
       ],

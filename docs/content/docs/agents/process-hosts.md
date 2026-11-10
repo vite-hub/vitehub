@@ -8,19 +8,15 @@ icon: i-lucide-server-cog
 navigation.kind: Guides
 ---
 
-A process host owns background Agent work inside one Node process. It combines a
-process-local capacity limit, an invocation journal, recovery for work left by a
-stopped process, provider session storage, and a graceful drain. Use it for a
-long-lived worker such as a pull-request Agent. Use a [Workflow](/docs/workflows)
-when the work must continue on a different host or across a durable wait.
+A process host runs background Agent work, such as a pull-request Agent, inside one long-lived Node process. It gives a process capacity limit, an Invocation journal (a record of each run), recovery for work a stopped process left behind, provider session storage, and a graceful drain that finishes running work before the process stops. For work that must continue on another host or across a durable wait, use a [Workflow](/docs/workflows).
 
-The host is process-local. Its `dataDir` must belong to one running process host;
-it is not a distributed lease or a coordination service for multiple replicas.
+::warning
+The host works inside one process only. Its `dataDir` must belong to one running process host. It is not a distributed lease or a coordination service for more than one replica.
+::
 
 ## Create a host
 
-Export the host from a server module. The `run` callback discovers work and tracks
-it only while the host is accepting new work:
+Export the host from a server module. The `run` callback finds work and tracks it only while the host accepts work:
 
 ```ts [server/host.ts] fragment
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
@@ -43,9 +39,7 @@ export default await createProcessAgentHost({
 })
 ```
 
-The host resources are not attached to an Agent Definition automatically. Wire
-the host's journal and provider session store into the definition, and share its
-capacity object with the driver:
+ViteHub does not attach the host to an Agent Definition. Pass the host's journal and provider session store to the Definition, and share its capacity object with the Driver:
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -60,21 +54,15 @@ export default defineAgent({
 })
 ```
 
-`start()` is idempotent and wakes the reconciler at startup. The reconciler checks
-for new work on its interval and also wakes when the host calls `wake(reason)`.
-`accepting()` becomes false during a drain. Stop discovering or starting work when
-it returns false. `track()` keeps the host's close operation waiting for work that
-has already started.
+- `start()` is safe to call more than once. It wakes the reconciler (the loop that calls `run`), which also runs on its interval and on `wake(reason)`.
+- `accepting()` becomes false during a drain. Then stop finding or starting work.
+- `track()` makes the host's close wait for work that already started.
 
-The host creates `invocations.sqlite` and `provider-sessions.sqlite` below
-`dataDir` unless you provide an existing `invocations` store. Keep the directory
-on persistent storage when provider sessions or recovery must survive a restart.
+The host creates `invocations.sqlite` and `provider-sessions.sqlite` below `dataDir`, unless you give an existing `invocations` store. Keep it on persistent storage when provider sessions or recovery must survive a restart.
 
 ## Bound a process with capacity
 
-`capacity.concurrency` is the hard maximum. Queue options control what happens
-when all slots are occupied. `createProcessAgentCapacity()` can lower new
-admissions when the host is under pressure:
+`capacity.concurrency` is the hard maximum of concurrent runs. Queue options control what happens when slots are full. `createProcessAgentCapacity()` can admit fewer new runs under pressure:
 
 ```ts [server/agent-capacity.ts]
 import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
@@ -89,26 +77,18 @@ export const sharedCapacity = createProcessAgentCapacity({
 })
 ```
 
-Reuse one capacity object across Agent Definitions that compete for the same
-process resources. Active Invocations are not preempted. Queued Invocations stay
-in FIFO order and resume when the sample allows more work. Linux hosts use cgroup
-v2 memory limits, memory events, and pressure information when available. Other
-hosts use Node's available-memory signal. A failed or slow sample uses
-`fallbackConcurrency`.
+Use one capacity object for all Agent Definitions that share process resources. Attach it with `driver.capacity`; the host's `capacity` field can return the same object.
 
-Attach the returned object to an Agent Definition with `driver.capacity`. The
-same object can be returned by the process host's `capacity` field.
+- Running Invocations are never stopped to make room.
+- Queued Invocations stay in first-in, first-out (FIFO) order and start when the memory sample allows.
+- Linux hosts use cgroup v2 memory limits, memory events, and pressure information when available. Other hosts use Node's available-memory signal.
+- When a sample fails or is slow, the host uses `fallbackConcurrency`.
 
 ## Recover and drain
 
-When `createProcessAgentHost()` starts, it fails old pending and running records
-that belong to this host's recovery scope. A shared invocation store uses
-`invocationAgentName` to limit that recovery to one discovered Agent. A claim
-held by another process is respected for `recoveryTimeoutMs` before the host
-tries again. Durable Workflow records are outside this process recovery path.
+At start, `createProcessAgentHost()` marks old pending and running records in its recovery scope as failed. In a shared Invocation store, `invocationAgentName` limits recovery to one discovered Agent. When another process holds a claim, the host waits `recoveryTimeoutMs` before it retries. Durable Workflow records are not touched.
 
-Closing a host stops admission first, then waits for tracked work. The Vite
-plugin installs this order for Nitro and exposes a drain route:
+On close, a host stops admitting work, then waits for tracked work. The Vite plugin sets up this order for Nitro and adds a drain route:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -124,48 +104,58 @@ export default defineConfig({
 })
 ```
 
-The plugin starts the exported host with Nitro, closes it with the server, and
-serves `GET /api/agent-drain` with `{ status: 'starting' | 'accepting' | 'draining' | 'drained' | 'failed' }`.
-The host reports `accepting` after startup; `failed` means the reconciler
-encountered a failure while draining or closing.
-`SIGUSR2` starts a drain. On `SIGTERM` and `SIGINT`, ViteHub closes the host
-with the other [shutdown drains](#drain-agent-work-on-stop-signals) while HTTP
-stays up, then lets the HTTP server finish its shutdown and exits once. A
-second signal does not start another drain.
+The plugin starts the exported host with Nitro and closes it with the server. `GET /api/agent-drain` returns `{ status: 'starting' | 'accepting' | 'draining' | 'drained' | 'failed' }`: `accepting` after startup, and `failed` when the reconciler failed while it drained or closed. `SIGUSR2` starts a drain. On `SIGTERM` and `SIGINT`, ViteHub closes the host with the other [shutdown drains](#drain-agent-work-on-stop-signals) while HTTP stays up, lets the HTTP server finish, and exits once. A second signal starts no other drain.
 
-Do not expose the drain route as an authorization mechanism. Protect it with the
-same host policy as other operational routes.
+::warning
+The drain route does not give authorization. Protect it with the same host policy as your other operational routes.
+::
 
 ## Drain Agent work on stop signals
 
-ViteHub drains Agent work on `SIGTERM` and `SIGINT` on a persistent server, then
-exits. No application code is needed. Each package registers its drain once, and
-ViteHub runs all of them in parallel with one shared budget. On the first signal
-ViteHub:
+On a persistent server, ViteHub finishes Agent work on `SIGTERM` and `SIGINT`, then exits, with no code from you. Each package registers its drain once, and all drains run in parallel with one shared time budget. On the first signal, ViteHub:
 
-1. Runs every registered drain while HTTP stays up, so webhooks still reach
-   durable queues:
-   - `agent.webhook-queues` stops the webhook queues. Active deliveries get the
-     drain budget, and the persisted queue replays the deliveries that it aborts
-     after the restart. Webhook admissions that were
-     [answered early](/docs/agents/channels#answer-slow-webhooks-early) get the
-     same budget, and the next process replays the ones that do not finish. An
-     aborted delivery's Invocation stays `running` and the replay finishes it
-     under the same Invocation. If the queue does not run it again, the
-     Invocation ends `failed`.
-   - `agent.chat` waits for inline Chat Invocations. Invocations that outlast
-     the budget post a restart notice with the `HOST_RESTARTED` error, and the
-     next process retries each message once.
-   - `agent.process-host` and `agent.process-hosts` close
-     [process hosts](#recover-and-drain), `agent.preparation` stops Workspace
-     preparation, `agent.discord-gateway` stops the Discord Gateway, and
-     `schedule` closes the Schedule Process Runtime.
-2. Lets the server close HTTP and waits up to 10 seconds for Nitro's `close` hooks.
+1. Runs every drain while HTTP stays up, so webhooks still reach durable queues:
+   - `agent.webhook-queues` stops the webhook queues. Active deliveries and [early-answered](/docs/agents/channels#answer-slow-webhooks-early) admissions get the budget, and the next process replays what did not finish. A stopped delivery's Invocation stays `running` until the replay finishes it, or ends `failed` if the queue does not run it again.
+   - `agent.chat` waits for inline Chat Invocations. One that runs past the budget posts a restart notice with the `HOST_RESTARTED` error, and the next process retries each message once.
+   - `agent.process-host` and `agent.process-hosts` close [process hosts](#recover-and-drain).
+   - `agent.preparation` stops Workspace preparation, `agent.discord-gateway` the Discord Gateway, and `schedule` the Schedule Process Runtime.
+2. Lets the server close HTTP and waits up to 10 seconds for Nitro `close` hooks.
 3. Logs a short summary and exits once with code 0.
 
-The budget comes from `VITEHUB_SHUTDOWN_DRAIN_MS`. The `shutdown.drainMs` option
-sets its default, and the variable wins when it is set:
+`VITEHUB_SHUTDOWN_DRAIN_MS` sets the budget and wins over the `shutdown.drainMs` default:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: { shutdown: { drainMs: 45_000 } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: { shutdown: { drainMs: 45_000 } },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -179,36 +169,22 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
-The default is 0, which interrupts the work at once. Give the host a
-termination grace period longer than the budget plus 25 seconds: 15 seconds
-for interrupted work, such as a Chat restart notice, and 10 seconds for the
-close hooks. For example, use 90 seconds with a 45-second budget.
+The default is 0, which stops work at once. Set the host's termination grace period above the budget plus 25 seconds (15 for interrupted work such as a Chat restart notice, 10 for close hooks), such as 90 seconds for a 45-second budget.
 
-ViteHub handles stop signals only where the Nitro server does: the `node`,
-`node-cluster`, `bun`, and `deno` server presets. In development, during
-prerender, on serverless and Cloudflare hosts, and when the server turns its
-graceful shutdown off (srvx does this when `CI` or `TEST` is set), the signal
-keeps its default behavior. The drains then run only when Nitro calls its
-`close` hooks. Set `agent: { shutdown: false }` to not drain inline Chat
-Invocations. `process.__vitehubShutdown` shows the registered drains, the
-signal, and the result of each drain. The logs have the events
-`shutdown.draining`, `shutdown.drained`, and `shutdown.exited`.
+ViteHub handles stop signals only where the Nitro server does: the `node`, `node-cluster`, `bun`, and `deno` presets. In development, during prerender, on serverless and Cloudflare hosts, and when graceful shutdown is off (srvx turns it off when `CI` or `TEST` is set), the signal keeps its default behavior, and drains run only when Nitro calls its `close` hooks.
+
+- `agent: { shutdown: false }` skips draining inline Chat Invocations.
+- `process.__vitehubShutdown` shows the registered drains, the signal, and each drain's result.
+- Logs have `shutdown.draining`, `shutdown.drained`, and `shutdown.exited` events.
 
 ## Report readiness after warm-up
 
-A fresh process builds the trigger registrations, resolves the webhook secrets,
-and connects and migrates Agent State on its first webhook delivery. A delivery
-that arrives during startup waits for this work. Some providers do not wait
-long: GitHub closes the connection after 10 seconds and does not send the
-delivery again.
+A fresh process builds trigger registrations, resolves webhook secrets, and connects and migrates Agent State on its first webhook delivery, which waits for it. Some providers do not wait long: GitHub closes the connection after 10 seconds and does not resend.
 
-With libSQL or SQLite Agent State, the generated webhook queue plugin does this
-work with `handler.warm()` for every Agent one second after the server starts,
-so the Agent routes do not compile while the server answers its first requests.
-A request that loads the Agent routes, such as a webhook delivery or a call to
-the ready route, starts it at once. The generated `/api/_vitehub/ready` route
-reports the result:
+With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/api/_vitehub/ready` reports the result:
 
 | State | Status | Body |
 | --- | --- | --- |
@@ -216,14 +192,9 @@ reports the result:
 | Warm-up failed | 503 | `{ ready: false, status: "error", error, retryMs: 5000, agents }` |
 | Every Agent is warm | 200 | `{ ready: true, status: "ready", readyAt, agents: { <name>: { durationMs } } }` |
 
-A failed warm-up is tried again every 5 seconds, because the first delivery
-would fail the same way. The route answers `HEAD` without a body. The process
-logs `{ "scope": "vitehub.agent.ready" }` once when it is ready. With
-`agent.preparation`, the preparation route waits for the warm-up too, and no
-second route is generated.
+A failed warm-up retries every 5 seconds, because the first delivery would fail the same way. `HEAD` gets no body. The process logs `{ "scope": "vitehub.agent.ready" }` once when ready. With `agent.preparation`, the preparation route also waits for warm-up, and no second route is generated.
 
-Point a Kubernetes readiness probe at the route, so the Service sends traffic
-only to a warm process:
+Point a Kubernetes readiness probe at the route so the Service sends traffic only to a warm process:
 
 ```yaml [deployment.yaml]
 readinessProbe:
@@ -234,13 +205,11 @@ readinessProbe:
   failureThreshold: 1
 ```
 
-Keep the liveness probe on a route that does not wait for warm-up. A liveness
-probe that fails during a slow warm-up restarts the process.
+Keep the liveness probe on a route that does not wait for warm-up, or a slow warm-up restarts the process.
 
 ## Inspect health and work
 
-Use `createAgentHealth()` for a cacheable operational report. It inspects the
-Agent Driver without creating an Invocation or sending a model prompt:
+`createAgentHealth()` gives a cacheable operational report. It inspects the Driver without an Invocation or a model prompt:
 
 ```ts [server/health.ts]
 import { createAgentHealth } from 'vite-hub/agent/server'
@@ -254,15 +223,9 @@ export const health = createAgentHealth({
 })
 ```
 
-The report includes provider readiness, capacity, process diagnostics, and
-invocation workload. Reports are cached for five seconds by default, and one
-sample is shared by concurrent readers. A timeout returns a degraded report.
-Health is an operational report and returns HTTP 200 even when degraded. Keep
-startup readiness and orchestrator restart probes separate.
+The report has provider readiness, capacity, process diagnostics, and Invocation workload. It is cached for five seconds by default, and concurrent readers share one sample. A timeout returns a degraded report. Health returns HTTP 200 even when degraded, so keep startup readiness and orchestrator restart probes separate.
 
-Expose health or Workspace inspection only when the application has an access
-policy. `agentHostRoutes()` generates opt-in GET and HEAD routes from named
-exports:
+Expose health or Workspace inspection only with an access policy. `agentHostRoutes()` generates GET and HEAD routes from named exports, each off until you turn it on:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -278,14 +241,11 @@ export default defineConfig({
 })
 ```
 
-The default health route is `/api/health`. The generated route does not grant
-Console authorization. A Workspace route is also opt-in and must contain an
-`:id` parameter.
+The default health route is `/api/health`. Generated routes grant no Console authorization. A Workspace route is off by default, and its path must contain an `:id` parameter.
 
 ## Verify a host locally
 
-Use a disposable directory and a custom `sample` function to exercise admission
-without depending on the machine's current pressure:
+To test admission independent of machine pressure, use a disposable directory and a custom `sample` function:
 
 ```ts
 import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
@@ -301,9 +261,9 @@ const capacity = createProcessAgentCapacity({
 })
 ```
 
-Start one host, confirm `status()` changes from `starting` to `accepting`, enqueue
-more work than its hard limit, and check that the extra work stays queued. Send
-`SIGUSR2`, wait for `draining` and then `drained`, and confirm that no new work
-starts during the drain. Restart with the same `dataDir` and inspect the journal
-to confirm that interrupted records are recovered. Run this probe against a
-throwaway project before deploying a host that can change a real repository.
+1. Start one host and confirm that `status()` goes from `starting` to `accepting`.
+2. Queue more work than its hard limit and check that the extra work stays queued.
+3. Send `SIGUSR2`, wait for `draining` then `drained`, and confirm no new work starts.
+4. Restart with the same `dataDir` and check the journal for recovered interrupted records.
+
+Run this on a throwaway project before you deploy a host that can change a real repository.

@@ -230,7 +230,7 @@ export const landingPrimitives = [
   {
     id: "connections",
     name: "Connections",
-    description: "Connected account APIs",
+    description: "Connected accounts",
     to: "/docs/connections",
     icon: "i-lucide-plug",
   },
@@ -244,7 +244,7 @@ export const landingPrimitives = [
   {
     id: "realtime",
     name: "Realtime",
-    description: "Collaborative documents",
+    description: "Live collaboration",
     to: "/docs/realtime",
     icon: "i-lucide-radio",
   },
@@ -265,7 +265,7 @@ export const landingPrimitives = [
   {
     id: "channels",
     name: "Channels",
-    description: "Named message delivery",
+    description: "Message delivery",
     to: "/docs/channels",
     icon: "i-lucide-send",
   },
@@ -293,7 +293,7 @@ export const landingPrimitives = [
   {
     id: "comments",
     name: "Comments",
-    description: "Feedback on live pages",
+    description: "Live page feedback",
     to: "/docs/comments",
     icon: "i-lucide-message-square-text",
   },
@@ -381,11 +381,11 @@ export const portabilityExamples = [
     path: "server/api/welcome.post.ts",
     code: [
       'import { defineEventHandler, readBody } from "h3"',
-      'import { runQueue } from "vite-hub/queue"',
+      'import { sendQueue } from "vite-hub/queue"',
       "",
       "export default defineEventHandler(async (event) => {",
       "  const payload = await readBody<{ email: string }>(event)",
-      '  const [error, result] = await runQueue("welcome-email", payload)',
+      '  const [error, result] = await sendQueue("welcome-email", payload)',
       "  if (error) throw error",
       "  return result",
       "})",
@@ -403,11 +403,11 @@ export const portabilityExamples = [
     path: "server/api/onboard.post.ts",
     code: [
       'import { defineEventHandler, readBody } from "h3"',
-      'import { runWorkflow } from "vite-hub/workflow"',
+      'import { startWorkflow } from "vite-hub/workflow"',
       "",
       "export default defineEventHandler(async (event) => {",
       "  const { email } = await readBody<{ email: string }>(event)",
-      '  return runWorkflow("onboard-user", { email })',
+      '  return startWorkflow("onboard-user", { email })',
       "})",
     ],
     hosts: [

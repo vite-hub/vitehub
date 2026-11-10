@@ -16,7 +16,7 @@ vi.mock("evalite", () => {
   return { evalite }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const readFile = vi.fn()
 const list = vi.fn()
@@ -73,7 +73,7 @@ vi.mock("@vite-hub/workspace/test", () => ({
   registerWorkspace,
 }))
 
-vi.mock("ai", () => ({
+vi.mock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway,
   jsonSchema: vi.fn(schema => schema),
   isStepCount: vi.fn(count => ({ count })),
   Output: { object: vi.fn(({ schema }) => ({ schema })) },

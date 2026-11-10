@@ -13,7 +13,7 @@ export type KVCursorProblem = keyof typeof cursorProblems
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/kv/limits-and-errors",
+  docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
     KV_INVALID_CURSOR: {
@@ -27,6 +27,24 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_INVALID_TTL: {
       why: "`ttl` must be a positive number of seconds within the safe integer range.",
       fix: "Pass the TTL in seconds, for example `kv.increment('attempts', 60)`.",
+    },
+    KV_KEY_TOO_LONG: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The key is ${bytes} bytes in UTF-8. Cloudflare KV accepts keys of at most ${limit} bytes.`,
+      fix: "Use a shorter key. To keep a long identifier, store a hash of it as the key.",
+    },
+    KV_METADATA_TOO_LARGE: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The metadata is ${bytes} bytes as JSON. Cloudflare KV accepts metadata of at most ${limit} bytes.`,
+      fix: "Keep only small fields in `metadata`, and put the other data in the value.",
+    },
+    KV_TTL_TOO_SHORT: {
+      why: ({ minimum, option = "expirationTtl", ttl }: { minimum: number, option?: "expiration" | "expirationTtl", ttl: number }) => option === "expiration"
+        ? `\`expiration\` is ${ttl} seconds from now. Cloudflare KV needs at least ${minimum} seconds.`
+        : `\`expirationTtl\` is ${ttl} seconds. Cloudflare KV needs at least ${minimum} seconds.`,
+      fix: "Pass `expirationTtl: 60` or more, an `expiration` at least 60 seconds in the future, or `ttl`, which ViteHub raises to 60 seconds on Cloudflare KV.",
+    },
+    KV_VALUE_TOO_LARGE: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The value is ${bytes} bytes. Cloudflare KV accepts values of at most ${limit} bytes (25 MiB).`,
+      fix: "Store large files in Blob, and keep the Blob pathname in KV.",
     },
     KV_OPERATION_FAILED: {
       why: ({ operation, store }: { operation: KVOperation, store: string }) => `kv.${operation}() failed on the "${store}" store.`,
@@ -57,6 +75,22 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
       fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
+    },
+    KV_INVALID_REMOTE: {
+      why: ({ store }: { store: string }) => `\`remote\` of the KV store "${store}" must be \`true\` or \`false\`.`,
+      fix: "Set `remote: true` to use the real store in `vite dev`, or remove `remote` to keep the store local.",
+    },
+    KV_REMOTE_CONFLICT: {
+      why: ({ driver, remote, store }: { driver: string, remote: boolean, store: string }) => remote
+        ? `The KV store "${store}" sets \`remote: true\`, but it uses the local \`${driver}\` driver in \`vite dev\`.`
+        : `The KV store "${store}" sets \`remote: false\`, but the \`${driver}\` driver is always remote.`,
+      fix: ({ remote }: { driver: string, remote: boolean, store: string }) => remote
+        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare preset."
+        : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
+    },
+    KV_INVALID_STORE_MODE: {
+      why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
+      fix: "Pass `{ mode: 'read' }` for a read-only handle, or omit `mode` for a writable one.",
     },
     KV_MISSING_DEFAULT_STORE: {
       why: "`kv.stores.default` is missing.",

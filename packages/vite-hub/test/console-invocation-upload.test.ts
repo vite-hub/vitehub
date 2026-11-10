@@ -35,9 +35,10 @@ vi.mock("../src/console/runtime/server/attachments.ts", () => ({
 }))
 
 import handlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const files = [{ url: "data:image/png;base64,YQ==", filename: "test.png" }]
-const invoke = (body: unknown, request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { method: "POST" })) => handler({ method: "POST", context: { params: { agent: "bot" } }, req: { headers: request.headers, json: async () => body, method: request.method, url: request.url } })
+const invoke = (body: unknown, request = new Request("https://console.test/_vitehub/api/agents/bot/invocations", { method: "POST" })) => handler(consoleEvent({ body, context: { params: { agent: "bot" } }, headers: request.headers, method: request.method, url: request.url }))
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.store.mockImplementation(async (_prompt, _body, consume) => consume({ role: "user", parts: [{ type: "image", id: "image-id" }] }, () => {}))
@@ -92,7 +93,7 @@ it("forwards the rollback boundary to Agent startup", async () => {
 })
 
 it("passes configured capabilities and the Console request to Agent startup", async () => {
-  const request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { headers: { cookie: "session=verified" }, method: "POST" })
+  const request = new Request("https://console.test/_vitehub/api/agents/bot/invocations", { headers: { cookie: "session=verified" }, method: "POST" })
   await invoke({ prompt: "test" }, request)
   const context = mocks.start.mock.calls[0]?.[1]
   expect(context).toMatchObject({ capabilities: { blob: { kind: "blob" }, console: {} } })

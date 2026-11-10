@@ -29,14 +29,14 @@ const pageUi = computed(() => ({
   right: "hidden xl:block xl:!col-span-1 xl:!w-full",
 }))
 const headerUi = {
-  root: "!px-0 !pt-8 !pb-8 lg:!pt-10",
-  title: "text-4xl/tight tracking-[-0.02em] font-semibold text-highlighted text-balance",
-  description: "mt-3 text-base leading-relaxed text-muted text-pretty",
+  root: "!px-0 !pt-10 !pb-0",
+  title: "text-[2rem] sm:text-[2rem] leading-[1.15] tracking-[-0.025em] font-semibold text-highlighted text-balance",
+  description: "mt-2 max-w-[34rem] text-[1.0625rem] leading-[1.7] text-muted text-pretty",
 }
 const outlineUi = {
   root: "!static !mx-0 !px-0",
   container: "!pt-0 !border-s-0 !ps-0",
-  link: "!h-auto min-h-7 !py-1 leading-5 !text-muted hover:!text-highlighted",
+  link: "!h-auto min-h-6 !py-1 text-[0.8125rem] leading-5 !text-dimmed hover:!text-highlighted data-[active]:!text-highlighted",
   // Long code headings such as KV_UNSUPPORTED_OPERATION have no spaces, so they break anywhere instead of overflowing the column.
   linkText: "!whitespace-normal !overflow-visible !text-clip [overflow-wrap:anywhere]",
   content: "!min-h-0",
@@ -55,7 +55,7 @@ const mobileTocUi = {
 <template>
   <article class="vh-docs-article" :class="{ 'has-code-panel': hasCodePanel }" :data-path="page.path">
     <UPage :ui="pageUi">
-      <UPageHeader :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="headerUi">
+      <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="headerUi">
         <template #links>
           <DocsPageHeaderLinks />
         </template>
@@ -76,13 +76,14 @@ const mobileTocUi = {
         class="docs-content vh-article-body !px-0 !pb-16"
         :class="{ 'docs-tutorial-content': tutorial }"
       >
-        <!-- Articles show code with its file name bar, which the tutorial code panel reads. -->
-        <DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />
+        <!-- Code is comark-ui's code block, except beside a code panel, which reads the file name bar of DocsCodePre. -->
+        <DocsMarkdown :document="response.document" :components="hasCodePanel ? { pre: DocsCodePre } : undefined" />
         <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
       </UPageBody>
 
       <!-- Every page ends with the full product list, in the content column. -->
-      <DocsCatalogFooter :current="section" class="vh-article-explore" />
+      <!-- Below the content: its links work before it hydrates. -->
+      <LazyDocsCatalogFooter hydrate-on-visible :current="section" class="vh-article-explore" />
 
       <template v-if="hasCodePanel" #right>
         <DocsCodePanel :body="bodyElement" />

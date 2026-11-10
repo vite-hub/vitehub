@@ -1,4 +1,5 @@
-import { defineContent, documents, image, optional, seo, singleton } from "vite-hub/content"
+import { defineContent, image, optional, seo } from "vite-hub/content"
+import { documents, singleton } from "vite-hub/content/collections"
 import { cmsContentAuthorize } from "vite-hub/cms/access"
 import { z } from "zod"
 
@@ -43,6 +44,17 @@ export const content = defineContent({
         badge: { kind: "inline", description: "A short inline label" },
       },
     }),
+    // One document in two languages. `guide` is docs/en/guide.md in English, the source locale, and docs/es/guide.md
+    // in Spanish. Spanish URLs start with /es. server/routes/[...path].get.ts renders both.
+    docs: documents({
+      path: "docs/{locale}/**/*.md",
+      locales: ["en", "es"],
+      url: "/docs/:id",
+      fields: {
+        title: z.string().min(1, "Add a title."),
+        description: z.string().max(160, "Keep the description under 160 characters.").optional(),
+      },
+    }),
     pages: documents({
       path: "pages/**/*.md",
       fields: {
@@ -51,7 +63,7 @@ export const content = defineContent({
       },
     }),
   },
-  // /sitemap.xml lists published posts with their URL; /robots.txt points crawlers at it.
+  // /sitemap.xml lists published posts and docs pages with their URL; /robots.txt points crawlers at it.
   seo: { sitemap: true, robots: { disallow: ["/_vitehub", "/login"] } },
   // The CMS roles decide. This app keeps its own `site` Workspace instead of `extends: cms`, so it names the policy.
   // Publishers and admins publish, editors save drafts, and commenters read them.

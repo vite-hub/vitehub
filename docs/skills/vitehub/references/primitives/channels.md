@@ -4,8 +4,8 @@
 
 Source page: https://vitehub.dev/raw/docs/channels.md
 
-Use Channels for outbound message delivery through named connectors such as HTTP, chat, GitHub, Slack, or email. For inbound webhooks, chat admission, or Agent input, use [Agent Channels](https://vitehub.dev/raw/docs/agents/channels.md) and [Triggers](https://vitehub.dev/raw/docs/agents/triggers.md).
+A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`), or to the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. Outbound messages go through `useChannel(name).send()` from any server code. `sendChannelTrigger(name, trigger, input)` starts a trigger from code, such as a Schedule, with the same delivery rules as a webhook.
 
-Keep connector credentials and delivery or reply policy in the Channel Definition. A Channel does not grant an Agent every application capability. Grant tools separately. For inbound webhook verification or chat admission, follow the Agent Channels and Triggers guidance instead.
+Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Inbound Channels need `agent: true` next to `channels: true`. Keep secrets in Server Env and never parse or verify a webhook by hand.
 
-Prove one outbound delivery and its result on the target channel.
+Prove one signed delivery reaching its target, one duplicate that does not run twice, and one outbound send with its receipt.

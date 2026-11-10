@@ -4,7 +4,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
-import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
@@ -19,8 +19,9 @@ type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
-// SAFETY: The generated function implements the importer signature above and returns the requested dynamic module.
-const defaultImporter = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
+// A variable specifier keeps the optional OpenWorkflow packages out of host bundles. Do not build this
+// importer from a string: workerd blocks code generation when the module loads during a request.
+const defaultImporter: OpenWorkflowImporter = specifier => import(/* @vite-ignore */ specifier)
 let openWorkflowImporter = defaultImporter
 const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
 
@@ -294,7 +295,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   name: string,
   payload: TPayload | undefined,
   definition: WorkflowDefinition<TPayload, TResult>,
-  options: WorkflowDeferOptions,
+  options: WorkflowStartOptions,
   onDispatch?: () => void,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)

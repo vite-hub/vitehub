@@ -1,5 +1,4 @@
-import { Readable } from "node:stream"
-
+import { installRequestStandardContext } from "@vite-hub/runtime"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -9,10 +8,10 @@ import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { anchor, createDatabase } from "./harness.ts"
 
-import type { H3Event } from "h3"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 const origin = "http://site.test"
 
@@ -23,7 +22,7 @@ function fakeLogin(user: CommentsUser | null): CommentsGitHubLogin & { handled: 
     handled,
     configured: () => true,
     user: async () => user,
-    handle: async (_event: H3Event, path: string) => {
+    handle: async (_request: Request, path: string) => {
       handled.push(path)
       return new Response(null, { status: 204 })
     },
@@ -156,32 +155,29 @@ describe("createCommentsGitHubLogin", () => {
     vi.unstubAllEnvs()
   })
 
-  function event(path: string, runtime: "web" | "node" = "web"): H3Event {
-    if (runtime === "node") {
-      const req = Object.assign(Readable.from([]), { method: "GET", url: path, headers: { host: "site.test" } })
-      // SAFETY: This is the Node request shape of a Nuxt 4 H3 1 event.
-      return { node: { req }, context: {} } as unknown as H3Event
-    }
-    // SAFETY: The sign-in reads only the request of the event.
-    return { req: new Request(`${origin}${path}`) } as H3Event
+  function request(path: string) {
+    const request = new Request(`${origin}${path}`)
+    installRequestStandardContext(request)
+    // SAFETY: the installer above sets the Standard Context on the Request.
+    return request as Request & ViteHubContext
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_ID", "")
     const login = createCommentsGitHubLogin({ repository: "acme/app" })
     expect(login.configured()).toBe(false)
-    const response = await login.handle(event("/api/_vitehub/comments/auth/github"), "/auth/github")
+    const response = await login.handle(request("/api/_vitehub/comments/auth/github"), "/auth/github")
     expect(response.status).toBe(404)
     expect(JSON.stringify(await response.json())).toContain("VITEHUB_GITHUB_CLIENT_ID")
   })
 
-  it.each([["", "web"], ["/portal", "web"], ["", "node"], ["/portal", "node"]] as const)("sends people to GitHub from app base %s with no database on %s requests", async (base, runtime) => {
+  it.each(["", "/portal"])("sends people to GitHub from app base %s with no database", async (base) => {
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_ID", "client-id")
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_SECRET", "client-secret")
     vi.stubEnv("VITEHUB_SECRET", "a-test-secret-that-is-at-least-32-characters")
     const login = createCommentsGitHubLogin({ repository: "acme/app" })
     const loginForBase = base ? createCommentsGitHubLogin({ repository: "acme/app", basePath: `${base}/api/_vitehub/comments/auth` }) : login
-    const response = await loginForBase.handle(event(`${base}/api/_vitehub/comments/auth/github?return=%2Fpricing%3Fvitehub`, runtime), "/auth/github")
+    const response = await loginForBase.handle(request(`${base}/api/_vitehub/comments/auth/github?return=%2Fpricing%3Fvitehub`), "/auth/github")
     expect(response.status).toBe(302)
     const location = new URL(response.headers.get("location")!)
     expect(location.origin + location.pathname).toBe("https://github.com/login/oauth/authorize")
@@ -189,7 +185,7 @@ describe("createCommentsGitHubLogin", () => {
     expect(location.searchParams.get("redirect_uri")).toBe(`${origin}${base}/api/_vitehub/comments/auth/callback/github`)
     // The OAuth state is in a cookie, because there is no database to keep it.
     expect(response.headers.getSetCookie().join("\n")).toContain("vitehub_comments")
-    await expect(loginForBase.user(event(`${base}/api/_vitehub/comments/session`, runtime))).resolves.toBeNull()
+    await expect(loginForBase.user(request(`${base}/api/_vitehub/comments/session`))).resolves.toBeNull()
   })
 
   it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("rejects a short %s before starting GitHub sign-in", async (name) => {
@@ -199,7 +195,7 @@ describe("createCommentsGitHubLogin", () => {
     vi.stubEnv("NUXT_APP_SECRET", "")
     vi.stubEnv(name, "a".repeat(31))
     const login = createCommentsGitHubLogin({ repository: "acme/app" })
-    await expect(login.handle(event("/api/_vitehub/comments/auth/github"), "/auth/github")).rejects.toThrow("VITEHUB_SECRET must be at least 32 characters")
+    await expect(login.handle(request("/api/_vitehub/comments/auth/github"), "/auth/github")).rejects.toThrow("VITEHUB_SECRET must be at least 32 characters")
   })
 
   it("never sends people back to another site", () => {

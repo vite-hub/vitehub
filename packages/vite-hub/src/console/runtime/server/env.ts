@@ -1,7 +1,9 @@
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { isBlockingServerEnvEntry } from "@vite-hub/env"
+import { runWithCloudflareEnv } from "@vite-hub/env/internal/server"
 import { installConsoleEnvScope, resolveConsoleEnv } from "../../internal.ts"
 import type { ServerEnvDescription, ServerEnvInspection, ServerEnvInspectionEntry } from "@vite-hub/env"
+import type { EnvBridgeRequestOptions } from "@vite-hub/env/bridge"
 import type { ConsoleEnvInspection } from "../../internal.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
@@ -19,7 +21,7 @@ export type ConsoleEnvResponse = ServerEnvDescription & {
 export function installConsoleEnv(
   projectRoot: string,
   description: ServerEnvDescription,
-  manage?: (request: Request) => Promise<Response>,
+  manage?: (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response>,
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>,
 ): ConsoleEnvInspection {
   const scope: ConsoleEnvInspection = { ...description }
@@ -36,7 +38,8 @@ export function getConsoleEnv(): ServerEnvDescription {
 export async function getConsoleEnvStatus(event: ConsoleRequestEvent): Promise<ConsoleEnvResponse | undefined> {
   const inspection = resolveConsoleEnv()
   if (!inspection?.inspect) return undefined
-  const { entries } = await inspection.inspect(event)
+  const inspect = inspection.inspect
+  const { entries } = await runWithCloudflareEnv(event["~standard"].runtime?.cloudflare?.env ?? {}, () => inspect(event))
   const status = entries.map((entry) => {
     const statusEntry: ConsoleEnvStatusEntry = {
       blocking: isBlockingServerEnvEntry(entry),
@@ -51,8 +54,9 @@ export async function getConsoleEnvStatus(event: ConsoleRequestEvent): Promise<C
   }
 }
 
-export async function manageConsoleEnv(request: Request): Promise<Response> {
+/** `options.allowedOrigin` is set only for a cross-origin bearer call that the Console access check accepted. */
+export async function manageConsoleEnv(request: Request, options: EnvBridgeRequestOptions = {}): Promise<Response> {
   const manage = getConsoleSections().includes("env") ? resolveConsoleEnv()?.manage : undefined
   if (!manage) return Response.json(consoleDiagnosticBody("CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"), { status: 404, headers: { "cache-control": "no-store" } })
-  return manage(request)
+  return manage(request, options)
 }
