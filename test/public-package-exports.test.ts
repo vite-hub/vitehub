@@ -49,6 +49,7 @@ describe("public package export contracts", () => {
       expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
     }
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
     expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 

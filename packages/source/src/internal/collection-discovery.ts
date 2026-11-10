@@ -1,8 +1,7 @@
 import { readFile, readdir } from "node:fs/promises"
 import { basename, extname, join, relative, resolve } from "node:path"
 
-import { argumentExpression, findCalls, findProperty, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
-import { findExportNames } from "mlly"
+import { argumentExpression, exportNames, findCalls, findProperty, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
 
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -107,7 +106,7 @@ export async function discoverCollections(options: CollectionDiscoveryOptions): 
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
+      if (!exportNames(source, file).includes(exportName)) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       const definition = findCollectionDefinitionCall(source, exportName, file)

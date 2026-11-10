@@ -359,13 +359,13 @@ The Console endpoint is the RPC under `/_vitehub/rpc/**`, the MCP endpoint, and 
 
 | `auth` | Who can call the endpoint |
 | --- | --- |
-| `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
+| `false` | Development only. Accepts local requests and calls from `console.origins`. A production build fails. |
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. The hosted Console, the CLI, and agents. This is the only mode that the hosted Console can use in production. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth), such as the CLI with a session cookie, and MCP clients that sign in with [OAuth](/docs/development/mcp#set-up-oauth). |
 | `{ ... }` | Users of a separate Console Auth: GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
 > [!WARNING]
-> `auth: false` also works in a production build. The build and the server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`.
+> A production build with `auth: false` fails with `VITE_HUB_B0022`, including when `authorize` is set. Use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. Development, CLI discovery, and `nuxi prepare` still accept `auth: false`.
 
 When `console` is missing or `false`, a production build registers no Console route, and the host returns its normal not-found response. A development server without `console` serves only the Operations endpoint.
 
@@ -506,7 +506,7 @@ A same-origin call must come from the app origin. The route rejects opaque origi
 
 ### Use the app Auth
 
-`auth: 'app'` reuses the app's server Auth Definition. Signed-in users reach the endpoint with their app session: the CLI with [`VITEHUB_CONSOLE_COOKIE`](/docs/development/cli), and MCP clients through [MCP OAuth](/docs/development/mcp#set-up-oauth). The hosted Console cannot use this mode. Use `auth: 'token'` for it.
+`auth: 'app'` reuses the app's server Auth Definition. Signed-in users reach the endpoint with their app session: the CLI with [`VITEHUB_CONSOLE_COOKIE`](/docs/development/cli), and MCP clients through [MCP OAuth](/docs/development/mcp#set-up-oauth). The hosted Console signs each person in with OAuth, as in [Sign in from the hosted Console](#sign-in-from-the-hosted-console).
 
 `console: true` is the same as `auth: 'app'` with the access policy in `server/auth.ts`. Add access routes that decide who can use the Console:
 
@@ -596,6 +596,40 @@ A relative `authorize` path starts at the project root (the folder of `nuxt.conf
 
 App Auth and the Console endpoint must use the same public origin, with the same protocol and port.
 
+#### Sign in from the hosted Console
+
+With `auth: 'app'`, each person signs in to the hosted Console with their own app account, so you do not share a token. The app Auth needs:
+
+- [`consoleMcpOAuth()`](/docs/development/mcp#set-up-oauth). It issues access tokens for MCP at `<origin>/_vitehub/mcp` and for the Console at `<origin>/_vitehub`.
+- `cimd()` from `@better-auth/cimd`. The hosted Console is an OAuth client whose `client_id` is the URL of its metadata document, `https://console.vitehub.dev/oauth-client.json`.
+- The Console origin in `console.origins`. The default, `["https://console.vitehub.dev"]`, allows the hosted Console.
+
+Install `@better-auth/cimd` at the same version as the app's Better Auth (`1.7.15` in this example):
+
+```sh
+pnpm add @better-auth/cimd@1.7.15
+```
+
+On Node, pass the package's secure metadata transport to `cimd()`. It validates public HTTPS destinations and redirects to prevent server-side request forgery. Other runtimes need a supported transport with the same protections; do not substitute ordinary `fetch`.
+
+```ts [server/auth.ts]
+import { cimd } from '@better-auth/cimd'
+import { fetchClientMetadataResource } from '@better-auth/cimd/node'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { consoleMcpOAuth } from 'vite-hub/console/auth'
+
+export default defineAuth(() => ({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  plugins: [cimd({ fetchClientMetadataResource }), ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' })],
+}))
+```
+
+Select **Link project** and enter the app URL. The Console reads the challenge of the app, opens `/_vitehub/sign-in`, and asks you to allow it. Then it calls the app with the access token.
+
+The app accepts a token for `<origin>/_vitehub` only from an origin in `console.origins`, and only on the data routes. Same-origin requests and the CLI keep using the session. A token with only `vitehub:read` runs read operations; changes need `vitehub:write`. The access routes of the app Auth and `console.authorize` still decide what each person may use.
+
 ### Use Console Auth
 
 Console Auth has its own Better Auth session and does not need the app's Auth. It protects the endpoint for the CLI and MCP clients. People sign in at `/_vitehub/sign-in`. On a Node host, the inline GitHub setup lets in only verified emails in `allowedEmails`:
@@ -652,7 +686,7 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 
 ### Use another authentication library
 
-With another authentication library, set `auth: false` and give the Console an `authorize` function:
+In development, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`. In production, use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, `auth: 'app'` with an app Auth Definition, or a Console Auth config. `authorize` still runs after authentication.
 
 ```ts
 import { vitehub } from 'vite-hub'
@@ -738,7 +772,7 @@ Each Console route checks access itself. The Console Auth middleware stays as a 
 
 | Configuration | Check in each Console route |
 | --- | --- |
-| `auth: false` | Allows the request. A production build and server log a warning. On the development server, accepts a call from `console.origins`. |
+| `auth: false` | Allows development access, including calls from `console.origins`. A production build fails with `VITE_HUB_B0022`. |
 | `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. |
 | `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
 | `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback. Returns `401` or `403`. |
