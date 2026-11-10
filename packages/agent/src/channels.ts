@@ -18,7 +18,7 @@ import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   deliveryArtifactAttachments,
@@ -80,7 +80,7 @@ import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKe
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
 import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
-import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
+import { channelDeliveryHandlers, channelHandlerTriggerName } from "./internal/channel-delivery-handlers.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
@@ -88,7 +88,6 @@ import { postChannelReply } from "./internal/chat-reply.ts"
 import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelsConsoleHost } from "./channels-console-host.ts"
 import {
-  cleanupGmailMailbox,
   clearGmailSkippedMessages,
   createGmailChannelSyncProvider,
   getGmailMessage,
@@ -108,7 +107,7 @@ import {
   syncGmailMailbox,
   trashGmailMessage,
 } from "./internal/gmail-channel.ts"
-import type { GmailCleanupRule, GmailCleanupRuleResult, GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
+import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
@@ -132,8 +131,6 @@ export {
 export type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./internal/channel-status.ts"
 export { GmailApiError, createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
 export type {
-  GmailCleanupRule,
-  GmailCleanupRuleResult,
   GmailClient,
   GmailLabelColor,
   GmailLabelSettings,
@@ -515,17 +512,18 @@ export const pullRequest = {
     const context = githubPullRequestRunContextFromUnknown(invocation.context.get("pullRequest"))
     if (!context) throw agentDiagnostics.AGENT_R0343({ message: "[vitehub] pullRequest.read() requires pull request invocation context." })
     const value = context.pullRequest
+    // Queued invocations persisted before the Forge rename used `host` on
+    // the pull-request context. Keep those deliveries tied to their
+    // original provider while new invocations use `forge`.
+    const legacyHost: unknown = Reflect.get(context, "host")
     return {
       ...(context.trigger.actor.login ? { actor: context.trigger.actor.login } : {}),
       ...value,
       ...(value.base?.ref ? { baseRef: value.base.ref } : {}),
       ...(context.trigger.deliveryId ? { deliveryId: context.trigger.deliveryId } : {}),
       ...(value.source.ref || value.head?.ref ? { headRef: value.source.ref || value.head?.ref } : {}),
-      // Queued invocations persisted before the Forge rename used `host` on
-      // the pull-request context. Keep those deliveries tied to their
-      // original provider while new invocations use `forge`.
-      provider: context.forge?.kind || (isRecord((context as unknown as Record<string, unknown>).host) ? ((context as unknown as Record<string, unknown>).host as Record<string, unknown>).kind as "gitlab" | "forgejo" | undefined : undefined) || "github",
-      instance: context.forge?.instance || (isRecord((context as unknown as Record<string, unknown>).host) && hasRuntimeType(((context as unknown as Record<string, unknown>).host as Record<string, unknown>).instance, "string") ? (((context as unknown as Record<string, unknown>).host as Record<string, unknown>).instance as string) : undefined) || githubInstance(value.htmlUrl),
+      provider: context.forge?.kind || (isRecord(legacyHost) ? legacyHost.kind as "gitlab" | "forgejo" | undefined : undefined) || "github",
+      instance: context.forge?.instance || (isRecord(legacyHost) && typeof legacyHost.instance === "string" ? legacyHost.instance : undefined) || githubInstance(value.htmlUrl),
       repository: context.repository.fullName,
       run: context.run,
       trigger: context.trigger,
@@ -823,15 +821,15 @@ interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeCon
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return hasRuntimeType(value, "object") && value !== null
+  return typeof value === "object" && value !== null
 }
 
 function maybeString(value: unknown): string | undefined {
-  return hasRuntimeType(value, "string") && value ? value : undefined
+  return typeof value === "string" && value ? value : undefined
 }
 
 function maybeNumber(value: unknown): number | undefined {
-  return hasRuntimeType(value, "number") && Number.isFinite(value) ? value : undefined
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
 interface GitHubPullRequestWorkspacePolicy {
@@ -859,7 +857,7 @@ function githubPullRequestWorkspacePolicy(
   }
   const mount = options.workspace === true
     ? ""
-    : hasRuntimeType(options.workspace, "object")
+    : typeof options.workspace === "object"
       ? options.workspace.mount ?? ""
       : "portal"
   return {
@@ -870,7 +868,7 @@ function githubPullRequestWorkspacePolicy(
 
 function maybeStrings(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return
-  const strings = value.filter((item): item is string => hasRuntimeType(item, "string") && Boolean(item))
+  const strings = value.filter((item): item is string => typeof item === "string" && Boolean(item))
   return strings.length ? strings : undefined
 }
 
@@ -943,7 +941,7 @@ const defaultGitHubPullRequestMaxComments = 30
 const defaultGitHubPullRequestMaxFiles = 200
 
 function githubPullRequestLimit(value: number | undefined, fallback: number): number {
-  return hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
 }
 
 function truncateGitHubPullRequestText(value: string | undefined, maxLength: number): string | undefined {
@@ -962,7 +960,7 @@ function chatFinishExtension(input: AgentRunInput): AgentChatFinishExtension | u
 
 function chatFinishExtensionFromUnknown(value: unknown): AgentChatFinishExtension | undefined {
   // SAFETY: The guarded sendMessage member establishes the extension contract used here.
-  return isRecord(value) && hasRuntimeType(value.sendMessage, "function")
+  return isRecord(value) && typeof value.sendMessage === "function"
     // SAFETY: The guarded sendMessage member establishes the extension contract used here.
     ? asUnknownBoundary(value) as AgentChatFinishExtension
     : undefined
@@ -977,7 +975,7 @@ function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
 function inputPayloadOrBody(input: unknown): GitHubIssueCommentPayload | undefined {
   const payload = inputPayload(input)
   if (payload) return payload
-  if (!isRecord(input) || !hasRuntimeType(input.body, "string")) return
+  if (!isRecord(input) || typeof input.body !== "string") return
   const parsed: unknown = JSON.parse(input.body || "{}")
   return inputPayload({ payload: parsed })
 }
@@ -1005,7 +1003,7 @@ type InputCommandsMetadata = {
 }
 
 function inputCommandsMetadata(value: unknown): InputCommandsMetadata | undefined {
-  if (!isRecord(value) || Array.isArray(value.commands) || !isRecord(value.commands) || !hasRuntimeType(value.trigger, "string")) return
+  if (!isRecord(value) || Array.isArray(value.commands) || !isRecord(value.commands) || typeof value.trigger !== "string") return
   return { commands: value.commands, trigger: value.trigger }
 }
 
@@ -1084,7 +1082,7 @@ function escapedRegExp(value: string): string {
 
 function githubMentionCommand(body: string, mentions: readonly string[] | undefined): { args: string, command: string } | undefined {
   for (const configured of Array.isArray(mentions) ? mentions : []) {
-    if (!hasRuntimeType(configured, "string")) continue
+    if (typeof configured !== "string") continue
     const mention = configured.trim()
     if (!mention) continue
     const expression = new RegExp(`(^|\\s)(${escapedRegExp(mention)})(?=\\s|[.,!?;:]|$)`, "i")
@@ -1275,7 +1273,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
   if (event !== "pull_request" || !isRecord(payload.pull_request)) return
   const action = maybeString(payload.action)
   const events = Array.isArray(options.events)
-    ? options.events.filter(event => hasRuntimeType(event, "string"))
+    ? options.events.filter(event => typeof event === "string")
     : ["opened", "reopened", "ready_for_review", "synchronize"]
   if (!action || !events.includes(action)) return
   if (action === "synchronize" && maybeString(payload.sender?.type)?.toLowerCase() === "bot") return
@@ -1591,9 +1589,9 @@ async function resolveEffectOption<T, TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<T> {
   // SAFETY: This option boundary accepts only resolvers with the declared delivery context signature.
-  if (hasRuntimeType(value, "function")) return await (value as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  if (typeof value === "function") return await (value as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
   // SAFETY: A resolver record is invoked with the delivery context promised by the option contract.
-  if (isRecord(value) && hasRuntimeType(value.resolve, "function")) return await (value.resolve as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  if (isRecord(value) && typeof value.resolve === "function") return await (value.resolve as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
   // SAFETY: Non-resolver option values already carry the generic option contract.
   return value as T
 }
@@ -1604,20 +1602,20 @@ async function resolveGithubAppOption<T, TRuntimeConfig extends AgentRuntimeConf
 ): Promise<T | undefined> {
   if (value === undefined) return undefined
   // SAFETY: This option boundary accepts only resolvers with the declared GitHub App context signature.
-  if (hasRuntimeType(value, "function")) return await (value as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  if (typeof value === "function") return await (value as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
   // SAFETY: A resolver record is invoked with the GitHub App context promised by the option contract.
-  if (isRecord(value) && hasRuntimeType(value.resolve, "function")) return await (value.resolve as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  if (isRecord(value) && typeof value.resolve === "function") return await (value.resolve as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
   // SAFETY: Non-resolver option values already carry the generic option contract.
   return value as T
 }
 
 function unseal(value: unknown): unknown {
-  return isRecord(value) && hasRuntimeType(value.unseal, "function") ? value.unseal() : value
+  return isRecord(value) && typeof value.unseal === "function" ? value.unseal() : value
 }
 
 function cleanSecret(value: unknown): string | undefined {
   const secret = unseal(value)
-  return hasRuntimeType(secret, "string") && secret.trim() ? secret.trim() : undefined
+  return typeof secret === "string" && secret.trim() ? secret.trim() : undefined
 }
 
 function runtimeEnv<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1672,13 +1670,13 @@ async function githubAppSetting<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 function requiredString(value: unknown, name: string): string {
-  const string = hasRuntimeType(value, "number") ? String(value) : cleanSecret(value)
+  const string = typeof value === "number" ? String(value) : cleanSecret(value)
   if (!string) throw agentDiagnostics.AGENT_R0345({ message: `[vitehub] Missing GitHub App ${name}.` })
   return string
 }
 
 function requiredNumber(value: unknown, name: string): number {
-  const number = hasRuntimeType(value, "number") ? value : Number(cleanSecret(value))
+  const number = typeof value === "number" ? value : Number(cleanSecret(value))
   if (!Number.isFinite(number)) throw agentDiagnostics.AGENT_R0346({ message: `[vitehub] Missing GitHub App ${name}.` })
   return number
 }
@@ -1709,7 +1707,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
 ) {
   const options = githubAppOptions(app) || {}
   if (options.token) {
-    const token = hasRuntimeType(options.token, "function") ? await options.token(context, {
+    const token = typeof options.token === "function" ? await options.token(context, {
       repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
       signal,
     }) : options.token
@@ -1779,7 +1777,7 @@ function staticGithubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>
   if (app === true) return
   const secret = app.webhookSecret
   if (secret === false) return false
-  if (hasRuntimeType(secret, "function")) return
+  if (typeof secret === "function") return
   return cleanSecret(secret)
 }
 
@@ -1910,7 +1908,7 @@ function githubActivityLinksState(links: readonly { label: string, url: string }
 }
 
 function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivityIdentity): boolean {
-  if (!isRecord(comment) || !hasRuntimeType(comment.body, "string") || !comment.body.startsWith(githubActivityMarker)) return false
+  if (!isRecord(comment) || typeof comment.body !== "string" || !comment.body.startsWith(githubActivityMarker)) return false
   const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
   const appId = isRecord(comment.performed_via_github_app) ? maybeNumber(comment.performed_via_github_app.id) : undefined
   return Boolean(identity.appId ? appId === identity.appId : identity.login && user === identity.login)
@@ -1936,7 +1934,7 @@ function githubActivityTarget(value: unknown): GitHubActivityTarget {
 }
 
 function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
-  if (!hasRuntimeType(body, "string")) return { history: [], previousRunIds: [] }
+  if (typeof body !== "string") return { history: [], previousRunIds: [] }
   const encoded = body.match(/<!-- vitehub-agent-activity:([A-Za-z0-9_-]+) -->/)?.[1]
   if (!encoded) return { history: [], previousRunIds: [] }
   try {
@@ -2012,7 +2010,7 @@ function encodeGithubActivityState(state: GitHubActivityCommentState): string {
 }
 
 function githubActivityDate(value: unknown): string | undefined {
-  if (!hasRuntimeType(value, "string") || !Number.isFinite(Date.parse(value))) return
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) return
   return new Date(value).toISOString()
 }
 
@@ -2325,7 +2323,7 @@ function deliveryArtifactFilename(artifact: PublishedAgentDeliveryArtifact): str
 
 function arrayBufferContent(value: ArrayBuffer | Uint8Array | string): ArrayBuffer {
   if (value instanceof ArrayBuffer) return value
-  const bytes = hasRuntimeType(value, "string") ? new TextEncoder().encode(value) : value
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
   return copy.buffer
@@ -2457,8 +2455,8 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
 }
 
 function titleEffectPayloadTitle(value: unknown): string | undefined {
-  const title = hasRuntimeType(value, "string") ? value : isRecord(value) ? value.title : undefined
-  return hasRuntimeType(title, "string") ? maybeString(title.trim()) : undefined
+  const title = typeof value === "string" ? value : isRecord(value) ? value.title : undefined
+  return typeof title === "string" ? maybeString(title.trim()) : undefined
 }
 
 type ThreadTitleAdapter = Adapter & {
@@ -2472,13 +2470,13 @@ type AssistantTitleAdapter = Adapter & {
 function adapterSetThreadTitle(adapter: Adapter | undefined) {
   // SAFETY: The optional member is probed before it is called.
   const setThreadTitle = (adapter as ThreadTitleAdapter | undefined)?.setThreadTitle
-  return hasRuntimeType(setThreadTitle, "function") ? setThreadTitle.bind(adapter) : undefined
+  return typeof setThreadTitle === "function" ? setThreadTitle.bind(adapter) : undefined
 }
 
 function adapterSetAssistantTitle(adapter: Adapter | undefined) {
   // SAFETY: The optional member is probed before it is called.
   const setAssistantTitle = (adapter as AssistantTitleAdapter | undefined)?.setAssistantTitle
-  return hasRuntimeType(setAssistantTitle, "function") ? setAssistantTitle.bind(adapter) : undefined
+  return typeof setAssistantTitle === "function" ? setAssistantTitle.bind(adapter) : undefined
 }
 
 async function messageChannelTitleAdapter<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2813,7 +2811,7 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   input: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
 ): AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined {
   if (input === undefined) return undefined
-  if (input !== true && (hasRuntimeType(input, "function") || isAdapter(input) || isResolver(input))) {
+  if (input !== true && (typeof input === "function" || isAdapter(input) || isResolver(input))) {
     // SAFETY: The runtime guards above establish every supported adapter option variant.
     return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
   }
@@ -2882,7 +2880,7 @@ function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 async function createTeamsConnectorAdapterFromEnv(options: TeamsConnectorAdapterOptions): Promise<Adapter> {
-  const appId = hasRuntimeType(options.appId, "function") ? await options.appId() : options.appId
+  const appId = typeof options.appId === "function" ? await options.appId() : options.appId
   return createTeamsAdapterFromEnv({ ...options, appId } as TeamsAdapterOptions, {})
 }
 
@@ -2947,7 +2945,7 @@ interface ChatConnectorPlatform {
 /** Deletes the message stored under `receiptKey`, then its receipt. Without a stored receipt, it does nothing. */
 async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: Adapter, kv: ConnectorKV, receiptKey: string, threadId: string): Promise<void> {
   const stored = await connectorKVGet(kv, receiptKey)
-  if (!hasRuntimeType(stored?.id, "string")) return
+  if (typeof stored?.id !== "string") return
   try {
     await adapter.deleteMessage(threadId, stored.id)
   }
@@ -2977,9 +2975,9 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
   }
   return {
     async send(text, { recipient, thread, idempotencyKey, update, replace }) {
-      if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
-      if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
-      if (replace !== undefined && (!hasRuntimeType(replace, "string") || !replace || !idempotencyKey || replace === idempotencyKey)) {
+      if (typeof recipient !== "string" || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
+      if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
+      if (replace !== undefined && (typeof replace !== "string" || !replace || !idempotencyKey || replace === idempotencyKey)) {
         throw new TypeError(`[vitehub] ${label} replace requires the idempotency key of an earlier send and its own idempotencyKey.`)
       }
       const chat = await useAdapter()
@@ -2997,7 +2995,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         const receiptKey = receiptKeyFor(idempotencyKey)
         const receipt = await withConnectorLock(receiptKey, async () => {
           const stored = await connectorKVGet(kv, receiptKey)
-          if (hasRuntimeType(stored?.id, "string")) {
+          if (typeof stored?.id === "string") {
             if (update) await chat.editMessage(await target(), stored.id, { markdown: text })
             return { id: stored.id }
           }
@@ -3025,14 +3023,14 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
       const receipt = await withConnectorLock(key, async () => {
         const stored = receiptKey ? await connectorKVGet(kv, receiptKey) : undefined
         const savedRoot = await connectorKVGet(kv, `${key}:root`)
-        let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        let threadId = typeof savedRoot?.threadId === "string" ? savedRoot.threadId : undefined
         if (replacedKey && threadId) {
           const replaced = await connectorKVGet(kv, replacedKey)
-          if (hasRuntimeType(replaced?.id, "string") && threads.rootMessageId(chat, threadId) === replaced.id) {
+          if (typeof replaced?.id === "string" && threads.rootMessageId(chat, threadId) === replaced.id) {
             throw new TypeError(`[vitehub] ${label} replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.`)
           }
         }
-        if (hasRuntimeType(stored?.id, "string")) {
+        if (typeof stored?.id === "string") {
           // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
           if (update && threadId) await chat.editMessage(threadId, stored.id, { markdown: text })
           return { id: stored.id }
@@ -3056,7 +3054,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         await withConnectorLock(key, async () => {
           const savedRoot = await connectorKVGet(kv, `${key}:root`)
           // Delete a message in a channel thread through the root thread ID, like an edit.
-          if (hasRuntimeType(savedRoot?.threadId, "string")) await deleteConnectorReceipt(platform, chat, kv, replacedKey, savedRoot.threadId)
+          if (typeof savedRoot?.threadId === "string") await deleteConnectorReceipt(platform, chat, kv, replacedKey, savedRoot.threadId)
         })
       }
       return receipt
@@ -3087,14 +3085,15 @@ function chatSendAdapterInput<TInput>(adapter: unknown): TInput | undefined {
 
 function connectorAdapter<TOptions>(input: TOptions | ChatConnectorAdapter | undefined, fromOptions: (options: TOptions | undefined) => Promise<Adapter>): () => MaybePromise<Adapter> {
   return () => input === undefined || (isRecord(input) && !isAdapter(input)) ? fromOptions(input as TOptions | undefined)
-    : hasRuntimeType(input, "function") ? input()
+    // SAFETY: A function input is the `() => MaybePromise<Adapter>` member of ChatConnectorAdapter.
+    : typeof input === "function" ? (input as () => MaybePromise<Adapter>)()
       // SAFETY: The checks above leave only an adapter.
       : input as Adapter
 }
 
 function decodeTeamsThread(adapter: Adapter, threadId: string): Record<string, unknown> & { conversationId: string } {
   const data = adapter.decodeThreadId(threadId)
-  if (!isRecord(data) || !hasRuntimeType(data.conversationId, "string")) throw new TypeError("[vitehub] The Teams recipient is not a Teams thread ID.")
+  if (!isRecord(data) || typeof data.conversationId !== "string") throw new TypeError("[vitehub] The Teams recipient is not a Teams thread ID.")
   return { ...data, conversationId: data.conversationId }
 }
 
@@ -3131,7 +3130,7 @@ function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector {
 
 function decodeSlackThread(adapter: Adapter, threadId: string): { channel: string, threadTs: string } {
   const data = adapter.decodeThreadId(threadId)
-  if (!isRecord(data) || !hasRuntimeType(data.channel, "string") || !hasRuntimeType(data.threadTs, "string")) throw new TypeError("[vitehub] The Slack recipient is not a Slack thread ID.")
+  if (!isRecord(data) || typeof data.channel !== "string" || typeof data.threadTs !== "string") throw new TypeError("[vitehub] The Slack recipient is not a Slack thread ID.")
   return { channel: data.channel, threadTs: data.threadTs }
 }
 
@@ -3150,8 +3149,8 @@ const slackConnectorPlatform: ChatConnectorPlatform = {
 /** Sends Markdown to Slack through your Slack adapter. Roots and receipts live in KV under `slack:`. */
 function slackConnector(options: SlackConnectorOptions): ChatConnector {
   const input = isRecord(options) ? options.adapter : undefined
-  if (!isAdapter(input) && !hasRuntimeType(input, "function")) throw new TypeError("[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.")
-  return chatConnector(slackConnectorPlatform, hasRuntimeType(input, "function") ? input : () => input)
+  if (!isAdapter(input) && typeof input !== "function") throw new TypeError("[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.")
+  return chatConnector(slackConnectorPlatform, typeof input === "function" ? input : () => input)
 }
 
 const discordConnectorPlatform: ChatConnectorPlatform = {
@@ -3223,11 +3222,11 @@ function addDiscordThreadTitleSupport(adapter: Adapter, options: DiscordAdapterO
 }
 
 function isAdapter(value: unknown): value is AgentChatPlatformAdapter {
-  return isRecord(value) && hasRuntimeType(value.postMessage, "function")
+  return isRecord(value) && typeof value.postMessage === "function"
 }
 
 function isResolver(value: unknown): value is { resolve: (context: AgentCallbackContext) => MaybePromise<AgentChatPlatformAdapter> } {
-  return isRecord(value) && hasRuntimeType(value.resolve, "function")
+  return isRecord(value) && typeof value.resolve === "function"
 }
 
 /**
@@ -3373,7 +3372,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
           value.base = hydrated.base
           value.head = hydrated.head
           value.draft = hydrated.draft
-          value.fork = services && hasRuntimeType(pullRequest.fork, "boolean") ? pullRequest.fork : hydrated.fork
+          value.fork = services && typeof pullRequest.fork === "boolean" ? pullRequest.fork : hydrated.fork
         }
       }
       catch {
@@ -3548,7 +3547,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const controls = {
           // SAFETY: The dev invocation contract supplies AbortSignal when this control is present.
           ...(inputRecord.abortSignal ? { abortSignal: inputRecord.abortSignal as AbortSignal } : {}),
-          ...(hasRuntimeType(inputRecord.timeout, "number") ? { timeout: inputRecord.timeout } : {}),
+          ...(typeof inputRecord.timeout === "number" ? { timeout: inputRecord.timeout } : {}),
         }
         if (existingPullRequest) {
           const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
@@ -3619,8 +3618,8 @@ function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): 
 
 function githubPullRequestInstallationId(value: GitHubPullRequestContext): number | undefined {
   const installationId = value.trigger?.installationId
-  if (hasRuntimeType(installationId, "number")) return installationId
-  if (!hasRuntimeType(installationId, "string") || !installationId) return
+  if (typeof installationId === "number") return installationId
+  if (typeof installationId !== "string" || !installationId) return
   const parsed = Number(installationId)
   return Number.isFinite(parsed) ? parsed : undefined
 }
@@ -3658,48 +3657,52 @@ const reservedChannelMessageMethodNames = new Set(["channel", "data", "kind"])
 function validateChannelMessageDefinition(kind: string, message: unknown): void {
   if (message === undefined) return
   if (!isRecord(message)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] defineChannel("${kind}", { message }) expects an object.` })
+    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] channelAdapter("${kind}", { message }) expects an object.` })
   }
   if (message.methods === undefined) return
   if (!isRecord(message.methods)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] defineChannel("${kind}", { message: { methods } }) expects an object.` })
+    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] channelAdapter("${kind}", { message: { methods } }) expects an object.` })
   }
   for (const [name, method] of Object.entries(message.methods)) {
     if (reservedChannelMessageMethodNames.has(name)) {
       throw agentDiagnostics.AGENT_R0929({ message: `[vitehub] Channel "${kind}" message method "${name}" uses a reserved name. Reserved names: channel, data, kind.` })
     }
-    if (hasRuntimeType(method, "function")) continue
-    if (isRecord(method) && method.read === true && hasRuntimeType(method.handler, "function")) continue
+    if (typeof method === "function") continue
+    if (isRecord(method) && method.read === true && typeof method.handler === "function") continue
     throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Channel "${kind}" message method "${name}" must be a function or { read: true, handler }.` })
   }
 }
 
 function validateChannelHistoryDefinition(kind: string, history: unknown, triggers: unknown): void {
   if (history === undefined) return
-  const invalid = (detail: string) => agentDiagnostics.AGENT_R0930({ message: `[vitehub] defineChannel("${kind}", { history }) ${detail}` })
+  const invalid = (detail: string) => agentDiagnostics.AGENT_R0930({ message: `[vitehub] channelAdapter("${kind}", { history }) ${detail}` })
   if (!isRecord(history)) throw invalid("expects an object.")
   const collection = history.collection
-  if (!isRecord(collection) || !hasRuntimeType(collection.page, "function") || !hasRuntimeType(collection.parseQuery, "function")) {
+  if (!isRecord(collection) || typeof collection.page !== "function" || typeof collection.parseQuery !== "function") {
     throw invalid("requires a Collection from defineCollection().")
   }
-  if (!hasRuntimeType(history.key, "function")) throw invalid("requires key(item).")
-  if (history.thread !== undefined && !hasRuntimeType(history.thread, "function")) throw invalid("thread(item) must be a function when provided.")
-  if (history.invocationItem !== undefined && !hasRuntimeType(history.invocationItem, "function")) throw invalid("invocationItem(invocation) must be a function when provided.")
+  if (typeof history.key !== "function") throw invalid("requires key(item).")
+  if (history.thread !== undefined && typeof history.thread !== "function") throw invalid("thread(item) must be a function when provided.")
+  if (history.invocationItem !== undefined && typeof history.invocationItem !== "function") throw invalid("invocationItem(invocation) must be a function when provided.")
   const names = isRecord(triggers) ? Object.keys(triggers) : []
   if (history.trigger === undefined) {
     if (names.length !== 1) throw invalid(`requires trigger when the Channel has ${names.length} triggers.`)
     return
   }
-  if (!hasRuntimeType(history.trigger, "string") || !names.includes(history.trigger)) {
+  if (typeof history.trigger !== "string" || !names.includes(history.trigger)) {
     throw invalid(`trigger must name one of the Channel triggers: ${names.join(", ") || "none"}.`)
   }
 }
 
 /**
- * Define a Channel. `message.methods` become calls on `event.message` in Agent hooks.
- * A method receives the Channel context first; `context.message` is the data that the trigger returned.
+ * The adapter of a platform that has no built-in one, such as your own Chat SDK adapter, for
+ * `defineChannel({ adapter })` from `vite-hub/channels`. `message.methods` become calls on `event.message` in Agent
+ * hooks. A method receives the Channel context first; `context.message` is the data that the trigger returned.
+ *
+ * @example
+ * export default defineChannel({ adapter: channelAdapter('whatsapp', { adapter: createWhatsAppAdapter() }) })
  */
-export function defineChannel<
+export function channelAdapter<
   TKind extends string,
   const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData>,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -3709,11 +3712,11 @@ export function defineChannel<
   kind: TKind,
   definitionOptions: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {},
 ): AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods> {
-  if (!hasRuntimeType(kind, "string") || !kind.trim()) {
-    throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
+  if (typeof kind !== "string" || !kind.trim()) {
+    throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] channelAdapter() requires a non-empty Channel kind." })
   }
   const options = isChannelSimulated(kind) ? simulatedChannelOptions(kind, definitionOptions) : definitionOptions
-  if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
+  if (options.instructions !== undefined && (typeof options.instructions !== "string" || !options.instructions.trim())) {
     throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
   }
   validateChannelMessageDefinition(kind, options.message)
@@ -3731,7 +3734,7 @@ export function defineChannel<
     messages,
   }
   if (options[channelDeliveryHandlers]?.title || options.message?.methods?.title) customTitleEffectChannels.add(channel)
-  // SAFETY: defineChannel constructs the validated definition while preserving the generic method type.
+  // SAFETY: channelAdapter constructs the validated definition while preserving the generic method type.
   return channel as AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods>
 }
 
@@ -3754,7 +3757,7 @@ function simulatedChannelOptions<
     adapter: () => createSimulatedChatAdapter(kind),
     webhooks: Array.isArray(webhooks)
       ? webhooks.map(registration => ({ ...registration, secretToken: false }))
-      : webhooks && hasRuntimeType(webhooks, "object") ? { ...webhooks, secretToken: false } : true,
+      : webhooks && typeof webhooks === "object" ? { ...webhooks, secretToken: false } : true,
   }
 }
 
@@ -3774,8 +3777,7 @@ export function defineChannelTrigger<TDefinition>(definition: TDefinition): TDef
 }
 
 const channelDefinitionBrand = Symbol.for("vitehub.channel.definition")
-/** The trigger that routes the `on` handlers of a Channel. */
-const handlerTriggerName = "on"
+const handlerTriggerName = channelHandlerTriggerName
 
 function isChannelDefinitionValue(value: unknown): value is ChannelDefinition {
   return isRecord(value) && (value as Record<PropertyKey, unknown>)[channelDefinitionBrand] === true
@@ -3814,6 +3816,8 @@ function webhookAdapterRegistration<TRuntimeConfig extends AgentRuntimeConfig>(w
 
 interface ChannelWebhookTriggerInput {
   body?: string
+  /** Set by `sendChannelTrigger()`, which names the event instead of the adapter. */
+  event?: string
   payload?: unknown
   request?: { headers?: Record<string, string>, method?: string, url?: string }
 }
@@ -3850,7 +3854,7 @@ function channelHandlerTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
       // SAFETY: The webhook route passes the trigger input that createAgentWebhookTriggerInput() builds.
       const input = (isRecord(value) ? value : {}) as ChannelWebhookTriggerInput
       const request = { headers: input.request?.headers ?? {}, method: input.request?.method ?? "POST", url: input.request?.url ?? "" }
-      const name = webhook.event?.(input.payload, request) ?? "webhook"
+      const name = input.event ?? webhook.event?.(input.payload, request) ?? "webhook"
       if (!Object.hasOwn(handlers, name)) return ignored(`no target for event "${name}"`)
       const id = webhook.id?.(input.payload, request) || createHash("sha256").update(input.body ?? JSON.stringify(input.payload ?? null)).digest("hex")
       const { agentChannelDeliveryMode } = await import("./trigger-runtime.ts")
@@ -3877,7 +3881,7 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const handlers: Record<string, ChannelHandler> = {}
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
-    if (hasRuntimeType(target, "function")) handlers[name] = target as ChannelHandler
+    if (typeof target === "function") handlers[name] = target as ChannelHandler
     else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {
       // Event names can contain dots and other characters that Agent trigger IDs cannot use.
       let key = /^[a-z][a-z0-9-_]*$/i.test(name) ? name : `on-${Buffer.from(name).toString("hex")}`
@@ -3888,10 +3892,10 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
     else triggers[name] = target as AgentChannelTriggerDefinition<TRuntimeConfig, any, any>
   }
   const base: AgentChannelDefinition<TRuntimeConfig> = isWebhookAdapter(adapter)
-    ? defineChannel(adapter.kind, { messages: false, webhooks: webhookAdapterRegistration<TRuntimeConfig>(adapter.webhook) })
+    ? channelAdapter(adapter.kind, { messages: false, webhooks: webhookAdapterRegistration<TRuntimeConfig>(adapter.webhook) })
     : isAgentChannelAdapter(adapter)
       ? adapter as AgentChannelDefinition<TRuntimeConfig>
-      : defineChannel(adapter.kind, { messages: false, webhooks: false })
+      : channelAdapter(adapter.kind, { messages: false, webhooks: false })
   if (Object.keys(handlers).length) {
     if (!isWebhookAdapter(adapter)) {
       throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] The \`on\` handlers of a "${adapter.kind}" Channel need an adapter that receives webhooks, such as webhook() or stripe().` })
@@ -3924,7 +3928,7 @@ export function normalizeAgentChannelInput<TRuntimeConfig extends AgentRuntimeCo
 function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>>
 function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>>
 function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>> {
-  return withChatSend(defineChannel("discord", {
+  return withChatSend(channelAdapter("discord", {
     ...options,
     adapter: discordAdapterResolver(options.adapter),
   }), () => discordConnector({ adapter: chatSendAdapterInput<DiscordConnectorOptions["adapter"]>(options.adapter) }))
@@ -3955,7 +3959,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
         userAgent: app?.userAgent,
       })
     : undefined
-  const channel = defineChannel("github", {
+  const channel = channelAdapter("github", {
     ...channelOptions,
     activity: activityDefinition,
     capabilities: [
@@ -3983,8 +3987,8 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 }
 
 function forgeActivityTarget(value: unknown): GitHubActivityTarget {
-  if (!isRecord(value) || !hasRuntimeType(value.repository, "string") || !/^[^\s/]+(?:\/[^\s/]+)+$/.test(value.repository)
-    || !hasRuntimeType(value.issue, "number") || !Number.isSafeInteger(value.issue) || value.issue < 1) {
+  if (!isRecord(value) || typeof value.repository !== "string" || !/^[^\s/]+(?:\/[^\s/]+)+$/.test(value.repository)
+    || typeof value.issue !== "number" || !Number.isSafeInteger(value.issue) || value.issue < 1) {
     throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge Agent activity requires a target with repository and issue." })
   }
   return { repository: value.repository, issue: value.issue }
@@ -4043,7 +4047,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
         const provider = await services.provider(context)
         const raw = isRecord(input) ? input : {}
         const request = isRecord(raw.request) ? raw.request : {}
-        const headers = isRecord(request.headers) ? Object.fromEntries(Object.entries(request.headers).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string"))) : {}
+        const headers = isRecord(request.headers) ? Object.fromEntries(Object.entries(request.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : {}
         const normalized = name === "webhook" && !context.queuedInvocation
           ? await forgeWebhookInput(provider, { headers, body: maybeString(raw.body) || JSON.stringify(raw.payload), secret: await secret(context) }) : input
         const result = await trigger.invoke(context, normalized)
@@ -4084,7 +4088,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
       },
     }
   }
-  const channel = defineChannel(kind, {
+  const channel = channelAdapter(kind, {
     ...channelOptions,
     activity: activityDefinition,
     messages: false,
@@ -4232,7 +4236,7 @@ function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: G
   if (options.maxAttempts !== undefined && (!Number.isSafeInteger(options.maxAttempts) || options.maxAttempts < 1)) {
     throw invalid("maxAttempts must be a positive integer.")
   }
-  if (options.hideUnmanagedLabels !== undefined && !hasRuntimeType(options.hideUnmanagedLabels, "boolean")) {
+  if (options.hideUnmanagedLabels !== undefined && typeof options.hideUnmanagedLabels !== "boolean") {
     throw invalid("hideUnmanagedLabels must be a boolean.")
   }
   const labels: Record<string, GmailLabelSettings> = Object.create(null)
@@ -4240,14 +4244,14 @@ function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: G
     if (!name.trim()) throw invalid("labels must have non-empty names.")
     if (!isRecord(label)) throw invalid(`label "${name}" must be an object.`)
     const normalized = normalizeGmailLabelSettings(name, label)
-    if (hasRuntimeType(normalized, "string")) throw invalid(normalized)
+    if (typeof normalized === "string") throw invalid(normalized)
     labels[name] = normalized
   }
   return labels
 }
 
 // Enumerable, so copies of the Channel keep it.
-const gmailChannelClient = Symbol("vitehub.gmail.client")
+const gmailClientKey = Symbol("vitehub.gmail.client")
 
 /**
  * Gmail Channel. A Pub/Sub push or `pollGmailChannel()` starts one Invocation per new Inbox message, hooks act on the message
@@ -4268,7 +4272,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       messages.map(message => ({ input: message, key: message.id })),
       { trigger: "received", ...(options.dryRun ? { dryRun: true } : {}) },
     )
-  const channel = defineChannel("gmail", {
+  const channel = channelAdapter("gmail", {
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
     ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
     history: {
@@ -4285,7 +4289,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         get: { read: true, handler: async context => await getGmailMessage(await resolveClient(context), context.message.id, bodyLimit) },
         /** Adds labels by name. */
         label: async (context, names: string | readonly string[]) =>
-          await modify(context, context.message.id, { addLabels: hasRuntimeType(names, "string") ? [names] : names }),
+          await modify(context, context.message.id, { addLabels: typeof names === "string" ? [names] : names }),
         /** Removes the `UNREAD` label. */
         markRead: async context => await modify(context, context.message.id, { removeLabels: ["UNREAD"] }),
         /** Adds and removes labels by name. System labels such as `INBOX`, `UNREAD`, and `STARRED` use their IDs as names. */
@@ -4399,7 +4403,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       },
     },
   })
-  Object.defineProperty(channel, gmailChannelClient, { enumerable: true, value: resolveClient })
+  Object.defineProperty(channel, gmailClientKey, { enumerable: true, value: resolveClient })
   const described = withAgentChannelStatusDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
     clear: clearGmailSkippedMessages,
     read: readGmailChannelStatus,
@@ -4497,46 +4501,25 @@ export async function pollGmailChannel(channel: AgentChannelDefinition, options:
   if (!polled) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() found no Agent that uses this Channel." })
 }
 
-export interface CleanupGmailChannelOptions {
-  /** Move the matches to Trash. Without it, the function only lists them. */
-  apply?: boolean
-  /** Cleanup rules by name. */
-  rules: Readonly<Record<string, GmailCleanupRule>>
+export interface GmailClientOptions {
   /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
   runtime?: AgentRuntimeContext
 }
 
-export interface CleanupGmailChannelResult {
-  applied: boolean
-  rules: GmailCleanupRuleResult[]
-}
-
 /**
- * Moves labelled Gmail mail older than each rule's age to Trash, at most 500 messages per rule.
- * Call it from a daily Schedule: each run continues with the matches that remain.
+ * The Gmail REST client of a Channel from `gmail()`, with the Channel's credentials. Use it for Gmail requests that the
+ * Channel does not make itself, such as a cleanup search. Paths are relative to `users/me/`.
  */
-export async function cleanupGmailChannel(channel: AgentChannelDefinition, options: CleanupGmailChannelOptions): Promise<CleanupGmailChannelResult> {
-  const resolveClient = (channel as { [gmailChannelClient]?: (context: AgentCallbackContext) => Promise<GmailClient> })[gmailChannelClient]
+export async function gmailClient(channel: AgentChannelDefinition, options: GmailClientOptions = {}): Promise<GmailClient> {
+  const resolveClient = (channel as { [gmailClientKey]?: (context: AgentCallbackContext) => Promise<GmailClient> })[gmailClientKey]
   if (channel.kind !== "gmail" || !resolveClient) {
-    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] cleanupGmailChannel() expects a Channel from gmail()." })
+    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] gmailClient() expects a Channel from gmail()." })
   }
-  if (!isRecord(options?.rules)) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] cleanupGmailChannel() requires a rules object." })
-  for (const [name, rule] of Object.entries(options.rules)) {
-    if (!isRecord(rule) || !hasRuntimeType(rule.label, "string") || !rule.label.trim() || /["\\\p{Cc}]/u.test(rule.label)) {
-      throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Gmail cleanup rule "${name}" needs a label name without quotes, backslashes, or control characters.` })
-    }
-    if (!Number.isSafeInteger(rule.olderThan) || rule.olderThan < 1) {
-      throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Gmail cleanup rule "${name}" needs olderThan as a positive whole number of days.` })
-    }
-  }
-  const apply = options.apply === true
-  if (!Object.keys(options.rules).length) return { applied: apply, rules: [] }
   const runtime = options.runtime ?? (() => {
     const created = createRuntimeContext({ runtime: "unknown" })
     return { memo: created.memo, runtime: created.runtime, waitUntil: created.waitUntil }
   })()
-  const client = await resolveClient(createExecutionContext(runtime))
-  return { applied: apply, rules: await cleanupGmailMailbox(client, options.rules, apply) }
+  return await resolveClient(createExecutionContext(runtime))
 }
 
 export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
@@ -4545,13 +4528,13 @@ export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   if ("path" in options) {
     throw agentDiagnostics.AGENT_R0372({ message: "[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path." })
   }
-  return defineChannel("http", options)
+  return channelAdapter("http", options)
 }
 
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>>
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>>
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>> {
-  return withChatSend(defineChannel("slack", options), () => slackConnector({ adapter: chatSendAdapterInput<SlackConnectorOptions["adapter"]>(options.adapter)! }))
+  return withChatSend(channelAdapter("slack", options), () => slackConnector({ adapter: chatSendAdapterInput<SlackConnectorOptions["adapter"]>(options.adapter)! }))
 }
 
 /**
@@ -4563,7 +4546,7 @@ export const slack: typeof slackChannel = slackChannel
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>>
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>>
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>> {
-  return withChatSend(defineMessageChannelInstructions(defineChannel("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link."), () => teamsConnector({ adapter: chatSendAdapterInput<TeamsConnectorOptions["adapter"]>(options.adapter) }))
+  return withChatSend(defineMessageChannelInstructions(channelAdapter("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link."), () => teamsConnector({ adapter: chatSendAdapterInput<TeamsConnectorOptions["adapter"]>(options.adapter) }))
 }
 
 /** The Microsoft Teams adapter. An Agent that lists the Channel answers its messages, and `useChannel(name).send()` posts to Teams. */
@@ -4591,7 +4574,7 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   const webhookOptions = webhookSecret !== undefined
     ? { secretToken: telegramWebhookSecretToken(webhookSecret) }
     : webhooks
-  const channel = withChatSend(defineMessageChannelInstructions(defineChannel("telegram", {
+  const channel = withChatSend(defineMessageChannelInstructions(channelAdapter("telegram", {
     ...channelOptions,
     adapter: telegramAdapterResolver(options),
     ...(mode === "polling" ? { listener: { kind: "telegram-polling" } } : {}),
@@ -4632,7 +4615,7 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       const resolvedWebhooks = resolvedChannel.webhooks
       const registration = Array.isArray(resolvedWebhooks)
         ? resolvedWebhooks.length === 1 ? resolvedWebhooks[0] : undefined
-        : resolvedWebhooks && hasRuntimeType(resolvedWebhooks, "object") ? resolvedWebhooks : undefined
+        : resolvedWebhooks && typeof resolvedWebhooks === "object" ? resolvedWebhooks : undefined
       const secret = registration?.secretToken
       const [apiBaseUrl, apiUrl, botToken, secretToken] = await Promise.all([
         options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),
@@ -4665,7 +4648,7 @@ export const telegram: typeof telegramChannel = telegramChannel
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods> {
-  return defineChannel("web-chat", {
+  return channelAdapter("web-chat", {
     ...options,
     route: options.route ?? true,
   })

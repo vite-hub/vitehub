@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
+import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { commentsButton, openList, press, serveComments, type } from "./overlay-harness.ts"
@@ -49,9 +49,11 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.mocked(window.confirm).mockReturnValue(true)
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  stopViteHubPageTools()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-window, vitehub-tools-off")) element.remove()
   localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""

@@ -12,6 +12,7 @@ import {
   addRouteMiddleware,
   addServerHandler,
   addTemplate,
+  addTypeTemplate,
   createResolver,
   defineNuxtModule,
   extendPages,
@@ -26,7 +27,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { createDocsManifest } from "./manifest.ts"
+import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
@@ -145,9 +146,9 @@ export interface DocsModuleOptions {
    */
   ogImage?: false | { component?: string }
   /**
-   * Path of a module, relative to the app root, whose default export is the parser options, such as
-   * `{ plugins: [tabs()] }`. Comark plugins are functions, so they reach the server through a file and not through
-   * this config. The page route, search, and Console drafts parse with it.
+   * Path of a module, relative to the app root, whose default export is the parser options: `{ comarkUi, examples,
+   * plugins }`. Comark plugins and `examples.play` are functions, so they reach the server through a file and not
+   * through this config. The page route, search, and Console drafts parse with it.
    */
   parser?: string
   /**
@@ -321,6 +322,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
+    // Nuxt types runtime config from its value, and that type has no fields for objects in arrays, such as `socials`.
+    addTypeTemplate({ filename: "types/vite-hub-docs.d.ts", getContents: () => docsRuntimeConfigTypes })
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
     addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
@@ -411,12 +414,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }])
     }
 
-    // The manifest is data, not code: the app and the server import the same file, so both see a content change.
+    // The manifest is data, not code: the server imports the whole manifest, and the app a copy with only the page
+    // fields that it reads. Both are written from the same manifest, so both see a content change.
     // `JSON.parse` of a string parses much faster than an object literal of the same size, and every page loads it.
     const manifestSource = () => `export default JSON.parse(${JSON.stringify(JSON.stringify(manifest))})\n`
     const manifestFile = addTemplate({ filename: "docs/manifest.mjs", getContents: manifestSource, write: true }).dst
-    nuxt.options.alias["#docs/manifest"] = manifestFile
-    addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    // Types `#docs/manifest` in server code. Nitro 2 maps the alias to `docs/manifest` without an extension, so the
+    // declaration is `.d.ts`, not `.d.mts`. Nuxt finds a `.d.ts` beside the module too.
+    addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
     addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
@@ -430,11 +437,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }).dst
 
     // The page route and search import the parser options. Without `parser` they parse with the built-in plugins only.
+    // `githubRepo` is the site's repository, where `#123` in a page links.
     const parserEntry = options.parser ? resolve(nuxt.options.rootDir, options.parser) : null
     const parserFile = addTemplate({
       filename: "docs/parser.mjs",
       write: true,
-      getContents: () => parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}\n` : "export default {}\n",
+      getContents: () => `${parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}` : "export default {}"}\nexport const githubRepo = ${JSON.stringify(options.github ? options.github.repo : null)}\n`,
     }).dst
 
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
@@ -564,8 +572,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
       }
     })
+    // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
+    // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
+    // the reader points at it or focuses it instead, unless the app chose when links prefetch.
+    if (!nuxt.options._layers.some(layer => layer.config.experimental?.defaults?.nuxtLink?.prefetchOn))
+      nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
+    addPlugin({ src: join(runtime, "app/plugins/icon-stroke.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
@@ -718,7 +732,7 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: strin
 const shellIcons = [
   "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
-  "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
+  "i-lucide-moon", "i-lucide-star", "i-lucide-sun", "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
   "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
   "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",
@@ -726,7 +740,7 @@ const shellIcons = [
 ]
 
 /**
- * `i-ph-sun-light` as @nuxt/icon bundles it: `ph:sun-light`. Collection names with one hyphen end in `-icons`, such as
+ * `i-lucide-sun` as @nuxt/icon bundles it: `lucide:sun`. Collection names with one hyphen end in `-icons`, such as
  * `simple-icons`. Rail icon names such as `kv` are not Iconify names and return `null`.
  */
 function iconifyName(icon: string): string | null {
@@ -744,6 +758,18 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
+
+const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
+
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "@nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+
+export {}
+`
 
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
@@ -768,7 +794,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
-    icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", ...options.icons },
+    icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", stroke: 1.5, ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },

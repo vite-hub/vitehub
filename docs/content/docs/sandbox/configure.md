@@ -1,6 +1,6 @@
 ---
 title: Sandbox Task configuration
-description: Lay out Sandbox Task package projects, free-form Definitions, entrypoints, and Definition options.
+description: Lay out Sandbox Task packages, free-form Definitions, entry points, and options.
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Package projects
 
-Under `server/sandbox-tasks`, use one folder per package project with an adjacent `package.json` and an `index.ts`, `index.mts`, `index.js`, or `index.mjs` entrypoint. The folder path supplies the Definition name. Other files in the package are ordinary helpers, not separate Sandbox Tasks.
+Each folder under `server/sandbox-tasks` with a `package.json` and an `index.ts`, `index.mts`, `index.js`, or `index.mjs` entry point is one task. The folder path is its name. Other files are helpers.
 
 ```text
 server/sandbox-tasks/
@@ -20,9 +20,9 @@ server/sandbox-tasks/
     └── index.ts
 ```
 
-ViteHub selects the package manager from the manifest's `packageManager` field, then a lockfile at that package root, then npm. A nested independent package never inherits an unrelated ancestor lockfile. Lockfiles enable frozen installation. ViteHub installs the project inside the Sandbox before the entrypoint starts. Installed dependencies are not written back to your repository.
+ViteHub uses the `packageManager` field in `package.json`, then a lockfile in the package folder, then npm. A nested package never uses an unrelated lockfile from a parent folder. A lockfile makes the install frozen. Dependencies install in the Sandbox before the entry point starts and never go back to your repository.
 
-ViteHub also understands a standard pnpm Workspace without ViteHub-specific configuration:
+ViteHub also supports a standard pnpm Workspace with no extra configuration:
 
 ```text
 server/sandbox-tasks/
@@ -34,16 +34,21 @@ server/sandbox-tasks/
     └── index.ts
 ```
 
-Installation runs at the pnpm Workspace root, and the Definition runs from `server/sandbox-tasks/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure. pnpm stays responsible for installation and linking. Other Workspace packages stay outside the runtime project.
+pnpm installs at the Workspace root, and the task runs from `server/sandbox-tasks/image`. ViteHub includes every local package reached through `workspace:*` dependencies, and pnpm links them. Other Workspace packages stay out.
 
-Package entrypoints are ESM projects. Keep `"type": "module"` and use explicit relative ESM imports for local `.ts` and `.mts` files. ViteHub compiles reachable local TypeScript without bundling package dependencies. It rejects CommonJS, local package aliases and self-references, imports that escape the package, and Workspace dependencies that expose TypeScript runtime entries.
+Entry points are ESM. Keep `"type": "module"` and import local `.ts` and `.mts` files by explicit relative path. ViteHub compiles reachable local TypeScript but does not bundle dependencies. It rejects:
+
+- CommonJS
+- local package aliases and self-references
+- imports that leave the package
+- Workspace dependencies with TypeScript runtime entries
 
 ### Free-form Definitions
 
-Outside `server/sandbox-tasks`, name a file `<path>.sandbox-task.ts` (or `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`) and default-export `defineSandboxTask()`. A free-form Definition uses its nearest `package.json`, so several files can share one package project.
+Outside `server/sandbox-tasks`, name a file `<path>.sandbox-task.ts` (or `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`) and default-export `defineSandboxTask()`. This free-form Definition uses its nearest `package.json`, so several files can share one package.
 
 ```ts [server/tools/resize.sandbox-task.ts]
-import { defineSandboxTask } from '@vite-hub/sandbox/task'
+import { defineSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineSandboxTask({
   timeout: 60000,
@@ -55,17 +60,17 @@ export default defineSandboxTask({
 
 | Option | Where | Type | Description |
 | --- | --- | --- | --- |
-| `vitehub.sandboxTask.timeout` | `package.json` | `number` | Timeout for one execution attempt in milliseconds. This is the only supported manifest key. |
+| `vitehub.sandboxTask.timeout` | `package.json` | `number` | Timeout in milliseconds for one attempt. The only supported manifest key. |
 | `run` | `defineSandboxTask()` | `function` | Required handler. Called with `(payload, context)`. |
-| `timeout` | `defineSandboxTask()` | `number` | Timeout for one execution attempt in milliseconds. |
+| `timeout` | `defineSandboxTask()` | `number` | Timeout in milliseconds for one attempt. |
 | `env` | `defineSandboxTask()` | `Record<string, string>` | Environment variables for the run. |
-| `project` | `defineSandboxTask()` | `boolean` | Force package-project packaging on or off. Omit it to detect project use. |
+| `project` | `defineSandboxTask()` | `boolean` | Turn package-project packaging on or off. Omit it to let ViteHub detect it. |
 
-Each timeout must be a positive integer no greater than `2_147_483_647`. `defineSandboxTask()` options must be static JSON values because ViteHub reads them at build time.
+Each timeout must be a positive integer up to `2_147_483_647`. `defineSandboxTask()` options must be static JSON values, because ViteHub reads them at build time.
 
 ## Package entry point
 
-The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result. The entrypoint does not import `@vite-hub/sandbox/task`.
+The package `index.ts` default-exports a normal async function. ViteHub calls it with the payload and context and returns its result. The entry point does not import `@vite-hub/sandbox/task`.
 
 ```ts [server/sandbox-tasks/image/index.ts] fragment
 export default async function optimize(
@@ -76,4 +81,4 @@ export default async function optimize(
 }
 ```
 
-The entrypoint gets normal JavaScript, package imports, top-level await, `process.cwd()`, environment variables, and a filesystem, without a runtime framework import.
+The entry point can use package imports, top-level await, `process.cwd()`, environment variables, and a filesystem, with no framework import.

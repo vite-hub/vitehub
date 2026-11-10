@@ -1,26 +1,24 @@
-import { H3Event } from "h3"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
 import { viteHubPageToolsInlineScript } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { commentsApiRoute } from "../src/page.ts"
-import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
 
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=19" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=20" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
   const warn = console.warn
   console.warn = () => {}
   const session = async (event: unknown): Promise<CommentsUser | null> => {
-    const request: unknown = event !== null && typeof event === "object" ? Reflect.get(event, "req") : undefined
-    const person = request instanceof Request ? /person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] : undefined
+    // The page tools session passes its Request.
+    const person = event instanceof Request ? /person=(\w+)/.exec(event.headers.get("cookie") ?? "")?.[1] : undefined
     return person ? { id: person, name: person } : null
   }
   const base = commentsApiRoute(new URL(overlay, "http://localhost").href).slice(0, -"/api/_vitehub/comments".length)
@@ -30,7 +28,7 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
 
 async function pageSession(app: object, cookie: string, page?: string) {
   const request = new Request(`http://site.test/_vitehub/page/session${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
-  const response = await respondViteHubPageSession(app, request, new H3Event(request))
+  const response = await respondViteHubPageSession(app, request)
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
 
@@ -49,6 +47,17 @@ describe("Comments page tool", () => {
     expect((await pageSession(app, "", "/private")).body.tools).toEqual([])
   })
 
+  it("loads the tool on a page that `page` maps to a subject the visitor may read", async () => {
+    const app = {}
+    install(app, {
+      subjects: [{ kind: "drop", scope: () => "drops" }],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+      authorize: ({ subject }) => subject?.kind === "drop" && subject.id === "abc",
+    })
+    expect((await pageSession(app, "", "/d/abc")).body.tools).toHaveLength(1)
+    expect((await pageSession(app, "", "/d/xyz")).body.tools).toEqual([])
+  })
+
   it.each([null, { id: "gh-ada", name: "Ada", github: { login: "ada", write: false } }])("offers the overlay for GitHub sign-in or account switching: %j", async (user) => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     const app = {}
@@ -60,8 +69,6 @@ describe("Comments page tool", () => {
     // Only the button loads at first: the overlay script waits until the person presses it.
     expect(session.body.tools[0]).toMatchObject({ id: "comments", lazy: true })
     expect(session.cookie).toContain("vitehub-tools=1;")
-    defineCommentsPlugin({ ...options, consoleSession: async () => false })(app)
-    expect((await pageSession(app, "")).body.tools).toEqual([])
     defineCommentsPlugin({ ...options, comments: defineComments({ identify: () => null }) })(app)
     expect((await pageSession(app, "")).body.tools).toEqual([])
     defineCommentsPlugin({ ...options, githubLogin: { ...githubLogin, configured: () => false } })(app)
@@ -93,25 +100,12 @@ describe("Comments page tool", () => {
     expect((await pageSession(app, "")).body).toEqual({ tools: [] })
   })
 
-  it.each([true, false])("checks Console read access without custom identify: %s", async (allowed) => {
-    const app = {}
-    const consoleSession = commentsConsoleSession({
-      authorize: async ({ kind }) => allowed && kind !== "write",
-      user: async () => ({ id: "ada" }),
-      identify: async () => null,
-    })
-    defineCommentsPlugin({ comments: defineComments({ authorize: () => true }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
-    expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
-  })
-
-  it.each([true, false])("lets custom identify and authorize decide over the Console: %s", async (allowed) => {
+  it.each([true, false])("lets custom identify and authorize decide: %s", async (allowed) => {
     const app = {}
     const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
-    const consoleSession = vi.fn(async () => false as const)
-    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => allowed }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
+    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => allowed }), database: () => undefined, overlay: "/o.js" })(app)
     expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
     expect(identify).toHaveBeenCalledOnce()
-    expect(consoleSession).not.toHaveBeenCalled()
   })
 
   it("finds the API from the mounted overlay URL", () => {

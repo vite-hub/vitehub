@@ -1,6 +1,6 @@
 ---
 title: Database hosts
-description: Select local SQLite, hosted libSQL, Cloudflare D1, or Postgres, read what each host output contains, and check production rules.
+description: Pick local SQLite, hosted libSQL, Cloudflare D1, or Postgres, see what each host output holds, and check production rules.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
@@ -10,17 +10,17 @@ icon: i-lucide-cloud-cog
 
 | Provider or runtime | Configure with | Notes |
 | --- | --- | --- |
-| Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle artifacts. |
-| Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep URLs and tokens in Server Env when they are secrets. |
-| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only when you set `remote: true` or `cloudflare.http`. Hosted Vercel output uses D1 only when you set `cloudflare.http`. |
-| Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Cloudflare Hyperdrive binding on Cloudflare and `connection.url` on other hosts. See [Use Postgres](#use-postgres). |
+| Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle files. |
+| Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep secret URLs and tokens in Server Env. |
+| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
+| Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Hyperdrive binding on Cloudflare and `connection.url` elsewhere. See [Use Postgres](#use-postgres). |
 
 ### Use the real D1 database in development
 
 `vite dev` uses local SQLite for every Database by default. Set `remote: true` on a Definition to query its real D1 database instead. The development server sends each query over HTTP to Cloudflare's D1 API, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env, like `cloudflare.http: true`. A local D1 binding does not replace it.
 
 ```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -37,16 +37,16 @@ export default defineDatabase({
 Writes from `vite dev` then change real data. The development server prints `Database "default" is remote` on the first query, and `vitehub inspect definitions --kind database` shows `Development: Remote`.
 ::
 
-The database id comes from `cloudflare.databaseId` or from `vitehub provision run`. ViteHub development never creates a cloud resource. `remote` changes only `vite dev`: builds ignore it, so Cloudflare output keeps its D1 binding and Node output keeps local SQLite. `vitehub db migrate` follows `cloudflare.http`, not `remote`, so it still migrates the local SQLite file.
+The database id comes from `cloudflare.databaseId` or from `vitehub provision run`. ViteHub development never creates a cloud resource. `remote` changes only `vite dev`: builds ignore it, so Cloudflare output keeps its D1 binding and Node output keeps local SQLite. `vitehub database migrate` follows `cloudflare.http`, not `remote`, so it still migrates the local SQLite file.
 
 `cloudflare.http` already makes `vite dev` remote, so `remote: true` is not needed with it. To send queries through a D1 proxy in development, set `cloudflare.http: { url, authToken }`. `remote: false` with `cloudflare.http` fails with [`DATABASE_REMOTE_CONFLICT`](/docs/database/limits-and-errors#database_remote_conflict).
 
 ### Use Cloudflare D1 over HTTP
 
-A Database Definition can use the same D1 database during local development and from hosted providers. Cloudflare output prefers the configured binding. Set `cloudflare.http: true` to call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
+Use one D1 database in local development and on other hosts. Cloudflare output still prefers the binding. Set `cloudflare.http: true` to call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
 
 ```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -60,10 +60,10 @@ export default defineDatabase({
 })
 ```
 
-Set `cloudflare.http: { url, authToken }` to send the same raw query wire format to an authenticated HTTP(S) proxy. Both values are required at runtime. Proxy authentication never falls back to `CLOUDFLARE_API_TOKEN`.
+Set `cloudflare.http: { url, authToken }` to send the same raw queries to an authenticated HTTP(S) proxy. Both values are required at runtime. The proxy never falls back to `CLOUDFLARE_API_TOKEN`.
 
 ```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -79,22 +79,22 @@ export default defineDatabase({
 })
 ```
 
-Production Nuxt builds that use only D1 HTTP do not bundle libSQL or native SQLite libraries. Local SQLite development keeps its local driver.
+Production Nuxt builds with only D1 HTTP do not bundle libSQL or native SQLite. A Cloudflare build bundles libSQL only when a Database has a remote libSQL connection URL, a URL from the environment, or a Definition that the build cannot read. Local SQLite development keeps its local driver.
 
-D1 HTTP also generates Drizzle Kit `d1-http` credentials. `vitehub db migrate` applies D1 HTTP migrations without Drizzle Kit and records them in Wrangler's `d1_migrations` table, so `wrangler d1 migrations apply` sees them too. With `http: true`, migrations call Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`; an object-form `http` uses its resolved proxy `url` and `authToken`. Drizzle Kit inspection commands use the Cloudflare API credentials. ViteHub never embeds these credentials in generated output.
+D1 HTTP also writes Drizzle Kit `d1-http` credentials. `vitehub database migrate` applies D1 HTTP migrations without Drizzle Kit and records them in Wrangler's `d1_migrations` table, so `wrangler d1 migrations apply` sees them too. With `http: true`, migrations call Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`. An object `http` uses its proxy `url` and `authToken`. Drizzle Kit inspection commands use the Cloudflare API credentials. ViteHub never puts these credentials in generated output.
 
 ::warning
-Cloudflare describes its built-in D1 REST API as best suited to administrative use because the global Cloudflare API rate limit applies. For sustained application traffic, use a narrowly authenticated proxy Worker and validate which queries or tables it may access. See Cloudflare's [D1 proxy Worker guide](https://developers.cloudflare.com/d1/tutorials/build-an-api-to-access-d1/).
+Cloudflare says its D1 REST API is best for admin use, because the global Cloudflare API rate limit applies. For steady app traffic, use a proxy Worker with narrow auth that checks which queries or tables it allows. See Cloudflare's [D1 proxy Worker guide](https://developers.cloudflare.com/d1/tutorials/build-an-api-to-access-d1/).
 ::
 
-If you omit `cloudflare.http`, ViteHub keeps local SQLite and the hosted libSQL selection, even when `cloudflare.databaseId` is set.
+Outside Cloudflare output, ViteHub keeps local SQLite and hosted libSQL without `cloudflare.http`, even when `cloudflare.databaseId` is set.
 
 ### Read from D1 replicas
 
-D1 keeps one primary database in one region. A Worker far from that region waits for a round trip on each query. Set `readReplication: true` to read from [D1 read replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/) near the Worker instead.
+D1 keeps one primary database in one region, so a far-away Worker waits on each query. Set `readReplication: true` to read from [D1 read replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/) near the Worker.
 
 ```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -104,43 +104,42 @@ export default defineDatabase({
 })
 ```
 
-In a Nuxt app, or for every Definition that inherits the integration resource, set it on the integration: `database: { driver: 'd1', readReplication: true }`.
+In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'd1', readReplication: true }`.
 
-ViteHub then opens one D1 session for each request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
+ViteHub then opens one D1 session per request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
 
 | Request | Session starts on | After the request |
 | --- | --- | --- |
 | `GET`, `HEAD`, or `OPTIONS` | The replica that the client's bookmark cookie names, or any replica | No cookie |
 | Any other method | The primary database | A `vitehub-d1-bookmark-<binding>` cookie with the session's bookmark |
 
-The bookmark cookie makes the next read of the same client see its own writes. Other clients can read a replica that does not have those writes yet. Code that must read the latest data of every client must run in a request that can write, for example a `POST` handler.
+With the cookie, a client's next read sees its own writes. Other clients can read a replica without those writes yet. Code that must read the latest data of all clients must run in a request that can write, such as a `POST` handler.
 
-Every query of one request goes through the same session. Work outside a request, such as a Schedule or a Queue consumer, uses the primary database.
+All queries of one request use the same session. Work outside a request, such as a Schedule or a Queue consumer, uses the primary database.
 
-`vitehub provision run --provider cloudflare` turns on replication for the D1 databases that set `readReplication`. The plan reads the replication mode of each existing database and shows `update  cloudflare-d1  <name>  read replication: disabled -> auto` when it is off. A database that already replicates shows `exists`, and `provision run` does not change it. Provision never turns replication off. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call the D1 API: `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary database.
+`vitehub provision run --provider cloudflare` turns on replication for D1 databases that set `readReplication`. When it is off, the plan shows `update  cloudflare-d1  <name>  read replication: disabled -> auto`. A database that already replicates shows `exists` and is not changed. Provision never turns replication off. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary.
 
-`vitehub inspect definitions --kind database` shows `Read replication` for each Database that uses it. D1 over HTTP, libSQL, and local SQLite ignore the option.
+`vitehub inspect definitions --kind database` shows `Read replication` for each database that uses it. D1 over HTTP, libSQL, and local SQLite ignore the option.
 
 ### Use Postgres
 
-A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) through Drizzle. ViteHub selects the connection for each query:
+A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) through Drizzle. For each query, ViteHub picks the connection:
 
-1. When the Cloudflare Hyperdrive binding is present, ViteHub uses `env.<binding>.connectionString`.
-2. Otherwise it uses `connection.url`.
-3. Outside a Cloudflare request, when the URL is empty, postgres.js reads the PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`.
+1. With a Cloudflare Hyperdrive binding, `env.<binding>.connectionString`.
+2. Else `connection.url`.
+3. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`.
 
-Use the PG* variables on Node and container hosts that give discrete credentials instead of a URL. Workers ignore them, and Vercel output still needs `connection.url`.
+Use the PG* variables on Node and container hosts that give separate credentials, not a URL. Workers ignore them, and Vercel still needs `connection.url`.
 
-Cloudflare Workers cannot use a socket from one request in a different request. Inside a Cloudflare request, ViteHub creates one client for that request and reuses it for all queries in the request. Hyperdrive keeps the pool of origin connections, so a new client per request is cheap. Each client opens at most 5 connections, which keeps a request inside the Workers connection limit. On Node, Vercel, and local development, one client pool serves the process.
+A Worker cannot use a socket from one request in another. So inside a Cloudflare request, ViteHub creates one client and reuses it for all queries of that request. Hyperdrive keeps the pool of origin connections, so a new client per request is cheap. Each client opens at most 5 connections, inside the Workers connection limit. On Node, Vercel, and local development, one client pool serves the process.
 
 ViteHub finds the request through a request scope:
 
-- Direct Vite Cloudflare output runs each request in its own scope.
-- Nitro 3 apps, including Nuxt apps on Nitro 3, get a generated middleware that runs each request in its own scope.
-- Nitro 2 apps, such as Nuxt 4, cannot wrap the request. The Nuxt bridge installs a new env object for each request, and ViteHub uses it as the scope. Concurrent requests in one isolate can replace that object before a query starts. Use Nitro 3 for high-concurrency Postgres traffic on Workers.
+- Vite Cloudflare output runs each request in its own scope.
+- Nitro 3 apps, Nuxt on Nitro 3 too, get a generated middleware that does the same.
 
 ```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -152,15 +151,15 @@ export default defineDatabase({
 })
 ```
 
-Create the Hyperdrive configuration for your Neon or other Postgres database with `wrangler hyperdrive create`. Set `cloudflare.hyperdriveId` to its id. Cloudflare output then contains a `hyperdrive` binding named `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database. A generated binding replaces a Nitro Wrangler binding with the same name. Without `cloudflare.hyperdriveId`, add the binding to your Wrangler config yourself, or the Worker connects directly with `connection.url`.
+Create a Hyperdrive config for your Postgres database, such as Neon, with `wrangler hyperdrive create`. Set `cloudflare.hyperdriveId` to its id. Cloudflare output then has a `hyperdrive` binding named `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. It replaces a Nitro Wrangler binding with the same name. Without `cloudflare.hyperdriveId`, add the binding to your Wrangler config yourself, or the Worker connects directly with `connection.url`.
 
-`vitehub db generate` writes Drizzle Kit migrations with `dialect: 'postgresql'` next to the Definition. It does not need a database connection. `vitehub db migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Run migrations from a deployment workflow, not from the Worker.
+`vitehub database generate` writes Drizzle Kit migrations with `dialect: 'postgresql'` next to the Definition, without a database connection. `vitehub database migrate` applies them with `connection.url`, or the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Run migrations from a deployment workflow, not the Worker.
 
 For `wrangler dev`, set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>` to a local Postgres URL. See Cloudflare's [Hyperdrive local development guide](https://developers.cloudflare.com/hyperdrive/configuration/local-development/).
 
 ### Select a hosted database for Vercel
 
-Keep the Database Definition limited to tables, then select its hosted libSQL connection in the `database` option. Runtime Env declarations keep the Vercel Marketplace environment variable lookup in generated output instead of embedding credentials at build time.
+Keep only tables in the Definition, and set the hosted libSQL connection in the `database` option. Runtime env declarations make the output read the Vercel Marketplace variables at runtime, so credentials are not built in.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -226,21 +225,29 @@ export default defineConfig({
 :::
 ::
 
-This connection is a deployment default. A Database Definition can still declare its own `connection.url` or `connection.authToken`. Those values take precedence for that database.
+This connection is a default. A Definition can still set its own `connection.url` or `connection.authToken`, which win for that database.
 
 ## Host output
 
-Nitro is the only host output. The Database Package discovers Database Definitions, generates the Drizzle Runtime Surface and schema artifacts, and adds host bindings to the Nitro config. Provider bindings are integration details. The public database identity is the Default Database or Named Database name.
+Nitro writes all host output. The Database package finds Definitions, generates the Drizzle runtime and schema files, and adds host bindings to the Nitro config. Your code names a database by `default` or its name, never by a provider binding.
 
-Put Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources in Database configuration or host setup. Route code keeps using the generated Drizzle imports.
+Put D1 bindings, hosted libSQL URLs, and Nuxt host resources in Database config or host setup. Route code keeps the generated Drizzle imports.
 
-Run `vitehub inspect definitions --kind database` to list the Definitions that ViteHub discovered.
+Run `vitehub inspect definitions --kind database` to list the Definitions that ViteHub found.
 
-A Vite app that builds with the Nitro Vite plugin and a Cloudflare preset gets each Database Definition's resolved `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`. You do not repeat it in Nitro config. A binding with the same name in Nitro config is replaced by the Definition's binding; other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied beside the generated Wrangler config.
+A Vite app with the Nitro Vite plugin and a Cloudflare preset gets each Definition's `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`, so you do not repeat it in Nitro config. The Definition's binding replaces one with the same name there. Other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied next to the generated Wrangler config.
 
-Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
+Cloudflare Nuxt output also copies D1 migration SQL next to the Wrangler config, so `.output/server` can apply migrations without the sources.
 
-A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declare a D1 binding that ViteHub writes, for example one kept from NuxtHub. Nitro merges that file into the generated config, and ViteHub then keeps one entry per binding name, at the top level and in each `env`: its own entry wins, and the project entry only fills the fields it lacks, such as `preview_database_id` or `migrations_table`. An all-zero `database_id` or `preview_database_id`, such as `00000000-0000-4000-8000-000000000000` in a Deploy to Cloudflare template, never names a database: a real id from either side replaces it, and a primary `database_id` that stays all-zero is left out, so Wrangler provisions the database on deploy. An unresolved `preview_database_id` is preserved to prevent remote development from falling back to the production database; replace it with a real preview database ID before using remote development. ViteHub keeps its own `migrations_dir` and ignores the project's `migrations_dir` and `migrations_pattern`, because the staged migrations live there. When the two name a different `database_id`, `database_name`, or `preview_database_id`, the build fails with [`DATABASE_WRANGLER_BINDING_CONFLICT`](/docs/database/limits-and-errors#database_wrangler_binding_conflict). The simplest setup removes the binding from the project file.
+A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declare a D1 binding that ViteHub also writes, for example one kept from NuxtHub. Nitro merges that file into the generated config. ViteHub then keeps one entry per binding name, at the top level and in each `env`:
+
+- ViteHub's entry wins. The project entry only fills missing fields, such as `preview_database_id` or `migrations_table`.
+- An all-zero `database_id` or `preview_database_id`, such as `00000000-0000-4000-8000-000000000000` in a Deploy to Cloudflare template, names no database. A real id from either side replaces it. A primary `database_id` that stays all-zero is left out, so Wrangler provisions the database on deploy.
+- An unresolved `preview_database_id` is kept, so remote development does not fall back to production. Replace it with a real preview database ID before you use remote development.
+- ViteHub keeps its own `migrations_dir` and ignores the project's `migrations_dir` and `migrations_pattern`, because the staged migrations live there.
+- A different `database_id`, `database_name`, or `preview_database_id` fails the build with [`DATABASE_WRANGLER_BINDING_CONFLICT`](/docs/database/limits-and-errors#database_wrangler_binding_conflict).
+
+The simplest setup removes the binding from the project file.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -299,7 +306,7 @@ export default defineConfig({
 :::
 ::
 
-Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it cannot get the id from provision state, `database.databaseId`, or an existing complete matching Nitro Wrangler binding.
+Run `vitehub provision run --provider cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
 
 ::note
 In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
@@ -307,20 +314,22 @@ In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nux
 
 ## Preview deployments
 
-A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production rows ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `database_id` share rows ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview database in `previews.d1_databases` of the project Wrangler config, because ViteHub does not write that block. Apply its migrations with a separate Wrangler migration config before deploying, as described in [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+> [!WARNING]
+> A Cloudflare Version URL uses the production resources of its Worker version, so it reads and writes production rows ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)).
 
-For a preview Worker of its own, read `cloudflare.databaseName` from an Env declaration and provision it in that build's CI job. Leave `cloudflare.databaseId` unset to use the provisioned id, or set it to the preview id directly or through an Env declaration. A configured `cloudflare.databaseId` takes precedence over provision state; changing only `cloudflare.databaseName` does not override it.
+A Cloudflare Preview uses only the bindings in the Wrangler `previews` block. Two Previews that bind the same `database_id` share rows ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). ViteHub does not write that block, so declare a preview database in `previews.d1_databases` yourself. Apply its migrations with a separate Wrangler migration config before you deploy, as [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data) shows.
+
+For a separate preview Worker, read `cloudflare.databaseName` from an env declaration and provision it in that build's CI job. Leave `cloudflare.databaseId` unset to use the provisioned id, or set it to the preview id. A configured `cloudflare.databaseId` wins over provision state. Changing only `cloudflare.databaseName` does not override it.
 
 ## Production checks
 
-- The Database Table Schema is the schema in code. The live schema can differ when migrations have not run or when an Agent has schema write permission.
-- A Definition has one dialect. Local SQLite, hosted libSQL, and Cloudflare D1 use SQLite-compatible SQL. A `postgresql` Definition uses Postgres SQL on every host.
+- The schema in code can differ from the live schema when migrations have not run or an Agent can change the schema.
+- A Definition has one dialect. Local SQLite, hosted libSQL, and D1 use SQLite-compatible SQL. A `postgresql` Definition uses Postgres SQL on every host.
 - The Console database browser and the Agent `db_query` guard are written for SQLite. With Postgres, the Agent tools run statements through Drizzle `execute()` and read the schema from `information_schema`.
-- Keep provider credentials in Server Env. Direct D1 HTTP access sends `CLOUDFLARE_API_TOKEN` only as the Cloudflare Bearer credential. Proxy access sends only its configured `cloudflare.http.authToken`.
-- Keep migrations, backups, and hosted database lifecycle in deployment workflows, not in route code.
+- Keep provider credentials in Server Env. Direct D1 HTTP sends `CLOUDFLARE_API_TOKEN` only as the Cloudflare Bearer credential. A proxy gets only its `cloudflare.http.authToken`.
+- Run migrations, backups, and hosted database lifecycle in deployment workflows, not route code.
 
 ## Related guides
 
-Use the [Turso](/docs/guides/turso), [Neon Postgres](/docs/guides/neon-postgres),
-and [Cloudflare D1](/docs/guides/cloudflare-d1) guides for provider setup and
-verification steps.
+Read the [Turso](/docs/guides/turso), [Neon Postgres](/docs/guides/neon-postgres),
+and [Cloudflare D1](/docs/guides/cloudflare-d1) guides for setup and checks.

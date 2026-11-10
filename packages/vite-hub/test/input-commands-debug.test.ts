@@ -4,12 +4,12 @@ import { join } from "node:path"
 
 import { agentInvocationId } from "@vite-hub/agent"
 import { runAgentWithContext } from "@vite-hub/agent/server/internal"
-import { defineChannel } from "@vite-hub/agent/channels"
+import { channelAdapter } from "@vite-hub/agent/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
 import { inputCommands } from "../src/agent/capabilities.ts"
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 
@@ -44,7 +44,7 @@ describe("inputCommands({ debug })", () => {
       installAgentInvocations({ journal: { projectRoot } })
       installConsoleInvocations(projectRoot)
       const replies: unknown[] = []
-      const chat = defineChannel("chat", {
+      const chat = channelAdapter("chat", {
         [channelDeliveryHandlers]: {
           reply(context: { effect: { payload: unknown } }) {
             replies.push(context.effect.payload)
@@ -72,7 +72,7 @@ describe("inputCommands({ debug })", () => {
         return runAgentWithContext(agent, context, { prompt })
       }
       const link = async (runId: string) =>
-        `https://chat.example/_vitehub/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`
+        `https://console.vitehub.dev/open?project=${encodeURIComponent("https://chat.example")}&path=${encodeURIComponent(`/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`)}`
 
       await run("thread-one", "hello", { threadId: "t1" })
       await run("thread-two", "hello", { threadId: "t2" })

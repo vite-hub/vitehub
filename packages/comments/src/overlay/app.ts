@@ -8,7 +8,7 @@ import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Tel
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerWidth, startMarker } from "./marker.ts"
@@ -19,7 +19,7 @@ import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentCan } from "@vite-hub/ui/headless"
 import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 import type { MarkerBox, MarkerColor, MarkerSession } from "./marker.ts"
 
@@ -204,6 +204,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   shadow.replaceChildren(style(shadowCss(overlayStyles)), root)
 
   const page = ref(normalizeCommentPage(location.pathname))
+  /** The server decides the subject of a page. Without its answer, it is the page itself. */
+  const subject = shallowRef<CommentSubject>(session?.subject ?? { kind: "page", id: page.value })
+  /** The version of the subject that `/session` gave with it. New threads send it, so they start on the version shown. */
+  let revision = session?.revision
+  /**
+   * After a navigation, until the server names the subject of the new page. The overlay then shows no threads and
+   * starts no comment, so a draft is not lost when the subject changes.
+   */
+  const resolving = ref(false)
+  /** Whether comment mode was on when the navigation started, so it comes back once the subject is known. */
+  const paused = ref(false)
+  /** Counts the navigations, so only the answer for the latest one applies. */
+  let navigations = 0
   const search = ref(location.search)
   const toast = shallowRef<Toast>()
   const panelOpen = ref(false)
@@ -220,6 +233,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
+  /** The action to resume after a first-time guest gives their name. */
+  const namedMode = ref<"comment" | "mark" | "page">("comment")
   /** The text a first-time guest selected before the name card took the focus, so the comment starts on it after. */
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
@@ -245,14 +260,13 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   const failed = (error: CommentsApiError) => showToast({ text: error.fix ? `${error.why} ${error.fix}` : error.why, kind: "error" })
 
-  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
-  const account = (): CommentUser | undefined => {
-    const user = session?.user
-    return user && !(user.guest && user.id === "guest:console") ? user : undefined
-  }
+  /** The server-identified person. */
+  const account = (): CommentUser | undefined => session?.user ?? undefined
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
-  const canComment = Boolean(session?.can.comment)
-  const needsName = computed(() => canComment && !me.value)
+  /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
+  const pageCan = shallowRef(session?.can)
+  const canComment = computed(() => Boolean(pageCan.value?.comment))
+  const needsName = computed(() => canComment.value && !me.value)
 
   /**
    * What this person may do in a thread, for the parts' controls. Each thread from the API carries `can` for its own
@@ -261,7 +275,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const can: CommentCan = (action, { thread, message }) => {
     const user = me.value
     if (!user || needsName.value) return false
-    const allowed = (thread as RestCommentThread).can ?? { comment: canComment, resolve: Boolean(session?.can.resolve), delete: Boolean(session?.can.delete) }
+    const allowed = (thread as RestCommentThread).can ?? { comment: canComment.value, resolve: Boolean(pageCan.value?.resolve), delete: Boolean(pageCan.value?.delete) }
     if (action === "reply") return thread.status === "open" && allowed.comment
     if (action === "resolve") return allowed.resolve
     // A guest id proves nothing, so a guest owns no message.
@@ -276,6 +290,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   const transport = createOverlayTransport({
     contextOf: input => contexts.get(input.anchor) ?? captureContext(undefined),
+    revisionOf: () => revision,
     onPeople(people) {
       const next = new Map(known.value.map(person => [person.id, person]))
       for (const person of people) next.set(person.id, person)
@@ -298,13 +313,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
   const upload = async (files: File[]) => await Promise.all(files.map(async file =>
-    (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: { kind: "page", id: page.value } })).key))
+    (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
 
   const edit = createInlineEdit({
     page: () => page.value,
-    openTool: async path => await context?.openTool("content", path) ?? false,
-    contentPath: () => `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`,
-    info: (text, link) => showToast({ text, kind: "info", link }),
+    info: text => showToast({ text, kind: "info" }),
     failed,
     drafted(field) {
       drafted.value = new Set([...drafted.value, field])
@@ -315,9 +328,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (next !== "mark") stopMarking()
+    if (resolving.value && next !== "edit") {
+      paused.value = next === "comment" && canComment.value
+      return
+    }
     if (next === "mark") {
-      if (!canComment || marking.value) return
+      if (!canComment.value || marking.value) return
       if (needsName.value) {
+        namedMode.value = next
         namedQuote = undefined
         naming.value = true
         return
@@ -328,8 +346,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       startMarking()
     }
     else if (next === "comment") {
-      if (!canComment) return
+      if (!canComment.value) return
       if (needsName.value) {
+        namedMode.value = next
         namedQuote = undefined
         naming.value = true
         return
@@ -339,12 +358,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       state.enter()
     }
     else if (next === "edit") {
-      if (!session?.content || !canComment) return
+      if (!session?.content || !canComment.value) return
       state.exit()
       if (state.active.value) return
       editing.value = true
     }
     else {
+      naming.value = false
+      namedQuote = undefined
       state.exit()
       editing.value = false
       void edit.finish(true)
@@ -352,6 +373,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     hover.value = undefined
   }
   const mode = computed<Mode>(() => marking.value ? "mark" : editing.value ? "edit" : state?.active.value ? "comment" : "view")
+  /** Whether comment mode is on, waiting for a guest name, or paused until the new page is known. */
+  const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value) || (naming.value && namedMode.value !== "mark"))
 
   function startMarking() {
     dropInk()
@@ -466,6 +489,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
+    const next = namedMode.value
+    namedMode.value = "comment"
     const quote = namedQuote
     namedQuote = undefined
     if (quote?.startContainer.isConnected) {
@@ -474,7 +499,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       selection?.addRange(quote)
       if (commentOnSelection()) return
     }
-    setMode("comment")
+    if (next === "page") commentOnPage()
+    else setMode(next)
   }
 
   async function signOut(url: string) {
@@ -500,7 +526,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** The text that the reader selected on the page, when they may comment on it. */
   function pageSelection(): Range | undefined {
     const selection = getSelection()
-    if (!canComment || editing.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
+    if (!canComment.value || editing.value || resolving.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
     const range = selection.getRangeAt(0)
     const container = range.commonAncestorContainer
     const element = container instanceof Element ? container : container.parentElement
@@ -526,6 +552,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     pressingBar = false
     if (!range) return false
     if (needsName.value) {
+      namedMode.value = "comment"
       namedQuote = range
       naming.value = true
       return true
@@ -555,7 +582,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
     const threads: CommentThread[] = [...state.pageThreads.value]
     const opened = state.opened.value
-    if (opened && opened.subject.id === page.value && !threads.includes(opened)) threads.push(opened)
+    if (opened && opened.subject.kind === subject.value.kind && opened.subject.id === subject.value.id && !threads.includes(opened)) threads.push(opened)
     for (const thread of threads) {
       if (thread.anchor.kind !== "text") continue
       const range = anchorRange(thread.anchor)
@@ -597,7 +624,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     setup() {
       state = useComments({
         client,
-        subject: () => ({ kind: "page", id: page.value }),
+        subject: () => subject.value,
         location: () => ({ href: location.href, origin: location.origin, search: search.value }),
         user: () => me.value,
         people: known,
@@ -642,8 +669,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
       return () => {
         const nodes: Array<VNode | null> = []
-        if (session?.can.read) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
+        if (pageCan.value?.read && !resolving.value) {
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -673,17 +700,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               onMousedown: (event: MouseEvent) => event.preventDefault(),
             }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: () => commentOnSelection(barRange) }, [commentIcon(), "Comment"])))
           }
-          if (panelTarget.value) {
+          if (panelTarget.value && !resolving.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
               key: page.value,
               comments: state,
               attachmentUrl: transport.attachmentUrl,
-              readOnly: !me.value || (!state.threads.value.some(thread => thread.id === panelThread.value) && !canComment),
+              readOnly: !me.value || (!state.threads.value.some(thread => thread.id === panelThread.value) && !canComment.value),
               "onUpdate:thread": (value: string | null) => (panelThread.value = value),
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
-              upload: canComment ? upload : undefined,
+              upload: canComment.value ? upload : undefined,
               // The thread opens in the list. Its spot on the page comes into view.
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
@@ -691,8 +718,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               },
             })))
           }
-          if (options.toolbar) nodes.push(h(Teleport, { to: options.toolbar }, toolbar()))
         }
+        // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
+        if (pageCan.value?.read && options.toolbar) nodes.push(h(Teleport, { to: options.toolbar }, toolbar()))
         if (naming.value) nodes.push(h(NameCard))
         const current = toast.value
         if (current) {
@@ -732,7 +760,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** Starts a comment on the whole page, as Drop's **Whole page**. Its box opens near the top. */
   function commentOnPage() {
+    if (!canComment.value || resolving.value) return
     if (needsName.value) {
+      namedMode.value = "page"
       namedQuote = undefined
       naming.value = true
       return
@@ -754,12 +784,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
       h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
     const open = state.counts.value.open
-    const commenting = mode.value === "comment"
+    const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     const signOutUrl = session?.signOut
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
-      canComment
+      canComment.value
         ? h("button", {
             "aria-keyshortcuts": "C",
             "aria-label": commenting ? "Comments: click anywhere on the page" : open ? `Comments, ${open} open` : "Comments",
@@ -784,8 +814,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             h("span", { class: "divider", "aria-hidden": "true" }),
           ])
         : null,
-      canComment ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
-      session?.content && canComment ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
+      canComment.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
+      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
       avatars.length > 0 ? h("span", { "aria-label": `${people.length} on this page`, class: "people" }, avatars) : null,
       signOutUrl && session?.github
         ? h("button", { "aria-label": `Sign out @${session.github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${session.github.login}. Sign out`, type: "button" },
@@ -793,7 +823,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         : null,
     ])
   }
-
 
   /** The outlines of the areas that threads point at, and of the one being written. Resolved ones are dashed. */
   function areas(): VNode[] {
@@ -864,6 +893,34 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
+  let retryToast: Toast | undefined
+  /**
+   * Asks `/session` for the subject and the permissions of a new page. Until it answers, comments stay paused. A failed
+   * answer keeps them paused, because the subject is not known, and offers Retry.
+   */
+  function resolvePage(next: string) {
+    const current = ++navigations
+    void api.session(next).then(([error, answer]) => {
+      if (current !== navigations || page.value !== next) return
+      if (error) {
+        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => resolvePage(next)] }
+        showToast(retryToast, true)
+        return
+      }
+      if (toast.value === retryToast) toast.value = undefined
+      retryToast = undefined
+      pageCan.value = answer.can
+      revision = answer.revision
+      const mapped = answer.subject ?? { kind: "page", id: next }
+      if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
+      // The same subject lists no threads again, so the new page joins its room here.
+      else if (!room && state.status.value === "ready") void joinRoom()
+      resolving.value = false
+      state.active.value = paused.value && canComment.value
+      paused.value = false
+    })
+  }
+
   const hasUnsentComment = () => [shadow, panelTarget.value?.getRootNode()].some(node =>
     node instanceof ShadowRoot && node.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
 
@@ -879,13 +936,24 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         return
       }
       // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
-      if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
+      if (hasUnsentComment()) {
+        if (!window.confirm("Discard your unsent comment and show comments for the new page?")) return
+        // The new page can have the same subject, which keeps the state's draft. The person said to discard it.
+        state.cancelDraft()
+      }
+      naming.value = false
+      namedQuote = undefined
       page.value = next
       search.value = location.search
       panelThread.value = null
       // Strokes mark the screen of the old page.
       if (marking.value) setMode("view")
       dropInk()
+      // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
+      paused.value = paused.value || state.active.value
+      state.active.value = false
+      resolving.value = true
+      resolvePage(next)
       // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()
     },
@@ -934,16 +1002,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
       // The key acts here only. Without preventDefault it would also type into the name box that comment mode opens.
-      if (event.key === "c" && canComment) {
+      if (event.key === "c" && canComment.value) {
         event.preventDefault()
         // With text selected, C comments on it and leaves the mode as it is, like Drop's selection bar.
-        if (!commentOnSelection()) setMode(mode.value === "comment" ? "view" : "comment")
+        if (!commentOnSelection()) setMode(commentOn.value ? "view" : "comment")
       }
-      if (event.key === "b" && canComment) {
+      if (event.key === "b" && canComment.value) {
         event.preventDefault()
         setMode(mode.value === "mark" ? "view" : "mark")
       }
-      if (event.key === "e" && session?.content && canComment) {
+      if (event.key === "e" && session?.content && canComment.value) {
         event.preventDefault()
         setMode(mode.value === "edit" ? "view" : "edit")
       }

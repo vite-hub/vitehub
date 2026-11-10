@@ -3,6 +3,7 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import * as page from "../src/page.ts"
+import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { api } from "../src/overlay/api.ts"
 import { commentsButton, openList, pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
@@ -85,6 +86,20 @@ async function startEdit() {
 }
 
 describe("the Comments overlay on a page", () => {
+  it("joins the new page's room when two pages map to the same subject", async () => {
+    await serveComments({
+      identify: () => ada,
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "one" }),
+    }, { realtime: true })
+    tools = pageTools()
+    document.documentElement.append(tools.pill)
+    ;({ shadow, overlay } = await startOverlay(tools))
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/"), expect.anything()))
+    history.pushState(null, "", "/v2")
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/v2"), expect.objectContaining({ params: { page: "/v2" } })))
+  })
+
   it("shares changes only through the authorized page room and ignores cursor-only updates", async () => {
     const { comments, requests } = await open({ content: false })
     await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalled())
@@ -283,22 +298,24 @@ describe("the Comments overlay on a page", () => {
     expect(shadow.querySelector(".cursor image, .cursor [onerror]")).toBeNull()
   })
 
-  it("links a saved draft to Content below the app base", async () => {
-    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+  it("names the hosted Console for a saved draft, without a link", async () => {
     await open()
     const title = await startEdit()
     title.textContent = "Updated"
     title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Review and publish"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("console.vitehub.dev"))
+    expect(shadow.querySelector(".toast a")).toBeNull()
   })
 
-  it("links a field that is not plain text to Content", async () => {
-    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "settings" }])
+  it("names the hosted Console for a field that is not plain text, and opens no page tool", async () => {
+    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "home/hero" }])
     await open()
     await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
     tool(tools.bar, "Edit text (E)")!.click()
     document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/_vitehub/content"]')?.textContent).toBe("Open Content"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Edit it in the Console at console.vitehub.dev."))
+    expect(shadow.querySelector(".toast a")).toBeNull()
+    expect(tools.context.openTool).not.toHaveBeenCalled()
   })
 
   it("restores the published text on Escape and leaves an unchanged draft unsaved", async () => {

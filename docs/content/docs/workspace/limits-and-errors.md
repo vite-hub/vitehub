@@ -1,43 +1,57 @@
 ---
 title: Workspace limits and errors
-description: Local Store filesystem checks and recovery after a crashed process leaves lock markers.
+description: Workspace error codes, Local Store filesystem checks, and how to recover after a crash leaves lock markers.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
 ---
 
-These limits and recovery steps apply to Workspace Stores.
-
 ## Workspace discovery
 
-Each Workspace name has one definition. A discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) with the same name, or two different contributions with one name, fail the build with `WORKSPACE_B0003`. A contribution that is not `{ name, definition: { module, export? }, reason? }`, or that has a relative `definition.module`, fails with `WORKSPACE_B0004`.
+Each Workspace name has one definition.
+
+- `WORKSPACE_B0003`: a discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) share a name, or two contributions share one.
+- `WORKSPACE_B0004`: a contribution is not `{ name, definition: { module, export? }, reason? }`, or its `definition.module` is relative.
 
 ## Retained history
 
-Retained-history methods require a Store with `history`. Unsupported Stores and partial Workspace scopes throw `WORKSPACE_R0069`. Invalid list limits and cursors from another ref throw `WORKSPACE_R0070`; limits must be integers from `1` to `100`. Invalid ref names throw `WORKSPACE_R0071`.
+Retained-history methods need a Store with `history`.
 
-A stale `ifHead` throws `WORKSPACE_CONFLICT` with the ref and the expected and actual revision ids. Missing revisions, deleted workspace identities, and change commits that delete a missing file throw `WORKSPACE_NOT_FOUND`. Blob operations retain their `BLOB_*` error codes. Retry failed workspace deletion after the storage error is resolved.
+- `WORKSPACE_R0069`: the Store does not support history, or the Workspace scope is partial.
+- `WORKSPACE_R0070`: a list limit is not an integer from `1` to `100`, or a cursor comes from another ref.
+- `WORKSPACE_R0071`: a ref name is not valid.
+- `WORKSPACE_CONFLICT`: `ifHead` is stale. The error has the ref and the expected and actual revision ids.
+- `WORKSPACE_NOT_FOUND`: a revision or workspace identity is gone, or a change commit deletes a missing file.
 
-The GitHub Store uses branches as refs and commits as revisions. It has no pruning API, and branches and commits are not deleted. A missing repository or token throws `WORKSPACE_R0072` at the first request. A commit message or metadata that is too large, or a message that contains a `Vitehub-Metadata:` line, throws `WORKSPACE_R0073`. `history.head()` keeps a branch head for 5 seconds. A commit that changes no file does not create a branch. See [GitHub Store](/docs/workspace/configure#github-store).
+Blob operations keep their `BLOB_*` error codes. If workspace deletion fails, fix the storage error and retry.
 
-The Blob + Database Store retains all committed revisions on every ref and has no pruning API. `usage()` counts unique retained file bytes. It excludes abandoned uploads and provider metadata, so it is not a measure of billed storage. Workspace `maxBytes` rules apply to changed files; applications own account quotas and retention policy.
+The [GitHub Store](/docs/workspace/configure#github-store) uses branches as refs and commits as revisions. It has no pruning API and never deletes branches or commits.
+
+- `WORKSPACE_R0072`: the repository or token is missing, at the first request.
+- `WORKSPACE_R0073`: the commit message or metadata is too large, or the message has a `Vitehub-Metadata:` line.
+- `history.head()` caches a branch head for 5 seconds.
+- A commit that changes no file does not create a branch.
+
+The Blob + Database Store keeps every committed revision on every ref and has no pruning API. `usage()` counts unique retained file bytes, without abandoned uploads or provider metadata, so it does not measure billed storage. `maxBytes` rules apply to changed files. Your app owns account quotas and retention policy.
 
 ## Local filesystem access
 
-Local Stores reject symlinks during reads, file metadata access, writes, directory creation, and explicit listing-prefix resolution. Directory listings omit symlinks. Removing a leaf symlink unlinks the link itself; removal cannot follow a symlink in a parent directory. Empty-directory cleanup preserves symlinks.
+Local Stores reject symlinks when they read, write, read file metadata, create directories, or resolve a listing prefix. Directory listings skip symlinks. Removing a leaf symlink removes the link itself. Removal cannot follow a symlink in a parent directory. Empty-directory cleanup keeps symlinks.
 
-Use configured [Source Bindings](/docs/workspace/configure#source-binding-options) to include files from another location. Existing symlink aliases, including links into `.vitehub` metadata, are no longer accepted as Workspace paths.
+To include files from another location, use [Source Bindings](/docs/workspace/configure#source-binding-options). Symlink aliases, including links into `.vitehub` metadata, are not valid Workspace paths.
 
-These checks do not isolate the host filesystem from another process that can change paths during an operation. Use operating-system permissions or a sandbox when untrusted code can write to the same filesystem. Persist the Local Store root on a volume when Workspace files must survive instance replacement.
+::warning
+These checks do not protect against another process that changes paths during an operation. When untrusted code can write to the same filesystem, use operating-system permissions or a sandbox. To keep files when the instance is replaced, put the Local Store root on a volume.
+::
 
 ## Recover a Local Store after a crash
 
-Local Store lock markers do not expire by age. A crashed process can leave a marker that makes later operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`.
+Local Store lock markers do not expire. A crashed process can leave one, and later operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`.
 
-Stop every process using the Workspace before recovery. Prevent changes to the Store and its ancestor directories throughout the call. Then run `recoverLocalWorkspaceLocks()` with the exact directory configured as the Local Store's `root`:
+Stop every process that uses the Workspace. Keep the Store and its parent directories unchanged during the call. Then run `recoverLocalWorkspaceLocks()` with the exact `root` of the Local Store:
 
 ```ts
-import { recoverLocalWorkspaceLocks } from '@vite-hub/workspace/runtime'
+import { recoverLocalWorkspaceLocks } from 'vite-hub/workspace/runtime'
 
 await recoverLocalWorkspaceLocks({
   root: '/srv/app/.vitehub/workspaces/docs',
@@ -45,6 +59,6 @@ await recoverLocalWorkspaceLocks({
 })
 ```
 
-The `offline: true` flag confirms exclusive offline access; it does not stop other processes. Restart the Workspace processes after recovery succeeds.
+`offline: true` confirms that you have exclusive offline access. It does not stop other processes. Restart the Workspace processes when recovery succeeds.
 
-Interrupted file removals require a separate retry. If reads report `Interrupted Workspace removal`, retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files. This prevents restored files from reusing deleted Source ownership.
+An interrupted removal needs its own retry. If reads report `Interrupted Workspace removal`, remove the reported path again with `force: true`, plus `recursive: true` for directories. Do this before you restore files, so restored files do not reuse deleted Source ownership.

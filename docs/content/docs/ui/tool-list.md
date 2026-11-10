@@ -3,17 +3,17 @@ title: Tool List
 description: "Render Agent tool contracts with labels, schemas, MCP origin, and call counts."
 navigation.order: 35
 navigation.group: Agent work
-icon: i-ph-wrench-light
+icon: i-lucide-wrench
 ---
 
-`ToolList` renders a list of tool contracts. Each tool shows its name, label, icon, and call count. A tool with a description or schemas expands to show them, with a table of input fields. Use it to show which tools an Agent had and which it used. The inspectors use it, and the Capability reference pages in these docs use it too.
+`ToolList` shows a list of tool contracts (what each tool takes and returns). Use it to show which tools an Agent had and which it used. The inspectors and the Capability reference pages in these docs use it.
 
 ::example{name="ToolListExample" height=20}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/tool-list`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/tool-list`:
 
 ```ts
 import { ToolList } from "@vite-hub/ui";
@@ -36,12 +36,10 @@ import { ToolList, type AgentToolInspection } from "@vite-hub/ui";
 - Shows the name, label, icon, and call count of each tool.
 - A tool with a description or schemas expands to show them, with a table of input fields.
 - MCP tools show their server and original tool name.
-- Without `calls`, the list shows the contracts only.
-- The call count is a button only when you listen to `select`.
 
 ## Contracts Without Usage
 
-Leave out `calls` to show the contracts only, for example for a build-time reference. MCP tools show their server and original tool name.
+Leave out `calls` to show only the contracts, such as for a build-time reference.
 
 ::example{name="ToolListContractsExample" height=16}
 ::
@@ -49,7 +47,7 @@ Leave out `calls` to show the contracts only, for example for a build-time refer
 ## Call Counts
 
 - Without `calls`, rows show no usage.
-- With `calls`, a used tool shows **n calls**. An unused tool shows a dash with the accessible name **Not used**.
+- With `calls`, a used tool shows **n calls**. An unused tool shows a dash named **Not used**.
 - The count is a button only when you listen to `select`. Selecting it does not toggle the row.
 
 ## Accessibility
@@ -61,20 +59,20 @@ Leave out `calls` to show the contracts only, for example for a build-time refer
 
 ### ToolList
 
-Renders a list of tool contracts with optional call counts.
+Renders tool contracts with optional call counts.
 
 #### Props
 
 | Prop    | Type                                 | Default  | Description                                  |
 | ------- | ------------------------------------ | -------- | -------------------------------------------- |
-| `tools` | `readonly AgentToolInspection[]`     | Required | The tool contracts to render.                |
+| `tools` | `readonly AgentToolInspection[]`     | Required | The tool contracts. |
 | `calls` | `Readonly<Record<string, number>>`   |          | Call counts by tool name.                    |
 
 #### Events
 
 | Event    | Payload        | Description                                       |
 | -------- | -------------- | ------------------------------------------------- |
-| `select` | `name: string` | The viewer selected the call count of a used tool. |
+| `select` | `name: string` | The call count of a used tool was selected. |
 
 #### Types
 
@@ -96,7 +94,7 @@ interface AgentToolInspection {
 }
 ```
 
-Icons render through Nuxt UI's `UIcon`. See [Nuxt UI components](/docs/ui/installation#nuxt-ui-components) to replace it.
+Icons use Nuxt UI's `UIcon`. To replace it, see [Nuxt UI components](/docs/ui/installation#nuxt-ui-components).
 
 ## Related
 

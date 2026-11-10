@@ -5,7 +5,7 @@ import type { GitHubEvidence } from '../src/babysitter/inbox/types.ts'
 import { diagnosticExcerpt, hydrateFailedCiEvidence } from '../src/babysitter/inbox/ci-evidence.ts'
 import { rerunFailedActions } from '../src/babysitter/ci-recovery.ts'
 import type { Claim } from '../src/babysitter/inbox/store.ts'
-import { githubError, githubForge, type GitHubTestRequest } from '../../agent/test/fixtures/github-forge.ts'
+import { githubError, githubForge, type GitHubTestRequest } from './fixtures/github-forge.ts'
 import type { GitHubProvider } from '@vite-hub/forge'
 const repository = 'vite-hub/vitehub'
 const pr = { number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'head', ref: 'fix' }, base: { ref: 'main' } }

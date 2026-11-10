@@ -6,13 +6,13 @@ navigation.order: 10
 icon: i-lucide-users
 ---
 
-Several people and Agents can open the same document. Content keeps a session per editor tab or client in the Database of the Workspace history. A session says who has the document open and whether they view or edit it. One session at a time holds the **edit lease** of a document. While it does, saves from anyone else fail with `CONTENT_LEASE_HELD` and name the holder.
+Many people and Agents can open one document. Content stores a session per editor tab or client in the Workspace history Database. It says who has the document open, viewing or editing. One session at a time holds the **edit lease**. Saves from anyone else fail with `CONTENT_LEASE_HELD` and name the holder.
 
-`ifDigest` stays the real write guarantee. A lease decides who should be typing; the digest decides whether a save lands on the version it read. Every save still passes both checks.
+`ifDigest` stays the real write guarantee. The lease decides who should type. The digest decides if a save lands on the version it read. Saves pass both checks.
 
 ## Add the sessions table
 
-Sessions live in the Database that already holds the Workspace history, so they work on every host with the Blob + Database Store: libSQL, Turso, and Cloudflare D1. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
+Sessions live in the Workspace history Database, so they work on every host with the Blob + Database Store: libSQL, Turso, and Cloudflare D1. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
 
 ```ts [server/databases/content/config.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -25,13 +25,13 @@ export default defineDatabase({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate`. Content finds the Database through the Workspace Store, so `defineContent()` takes no new option.
+Run `vitehub database generate` and `vitehub database migrate`. Content finds the Database through the Workspace Store, so `defineContent()` needs no new option.
 
-Without the table, `content.sessions` throws `CONTENT_R0012` and names this fix. Saves keep working and skip the lease check, because nobody can hold a lease. The Console stays editable and shows that it cannot check who else is editing.
+Without the table, `content.sessions` throws `CONTENT_R0012` with this fix. Saves skip the lease check. The Console stays editable and says it cannot see who else edits.
 
 ## Sessions
 
-A session is a token you generate per tab or client, such as `crypto.randomUUID()`. Use one per editor instance, not one per user. Two tabs of the same person are two sessions, so the second tab sees that the first one holds the lease instead of overwriting it.
+A session is a token you make per tab or client, such as `crypto.randomUUID()`, not per user. Two tabs of one person are two sessions, so the second tab sees the first one's lease and does not overwrite it.
 
 ```ts [server/api/editor/session.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -46,12 +46,12 @@ export default defineEventHandler(async (event) => {
 
 | Method | Behavior |
 | --- | --- |
-| `content.sessions.report(collection, id?, { session, user, kind, input? })` | Keeps the session present for 45 seconds. `kind: 'edit'` renews the lease the session holds; it never takes a free one. `kind: 'view'` drops the lease. `input: true` records that the user typed since the last report. |
-| `content.sessions.acquire(collection, id?, { session, user, takeover? })` | Takes the lease for 5 minutes when no other session holds it. `takeover: true` takes it from the holder, who keeps viewing. Check `editing` in the result. |
-| `content.sessions.release(collection, id?, { session })` | Removes the session from the document and frees its lease. Call it when the editor closes. |
-| `content.sessions.list(collection?)` | Every live session, of one collection or of all, for list rows and dashboards. |
+| `content.sessions.report(collection, id?, { session, user, kind, input? })` | Keeps the session present for 45 seconds. `kind: 'edit'` renews a lease the session holds, but never takes a free one. `kind: 'view'` drops the lease. `input: true` records that the user typed since the last report. |
+| `content.sessions.acquire(collection, id?, { session, user, takeover? })` | Takes a free lease for 5 minutes. `takeover: true` takes it from the holder, who keeps viewing. Check `editing` in the result. |
+| `content.sessions.release(collection, id?, { session })` | Removes the session and frees its lease. Call it when the editor closes. |
+| `content.sessions.list(collection?)` | Every live session, of one collection or all, for lists and dashboards. |
 
-Omit `id` for a singleton. `user` is `{ id, name?, image? }`: the signed-in user, or the Actor of an Agent.
+Omit `id` for a singleton. `user` is `{ id, name?, image? }`: the signed-in user, or an Agent's Actor.
 
 `report()` and `acquire()` return the document's sessions after the call:
 
@@ -71,11 +71,11 @@ Omit `id` for a singleton. `user` is `{ id, name?, image? }`: the signed-in user
 }
 ```
 
-`now` comes from the Database clock. Compare `since` and `expiresAt` with it instead of the local clock.
+`now` comes from the Database clock. Compare `since` and `expiresAt` with it, not with the local clock.
 
 ## Timing
 
-All times use the Database clock, so hosts with skewed clocks still agree on who holds a lease.
+All times use the Database clock, so hosts with skewed clocks agree on who holds a lease.
 
 | Rule | Value |
 | --- | --- |
@@ -83,9 +83,9 @@ All times use the Database clock, so hosts with skewed clocks still agree on who
 | A lease lasts after `acquire()`, a renewing report, or a save with `session` | 5 minutes |
 | A lease stops blocking others after no reported input | 15 minutes |
 
-A lease without input for 15 minutes still shows its session, as viewing. Another session can then acquire the lease without `takeover`. The idle session reclaims it with `acquire()` on its next keystroke when it is still free.
+After 15 minutes without input, the session shows as viewing, and another session can acquire the lease without `takeover`. The idle session can take a still-free lease back with `acquire()` on its next keystroke.
 
-Report about every 15 seconds while the tab is visible and every 60 seconds while it is hidden. Browsers run timers of a hidden tab about once a minute, so a 5-minute lease outlives the throttling. Call `acquire()` on the first edit, not when the document opens, and call `release()` on `pagehide` with `fetch(..., { keepalive: true })` or `navigator.sendBeacon()`.
+Report about every 15 seconds while the tab is visible, and every 60 seconds while it is hidden. Browsers run hidden-tab timers about once a minute, so a 5-minute lease outlives that. Call `acquire()` on the first edit, not on open. Call `release()` on `pagehide` with `fetch(..., { keepalive: true })` or `navigator.sendBeacon()`.
 
 ## Writes and leases
 
@@ -106,10 +106,10 @@ await posts.save('hello', input, { lease: 'override' })
 
 | Option | Behavior |
 | --- | --- |
-| `session` | The caller's session token. Its own lease does not block the write, and the write renews it. |
+| `session` | The caller's session token. Its own lease does not block the write, which renews it. |
 | `lease: 'override'` | Write even while another session holds the lease. |
 
-The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`. The Console returns it as a `409`. Writes succeed when nobody holds a lease, so Agents, the CLI, and API routes keep working on documents no one has open. They honor leases by default and override only when you pass `lease: 'override'`. [`vitehub content edit`](/docs/content/cli#edit-leases) passes it only with `--override-lease`.
+The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`, a `409` over the Console endpoint. Agents, the CLI, and API routes write freely to documents nobody has open, and honor leases unless you pass `lease: 'override'`. [`vitehub content edit`](/docs/content/cli#edit-leases) passes it only with `--override-lease`.
 
 Other Workspace writers to the draft check leases too, such as [`vitehub push`](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder), a raw `history.commit()`, or an Agent's `workspace.commit`. The `vitehub.content` Workspace plugin refuses a commit that writes or deletes a document that another session holds, with `CONTENT_LEASE_HELD` and status 409. Nothing is saved. One error names every held document of the commit: `details` has the first one as `collection`, `id`, and `holder`, and all of them in `documents`. To write anyway, put `lease: 'override'` in the revision metadata:
 
@@ -127,18 +127,21 @@ An Agent or an MCP client may override only when you allow it with `operations({
 
 ## Opt out per collection
 
-Some collections are edited by many people at once, such as a shared notes list, or only by code. Turn the lease off:
+Turn the lease off for collections that many people edit at once, such as shared notes, or that only code edits:
 
 ```ts [server/content.ts] fragment
 notes: documents({ path: 'notes/*.md', fields, editing: { lease: false } }),
 settings: singleton({ path: 'settings.json', fields, editing: { lease: false } }),
 ```
 
-Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` always succeeds, `holder` is always `null`, and writes never fail with `CONTENT_LEASE_HELD`. `collection.editing.lease` reports the setting.
+Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` always succeeds, `holder` is always `null`, and writes never fail with `CONTENT_LEASE_HELD`. `collection.editing.lease` shows the setting.
 
 ## Live editing
 
-Where Realtime runs, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
+> [!NOTE]
+> The live editor was part of the Console that the app served, which is removed. The hosted Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
+
+With Realtime, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -191,24 +194,24 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` uses the memory authority without the option. A Node build needs `authority: 'memory'` (one server process), and a Cloudflare build uses Durable Objects. On Vercel, Netlify, and Deno there is no room authority: the build succeeds and Content keeps one editor at a time, as described above. Set `defineContent({ live: false })` to keep one editor at a time everywhere.
+`vite dev` uses the memory authority by default. A Node build needs `authority: 'memory'` (one server process). Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room authority: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
 ### What people see
 
-- Opening a document joins its live room. Everyone in it edits the fields and the body together. The body shows a named caret per person, and each property row shows who has it in focus.
-- The header shows the people in the room and **Live**. The room saves the draft 2 seconds after typing stops, at most every 10 seconds, and when the last person leaves. ⌘S, Publish, and Schedule save first. Each revision in History names everyone who edited it, such as `Ana and Ben`.
-- Drafts in progress save with their field issues, which show inline. Publish waits until they are fixed.
-- A body with Markdown the editor cannot keep, such as a footnote definition the base parser drops, opens read-only in the room. The page explains that it cannot keep the Markdown, and Source stays editable by one person at a time under the edit lease.
-- A save from outside the room, such as an Agent, the CLI, or another route, reloads the room. Someone with edits the room had not saved yet gets **Copy your unsaved edits**.
-- Where live editing is unavailable, a page that someone else has open shows **Live editing unavailable · one editor at a time**.
+- Opening a document joins its live room, where everyone edits fields and body together. The body shows a named caret per person. Each property row shows who has it in focus.
+- The header shows the people in the room and **Live**. The room saves the draft 2 seconds after typing stops, at most every 10 seconds, and when the last person leaves. ⌘S, Publish, and Schedule save first. Each History revision names everyone who edited it, such as `Ana and Ben`.
+- Unfinished drafts save with their field issues, shown inline. Publish waits until they are fixed.
+- A body with Markdown the editor cannot keep, such as a footnote definition the base parser drops, opens read-only and the page says why. Source stays editable by one person at a time under the edit lease.
+- A save from outside the room, such as an Agent, the CLI, or another route, reloads the room. Anyone with unsaved edits gets **Copy your unsaved edits**.
+- Without live editing, a page someone else has open shows **Live editing unavailable · one editor at a time**.
 
 ### The live lease
 
-The room holds the edit lease as `kind: 'live'` for everyone in it, from the first person who joins with write access until the last one leaves and the room saved. `user.name` of the lease lists the people, such as `Ana, Ben`. Others see **Live session: Ana, Ben** and join instead of taking over. Writes from outside the room fail with `CONTENT_LEASE_HELD` naming the live session, unless they pass `lease: 'override'`; the room then reloads. The sessions table stores `kind` as text, so `live` needs no migration.
+The room holds the edit lease as `kind: 'live'` for everyone in it. It holds it from when the first person with write access joins until the last one leaves and the room saves. Its `user.name` lists the people, such as `Ana, Ben`. Others see **Live session: Ana, Ben** and join instead of taking over. Outside writes fail with `CONTENT_LEASE_HELD` unless they pass `lease: 'override'`, which reloads the room. `kind` is stored as text, so `live` needs no migration.
 
 ### Build your own live editor
 
-ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or the collection name of a singleton. It identifies people with the Console session when the Console is enabled, otherwise with the ViteHub Auth session, and `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
+ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the Console session when the Console is on, else with the ViteHub Auth session. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
 
 ```ts [app editor]
 import { contentRealtimeEditor } from 'vite-hub/content/editor'
@@ -218,9 +221,9 @@ const editor = contentRealtimeEditor() // the same codec the server uses
 const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 ```
 
-`contentRealtimeEditor()` adapts `createContentEditorCodec()` from `vite-hub/content/editor`. Content bundles Comark UI and installs its editor runtimes. The server and browser use the same generic schema for components, named slots, task lists, tables, and media, without separate node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a route to Source.
+`contentRealtimeEditor()` adapts `createContentEditorCodec()` from `vite-hub/content/editor`. Content bundles Comark UI and installs its editor runtimes. Server and browser share one generic schema for components, named slots, task lists, tables, and media, with no node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a link to Source.
 
-`vite-hub/content/realtime` also exports `contentDocument(collection)`, the Realtime document adapter of one collection, and `contentRealtime(content, { identify, authorize, user })` to define the room yourself in `server/realtime/content.ts`. A file with that name replaces the generated one.
+`vite-hub/content/realtime` also exports `contentDocument(collection)`, one collection's Realtime document adapter. `contentRealtime(content, { identify, authorize, user })` defines the room yourself in `server/realtime/content.ts`, which replaces the generated one.
 
 ## Limits
 
@@ -230,4 +233,4 @@ const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 - Rows of sessions that expired more than an hour ago are deleted on the next report in the same Workspace.
 - Live editing covers Markdown documents. JSON and YAML documents keep one editor at a time.
 - A room that does not answer within 8 seconds leaves the page to one editor at a time.
-- On Cloudflare, an outside write reloads a room only while its Durable Object is in memory. A room that wakes up later loads the stored document, because its digest changed.
+- On Cloudflare, an outside write reloads a room only while its Durable Object is in memory. A room that wakes later loads the stored document, because its digest changed.

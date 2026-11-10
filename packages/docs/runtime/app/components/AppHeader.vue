@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useMediaQuery } from "@vueuse/core"
-import { docsHomePath, isDocsPath } from "#docs/navigation"
+import { docsHomePath, isDocsPath, normalizeDocsPath } from "#docs/navigation"
 import { useDocsHeaderActionsTarget } from "../composables/headerActions"
 
 const route = useRoute()
 const { base, github, site, socials, start } = useDocsConfig()
-const docsHome = docsHomePath(useDocsManifest())
+const docsHome = docsHomePath(useDocsManifest(), start)
 // Docs routes and the start links use the docs shell. There the brand opens the docs home, like a docs site logo,
 // and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
 // The header is the same on every page: the brand, search in the middle, and the site's links and controls.
@@ -19,10 +19,10 @@ const actionsTarget = computed(() => wide.value && actionsTargetId.value ? docum
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
 
-// A site without docs pages has no "Docs" link.
+// A site without docs pages has no "Docs" link. A start link that "Docs" already opens would repeat it.
 const navLinks = [
   ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
-  ...(start?.links ?? []).filter(link => link.to !== base).map(link => ({ label: link.label, to: link.to })),
+  ...(start?.links ?? []).filter(link => link.to !== base && normalizeDocsPath(link.to) !== docsHome).map(link => ({ label: link.label, to: link.to })),
 ]
 
 const mobileLinks = [
@@ -142,8 +142,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
           <template #fallback>
             <span :class="['inline-flex size-8 items-center justify-center text-default', touchIconButton]" aria-hidden="true">
-              <UIcon name="i-ph-sun-light" class="size-5 dark:hidden" />
-              <UIcon name="i-ph-moon-light" class="hidden size-5 dark:block" />
+              <UIcon name="i-lucide-sun" class="size-5 dark:hidden" />
+              <UIcon name="i-lucide-moon" class="hidden size-5 dark:block" />
             </span>
           </template>
         </ClientOnly>

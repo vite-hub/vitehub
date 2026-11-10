@@ -24,7 +24,7 @@ In this tutorial, you add Comments to a Vite app and pin a comment on a page. Th
 Add Comments to your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments valibot
 ```
 
 Add the `comments()` plugin to `vite.config.ts`. Keep the other plugins of your app. This example app uses Vue, but `comments()` does not need Vue.

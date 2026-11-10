@@ -92,10 +92,10 @@ icon: i-lucide-gauge
 
   ```ts [server/api/search.get.ts]
   import { defineEventHandler } from 'h3'
-  import { createRateLimiter } from '@vite-hub/rate-limit'
+  import { createRateLimiter } from 'vite-hub/rate-limit'
   import {
     memoryRateLimitDriver,
-  } from '@vite-hub/rate-limit/drivers/memory'
+  } from 'vite-hub/rate-limit/drivers/memory'
 
   const limiter = createRateLimiter({
     driver: memoryRateLimitDriver(),
@@ -119,19 +119,19 @@ icon: i-lucide-gauge
   :::
 
   :::product-feature-item{title="Count per user or per team" icon="i-lucide-users" to="/docs/rate-limit/server-api#require-a-managed-rate-limit"}
-  Each client address has its own count. Pass `key` to count per user, account, or team.
+  Each client address has its own count. Pass `key` to count per user or team.
   :::
 
   :::product-feature-item{title="Choose your own response" icon="i-lucide-code-2" to="/docs/rate-limit/server-api#use-a-direct-driver"}
-  `limiter.consume()` returns the result and does not throw.
+  `limiter.consume()` returns the result without throwing.
   :::
 
   :::product-feature-item{title="Memory on Node, native on Cloudflare" icon="i-lucide-server" to="/docs/rate-limit/hosts#deploy-to-cloudflare"}
-  On Node, counts stay in memory. On Cloudflare, the limit uses Cloudflare Rate Limiting.
+  Node counts in memory. Cloudflare uses Cloudflare Rate Limiting.
   :::
 
   :::product-feature-item{title="See each limit before you deploy" icon="i-lucide-file-search" to="/docs/rate-limit/hosts#inspect-generated-guarantees"}
-  The build writes a file that lists each limit and what the host can promise.
+  The build writes a file with each limit and what the host promises.
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/rate-limit/limits-and-errors#limitations"}
