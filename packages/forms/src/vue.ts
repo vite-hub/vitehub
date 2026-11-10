@@ -1,5 +1,5 @@
 import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
-import { computed, defineComponent, h, onMounted, ref, useId } from "vue"
+import { computed, defineComponent, h, nextTick, onMounted, ref, useId } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
 import { unwrap } from "./schema.ts"
@@ -51,7 +51,11 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
     }
     // Move focus to the first field with a server issue, as Formisch does for its own validation.
     const first = failure.issues.find(issue => issue.path.length)
-    if (first) (focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
+    // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
+    if (first) {
+      await nextTick()
+      ;(focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
+    }
     const message = formIssues[0] ?? (failure.issues.length ? undefined : failure.message)
     if (message) setErrors(form, { errors: [message, ...formIssues.slice(1)] })
   }
@@ -187,6 +191,11 @@ export const AutoForm = defineComponent({
     schema: { type: Object as PropType<FormSchema>, required: true },
     submitLabel: { type: String, default: "Send" },
     sentMessage: { type: String, default: "Thanks. Your message was sent." },
+    /**
+     * The result of a post without JavaScript: `?form=sent` or `?form=error` of the page. Pass it from the route query,
+     * so a server-rendered page shows it before JavaScript runs. Without it, `AutoForm` reads the query when it mounts.
+     */
+    result: { type: String as PropType<"sent" | "error">, default: undefined },
     /** Shown after a post without JavaScript that the server refused. */
     errorMessage: { type: String, default: "The message was not sent. Check the form and try again." },
     /** The honeypot field of `defineForm()`. `false` leaves it out. */
@@ -205,8 +214,9 @@ export const AutoForm = defineComponent({
       get base() { return props.base },
     } as SubmitFormOptions)
     // A post without JavaScript comes back with `?form=sent` or `?form=error`. Show it in the status region.
-    const returned = ref<"sent" | "error">()
+    const returned = ref<"sent" | "error" | undefined>(props.result === "sent" || props.result === "error" ? props.result : undefined)
     onMounted(() => {
+      if (returned.value) return
       const result = new URLSearchParams(globalThis.location?.search).get("form")
       if (result === "sent" || result === "error") returned.value = result
     })

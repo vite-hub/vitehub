@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createApp, h, nextTick } from "vue"
+import { createApp, createSSRApp, h, nextTick } from "vue"
+import { renderToString } from "vue/server-renderer"
 
 import { createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 import { AutoForm, describeFormFields } from "../src/vue.ts"
@@ -92,6 +93,12 @@ describe("AutoForm", () => {
     // One announcement: focus goes to the field, which reads its error. Field errors are not alerts.
     expect(root.querySelectorAll("[data-field] [role=alert]")).toHaveLength(0)
     expect(await store.list()).toEqual([])
+  })
+
+  it("renders the result of a post without JavaScript on the server", async () => {
+    // No mount on the server: the route query comes in as `result`.
+    const html = await renderToString(createSSRApp(AutoForm, { name: "contact", schema: ContactSchema, result: "error" }))
+    expect(html).toContain("The message was not sent. Check the form and try again.")
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
@@ -198,10 +205,14 @@ describe("AutoForm", () => {
     await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
     await type("[data-field=topic] :is(input, select, textarea)", "bug")
     await type("[data-field=message] :is(input, select, textarea)", "Short but valid here.")
+    // When focus arrives, the field already points to its error, so a screen reader reads it.
+    const described: (string | null)[] = []
+    root.querySelector("[data-field=message] textarea")!.addEventListener("focus", event => described.push((event.target as Element).getAttribute("aria-describedby")))
     await submit()
     expect(root.querySelector("[data-field=message] [data-error]")?.textContent).toBe("Tell us more on the server.")
     // Focus moves to the field, as with a client error.
     expect(document.activeElement).toBe(root.querySelector("[data-field=message] textarea"))
+    expect(described.at(-1)).toContain("-error")
     expect(await store.list()).toEqual([])
   })
 })
