@@ -5,8 +5,8 @@
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
 // must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
 
@@ -39,7 +39,7 @@ export function snippetSources() {
   return [...docs, ...readmes]
 }
 
-export function extractBlocks(markdown) {
+export function extractBlocks(markdown, languages = fenceLanguages) {
   const lines = markdown.replaceAll("\r\n", "\n").split("\n")
   const blocks = []
   for (let index = 0; index < lines.length; index++) {
@@ -53,8 +53,9 @@ export function extractBlocks(markdown) {
       body.push(lines[end].startsWith(indent) ? lines[end].slice(indent.length) : lines[end].trimStart())
       end++
     }
-    if (fenceLanguages.has(language)) {
-      const label = /\[(.+)\]/.exec(info)?.[1]
+    if (languages.has(language)) {
+      // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
+      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
       blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
@@ -76,7 +77,7 @@ const options = {
   skipLibCheck: true,
   strict: true,
   target: ts.ScriptTarget.ESNext,
-  types: ["node"],
+  types: ["node", "vite/client"],
 }
 
 /** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue shim of a Vite app. */
@@ -89,6 +90,11 @@ const nuxtModules = {
   "vite-hub/nuxt": "vitehub",
 }
 const appDeclarations = [
+  {
+    // The ViteHub plugin includes this H3 augmentation in `.vitehub/types.d.ts`.
+    code: `import type {} from "vite-hub/runtime/h3"\nexport {}\n`,
+    file: join(docsRoot, ".snippets/standard-context.d.ts"),
+  },
   {
     code: [
       `declare module "*.vue" {`,
@@ -136,13 +142,17 @@ export function collectSnippets(sources = snippetSources()) {
   for (const source of sources) {
     const page = relative(repoRoot, source.file)
     const used = new Set()
-    extractBlocks(readFileSync(source.file, "utf8")).forEach((block, index) => {
+    const markdown = readFileSync(source.file, "utf8")
+    const fixtures = extractBlocks(markdown, new Set(["dotenv"]))
+      .filter(block => block.label && !block.fragment)
+      .map(({ code, label }) => ({ code, label }))
+    extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
-      let name = block.label && /\.(m?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
+      let name = block.label && /\.(?:[cm]?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, file: join(pageRoot, name), page, pageRoot })
+      snippets.push({ ...block, file: join(pageRoot, name), fixtures, page, pageRoot })
     })
   }
   return snippets
@@ -151,8 +161,8 @@ export function collectSnippets(sources = snippetSources()) {
 const workflowStepFile = /(?:^|\/)workflows\/(.+)\/(\d+[.-]?[^/]*\.m?ts)$/
 
 /**
- * The declarations that ViteHub writes to `.vitehub/` for the files of one page: the step types of each
- * folder Workflow whose numbered step files the page shows.
+ * The declarations that ViteHub writes to `.vitehub/` for the files of one page: the registries of the
+ * Definitions that the page shows, and the step types of each folder Workflow whose numbered step files it shows.
  */
 export async function generatedDeclarations(pageSnippets) {
   const workflows = new Map()
@@ -163,11 +173,214 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  if (!workflows.size) return []
+  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
+  if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
-  return [{ code: createWorkflowTypes(file, [...workflows.values()], "@vite-hub/workflow"), file }]
+  return [...declarations, { code: createWorkflowTypes(file, [...workflows.values()], "@vite-hub/workflow"), file }]
 }
+
+/**
+ * A file below `server/<directory>/` is one Definition named after its path, and `<name>/index.ts` is named after
+ * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
+ */
+function definitionName(directory, kind) {
+  const server = new RegExp(`^server/${directory}/(.+)\\.(?:[cm]?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.[cm]?ts$`)
+  return (label) => {
+    const serverPath = server.exec(label)?.[1]
+    let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
+    if (serverPath && (kind === "channel" || kind === "connection")) name = name.replace(new RegExp(`\\.${kind}$`, "i"), "")
+    const names = name ? [name] : []
+    // Queue discovery also scans suffix files below server/queues from the project root.
+    if (serverPath && kind === "queue") {
+      const suffixName = suffix.exec(label)?.[1]
+      if (suffixName) names.push(suffixName)
+    }
+    return names
+  }
+}
+
+/** Source names a Collection after its relative file path and imports the export matching the filename. */
+async function collectionNames(label, code) {
+  const name = /^server\/collections\/(.+)\.[cm]?ts$/.exec(label)?.[1]
+  if (!name) return []
+  const exportName = name.split("/").at(-1)
+  const { inspectCollectionModule } = await import(pathToFileURL(join(packagesRoot, "source/dist/vite.js")).href)
+  return inspectCollectionModule(label, code, exportName).routeEnabled ? [name] : []
+}
+
+async function channelNames(label, code, pageSnippets) {
+  const names = definitionName("channels", "channel")(label)
+  if (!names.length || !label.startsWith("server/channels/")) return names
+  // Owner discovery reserves an indexed folder for one Channel before classifying its modules.
+  const indexFolder = /^server\/channels\/(.+)\/index\.(?:[cm]?ts|tsx)$/i
+  if (pageSnippets.some((snippet) => {
+    const indexLabel = snippet.label?.replace(/^\/+/, "") ?? ""
+    const folder = !snippet.fragment && indexFolder.exec(indexLabel)?.[1]
+    return folder && label !== indexLabel && label.startsWith(`server/channels/${folder}/`)
+  })) return []
+  const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
+  return isOutboundChannelSource(code, label) ? names : []
+}
+
+const globalModules = name => entries => ["declare global {", `  interface ${name} {`, ...entries.map(([key, path]) => `    ${key}: typeof import(${path})`), "  }", "}", "export {}"]
+
+/**
+ * The registries that ViteHub generates from the Definitions of an app, in the form that each package writes them.
+ * A page shows the Definitions that its other blocks use by name, such as `sendQueue('welcome-email')`.
+ */
+const registries = [
+  {
+    // @vite-hub/queue: src/registry-types.ts
+    definitions: definitionName("queues", "queue"),
+    render: entries => [`import "@vite-hub/queue"`, `declare module "@vite-hub/queue" {`, "  interface QueueRegistry {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}"],
+    type: "queue",
+  },
+  // @vite-hub/channels, @vite-hub/connections, and @vite-hub/browser: `renderRegistryTypes()` in src/vite.ts
+  { definitions: channelNames, render: globalModules("ViteHubChannelDefinitionModules"), type: "channels" },
+  { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
+  { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
+  {
+    // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
+    definitions: collectionNames,
+    render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name.split("/").at(-1))}]`), "  }", "}", "export {}"],
+    type: "collections",
+  },
+  {
+    // @vite-hub/database: src/internal/generated.ts. `server/databases/config.ts` and `src/database.ts` define the
+    // `default` Database, and `server/databases/<name>/config.ts` a named one.
+    definitions: (label) => {
+      if (/^server\/databases\/config\.[cm]?ts$/.test(label) || label === "src/database.ts") return ["default"]
+      const name = /^server\/databases\/(.+)\/config\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
+      return name ? [name] : []
+    },
+    render: entries => ["@vite-hub/database", "vite-hub/database"].flatMap(module => [
+      `import ${JSON.stringify(module)}`,
+      `declare module ${JSON.stringify(module)} {`,
+      "  interface DatabaseRegistry {",
+      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema }`),
+      "  }",
+      "}",
+    ]),
+    type: "database",
+  },
+]
+
+async function registryDeclarations(pageSnippets) {
+  const declarations = []
+  for (const registry of registries) {
+    const definitions = new Map()
+    for (const snippet of pageSnippets) {
+      if (snippet.fragment || !snippet.label) continue
+      const label = snippet.label.replace(/^\/+/, "")
+      if (/\.d\.(?:[cm]?ts|tsx)$/i.test(label)) continue
+      for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
+    }
+    if (!definitions.size) continue
+    const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
+    const entries = [...definitions].map(([name, handler]) => {
+      // Bundler resolution finds extensionless .ts/.tsx files, but .mts/.cts imports need their extension.
+      const path = relative(dirname(file), handler).replace(/\.tsx?$/, "")
+      return [JSON.stringify(name), JSON.stringify(path.startsWith(".") ? path : `./${path}`), name]
+    })
+    declarations.push({ code: `${registry.render(entries).join("\n")}\n`, file })
+  }
+  return declarations
+}
+
+const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
+
+async function envPluginDeclarations(plugins, config) {
+  const plugin = await plugins
+  if (Array.isArray(plugin)) {
+    const declarations = []
+    for (const child of plugin) declarations.push(...await envPluginDeclarations(child, config))
+    return declarations
+  }
+  return plugin?.name === "@vite-hub/env/vite" ? [plugin.api.resolveDeclarations(config)] : []
+}
+
+/**
+ * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
+ * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
+ */
+async function envDeclarations(pageSnippets) {
+  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
+  if (!configs.length) return []
+  const env = { public: {}, server: {} }
+  const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
+  try {
+    // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
+    for (const fixture of pageSnippets[0].fixtures ?? []) {
+      const file = resolve(directory, fixture.label)
+      if (!file.startsWith(`${directory}${sep}`)) continue
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, fixture.code)
+    }
+    for (const [index, snippet] of configs.entries()) {
+      const file = join(directory, `${index}.ts`)
+      writeFileSync(file, snippet.code)
+      let config
+      try {
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
+        for (const declarations of [config?.env, ...await envPluginDeclarations(config?.plugins, config)]) {
+          Object.assign(env.public, declarations?.public)
+          Object.assign(env.server, declarations?.server)
+        }
+      }
+      catch {
+        // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
+        return []
+      }
+    }
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+  const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
+  const pageRoot = pageSnippets[0].pageRoot
+  // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.
+  const authEnv = [
+    `import type { ServerEnv } from "#vitehub/env/server"`,
+    "declare global {",
+    "  namespace ViteHub {",
+    "    interface AuthRuntimeEnv extends ServerEnv {}",
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+  return [
+    { code: createEnvTypes(env, { projectRoot: pageRoot }), file: join(pageRoot, envTypesFile) },
+    {
+      code: [
+        `import type { PublicEnv as GeneratedPublicEnv } from "#vitehub/env/public"`,
+        `import type { ServerEnv as GeneratedServerEnv } from "#vitehub/env/server"`,
+        ...["@vite-hub/env", "vite-hub/env"].flatMap(module => [
+          `declare module ${JSON.stringify(module)} {`,
+          "  interface PublicEnv extends GeneratedPublicEnv {}",
+          "  interface ServerEnv extends GeneratedServerEnv {}",
+          "}",
+        ]),
+        "",
+      ].join("\n"),
+      file: join(pageRoot, ".vitehub/types/env-accessors.d.ts"),
+    },
+    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
+  ]
+}
+
+/** The page's generated Env types replace the untyped `#vitehub/env` declarations of an app without Env options. */
+const envTypesFile = ".vitehub/types/env.d.ts"
+
+/**
+ * The installed files that the programs read, parsed once. Each page with generated declarations gets its own
+ * program, and TypeScript binds a shared file only once.
+ */
+const installedSourceFiles = new Map()
+/** Module resolutions from installed files and from the roots that a snippet's bare imports resolve from. */
+const installedResolutions = new Map()
 
 /** Type-checks the snippets and returns the diagnostics of each one that fails. */
 export function checkSnippets(snippets, declarations = [], oldProgram = undefined) {
@@ -187,9 +400,15 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
   host.fileExists = file => virtualFiles.has(file) || fileExists(file)
   host.readFile = file => virtualFiles.get(file) ?? readFile(file)
   host.directoryExists = directory => virtualDirectories.has(directory) || directoryExists(directory)
-  host.getSourceFile = (file, languageVersion, onError, shouldCreate) => virtualFiles.has(file)
-    ? ts.createSourceFile(file, virtualFiles.get(file), languageVersion, true)
-    : getSourceFile(file, languageVersion, onError, shouldCreate)
+  host.getSourceFile = (file, languageVersion, onError, shouldCreate) => {
+    if (virtualFiles.has(file)) return ts.createSourceFile(file, virtualFiles.get(file), languageVersion, true)
+    let sourceFile = installedSourceFiles.get(file)
+    if (!sourceFile) {
+      sourceFile = getSourceFile(file, languageVersion, onError, shouldCreate)
+      if (sourceFile) installedSourceFiles.set(file, sourceFile)
+    }
+    return sourceFile
+  }
   // A docs snippet gets the packages of a ViteHub app first, such as h3 v2, then those of the docs site.
   // A snippet may also import any package that the workspace installs, such as `zod`.
   const appRoot = join(packagesRoot, "vite-hub/__snippet.ts")
@@ -199,11 +418,17 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
   // `appDeclarations` extend the `NuxtConfig` that `defineNuxtConfig()` checks.
   const nuxtRoot = [appRoot, ...fallbackRoots].map(root => ts.resolveModuleName("nuxt/package.json", root, options, host).resolvedModule).find(Boolean)
   const schemaRoot = nuxtRoot && join(dirname(realpathSync(nuxtRoot.resolvedFileName)), "__snippet.ts")
+  const resolveModuleName = (text, root) => {
+    if (virtualFiles.has(root)) return ts.resolveModuleName(text, root, options, host)
+    const key = `${text}\0${root}`
+    if (!installedResolutions.has(key)) installedResolutions.set(key, ts.resolveModuleName(text, root, options, host))
+    return installedResolutions.get(key)
+  }
   host.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
     const bare = !/^[./~#]/.test(text)
     // An app installs one Vite. The workspace links one per set of peer versions, and the package
     // declarations would otherwise compare plugins of two Vite copies.
-    if (singletons.has(text.split("/")[0])) return ts.resolveModuleName(text, appRoot, options, host)
+    if (singletons.has(text.split("/")[0])) return resolveModuleName(text, appRoot)
     const roots = !virtualFiles.has(containingFile) || !bare
       ? [containingFile]
       : text === "@nuxt/schema" && schemaRoot
@@ -211,13 +436,14 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
         : containingFile.startsWith(`${docsRoot}/`) ? [appRoot, containingFile, ...fallbackRoots] : [containingFile, ...fallbackRoots]
     let resolved
     for (const root of roots) {
-      resolved = ts.resolveModuleName(text, root, options, host)
+      resolved = resolveModuleName(text, root)
       if (resolved.resolvedModule) return resolved
     }
     return resolved
   })
 
-  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
+  const typedEnv = declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`))
+  const program = ts.createProgram([...typedEnv ? [] : ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
   const failures = []
   for (const snippet of snippets) {
     if (snippet.fragment) continue

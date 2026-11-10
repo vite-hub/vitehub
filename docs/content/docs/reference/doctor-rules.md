@@ -448,9 +448,8 @@ export default defineAuth({ baseURL: 'https://example.com', emailAndPassword: { 
 import { defineAuth } from 'vite-hub/auth'
 
 // Valid
-export default defineAuth(({ env, requestOrigin }) => ({
+export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
-  secret: env.auth.secret.unseal(),
   emailAndPassword: { enabled: true },
 }))
 ```

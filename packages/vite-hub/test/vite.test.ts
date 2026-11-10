@@ -809,6 +809,7 @@ describe("vitehub", () => {
         console: false,
         db: "@vite-hub/database/runtime/registry",
         email: "vite-hub/email",
+        i18n: false,
         kv: "vite-hub/kv",
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },

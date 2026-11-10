@@ -6,11 +6,11 @@
   "scripts": {
     "clean": "rm -rf .nuxt .output node_modules/.cache",
     "postinstall": "node scripts/postinstall.mjs",
-    "pretest": "nuxi prepare",
+    "pretest": "vp run --cache -t vite-hub#build && nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS=--max-old-space-size=8192 nuxi build",
     "deploy:cloudflare": "vp run test && vp run build && vp dlx \"wrangler@4.147.0\" deploy --config .output/server/wrangler.json",
-    "test": "vp test --exclude test/artifact.test.ts",
+    "test": "vp run --cache -t vite-hub#build && vp test --exclude test/artifact.test.ts",
     "test:links": "vp run build",
     "test:snippets": "node scripts/check-snippets.mjs",
     "test:links:external": "node scripts/check-example-links.mjs",

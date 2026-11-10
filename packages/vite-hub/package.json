@@ -362,6 +362,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/preview": {
+      "types": "./dist/content/preview.d.ts",
+      "import": "./dist/content/preview.js",
+      "default": "./dist/content/preview.js"
+    },
     "./content/realtime": {
       "types": "./dist/content/realtime.d.ts",
       "import": "./dist/content/realtime.js",
@@ -992,6 +997,11 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./console/setup": {
+      "types": "./dist/console/runtime/server/setup.d.ts",
+      "import": "./dist/console/runtime/server/setup.js",
+      "default": "./dist/console/runtime/server/setup.js"
     }
   },
   "scripts": {
@@ -1022,7 +1032,6 @@
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
-    "standard-context": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {

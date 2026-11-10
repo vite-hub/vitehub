@@ -4,6 +4,7 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 // Generated code imports these modules by path. They are not public API.
 const privateEntries = new Set([
+  "./internal/schema-worker",
   "./runtime/agent",
   "./runtime/chunk-parameters",
   "./runtime/d1",
@@ -49,6 +50,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/connect.ts",
       "src/connect/node.ts",
+      "src/internal/schema-worker.ts",
       "src/runtime/agent.ts",
       "src/runtime/chunk-parameters.ts",
       "src/runtime/d1.ts",
