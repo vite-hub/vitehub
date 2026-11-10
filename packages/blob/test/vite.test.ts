@@ -13,7 +13,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { UserConfig } from "vite"
-import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -1594,6 +1594,18 @@ describe("hubBlob in vite dev", () => {
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
+  })
+
+  it("keeps the Nitro files that the dev server loads when nuxt prepare replays the build", async () => {
+    const plugin = hubBlob({ bucketName: "app-blob", driver: "cloudflare-r2" }, { presetDriver: true })
+    const nitro = { preset: "cloudflare_module" }
+    const root = await resolveConfig(plugin, "serve", nitro)
+    const read = () => Promise.all(["plugin.ts", "middleware.ts", "runtime.mjs"].map(file => readFile(join(root, ".vitehub", "nitro", "blob", file), "utf8")))
+    const development = await read()
+
+    await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, command: "build", nitro, plugins: [{ name: "nitro:main" }], root, [VITEHUB_PREPARE]: true } as never)
+
+    expect(await read()).toEqual(development)
   })
 
   it("gives the generated dev runtime of a vitehub() R2 store a local fs fallback", async () => {

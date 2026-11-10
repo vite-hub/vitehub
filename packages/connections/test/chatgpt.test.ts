@@ -274,10 +274,10 @@ describe("ChatGPT plan Connections", () => {
       headers: { "content-type": "application/json", origin: publicUrl ? "https://agent.example.com" : origin },
       body: JSON.stringify(body),
     })
-    const exported = await sourceHandler(post({ action: "chatgpt-export", name: "chatgpt" }))
+    const exported = await sourceHandler.fetch(post({ action: "chatgpt-export", name: "chatgpt" }))
     expect(exported.status).toBe(200)
     const { credential } = v.parse(v.object({ credential: chatgptTransferSchema }), await exported.json())
-    const imported = await destinationHandler(post({ action: "chatgpt-import", name: "chatgpt", credential }))
+    const imported = await destinationHandler.fetch(post({ action: "chatgpt-import", name: "chatgpt", credential }))
     expect(imported.status).toBe(200)
     expect(await imported.json()).toMatchObject({ connection: { status: "connected", chatgpt: { hostId: "urn:uuid:destination" } } })
     await expect(test.use()).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
@@ -288,7 +288,7 @@ describe("ChatGPT plan Connections", () => {
   it.each(["chatgpt-export", "chatgpt-import"])("rejects %s over public HTTP despite forwarded HTTPS headers", async (action) => {
     const test = await setup()
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
-    const response = await handler(new Request("http://agent.example.com/_vitehub/connections", {
+    const response = await handler.fetch(new Request("http://agent.example.com/_vitehub/connections", {
       method: "POST",
       headers: { "content-type": "application/json", "x-forwarded-proto": "https", forwarded: "proto=https" },
       body: JSON.stringify({ action, name: "chatgpt", credential: {} }),
@@ -302,7 +302,7 @@ describe("ChatGPT plan Connections", () => {
     const test = await setup()
     await test.connect()
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
-    const response = await handler(new Request("http://127.0.0.1:5173/_vitehub/connections", {
+    const response = await handler.fetch(new Request("http://127.0.0.1:5173/_vitehub/connections", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://agent.example.com" },
       body: JSON.stringify({ action, name: "chatgpt", credential: {} }),
