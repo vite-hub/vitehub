@@ -450,7 +450,8 @@ export interface ViteHubOptions {
   /**
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
    * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
-   * code. `vitehub i18n extract` collects the messages into `locales/<locale>.po`. Needs Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   * code. Translations are records in `locales/<locale>/`, and `vitehub i18n status` shows what is missing. Needs
+   * Nitro 3: Nuxt 5, or Vite with Nitro 3.
    */
   i18n?: I18nOptions
   /**
