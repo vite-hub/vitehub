@@ -6,7 +6,7 @@ navigation.order: 50
 navigation.kind: Guides
 ---
 
-Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
+Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog. `service` turns on Agent telemetry and installs `useObservability()`; without it, `observability` registers only Evlog and the [Logs](/docs/logs) source in `observability.logs`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -115,7 +115,7 @@ observability.exception(error, { operation: 'import' })
 observability.status() // { configured, accepted, failed, dropped, pending, closed, papercuts? }
 ```
 
-`useObservability()` throws when `vitehub({ observability })` is not set.
+`useObservability()` throws when `vitehub({ observability })` has no `service`.
 
 The Capability sends one terminal `$ai_trace` event per invocation, also when preparation fails, with duration, invocation identity, known usage and cost, and status. Streaming usage updates add no extra ones. With an exporter set, internal Agent events skip the global drain to avoid duplicates.
 

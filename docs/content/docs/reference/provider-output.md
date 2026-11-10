@@ -28,11 +28,11 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 Production builds write Provider Output. Vite dev writes only discovery and local generated files. Netlify local dev also writes package functions for the Netlify CLI.
 
-`vitehub inspect provider-output` lists the files of the active packages and the preset, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+`vitehub inspect output` lists the files of the active packages and the preset, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 find .vitehub -maxdepth 4 -type f | sort
 find .vercel/output -maxdepth 4 -type f | sort
 find dist -maxdepth 4 -type f | sort
@@ -67,7 +67,7 @@ Nuxt writes generated Agent files to `<buildDir>/vitehub/agent` (usually `.nuxt/
 
 | Do | Avoid |
 | --- | --- |
-| Call `runQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
+| Call `sendQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
 | Import `useServerEnv()` from `#vitehub/env/server`. | Import `.vitehub/env/server.mjs` directly. |
 | Inspect `.vercel/output` to debug a deploy. | Edit `.vercel/output` files as source. |
 

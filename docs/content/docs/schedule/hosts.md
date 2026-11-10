@@ -65,8 +65,7 @@ The CLI and the Console hide credentials in URLs, bearer tokens, and secret assi
 | Host | `vitehub schedule` | Console Schedules page |
 | --- | --- | --- |
 | Vite + Nitro | Yes. They call the dev server's Console RPC in the Nitro dev environment. | Definitions and a run action. |
-| Nuxt with Nitro 3 | Yes. Nitro runs in the Vite process, as on Vite + Nitro. Use `--url http://localhost:3000` when the dev server file is not found. | Definitions and a run action. |
-| Nuxt with Nitro 2 | No. Nitro does not run in the Vite process. | Definitions. |
+| Nuxt 5 | Yes. Nitro runs in the Vite process, as on Vite + Nitro. Use `--url http://localhost:3000` when the dev server file is not found. | Definitions and a run action. |
 | Plain Vite without Nitro | No. There is no Console RPC. | Not available. |
 | Deployed runtime | `vitehub schedule runs` and `attempts` call the Console with `--url` and Console credentials. `schedule run --url` needs `console.invoke` and signs with `VITEHUB_DISPATCH_KEY` when set. | Definitions, when the Console is on. |
 

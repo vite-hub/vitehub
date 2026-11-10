@@ -77,9 +77,45 @@ describe("forwardProjectRequest", () => {
     }))
     const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc/__call", send)
     expect(response.status).toBe(401)
+    expect(response.headers.get("content-type")).toBe("application/json")
     expect(response.headers.has("set-cookie")).toBe(false)
     expect(response.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
     await expect(response.json()).resolves.toEqual({ code: "CONSOLE_TOKEN_INVALID" })
+  })
+
+  it.each([
+    "text/html; charset=utf-8",
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "text/javascript",
+    "application/javascript",
+    null,
+  ])("contains project content with media type %s", async (type) => {
+    const body = "<script>fetch('/api/projects')</script>"
+    const headers = new Headers({
+      "content-disposition": "inline",
+      "content-security-policy": "default-src * 'unsafe-inline'",
+      "x-content-type-options": "invalid",
+    })
+    if (type) headers.set("content-type", type)
+    const send = upstream(new Response(new TextEncoder().encode(body), { headers }))
+    const request = new Request("https://console.example.com/p/1/_vitehub/api/download")
+    const response = await forwardProjectRequest(request, target, "/_vitehub/api/download", send)
+
+    expect(response.headers.get("content-type")).toBe("application/octet-stream")
+    expect(response.headers.get("content-disposition")).toBe("attachment")
+    expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'; frame-ancestors 'none'")
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    await expect(response.text()).resolves.toBe(body)
+  })
+
+  it("keeps binary Operations responses readable by the client", async () => {
+    const body = new Uint8Array([0, 255, 60, 62])
+    const send = upstream(new Response(body, { headers: { "content-type": "application/octet-stream" } }))
+    const response = await forwardProjectRequest(call(), target, "/_vitehub/api/download", send)
+
+    expect(response.headers.get("content-type")).toBe("application/octet-stream")
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(body)
   })
 
   it("stops at a redirect, so the token does not follow it", async () => {

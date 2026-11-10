@@ -7,7 +7,7 @@
     "build": "vp build",
     "dev": "vp dev",
     "typecheck": "vp run --cache -t vite-hub#build && vp build && tsc --noEmit -p tsconfig.json",
-    "test": "vp run --cache -t @vite-hub/runtime#build && vp test"
+    "test": "vp run --cache -t @vite-hub/console#build && vp test"
   },
   "dependencies": {
     "@vite-hub/auth": "workspace:*",

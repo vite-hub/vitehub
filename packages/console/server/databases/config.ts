@@ -4,7 +4,7 @@ import { consoleSchema } from "../../src/projects.ts"
 
 export default defineDatabase({
   schema: consoleSchema,
-  // On Cloudflare, the Console keeps its data in D1. `vite-hub console deploy` creates the database and passes its id.
+  // On Cloudflare, the Console keeps its data in D1. `vitehub console deploy` creates the database and passes its id.
   cloudflare: {
     binding: "DB",
     databaseName: process.env.VITEHUB_CONSOLE_D1_NAME ?? "vitehub-console",

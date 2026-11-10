@@ -1,5 +1,6 @@
-# docker compose up -d, after `VITEHUB_DATA_DIR=/data vp build`. Put TLS in front, such as Caddy, and set
-# BETTER_AUTH_URL to the public URL of the Console.
+# Build on Linux with glibc and Node.js 24, matching the image's CPU architecture:
+# VITEHUB_DATA_DIR=/data vp build && docker compose up -d --build
+# Put TLS in front, such as Caddy, and set BETTER_AUTH_URL to the public URL of the Console.
 services:
   console:
     build: .

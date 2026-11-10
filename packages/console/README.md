@@ -2,7 +2,7 @@
 
 The ViteHub Console as its own app. You deploy it once, sign in, and link your apps. The Console server calls each app's Operations endpoint with that app's token. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console.
 
-This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vite-hub console deploy` command come next.
+This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vitehub console deploy` command come next.
 
 ## How it works
 
@@ -11,6 +11,8 @@ This package is private and in progress. It has the server part: sign-in, the li
 3. The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server sends the call to the project with `Authorization: Bearer <token>`.
 
 The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the token or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc/**`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body over 9 MiB.
+
+Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
 
 ## Configure
 
@@ -35,7 +37,7 @@ Only users with the `admin` role can use the routes below. Others get `401` or `
 
 ## Deploy
 
-`vite-hub console deploy` will run these steps for you. Until it ships, run them from `packages/console`. Each host keeps the Console's data in its own database, so run the same steps again to update.
+`vitehub console deploy` will run these steps for you. Until it ships, run them from `packages/console`. Each host keeps the Console's data in its own database, so run the same steps again to update.
 
 | Host | Database | Limits |
 | --- | --- | --- |
@@ -45,6 +47,8 @@ Only users with the `admin` role can use the routes below. Others get `401` or `
 
 ### VPS with Docker
 
+Build on Linux with glibc and Node.js 24, matching the CPU architecture (x64 or arm64) of the `node:24-slim` image on the server. The output contains the build machine's native libSQL module. Output built on macOS, Windows, or Linux with musl (such as Alpine) is incompatible with this image.
+
 ```sh
 VITEHUB_DATA_DIR=/data vp build
 export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32)
@@ -52,7 +56,7 @@ pnpm exec vitehub auth claim    # prints the code once, and the VITEHUB_ADMIN_CL
 docker compose up -d --build
 ```
 
-Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the project tokens. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses. The output holds the native libSQL module of the build machine, so build on the CPU architecture of the server, such as x64 or arm64.
+Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the project tokens. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
 
 ### Cloudflare
 
@@ -69,7 +73,7 @@ wrangler deploy --config .output/server/wrangler.json
 Add a Turso database from the Vercel Marketplace to the project, so the project has `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Then:
 
 ```sh
-VITEHUB_HOSTING=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub db migrate
+VITEHUB_HOSTING=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub database migrate
 VITEHUB_HOSTING=vercel vp build
 vercel env add VITEHUB_CONSOLE_SECRET    # and BETTER_AUTH_SECRET, BETTER_AUTH_URL, VITEHUB_ADMIN_CLAIM
 vercel deploy --prebuilt --prod
@@ -78,7 +82,7 @@ vercel deploy --prebuilt --prod
 ## Develop
 
 ```sh
-corepack pnpm --dir packages/console exec vitehub db migrate
+corepack pnpm --dir packages/console exec vitehub database migrate
 VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=true corepack pnpm --dir packages/console run dev
 corepack pnpm --dir packages/console run test
 ```

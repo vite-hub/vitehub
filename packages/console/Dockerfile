@@ -1,4 +1,5 @@
-# The Console on a VPS. Build the Node output first, with the data folder of the container:
+# The Console on a VPS. Build the Node output on Linux with glibc and Node.js 24,
+# matching this image's CPU architecture, with the data folder of the container:
 #   VITEHUB_DATA_DIR=/data vp build
 # then build this image from packages/console. The database lives in /data, so mount a volume there.
 FROM node:24-slim

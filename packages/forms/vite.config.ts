@@ -6,11 +6,11 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["drizzle-orm", "nostics", "vite"],
-      alwaysBundle: [/^@vite-hub\/internal/],
+      neverBundle: ["@formisch/vue", "drizzle-orm", "nostics", "valibot", "vite", "vue"],
+      alwaysBundle: [/^@vite-hub\/internal/, "strip-ansi"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/client.ts", "src/database.ts", "src/runtime.ts", "src/vite.ts"],
+    entry: ["src/index.ts", "src/client.ts", "src/database.ts", "src/guard.ts", "src/runtime.ts", "src/vite.ts", "src/operations.ts", "src/vue.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,
@@ -19,6 +19,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 })
