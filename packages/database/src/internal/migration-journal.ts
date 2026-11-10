@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 
 import { join } from "pathe"
 
-import { findDataLoss } from "./migration-sql.ts"
+import { findDataLoss, splitSqlStatements } from "./migration-sql.ts"
 
 import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
 
@@ -60,7 +60,8 @@ function readSnapshotColumns(migrationsDir: string, idx: number): TableColumns |
 
 export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly JournalEntry[]): PendingMigration {
   const sql = readFileSync(join(migrationsDir, `${tag}.sql`), "utf8")
-  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(Boolean)
+  // SQLite fails on a statement that holds only comments.
+  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(statement => splitSqlStatements(statement).length)
   // A hand-written D1 migration has no journal entry, so there is no previous snapshot to compare a rebuild with.
   const idx = entries.find(entry => entry.tag === tag)?.idx
   const before = idx === undefined ? undefined : idx > 0 ? readSnapshotColumns(migrationsDir, idx - 1) : new Map<string, string[]>()
