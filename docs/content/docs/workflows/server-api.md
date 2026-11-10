@@ -13,7 +13,6 @@ icon: i-lucide-code-2
 | `defineWorkflow` from `@vite-hub/workflow` | Declare a workflow. |
 | `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
 | `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
-| `normalizeWorkflowOptions` from `@vite-hub/workflow` | Turn plugin options into a concrete Workflow Provider. |
 | `ViteHubError` from `@vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
