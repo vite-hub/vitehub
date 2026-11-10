@@ -323,7 +323,7 @@ it.each([
 })
 
 it.each([
-  ['import { defineChannel } from "vite-hub/agent/channels"; const options = () => ({ capabilities: [defineCapability({ workspace: {} })] })', 'defineChannel("custom", options())'],
+  ['import { channelAdapter } from "vite-hub/agent/channels"; const options = () => ({ capabilities: [defineCapability({ workspace: {} })] })', 'channelAdapter("custom", options())'],
   ['const factory = () => ({ kind: "custom", capabilities: [defineCapability({ workspace: {} })] })', 'factory()'],
 ])("requires a Workspace marker for opaque Channel calls: %s", async (imports, value) => {
   for (const channel of [value, "custom"]) {
@@ -336,8 +336,8 @@ it.each([
 })
 
 
-it.each(['defineChannel("custom")', 'defineChannel("custom", undefined)', 'defineChannel("custom", {})', 'defineChannel("custom", options)'])("inspects supported Channel constructor options: %s", async (channel) => {
-  const definitions = await discover(`import { defineChannel } from "vite-hub/agent/channels"; const options = {}; export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } }) })`)
+it.each(['channelAdapter("custom")', 'channelAdapter("custom", undefined)', 'channelAdapter("custom", {})', 'channelAdapter("custom", options)'])("inspects supported Channel constructor options: %s", async (channel) => {
+  const definitions = await discover(`import { channelAdapter } from "vite-hub/agent/channels"; const options = {}; export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } }) })`)
   expect(definitions[0]?.workspace).toBeUndefined()
 })
 
