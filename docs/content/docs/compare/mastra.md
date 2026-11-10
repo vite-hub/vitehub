@@ -27,7 +27,7 @@ ViteHub's public API still changes.
 | --- | --- | --- |
 | What it is | An agent framework with workflows, memory, retrieval, and evals | A Vite plugin and Nuxt module for Server Primitives and Agents |
 | Where it runs | A Hono server that `mastra build` compiles, or inside a web framework | Inside your Vite or Nuxt app, in the preset's output |
-| Frameworks | Angular, Astro, Electron, Express, Hono, NestJS, Next.js, Nuxt, React with Vite, SvelteKit, and TanStack Start | Vite with Nitro, and Nuxt 4.5.2 or newer |
+| Frameworks | Angular, Astro, Electron, Express, Hono, NestJS, Next.js, Nuxt, React with Vite, SvelteKit, and TanStack Start | Vite with Nitro 3, and Nuxt 5 |
 | Deploy | Built-in Vercel, Netlify, and Cloudflare deployers, or your own server | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
 | Hosted option | The Mastra platform: Observability, Studio, and Server | None. ViteHub runs on your host account. |
 | Release | `@mastra/core` 1.80.0 | `vite-hub` 0.0.x |
