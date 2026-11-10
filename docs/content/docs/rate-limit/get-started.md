@@ -115,7 +115,7 @@ You get:
 429
 ```
 
-The first two responses are `200` with `{ "ok": true, "message": "accepted" }`. The third response is `429`. If a new clock minute starts between two requests, the count starts again. Send the three requests again.
+The first two responses are `200` with `{ "ok": true, "message": "accepted" }`. The third response is `429`. If a new clock minute starts between two requests, the count starts again, and the last requests can use the limit of the new minute. In that case, wait for the next clock minute. Then send the three requests again.
 
 When a request is over the limit, `requireRateLimit()` throws a standard H3 `HTTPError`. The route stops there.
 
