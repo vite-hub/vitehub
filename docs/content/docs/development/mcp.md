@@ -144,7 +144,7 @@ export default defineAuth(({ requestOrigin }) => ({
 
 The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub database generate` writes their migration.
 
-Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage` (default: `loginPage`). The default `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the Auth's social providers. Then it shows the client name and asks the person to allow or deny it.
+Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage` (default: `loginPage`). The default `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, with the Auth's social providers, or with a passkey, when the Auth has the `passkey()` plugin of `@better-auth/passkey`. The passkey sign-in sends the signed query too, so the authorization goes on to the consent step. Then it shows the client name and asks the person to allow or deny it.
 
 To use your own sign-in page, set `loginPage`, such as `'/sign-in'`. Apps with two-factor authentication must do this, because the built-in page cannot complete their challenge. The flow:
 

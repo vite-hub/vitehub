@@ -532,7 +532,7 @@ The `role` field comes from Better Auth's `admin()` plugin. Use the app's role, 
 - `false` returns `403`.
 - A custom `Response` sets the rejection.
 
-The app serves a sign-in page at `/_vitehub/sign-in`, with the email and password sign-in and the social providers of its Auth. It is the login and consent page of MCP OAuth. When a signed-in person opens it, it shows their access: **Signed in** with a link that opens the app in the hosted Console, or the access denied page. The denied page has the **Claim code** form of [the first admin role](/docs/auth/configure#give-the-first-admin-role).
+The app serves a sign-in page at `/_vitehub/sign-in`, with the email and password sign-in and the social providers of its Auth, and a passkey when the Auth has `passkey()` from `@better-auth/passkey`. It is the login and consent page of MCP OAuth. When a signed-in person opens it, it shows their access: **Signed in** with a link that opens the app in the hosted Console, or the access denied page. The denied page has the **Claim code** form of [the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
 

@@ -1,3 +1,4 @@
+import { consolePasskeyScript } from "./passkey-script.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 
@@ -5,6 +6,8 @@ import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-p
 export interface ConsoleSignInMethods {
   providers: readonly { id: string, label: string }[]
   password: boolean
+  /** The Auth has `@better-auth/passkey`, so the page offers "Sign in with a passkey". */
+  passkey?: boolean
 }
 
 // Lucide icons for the access rows: eye, pencil, and refresh-cw.
@@ -26,6 +29,7 @@ export function consoleAuthOAuthPage(methods: ConsoleSignInMethods, authBase: st
     const authBase = ${literal(authBase)};
     const providers = ${literal(methods.providers)};
     const consolePath = ${literal(consolePath)};
+    const passkey = ${literal(methods.passkey === true)};${methods.passkey ? consolePasskeyScript : ""}
     const icons = ${literal(icons)};
     const params = new URLSearchParams(location.search);
     const $ = selector => document.querySelector(selector);
@@ -106,7 +110,9 @@ export function consoleAuthOAuthPage(methods: ConsoleSignInMethods, authBase: st
             run(async () => leave(await post("/sign-in/email", { email: fields.get("email"), password: fields.get("password"), rememberMe: true }), "Sign-in did not finish. Try again."));
           });
         }
-        if (form && providers.length) buttons.classList.add("column");
+        if (form && (providers.length || passkey)) buttons.classList.add("column");
+        // The passkey answer carries the signed query too, so the provider resumes the authorization after it.
+        if (passkey) button("Sign in with a passkey", async () => leave(await post("/passkey/verify-authentication", await passkeyAssertion(authBase)), "Sign-in did not finish. Try again."), Boolean(form));
         for (const provider of providers) {
           button("Continue with " + provider.label, async () => leave(await post("/sign-in/social", { callbackURL: consolePath, provider: provider.id }), "Sign-in did not start. Try again."), Boolean(form));
         }

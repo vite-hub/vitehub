@@ -6,6 +6,7 @@ import { H3Event } from "h3"
 import { hostedConsoleUrl } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
+import { consolePasskeyScript, hasConsolePasskey } from "./passkey-script.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
@@ -44,8 +45,9 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
   return consoleSignInDocument(new URL(request.url).host, message, `<a class="button" href="${escapeHTML(startPath)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>`)
 }
 
-function consoleSignInDocument(site: string, message: string, actions: string, status = 200, heading = "Sign in"): Response {
+function consoleSignInDocument(site: string, message: string, actions: string, status = 200, heading = "Sign in", script?: string): Response {
   const development = isConsoleDevelopmentBuild()
+  const nonce = script ? crypto.randomUUID() : undefined
   const page = `<!doctype html>
 <html lang="en">
   <head>
@@ -54,8 +56,8 @@ function consoleSignInDocument(site: string, message: string, actions: string, s
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>${escapeHTML(heading)} · ViteHub Console</title>
     <style>${consoleStandaloneStyles}
-      .stack > a.button, .stack form button { width: 100%; }
-      .password ~ form button { background: transparent; color: var(--text-highlighted); box-shadow: inset 0 0 0 1px var(--border-accented); }
+      .stack > a.button, .stack > button, .stack form button { width: 100%; }
+      .password ~ form button, .password ~ button { background: transparent; color: var(--text-highlighted); box-shadow: inset 0 0 0 1px var(--border-accented); }
       .switch { color: var(--text-muted); font-size: .8125rem; text-align: center; }
       .switch a { color: var(--text-highlighted); text-underline-offset: 3px; }
     </style>
@@ -66,13 +68,14 @@ function consoleSignInDocument(site: string, message: string, actions: string, s
       <h1>${escapeHTML(heading)}</h1>
       <p role="status">${escapeHTML(message)}</p>
       <div class="stack">${actions}</div>
-    </main>
+    </main>${script ? `
+    <script nonce="${nonce}">${script}</script>` : ""}
   </body>
 </html>`
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self' https:; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-security-policy": `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; ${nonce ? `script-src 'nonce-${nonce}'; connect-src 'self'; ` : ""}base-uri 'none'; form-action 'self' https:; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       // A form POST from a `no-referrer` document sends `Origin: null`, which the sign-in check refuses. `same-origin`
       // keeps the referrer on this origin and still sends none to a sign-in provider.
@@ -343,7 +346,7 @@ export interface ConsoleAppAuthInstance extends ConsoleSessionReader {
   handler: (request: Request) => Response | Promise<Response>
   $context: Promise<{
     baseURL: string
-    options: { emailAndPassword?: { enabled?: boolean, disableSignUp?: boolean, minPasswordLength?: number } }
+    options: { emailAndPassword?: { enabled?: boolean, disableSignUp?: boolean, minPasswordLength?: number }, plugins?: ReadonlyArray<{ id?: string }> }
     socialProviders: { id: string, name: string }[]
     isTrustedOrigin: (origin: string) => boolean | Promise<boolean>
   }>
@@ -419,9 +422,10 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
       const authBase = authURL.href.replace(/\/$/, "")
       const password = context.options.emailAndPassword?.enabled === true
       const providers = context.socialProviders.map(provider => ({ id: provider.id, label: provider.id === "github" ? "GitHub" : provider.name }))
+      const passkey = hasConsolePasskey(context.options.plugins)
       // Better Auth's OAuth provider sends an MCP client's login and consent steps here, with a signed query.
       if (request.method !== "POST" && url.searchParams.has("sig") && url.searchParams.has("client_id")) {
-        return consoleAuthOAuthPage({ password, providers }, authURL.pathname.replace(/\/$/, ""), page)
+        return consoleAuthOAuthPage({ password, passkey, providers }, authURL.pathname.replace(/\/$/, ""), page)
       }
       const target = consoleReturnPath(url.searchParams.get("redirect"), url, mount)
       const retry = new URL(page, url)
@@ -447,8 +451,31 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
         start.searchParams.set("provider", provider.id)
         return `<form method="post" action="${href(start)}"${formTarget}><button type="submit">Sign in with ${escapeHTML(provider.label)}</button></form>`
       })
+      // A passkey signs in from the browser, so its button needs the script below. It returns to the same target.
+      const passkeyButton = passkey ? ['<button type="button" id="passkey">Sign in with a passkey</button><p role="alert" hidden></p>'] : []
+      const passkeySource = passkey
+        ? `${consolePasskeyScript}
+    const authBase = ${JSON.stringify(authURL.pathname.replace(/\/$/, "")).replaceAll("<", "\\u003c")};
+    const target = ${JSON.stringify(target).replaceAll("<", "\\u003c")};
+    const button = document.getElementById("passkey");
+    const alertBox = button.nextElementSibling;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      alertBox.hidden = true;
+      try {
+        const response = await fetch(authBase + "/passkey/verify-authentication", { body: JSON.stringify(await passkeyAssertion(authBase)), credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST" });
+        if (!response.ok) throw new Error("This passkey did not sign you in. Try again, or use another way to sign in.");
+        location.assign(target);
+      } catch (error) {
+        alertBox.textContent = error instanceof Error ? error.message : "Sign-in failed. Try again.";
+        alertBox.hidden = false;
+        button.disabled = false;
+      }
+    });
+`
+        : undefined
       const render = (message?: string, view: "sign-in" | "sign-up" = creating ? "sign-up" : "sign-in") => {
-        const actions = [...(password ? view === "sign-up" ? signUpForm : signInForm : []), ...providerForms].join("")
+        const actions = [...(password ? view === "sign-up" ? signUpForm : signInForm : []), ...(view === "sign-in" ? passkeyButton : []), ...providerForms].join("")
         return consoleSignInDocument(
           url.host,
           message ?? (!actions
@@ -457,6 +484,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
           actions,
           actions ? 200 : 503,
           view === "sign-up" ? "Create account" : "Sign in",
+          view === "sign-in" ? passkeySource : undefined,
         )
       }
       const failed = "Sign-in failed. Try again."

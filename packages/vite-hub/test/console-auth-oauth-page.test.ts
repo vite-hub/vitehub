@@ -81,3 +81,68 @@ describe("OAuth consent document", () => {
     expect(document.querySelector<HTMLElement>("[role=alert]")!.hidden).toBe(true)
   })
 })
+
+describe("passkey sign-in on the OAuth login step", () => {
+  async function loginPage(passkey: boolean) {
+    const query = new URLSearchParams({ client_id: "console", redirect_uri: "https://console.vitehub.dev/oauth/callback", scope: "vitehub:read vitehub:write", sig: "signed" })
+    for (const name of ["client_id", "redirect_uri", "scope"]) query.append("ba_param", name)
+    const window = new Window({ url: `https://app.example.com/_vitehub/sign-in?${query}` })
+    windows.push(window)
+    window.document.write(await consoleAuthOAuthPage({ providers: [], password: true, passkey }, "/api/auth", "/_vitehub/sign-in").text())
+    const fetch = vi.fn(async (url: string, init?: { body?: string }) => {
+      if (url.endsWith("/get-session")) return Response.json(null)
+      if (url.includes("/oauth2/public-client?")) return new Response(null, { status: 401 })
+      if (url.endsWith("/passkey/generate-authenticate-options")) return Response.json({ challenge: "AQID", allowCredentials: [{ id: "BAU", type: "public-key" }], rpId: "app.example.com" })
+      if (url.endsWith("/passkey/verify-authentication")) return Response.json({ url: "https://console.vitehub.dev/oauth/callback?code=c", body: init?.body })
+      return Response.json({})
+    })
+    const bytes = (...values: number[]) => new Uint8Array(values).buffer
+    const get = vi.fn(async () => ({
+      id: "BAU",
+      rawId: bytes(4, 5),
+      type: "public-key",
+      authenticatorAttachment: "platform",
+      getClientExtensionResults: () => ({}),
+      response: { authenticatorData: bytes(1), clientDataJSON: bytes(2), signature: bytes(3), userHandle: bytes(9) },
+    }))
+    const assign = vi.fn()
+    await runInNewContext(window.document.querySelector("script")!.textContent, {
+      atob,
+      btoa,
+      document: window.document,
+      fetch,
+      location: { search: window.location.search, host: window.location.host, assign },
+      navigator: { credentials: { get } },
+      URL,
+      URLSearchParams,
+      window: { PublicKeyCredential: class {} },
+    })
+    return { document: window.document, fetch, get, assign }
+  }
+
+  it("offers a passkey only when the Auth has the passkey plugin", async () => {
+    const without = await loginPage(false)
+    await vi.waitFor(() => expect(without.document.querySelector("h1")!.textContent).toBe("Sign in to connect an agent"))
+    expect([...without.document.querySelectorAll("button")].some(button => button.textContent === "Sign in with a passkey")).toBe(false)
+    const { document } = await loginPage(true)
+    await vi.waitFor(() => expect([...document.querySelectorAll("button")].some(button => button.textContent === "Sign in with a passkey")).toBe(true))
+  })
+
+  it("signs in with the passkey and the signed query, then follows the provider", async () => {
+    const { document, fetch, get, assign } = await loginPage(true)
+    let button: HTMLButtonElement | undefined
+    await vi.waitFor(() => {
+      button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(candidate => candidate.textContent === "Sign in with a passkey")
+      expect(button).toBeDefined()
+    })
+    button!.click()
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith("https://console.vitehub.dev/oauth/callback?code=c"))
+    expect(get).toHaveBeenCalledOnce()
+    const verify = fetch.mock.calls.find(([url]) => url === "/api/auth/passkey/verify-authentication")!
+    const body: unknown = JSON.parse(verify[1]!.body!)
+    expect(body).toMatchObject({
+      oauth_query: expect.stringContaining("sig=signed"),
+      response: { id: "BAU", rawId: "BAU", type: "public-key", response: { authenticatorData: "AQ", clientDataJSON: "Ag", signature: "Aw", userHandle: "CQ" } },
+    })
+  })
+})
