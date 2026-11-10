@@ -265,13 +265,13 @@ To translate when the source changes, start your translator from a `write:after`
 
 ```ts [server/plugins/translate.ts] fragment
 import { registerWorkspacePlugin } from 'vite-hub/workspace'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 registerWorkspacePlugin('site', {
   id: 'translate',
   hooks: {
     'write:after': async ({ path, ref }) => {
-      if (ref === 'draft' && path.startsWith('docs/en/')) await runQueue('translate', { path })
+      if (ref === 'draft' && path.startsWith('docs/en/')) await sendQueue('translate', { path })
     },
   },
 })
