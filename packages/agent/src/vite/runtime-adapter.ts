@@ -9,7 +9,6 @@ import { createAgentRuntimeContext } from "../runtime/context.ts"
 import {
   workspaceAgentWithSourceRoot,
 } from "../workspace-agent.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
@@ -60,8 +59,11 @@ function colocatedSkills(file: string) {
   return decodeColocatedAgentSkills(readColocatedAgentSkills(file))
 }
 
+/** The part of a Vite dev server that loads an Agent module. */
+export type ViteAgentModuleServer = Pick<ViteDevServer, "config" | "ssrLoadModule">
+
 export async function loadViteAgent(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ): Promise<LoadedViteAgent | undefined> {
   const module = await createViteWorkspaceAgentLoader(server, definition)()
@@ -78,7 +80,7 @@ export async function loadViteAgent(
 }
 
 export function createViteWorkspaceAgentLoader(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ) {
   return async () => {
@@ -93,7 +95,7 @@ export function createViteWorkspaceAgentLoader(
       // journal and Console configuration in this runner before resolving the journal.
       // SAFETY: Nitro extends Vite's open config with its registered runtime plugins.
       const nitro = (server.config as typeof server.config & { nitro?: { plugins?: unknown[] } }).nitro
-      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => hasRuntimeType(plugin, "string") && pattern.test(plugin))
+      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => typeof plugin === "string" && pattern.test(plugin))
       const journal = usesJournal ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]agent[\\/]invocations\.mjs$/) : undefined
       const bootstrap = usesConsole ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]console[\\/]plugin(?:-[^\\/]+)?\.mjs$/) : undefined
       if (journal) await server.ssrLoadModule(journal)

@@ -73,14 +73,17 @@ First, create `index.ts`. It gets the input and calls the steps in order:
 ```ts [server/workflows/onboard-user/index.ts]
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
   const user = await steps.createUser(payload)
   return await steps.sendWelcome(user)
 })
 ```
 
+- The first argument is the Workflow name, the same as the folder name.
 - `payload` is the input that starts the run. Here, it is an email.
 - `steps.createUser` runs the file `01.create-user.ts`, and `steps.sendWelcome` runs `02.send-welcome.ts`. ViteHub makes these names from the file names.
+
+ViteHub writes the step types to `.vitehub/workflow.d.ts`. Each step takes the input type of its file and returns its result, so `user` is typed and a misspelled step is a type error. The step runner works with each Workflow provider.
 
 Then create the two steps:
 

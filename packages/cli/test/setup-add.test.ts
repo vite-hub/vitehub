@@ -132,7 +132,7 @@ describe("vitehub add", () => {
       expect(result.json.install.packages).not.toContain("@vite-hub/database")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.database).toMatchObject({ value: false })
-      expect(config.ok && config.site.keys.comments?.value).toBe(comments)
+      expect(config.ok && config.site.keys.comments).toEqual(comments === false ? { kind: "literal", value: false } : undefined)
     }
   })
 
@@ -226,8 +226,8 @@ describe("vitehub add", () => {
 
     const second = await add(["console", "--option", "console.auth=false", "--no-install", "--yes"], root)
     expect(second.exitCode, second.stdout).toBe(0)
-    // The prebuilt Console app is an optional peer of `vite-hub`.
-    expect(second.json.install.packages).toContain("@vite-hub/console-client")
+    // The Console app is hosted, so the app installs no Console package.
+    expect(second.json.install.packages).not.toContain("@vite-hub/console-client")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("console: { auth: false }")
     expect((await add(["console", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })

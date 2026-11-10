@@ -4,7 +4,6 @@ import { H3 } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsHandler } from "../src/runtime/handler.ts"
-import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { anchor, createComments } from "./harness.ts"
 
@@ -49,13 +48,12 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
   return { runtime, saves }
 }
 
-async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], consoleSession?: CommentsHandlerOptions["consoleSession"] } = {}) {
+async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"] } = {}) {
   // Each test names its policy; the default policy has tests of its own.
   const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options })
   const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({
     comments,
     session: input.session,
-    consoleSession: input.consoleSession,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
     realtime: true,
     build: { commit: "abc123", branch: "main" },
@@ -151,40 +149,6 @@ describe("Comments API", () => {
     expect((await call("/threads?page=/")).body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
   })
 
-  it.each([true, false])("preserves Console read-only access across HTTP routes: %s", async (readOnly) => {
-    const user = { id: "ada", name: "Ada", role: "editor" }
-    const session = commentsConsoleSession({
-      authorize: async ({ kind }: { event: unknown, kind?: "read" | "write" }) => !readOnly || kind !== "write",
-      user: async () => user,
-      identify: async () => user,
-    })
-    const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "editor")
-    const content = fakeContent()
-    const { comments, call } = await setup({ consoleSession: session, content, options: { identify: undefined, authorize } })
-    const [, thread] = await comments.create({ page: "/", anchor, body: "Existing", author: user })
-    const [, deletable] = await comments.create({ page: "/", anchor, body: "Delete this comment", author: user })
-    const current = await call("/session")
-    const list = await call("/threads?page=/")
-    expect(list.response.status).toBe(200)
-    expect((await call("/people?q=ad")).response.status).toBe(200)
-    for (const [path, init] of [
-      ["/threads", { method: "POST", json: { page: "/", anchor, body: "New" } }],
-      [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Reply" } }],
-      [`/threads/${thread!.id}/resolve`, { method: "POST" }],
-      [`/threads/${thread!.id}/reopen`, { method: "POST" }],
-      ["/fields?page=/", { method: "POST", json: { field: "about#hero.title", value: "Edit", ifDigest: "d1" } }],
-      [`/threads/${deletable!.id}/comments/${deletable!.messages[0]!.id}`, { method: "DELETE" }],
-      [`/threads/${thread!.id}`, { method: "DELETE" }],
-    ] as const) {
-      expect((await call(path, init)).response.status, path).toBe(readOnly ? 403 : 200)
-    }
-    expect(current.body.data).toMatchObject({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: !readOnly, resolve: !readOnly, delete: !readOnly } })
-    expect(list.body.data[0].can).toEqual({ comment: !readOnly, resolve: !readOnly, delete: !readOnly })
-    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user }))
-    expect(content.saves).toHaveLength(readOnly ? 0 : 1)
-    if (readOnly) expect((await comments.get(thread!.id))[1]).toMatchObject({ status: "open", messages: [{ body: "Existing" }] })
-  })
-
   it.each([{ id: "custom", name: "Custom" }, null])("skips the Auth session when custom identify returns %j", async (user) => {
     const session = vi.fn(async () => { throw new Error("Auth unavailable") })
     const identify = vi.fn(() => user)
@@ -196,32 +160,7 @@ describe("Comments API", () => {
     expect(session).not.toHaveBeenCalled()
   })
 
-  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before the policy, without custom identify", async (source) => {
-    {
-      const authorize = vi.fn(() => true)
-      const fail = async () => { throw new Error("Console session unavailable") }
-      const session = commentsConsoleSession({
-        authorize: source === "authorize" ? fail : async () => true,
-        user: source === "user" ? fail : async () => null,
-        identify: source === "identify" ? fail : async () => null,
-      })
-      const { call } = await setup({ consoleSession: session, options: { identify: undefined, authorize } })
-      const current = await call("/session")
-      expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false, delete: false } })
-      expect(current.response.headers.get("set-cookie")).toBeNull()
-      expect((await call("/threads?page=/")).response.status).toBe(403)
-      expect((await call("/threads", {
-        method: "POST",
-        json: { page: "/", anchor, body: "Denied" },
-        headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" },
-      })).response.status).toBe(403)
-      expect(authorize).not.toHaveBeenCalled()
-    }
-  })
-
-  describe("with custom identify and the Console", () => {
-    // The Console admits nobody, so any refusal below would come from it.
-    const consoleSession = vi.fn(commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null }))
+  describe("with custom identify", () => {
     const key = "drop/images/screenshot.png"
     const people = [{ id: "grace", name: "Grace", role: "member" }]
     type Person = CommentsUser & { role?: string, share?: string }
@@ -242,7 +181,7 @@ describe("Comments API", () => {
         return user === null && (action === "read" || action === "write")
       })
       const readAttachment = vi.fn(async () => new Blob(["png"], { type: "image/png" }))
-      const { comments, call, fetchFile } = await setup({ consoleSession, options: {
+      const { comments, call, fetchFile } = await setup({ options: {
         identify: identify as DefineCommentsOptions["identify"],
         authorize,
         people: { search: async () => people, byIds: async () => people },
@@ -262,7 +201,6 @@ describe("Comments API", () => {
       expect(file.status).toBe(200)
       expect(await file.text()).toBe("png")
       expect(authorize).toHaveBeenCalled()
-      expect(consoleSession).not.toHaveBeenCalled()
     })
 
     it("refuses a stranger that authorize refuses", async () => {
@@ -275,9 +213,8 @@ describe("Comments API", () => {
     })
   })
 
-  it("keeps Console guest authors anonymous to Comments policies", async () => {
-    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null })
-    const { call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: ({ user }) => user === null } })
+  it("keeps guest authors anonymous to Comments policies without identify", async () => {
+    const { call } = await setup({ session: async () => null, options: { identify: undefined, authorize: ({ user }) => user === null } })
     const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
     const current = await call("/session", { headers })
     expect(current.body.data).toMatchObject({ user: null, can: { read: true, comment: true, resolve: true, delete: true } })
@@ -287,35 +224,17 @@ describe("Comments API", () => {
     expect(created.body.data.can).toEqual({ comment: true, resolve: true, delete: true })
   })
 
-  it.each([false, true])("requires Content to allow anonymous writes for Console guests: %s", async (allowAnonymous) => {
-    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null })
+  it.each([false, true])("requires Content to allow anonymous writes for guests: %s", async (allowAnonymous) => {
     const content = fakeContent()
     const canWrite = vi.fn(async ({ user }: Parameters<CommentsContent["can"]>[0]) => user != null || allowAnonymous)
     content.runtime.can = canWrite
-    const { call } = await setup({ consoleSession: session, content, options: { identify: undefined, authorize: () => true } })
+    const { call } = await setup({ session: async () => null, content, options: { identify: undefined, authorize: () => true } })
     const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
     const saved = await call("/fields?page=/", { headers, method: "POST", json: { field: "about#hero.title", value: "Guest edit", ifDigest: "d1" } })
     expect(saved.response.status).toBe(allowAnonymous ? 200 : 403)
     if (!allowAnonymous) expect(saved.body.error?.code).toBe("COMMENTS_FIELD_FORBIDDEN")
     expect(canWrite).toHaveBeenCalledWith(expect.objectContaining({ user: undefined }))
     expect(content.saves).toHaveLength(allowAnonymous ? 1 : 0)
-  })
-
-  it("preserves Console denial before guest policies without custom identify", async () => {
-    const session = commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null })
-    const { comments, call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: () => true } })
-    const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
-    const current = await call("/session")
-    expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false, delete: false })
-    expect(current.response.headers.get("set-cookie")).toBeNull()
-    for (const [path, init] of [
-      ["/threads?page=/", {}],
-      ["/threads", { method: "POST", json: { page: "/", anchor, body: "Denied" } }],
-      [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Denied" } }],
-    ] as const) {
-      const denied = await call(path, { ...init, headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } })
-      expect(denied.response.status).toBe(403)
-    }
   })
 
   it("answers the session with the user and access, without a cookie", async () => {
@@ -345,12 +264,11 @@ describe("Comments API", () => {
     expect(session.body.data.can).toMatchObject({ read: false, comment: false })
   })
 
-  it("lets in the people that the Console admitted, without an authorize policy", async () => {
-    const consoleUser = { id: "console-ada", name: "Ada" }
-    const { call } = await setup({ options: { authorize: undefined, identify: undefined }, consoleSession: async () => consoleUser })
-    const created = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "From the Console team" } })
-    expect(created.response.status).toBe(200)
-    expect((await call("/threads?page=/")).body.data).toHaveLength(1)
+  it("asks for an authorize policy before it lets in an Auth user in a production build", async () => {
+    const { call } = await setup({ options: { authorize: undefined, identify: undefined }, session: async () => ({ id: "ada", name: "Ada" }) })
+    const created = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "From the team" } })
+    expect(created.response.status).toBe(403)
+    expect(created.body.error?.code).toBe("COMMENTS_POLICY_MISSING")
   })
 
   it("denies threads to an anonymous user by default", async () => {
@@ -592,9 +510,8 @@ describe("Comments API", () => {
     expect(nameless.body.error?.code).toBe("COMMENTS_FORBIDDEN")
   })
 
-  it.each([false, true])("rejects guest deletion even when a visible author ID is copied, with Console: %s", async (console) => {
-    const session = console ? commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null }) : undefined
-    const { comments, call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: () => true } })
+  it("rejects guest deletion even when a visible author ID is copied", async () => {
+    const { comments, call } = await setup({ options: { identify: undefined, authorize: () => true } })
     const headers = { "x-vitehub-comments-guest-id": "victim", "x-vitehub-comments-guest-name": "Visitor" }
     const created = await call("/threads", { method: "POST", headers, json: { page: "/", anchor, body: "Root" } })
     const id = created.body.data.id

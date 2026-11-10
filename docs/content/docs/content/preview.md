@@ -6,7 +6,7 @@ navigation.order: 8
 icon: i-lucide-eye
 ---
 
-A preview cookie lets one browser see drafts through your real pages. Requests without it read `published`, and the site shows no editing UI. Your app sets the cookie from its own route. The Console editor does not: its side browser uses [preview frames](#preview-frames).
+A preview cookie lets one browser see drafts through your real pages. Requests without it read `published`, and the site shows no editing UI. Your app sets the cookie from its own route. An editor that shows one document in a frame uses [preview frames](#preview-frames).
 
 ## Enable preview
 
@@ -66,7 +66,7 @@ Call `content.preview.run(event, callback)` yourself only for requests outside N
 
 ## Preview frames
 
-The Console editor shows the document's page in a side browser. The page renders through your routes with the on-screen fields and body, before anything saves. The collection needs a `url` on the Console origin, such as `documents({ url: '/blog/:id' })`.
+A preview frame renders a document's page through your routes with the on-screen fields and body, before anything saves. The Content page preview of the Console that the app served used it, and is removed. The collection needs a `url` on the app origin, such as `documents({ url: '/blog/:id' })`.
 
 ```ts [server/content.ts] fragment
 posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string() } }),
@@ -77,7 +77,7 @@ const post = await content.collection('posts').get(id) // the document on screen
 return html`<h1 ${contentField('posts', post.id, 'title')}>${post.data.title}</h1>`
 ```
 
-The Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of that name holds `{ token, document? }` as JSON: a `content.preview.sign({ collection, id })` token (15 minutes in the Console) and the on-screen version. The Console signs only after `content.can()` allows `read` of that document. The Nitro plugin checks the token and runs the page as a `GET` of its URL, without the parameter.
+A Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of that name holds `{ token, document? }` as JSON: a `content.preview.sign({ collection, id })` token and the on-screen version. Sign it only after `content.can()` allows `read` of that document. The Nitro plugin checks the token and runs the page as a `GET` of its URL, without the parameter.
 
 A frame token reads the draft of its one document only:
 
@@ -89,23 +89,21 @@ A frame token reads the draft of its one document only:
 - Nothing is stored. The response is `private, no-store` and `noindex`, and skips Nitro's cache. In Nuxt, the page keeps its payload in the HTML, even with a `cache`, `swr`, or `isr` rule. A later `_payload.json` request cannot carry the form, so it would read `published`.
 - A form without a valid token, or with a cross-site `Sec-Fetch-Site` or `Origin`, gets `403`. `Origin` must match the page URL and protocol, which comes from `x-forwarded-proto` behind a proxy or from TLS. The parameter on a `GET` grants nothing. The token is in the form body, never the URL. A cross-site form is refused before its body is read. The body is at most 1 MiB. The plugin counts bytes as they arrive, ignores `Content-Length`, and answers `403` at the first byte over.
 
-The ViteHub pill uses the same form on the site. When a page's document has an unpublished draft, its [**View draft** button](/docs/development/console#work-from-a-page) posts a form without `document` to the page in the same tab, which shows the saved draft. It finds the document with the Console `resolve` action. That matches the page path against collection `url` patterns on `published`, then `draft`, and checks `read` access. To mark changes, it loads the page with `?vitehub-content-published` in a hidden frame.
-
-The Published view loads the page with a `GET` of `?vitehub-content-published`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor. In the Draft view, top-level text fields change in place.
+A `GET` of the page with `?vitehub-content-published` loads it as a guest sees it.
 
 A same-origin redirect, such as a locale, canonical, or sign-in redirect, keeps the document on screen. The browser follows it with the same form, so the token and document stay in the body, never in a URL or cookie:
 
 - The plugin answers with a `307` to the same `Location`, adding `?vitehub-content-preview=<hop>`. The rest of the query and the fragment stay. A `307` keeps the method and body, so the browser posts the form to the next page, and the plugin checks the token and document again. Each page runs as a `GET` of its URL, without the form.
 - The browser keeps the cookies. It sets each redirect's `Set-Cookie`, and sends each page its cookies for that URL by `Path`, `Domain`, `Secure`, `SameSite`, and expiry. The server never copies a `Cookie` header between URLs, so a cookie for `/admin` never reaches `/account` through a redirect.
-- Same origin means the scheme, host, and port of the frame URL, from the `Host` header and the protocol above. `X-Forwarded-Host` does not count. A cross-origin redirect, a sixth redirect, or an invalid `Location` gets a private error page before the browser can post the form there. Its `<meta name="vitehub-content-preview-error">` (`contentPreviewErrorName`) holds the message, which the Console shows with **Retry**. The Draft label never shows another site, or a page without the on-screen document.
-- The page sees a `GET`, and the frame address has the parameter. A client router that reads the query sees `vitehub-content-preview`. The Console address bar hides it. A redirect from a page script or `<meta http-equiv="refresh">` loads the next page with a `GET` without the form, so it reads `published`.
-- Each request in the chain has the Console page's `Referer` and `Origin`, as browsers send for redirects. A Console page Content Security Policy whose `form-action` does not allow the site origin blocks the form and its redirects.
+- Same origin means the scheme, host, and port of the frame URL, from the `Host` header and the protocol above. `X-Forwarded-Host` does not count. A cross-origin redirect, a sixth redirect, or an invalid `Location` gets a private error page before the browser can post the form there. Its `<meta name="vitehub-content-preview-error">` (`contentPreviewErrorName`) holds the message.
+- The page sees a `GET`, and the frame address has the parameter. A client router that reads the query sees `vitehub-content-preview`. A redirect from a page script or `<meta http-equiv="refresh">` loads the next page with a `GET` without the form, so it reads `published`.
+- Each request in the chain has the `Referer` and `Origin` of the page that posted the form, as browsers send for redirects. A Content Security Policy of that page whose `form-action` does not allow the site origin blocks the form and its redirects.
 
 Pages must allow a frame from their own origin: `frame-ancestors 'self'` or none, and no `X-Frame-Options: DENY`. Data the page fetches from the browser after load has no frame scope. It reads `published`, or `draft` with a preview cookie.
 
 ## Published reads
 
-A browser with a preview cookie reads drafts on every page. A request with `?vitehub-content-published` reads `published` with the same cookie, as the Console's Published view does:
+A browser with a preview cookie reads drafts on every page. A request with `?vitehub-content-published` reads `published` with the same cookie:
 
 - Every Content read without `ref` or `revision` is `published`, and `content.preview.active()` is `false`. Nested requests and `content.preview.run()` calls stay `published`. The cookie does not widen them.
 - A request whose `Referer` is a same-origin page with the parameter is `published` too, such as a `fetch()` from the Published view. Without a `Referer`, for example with `Referrer-Policy: no-referrer`, or after client-side navigation to a URL without the parameter, the cookie applies again.
@@ -115,7 +113,7 @@ A browser with a preview cookie reads drafts on every page. A request with `?vit
 - The page sees its URL with the parameter. The response is `private, no-store` and `noindex`, and skips Nitro's cache, so the page shows current published content.
 - An explicit `{ ref: 'draft' }` or `{ revision }` in server code is trusted and reads what it names.
 
-`contentPreviewPublishedParameter` from `@vite-hub/content` and `@vite-hub/content/client` holds the parameter name.
+`contentPreviewPublishedParameter` from `vite-hub/content` and `vite-hub/content/client` holds the parameter name.
 
 ## Signing key
 
