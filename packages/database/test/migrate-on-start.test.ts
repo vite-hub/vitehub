@@ -122,7 +122,7 @@ describe("database.migrateOnStart", () => {
     expect((await server.start()).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
     expect(await readLedger(url)).toEqual([init.when, seed.when])
 
-    // `vitehub db migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
+    // `vitehub database migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
     const database = { connection: { url }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
@@ -303,7 +303,7 @@ describe("database.migrateOnStart", () => {
     expect(started.stdout).toContain('[vitehub] Database "default": applied 0002_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
 
-    // `vitehub db migrate --dry-run` reads the same run on a new file and finds no data loss either.
+    // `vitehub database migrate --dry-run` reads the same run on a new file and finds no data loss either.
     const database = { connection: { url: `file:${join(root, "data/new.sqlite")}` }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()

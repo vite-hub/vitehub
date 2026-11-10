@@ -212,7 +212,7 @@ the `previews` block of the project Wrangler config: `previews.d1_databases`,
 `previews.queues.producers`, with the production binding names. Cloudflare does
 not accept Queue consumers in `previews`. Point them at staging or test
 resources, never production ids. After a build, check that the generated
-config still has the block with `vitehub inspect provider-output --json`.
+config still has the block with `vitehub inspect output --json`.
 
 For D1, apply migrations before you deploy the Preview:
 

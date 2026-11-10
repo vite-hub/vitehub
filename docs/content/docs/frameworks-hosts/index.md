@@ -101,7 +101,7 @@ the output for the preset. List the generated host files with the CLI:
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 ## Next steps

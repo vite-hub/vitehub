@@ -114,7 +114,7 @@ it("detects user-authored native Vercel workflow entries", async () => {
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
   const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native: durable })\n`)
+  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow("welcome", async () => "inline", { native: durable })\n`)
   await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
@@ -125,7 +125,7 @@ it("detects compact user-authored native Vercel workflow directives", async () =
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
   const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native: durable })\n`)
+  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow("welcome", async () => "inline", { native: durable })\n`)
   await writeFile(nativeFile, `export async function durable() { /* durable prologue */ "use workflow"; return "durable" }\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
@@ -136,7 +136,7 @@ it("detects shorthand user-authored native Vercel workflow options", async () =>
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
   const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `import { durable as native } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native })\n`)
+  await writeFile(workflowFile, `import { durable as native } from "./durable.js"\nexport default defineWorkflow("welcome", async () => "inline", { native })\n`)
   await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
@@ -146,7 +146,7 @@ it("ignores workflow directive examples in comments", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-commented-native-entry-")
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `/*\n"use workflow"\n*/\nexport default defineWorkflow(async () => "inline")\n`)
+  await writeFile(workflowFile, `/*\n"use workflow"\n*/\nexport default defineWorkflow("welcome", async () => "inline")\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
 })
@@ -156,7 +156,7 @@ it("ignores native entries imported only in comments", async () => {
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
   const nativeFile = join(rootDir, "server", "durable.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `// import { durable } from "../durable.js"\nexport default defineWorkflow(async () => "inline")\n`)
+  await writeFile(workflowFile, `// import { durable } from "../durable.js"\nexport default defineWorkflow("welcome", async () => "inline")\n`)
   await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
@@ -167,7 +167,7 @@ it("ignores unrelated native functions imported by inline workflows", async () =
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
   const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `import "./durable.js"\nexport default defineWorkflow(async () => "inline")\n`)
+  await writeFile(workflowFile, `import "./durable.js"\nexport default defineWorkflow("welcome", async () => "inline")\n`)
   await writeFile(nativeFile, `export async function durable() { "use workflow" }\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
@@ -178,8 +178,8 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   const viteRoot = join(projectRoot, "apps", "web")
   await mkdir(join(viteRoot, "src"), { recursive: true })
   await mkdir(join(projectRoot, "apps", "sibling", "src"), { recursive: true })
-  await writeFile(join(viteRoot, "src", "cleanup.workflow.ts"), "export default defineWorkflow(async () => undefined)\n")
-  await writeFile(join(projectRoot, "apps", "sibling", "src", "noise.workflow.ts"), "export default defineWorkflow(async () => undefined)\n")
+  await writeFile(join(viteRoot, "src", "cleanup.workflow.ts"), "export default defineWorkflow(\"cleanup\", async () => undefined)\n")
+  await writeFile(join(projectRoot, "apps", "sibling", "src", "noise.workflow.ts"), "export default defineWorkflow(\"noise\", async () => undefined)\n")
 
   const artifacts = await writeProviderEntries(projectRoot, false, {}, undefined, false, undefined, viteRoot)
 
@@ -1435,7 +1435,7 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
       `import { defineWorkflow } from "@vite-hub/workflow"`,
       `import { durable } from "@/server/workflows/durable.js"`,
-      `export default defineWorkflow(async () => "inline", { native: durable })`,
+      `export default defineWorkflow("native", async () => "inline", { native: durable })`,
     ].join("\n"))
 
     await execFileAsync(vp, ["build"], {
@@ -1492,7 +1492,7 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
       `import { defineWorkflow } from "@vite-hub/workflow"`,
       `import { durable } from "../durable/welcome"`,
-      `export default defineWorkflow(async () => "inline", { native: durable })`,
+      `export default defineWorkflow("native", async () => "inline", { native: durable })`,
     ].join("\n"))
 
     await expect(execFileAsync(vp, ["build"], {

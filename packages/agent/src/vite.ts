@@ -2419,11 +2419,17 @@ async function generateAgentWebhookRouteHandler(
     "}",
     "",
     // The declared webhook middleware runs this for every request. `undefined` passes the request on to the next handler.
-    "export async function declaredWebhookResponse(request: Request): Promise<Response | undefined> {",
-    "  const url = new URL(request.url)",
-    "  const pathname = url.pathname.replace(/\\/+$/, '') || '/'",
+    // The middleware passes the URL that H3 already parsed. A request that no Agent declares returns before any await.
+    "export function declaredWebhookResponse(request: Request, requestUrl?: URL): Promise<Response | undefined> | undefined {",
+    "  const requestPathname = (requestUrl ?? new URL(request.url)).pathname",
+    "  const pathname = requestPathname.replace(/\\/+$/, '') || '/'",
     "  const alias = webhookAliases[pathname]",
-    "  if (!alias && declaredWebhookMatchers?.every(({ matches }) => !matches(url.pathname))) return",
+    "  if (!alias && declaredWebhookMatchers?.every(({ matches }) => !matches(requestPathname))) return",
+    "  return declaredWebhookRouteResponse(request, pathname, alias)",
+    "}",
+    "",
+    "async function declaredWebhookRouteResponse(request: Request, pathname: string, alias: { agent: string, webhook: string } | undefined): Promise<Response | undefined> {",
+    "  const url = new URL(request.url)",
     "  const cloudflare = cloudflareFromContext(request)",
     `  const optionsForAgent = (agent: string): AgentChannelWebhookRouteOptions => ({ agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromContext(request) })`,
     "  const matchers = await resolveDeclaredWebhookMatchers(request, url, optionsForAgent)",
@@ -2603,7 +2609,7 @@ async function writeAgentWebhookRouteHandler(
   await writeFileIfChanged(join(root, generatedAgentDeclaredWebhookRouteHandler), [
     `import { declaredWebhookResponse } from "./chat-webhook-route"`,
     "",
-    "export default (event: { req: Request }) => declaredWebhookResponse(event.req)",
+    "export default (event: { req: Request, url?: URL }) => declaredWebhookResponse(event.req, event.url)",
     "",
   ].join("\n"))
   if (options.preparation) {
@@ -3462,8 +3468,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       server.watcher?.on("add", refreshDiscovery)
       server.watcher?.on("unlink", refreshDiscovery)
-      // The Dev Loop runs Agents in this process. Load the Agent runtime with the dev server, not with the Vite config.
-      const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-endpoint.ts")
+      // Register the Dev Loop route now; load the Agent runtime on its first request.
+      const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-route.ts")
       await registerAgentInvocationStreamEndpoint(server, { runtimeCapabilities })
       // Cancel runs in the Nitro dev environment, which owns the application's journals and abort handles.
       registerViteHubNitroDevEndpoint(server, {
@@ -3816,7 +3822,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...config.define,
         },
         server: {
-          watch: {
+          watch: config.server?.watch === null ? null : {
             ignored: generatedViteHubWatchIgnoredAddition(config.server?.watch?.ignored),
           },
         },
