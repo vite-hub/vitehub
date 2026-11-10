@@ -36,6 +36,15 @@ describe("runAgent()", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
+  it("returns Driver output with status and headers fields as output, not as a Response", async () => {
+    const output = { data: { done: true }, headers: new Headers(), status: 200 }
+    const agent = defineAgent({ driver: { run: () => output }, runtime: false })
+    const [error, result] = await runAgent(agent, {})
+
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe(output)
+  })
+
   it("runs an Agent with an explicit Workflow inline", async () => {
     const agent = defineAgent({
       driver: { run: () => "inline output" },

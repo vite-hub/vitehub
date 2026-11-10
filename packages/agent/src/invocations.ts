@@ -686,8 +686,9 @@ function isErrorValue(value: unknown): value is Error {
   return isInstance(value, Error) || Object.prototype.toString.call(value) === "[object Error]"
 }
 
+// An AggregateError from another realm, or a subclass with its own name, still has its `errors` array.
 function isAggregateErrorValue(value: Error): value is AggregateError {
-  return isInstance(value, AggregateError) || (value.name === "AggregateError" && isArray((value as Partial<AggregateError>).errors))
+  return isInstance(value, AggregateError) || isArray((value as Partial<AggregateError>).errors)
 }
 
 function isRegExpValue(value: unknown): value is RegExp {

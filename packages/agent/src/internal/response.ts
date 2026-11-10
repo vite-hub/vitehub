@@ -1,12 +1,18 @@
 /**
- * Checks the Response fields that the Agent reads, not one realm's constructor. A Response from another Fetch
- * implementation, such as a bundled undici, `@whatwg-node/fetch` or the srvx Response in Nitro, also matches.
+ * Checks the Fetch Response fields, not one realm's constructor, so a Response from another Fetch implementation, such
+ * as a bundled undici, `@whatwg-node/fetch` or the srvx Response in Nitro, also matches. `status` and `headers` alone
+ * also match Driver output or an HTTP client result, such as an Axios response, so the body fields are checked too.
+ * The Workflow package has the same check.
  */
 export function isResponse(value: unknown): value is Response {
   if (typeof value !== "object" || value === null) return false
   // SAFETY: each field is checked before the value is narrowed.
-  const response = value as { headers?: { get?: unknown } | null, status?: unknown }
-  return typeof response.status === "number" && typeof response.headers?.get === "function"
+  const response = value as { bodyUsed?: unknown, clone?: unknown, headers?: { get?: unknown } | null, status?: unknown, text?: unknown }
+  return typeof response.status === "number"
+    && typeof response.headers?.get === "function"
+    && typeof response.bodyUsed === "boolean"
+    && typeof response.clone === "function"
+    && typeof response.text === "function"
 }
 
 /**
@@ -32,6 +38,13 @@ export function hostReadableStream<T>(body: ReadableStream<T>): ReadableStream<T
         controller.error(error)
       }
     },
-    cancel: reason => reader.cancel(reason),
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        reader.releaseLock()
+      }
+    },
   }, { highWaterMark: 0 })
 }
