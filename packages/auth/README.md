@@ -334,7 +334,7 @@ import { useUserSession } from "@vite-hub/auth/vue";
 export const session = useUserSession();
 ```
 
-That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client, below the app base path.
+That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client, below the app base path. In Nuxt, the default client already uses the Auth Definition's `basePath`.
 
 ```ts
 // server/auth.ts
@@ -366,6 +366,16 @@ import { authClient } from "./auth-client";
 
 const client = await loadAuthClient(authClient);
 client.$store.listen("$sessionSignal", () => {});
+```
+
+All calls of `useSession()` and `useUserSession()` for one client share one session state: one for each page in the browser, and one for each request on the server. A list of 100 components that call `useUserSession()` makes one Better Auth subscription, not 100. `refresh()` reads the session again, updates every component, and returns the session, or `null` without one. Calls at the same time share one read. On the server, `refresh()` returns the session that the server read for the request, and does not load Better Auth. `ready` is `true` after the first read. It stays `true` while a later read runs, and after a read that failed.
+
+```ts fragment
+import { useUserSession } from "@vite-hub/auth/vue";
+
+const { refresh } = useUserSession();
+const session = await refresh();
+if (!session) console.log("Signed out");
 ```
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-started/concepts/client) for framework entrypoints and session helpers.
@@ -418,6 +428,8 @@ export default defineNuxtConfig({
   vitehub: { auth: { redirects: { login: "/sign-in", guest: "/app" } } },
 })
 ```
+
+On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`.
 

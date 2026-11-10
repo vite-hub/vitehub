@@ -1,5 +1,5 @@
 import abilities from "#vitehub/auth/abilities"
-import { computed, defineComponent, getCurrentInstance, getCurrentScope, inject, provide, shallowRef, watch } from "vue"
+import { computed, defineComponent, effectScope, getCurrentInstance, getCurrentScope, inject, provide, shallowRef, watch } from "vue"
 
 import { checkAbility } from "./ability-check.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
@@ -16,6 +16,8 @@ const LOAD = Symbol.for("vitehub.auth.client.load")
 
 type Callable = (...args: unknown[]) => unknown
 type NuxtApp = { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: VueAuthClient<any> }
+type SessionQuery = { query?: SessionQueryParams }
+type SessionState = { data: unknown, error: unknown, isPending: boolean, isRefetching: boolean, refetch: (query?: SessionQuery) => Promise<unknown> }
 
 const authClientKey: InjectionKey<VueAuthClient<any>> = Symbol("vitehub.auth.client")
 
@@ -36,20 +38,23 @@ export function setSessionSeedResolver(resolver: (() => unknown) | undefined): v
 }
 
 /** The state of a client hook, such as `useSession()`, before Better Auth's client has loaded. */
-const pendingState = (refetch: Callable) => ({ data: null, error: null, isPending: true, isRefetching: false, refetch })
+const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, isPending: true, isRefetching: false, refetch })
 
 /**
  * Better Auth's Vue client with the same options, types, and calls, which loads `better-auth/vue` the first time it is
  * used. Creating one costs nothing, so an app can create it up front and only pages that sign in pay for Better Auth.
  * Calls such as `signIn.social()` wait for the load. Hooks such as `useSession()` return a ref at once that is
- * pending until then. In Nuxt, `useSession()` starts with the session that the server read for the request, so it is
- * settled during server rendering and hydration. Use `loadAuthClient()` for anything else, such as `$store`.
+ * pending until then. Every `useSession()` call of one client in one app returns the same ref. In Nuxt, it starts with
+ * the session that the server read for the request, so it is settled during server rendering and hydration. Use
+ * `loadAuthClient()` for anything else, such as `$store`.
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
   const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)))
 
   function hook(name: string, args: unknown[]) {
+    // One session state per app, which every caller shares. See `sessionStore()`.
+    if (name === "useSession" && typeof args[0] !== "function") return sessionStore(client).state
     const scope = getCurrentScope()
     const nuxtApp = nuxtAppResolver?.() || getCurrentInstance()?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
     // SAFETY: `name` is one of the client's `use*` hooks.
@@ -61,16 +66,12 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
       const current = state.value as { refetch?: Callable }
       return current === initial ? undefined : current.refetch?.(...query)
     }
-    // With a session that the server rendered, the hook starts settled, so the page does not flash signed out.
-    const seed = name === "useSession" ? sessionSeedResolver?.() : undefined
-    const initial = seed === undefined ? pendingState(refetch) : { data: seed, error: null, isPending: false, isRefetching: false, refetch }
+    const initial = pendingState(refetch)
     const state = shallowRef<unknown>(initial)
     if (!("window" in globalThis)) return state
-    void load().then((client) => {
+    void load().then((loaded) => {
       if (scope && !scope.active) return
-      runIn(scope, () => watch(real(client) as Ref<unknown>, (value) => {
-        // Better Auth starts pending with no data. Keep the server's answer until Better Auth has its own.
-        if (seed !== undefined && isPendingWithoutData(value)) return
+      runIn(scope, () => watch(real(loaded) as Ref<unknown>, (value) => {
         state.value = value
       }, { immediate: true }))
     })
@@ -96,7 +97,8 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
   }
 
   // SAFETY: the proxy answers every member of Better Auth's Vue client: calls through `apply`, hooks through `hook`.
-  return call([]) as VueAuthClient<Option>
+  const client = call([]) as VueAuthClient<Option>
+  return client
 }
 
 function isPendingWithoutData(value: unknown): boolean {
@@ -108,13 +110,151 @@ function runIn<T>(scope: EffectScope | undefined, run: () => T): T | undefined {
   return scope ? scope.run(run) : run()
 }
 
+/** The session state of one client in one app, which `useSession()`, `useUserSession()`, and the page guard share. */
+interface SessionStore {
+  state: Readonly<Ref<SessionState>>
+  /** Reads the session, updates `state`, and returns the session. Callers at the same time share one read. */
+  read: (query?: SessionQuery) => Promise<unknown>
+  /** Sets the session that the server read for the request, if it is known now and nothing settled the state yet. */
+  seed: () => void
+  /** The scope of the store's computed refs and its one watcher. It never stops, as the store lives as long as the app. */
+  scope: EffectScope
+  /** The object that `useUserSession()` returns, made once. */
+  userSession?: unknown
+}
+
+/** The owner of the stores in the browser: one page has one session per client. */
+const browserOwner = {}
+const stores = new WeakMap<object, WeakMap<object, SessionStore>>()
+
+/**
+ * The session store of `client` for the current app. The browser has one store per client. The server has one per
+ * request, through the request's Nuxt app or Vue app, so two requests never share a session. On the server, a call
+ * outside an app, such as at module scope, gets a store of its own.
+ */
+function sessionStore(client: object): SessionStore {
+  const browser = "window" in globalThis
+  const app = browser ? undefined : nuxtAppResolver?.()
+  const owner = browser ? browserOwner : app ?? getCurrentInstance()?.appContext.app
+  if (!owner) return createSessionStore(client, undefined)
+  let byOwner = stores.get(client)
+  if (!byOwner) stores.set(client, byOwner = new WeakMap())
+  let store = byOwner.get(owner)
+  if (!store) byOwner.set(owner, store = createSessionStore(client, app))
+  // A store made before the session was known, such as at module scope, takes it from the first caller that knows it.
+  else store.seed()
+  return store
+}
+
+function createSessionStore(client: object, app: NuxtApp | undefined): SessionStore {
+  const browser = "window" in globalThis
+  const scope = effectScope(true)
+  const settled = (data: unknown): SessionState => ({ data, error: null, isPending: false, isRefetching: false, refetch })
+  const state = shallowRef<SessionState>(pendingState(refetch))
+  let seeded = false
+  let reading: Promise<unknown> | undefined
+  // Better Auth's own session ref, which follows its session atom, once its client has loaded in the browser.
+  let following: Promise<Readonly<Ref<SessionState>>> | undefined
+
+  async function refetch(query?: SessionQuery): Promise<void> {
+    await read(query)
+  }
+
+  /** Settles the state with the server's session. A promise of it, such as a read still in flight, is the read. */
+  function seed(): void {
+    if (seeded) return
+    const value = sessionSeedResolver?.()
+    if (value === undefined) return
+    seeded = true
+    if (!(value instanceof Promise)) {
+      if (state.value.isPending) state.value = settled(value)
+      return
+    }
+    reading ??= value.then((session: unknown) => {
+      if (session !== undefined && state.value.isPending) state.value = settled(session)
+      return session ?? null
+    }).finally(() => {
+      reading = undefined
+    })
+  }
+
+  /** Loads Better Auth in the browser and follows its session atom with one watcher. */
+  function follow(): Promise<Readonly<Ref<SessionState>>> {
+    return following ??= loadAuthClient(client as VueAuthClient<{}>).then(loaded => scope.run(() => {
+      // SAFETY: Better Auth's `useSession()` without an argument returns the ref of its session atom.
+      const atom = loaded.useSession() as unknown as Readonly<Ref<SessionState>>
+      watch(atom, (value) => {
+        // Better Auth starts each read with no data as pending. Once the state is settled, keep it until the read answers.
+        if (!state.value.isPending && isPendingWithoutData(value)) return
+        state.value = value
+      }, { immediate: true, flush: "sync" })
+      return atom
+    })!, (error: unknown) => {
+      // A failed load, such as a lost network, is tried again on the next read.
+      following = undefined
+      throw error
+    })
+  }
+
+  async function fetchSession(query?: SessionQuery): Promise<unknown> {
+    if (!browser) {
+      // The server never loads Better Auth's client. It has the session that it read for the request, or nothing.
+      if (!state.value.isPending) return state.value.data
+      const session: unknown = await (app ? app.runWithContext(() => sessionSeedResolver?.()) : sessionSeedResolver?.())
+      if (session === undefined) return null
+      state.value = settled(session)
+      return session
+    }
+    const atom = await follow()
+    // Better Auth writes the answer to its atom, and the watcher writes it to the state before `refetch()` resolves.
+    await atom.value.refetch(query)
+    // Better Auth cancels a read when it starts a later one, such as after a sign-in or on window focus, and the
+    // cancelled read resolves without an answer. Wait for the answer of the later read.
+    if (atom.value.isRefetching) await settledAtom(atom)
+    return state.value.data ?? null
+  }
+
+  function settledAtom(atom: Readonly<Ref<SessionState>>): Promise<void> {
+    return new Promise((resolve) => {
+      const stop = scope.run(() => watch(atom, (value) => {
+        if (value.isRefetching) return
+        stop?.()
+        resolve()
+      }, { flush: "sync" }))
+    })
+  }
+
+  function read(query?: SessionQuery): Promise<unknown> {
+    // A read with its own query, such as `disableCookieCache`, does not share the read in flight.
+    if (query) return fetchSession(query)
+    return reading ??= fetchSession().finally(() => {
+      reading = undefined
+    })
+  }
+
+  seed()
+  if (browser) void follow()
+  return { state, read, seed, scope }
+}
+
 /** Better Auth's own Vue client behind one that `createAuthClient()` returned, once it has loaded. */
 export async function loadAuthClient<Client extends VueAuthClient<any>>(client: Client): Promise<Client> {
   const load = Reflect.get(client, LOAD) as (() => Promise<Client>) | undefined
   return load ? await load() : client
 }
 
-export const authClient: VueAuthClient<{}> = createAuthClient({ basePath: resolveAuthMountPath("/api/auth") })
+/** The options of the default client. The Nuxt module sets the Auth Definition's `basePath` before the client loads. */
+const defaultClientOptions = { basePath: resolveAuthMountPath("/api/auth") }
+
+export const authClient: VueAuthClient<{}> = createAuthClient(defaultClientOptions)
+
+/**
+ * Internal bridge installed by the Nuxt module: the Auth Definition's `basePath`, below Nuxt `app.baseURL`, for the
+ * default client. The page guard and the auto-imported composables then share one client and one session.
+ */
+export function setDefaultAuthBasePath(basePath: string): void {
+  defaultClientOptions.basePath = basePath
+}
 
 /** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
 export function provideAuthClient(client: VueAuthClient<any>): void {
@@ -138,8 +278,13 @@ export interface AuthSessionState<Client extends VueAuthClient<any> = typeof aut
 
 type AuthSessionRef<Client extends VueAuthClient<any> = typeof authClient> = DeepReadonly<Ref<AuthSessionState<Client>>>
 
+/**
+ * The session of `client`. Every call for the same client in the same app returns the same ref, so a list of
+ * components that call it costs one watcher. In Nuxt, the page guard reads the session into the same ref.
+ */
 export function useSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = useAuthClient() as Client): AuthSessionRef<Client> {
-  return client.useSession() as AuthSessionRef<Client>
+  // SAFETY: the store holds the state of Better Auth's `useSession()` for this client.
+  return sessionStore(client).state as unknown as AuthSessionRef<Client>
 }
 
 type ClientSession<Client extends VueAuthClient<any>> = Client["$Infer"]["Session"]
@@ -151,8 +296,13 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   impersonatedBy: ComputedRef<string | null>
   loggedIn: ComputedRef<boolean>
   pending: ComputedRef<boolean>
+  /** `true` once the session was read. It stays `true` while a later read runs, and after a read that failed. */
   ready: ComputedRef<boolean>
-  refresh: () => Promise<void>
+  /**
+   * Reads the session again, updates every ref, and returns the session, or `null` without one. Callers at the same
+   * time share one read. On the server, it returns the session that the server read for the request.
+   */
+  refresh: () => Promise<ClientSession<Client> | null>
   session: ComputedRef<ClientSession<Client>["session"] | null>
   signIn: Client["signIn"]
   signOut: Client["signOut"]
@@ -162,8 +312,21 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   user: ComputedRef<ClientSession<Client>["user"] | null>
 }
 
+/**
+ * The current user and session of `client`, with sign-in and sign-out actions. Every call for the same client in the
+ * same app returns the same object, so a list of components that call it costs nothing more.
+ */
 export function useUserSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = useAuthClient() as Client): UserSession<Client> {
-  const state = client.useSession() as AuthSessionRef<Client>
+  const store = sessionStore(client)
+  // SAFETY: the store makes this object once, for this client.
+  return (store.userSession ??= store.scope.run(() => createUserSession(client, store))) as UserSession<Client>
+}
+
+function createUserSession<Client extends VueAuthClient<any>>(client: Client, store: SessionStore): UserSession<Client> {
+  // SAFETY: the store holds the state of Better Auth's `useSession()` for this client.
+  const state = store.state as unknown as AuthSessionRef<Client>
+  // SAFETY: `read()` returns the session of this client, or `null`.
+  const refresh = store.read as () => Promise<ClientSession<Client> | null>
   return {
     data: computed(() => state.value.data),
     error: computed(() => state.value.error),
@@ -174,7 +337,7 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
     loggedIn: computed(() => Boolean(state.value.data?.session && state.value.data?.user)),
     pending: computed(() => state.value.isPending || state.value.isRefetching),
     ready: computed(() => !state.value.isPending),
-    refresh: () => state.value.refetch(),
+    refresh,
     session: computed(() => state.value.data?.session ?? null),
     signIn: client.signIn,
     signOut: client.signOut,
@@ -182,7 +345,7 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
     async stopImpersonating() {
       // The path works without Better Auth's `adminClient()` plugin on the client.
       await client.$fetch("/admin/stop-impersonating", { method: "POST", body: {}, throw: true })
-      await state.value.refetch()
+      await refresh()
     },
     user: computed(() => state.value.data?.user ?? null),
   }

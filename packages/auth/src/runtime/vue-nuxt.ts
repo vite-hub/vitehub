@@ -5,7 +5,7 @@ import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useReq
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { createAuthClient, setNuxtAppResolver, setSessionSeedResolver } from "../vue.ts"
+import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, useUserSession } from "../vue.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
 
@@ -82,7 +82,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     const config = useRuntimeConfig().public?.vitehubAuth as false | { basePath?: string, redirects?: AuthRedirects } | undefined
     if (config === false) return
     const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth")
-    const client = createAuthClient({ basePath })
+    // The guard uses the client of the auto-imported composables, so a read of the guard updates every component.
+    setDefaultAuthBasePath(basePath)
     const redirects = config?.redirects ?? {}
     const seed = useState(stateKey, () => undefined) as { value: unknown }
     if (!("window" in globalThis) && seed.value === undefined) seed.value = await readServerSession(basePath)
@@ -109,17 +110,18 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
         if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
       }
-      // Decide synchronously on the server to keep Nuxt's request context. Browser navigations read the current
-      // session directly, without installing a composable's watchers outside a component scope.
+      // Decide synchronously on the server to keep Nuxt's request context. Browser navigations read the session into
+      // the state that `useUserSession()` and `useSession()` share, so the page and the guard see the same answer.
       const loggedIn = "window" in globalThis
-        ? client.getSession().then(result => Boolean(result.data?.session && result.data?.user))
+        ? useUserSession().refresh().then(session => Boolean(session?.session && session?.user))
         : Boolean(seed.value)
       if (typeof loggedIn === "boolean") return decide(loggedIn)
       // In the browser, keep the Nuxt app for the navigation after Better Auth answers.
       const app = tryUseNuxtApp() as NuxtApp | undefined
       return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
     }, { global: true })
-    return { provide: { vitehubAuthClient: client } }
+    // `useAuthClient()` finds the shared default client here, also outside a component.
+    return { provide: { vitehubAuthClient: authClient } }
   },
 })
 

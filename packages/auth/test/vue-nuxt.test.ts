@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   state: { value: undefined as unknown },
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
+  app: { runWithContext: <T>(run: () => T): T => run() },
   requestFetch: vi.fn(),
   getSession: vi.fn(),
   useSession: vi.fn(),
@@ -31,27 +32,44 @@ vi.mock("#app", () => ({
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = middleware },
   navigateTo: mocks.navigateTo,
-  tryUseNuxtApp: () => ({ runWithContext: <T>(run: () => T) => run() }),
+  tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
   useRequestFetch: () => mocks.requestFetch,
   useRuntimeConfig: () => mocks.config,
   useState: () => mocks.state,
 }))
 
+// Better Auth's client, with a session atom that its `refetch()` fills from `getSession()`, as Better Auth does.
 vi.mock("better-auth/vue", () => ({
   createAuthClient: (options: unknown) => {
     mocks.createAuthClient(options)
-    return { getSession: mocks.getSession, useSession: mocks.useSession }
+    const atom = ref<Record<string, unknown>>({})
+    const refetch = async () => {
+      const { data } = await mocks.getSession()
+      atom.value = { data, error: null, isPending: false, isRefetching: false, refetch }
+    }
+    atom.value = { data: null, error: null, isPending: true, isRefetching: false, refetch }
+    return {
+      getSession: mocks.getSession,
+      useSession: () => {
+        mocks.useSession()
+        return atom
+      },
+    }
   },
 }))
 
-const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
-  default: { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
-}
+type Plugin = { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
+// Each test gets new modules, so the default client and its session start empty.
+let plugin: Plugin
+let useUserSession: typeof import("../src/vue.ts").useUserSession
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules()
+  plugin = (await import("../src/runtime/vue-nuxt.ts") as { default: Plugin }).default
+  ;({ useUserSession } = await import("../src/vue.ts"))
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
   mocks.state.value = undefined
@@ -59,7 +77,6 @@ beforeEach(() => {
   mocks.payload = {}
   mocks.middleware = undefined
   mocks.getSession.mockResolvedValue({ data: session })
-  mocks.useSession.mockReturnValue(ref({ data: null, isPending: true }))
 })
 
 afterEach(async () => {
@@ -126,16 +143,18 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
   })
 
-  it("checks the configured client endpoint on every navigation without session watchers", async () => {
+  it("reads the session at the configured endpoint on every navigation, with one client and one subscription", async () => {
     await configure("/auth", "/app/")
     vi.stubGlobal("window", {})
     mocks.state.value = null
     await plugin.setup({ payload: mocks.payload })
 
     for (let i = 0; i < 3; i++) expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    useUserSession()
 
+    expect(mocks.createAuthClient).toHaveBeenCalledOnce()
     expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth" })
-    expect(mocks.useSession).not.toHaveBeenCalled()
+    expect(mocks.useSession).toHaveBeenCalledOnce()
     expect(mocks.getSession).toHaveBeenCalledTimes(3)
     mocks.state.value = session
     mocks.getSession.mockResolvedValue({ data: null })
@@ -150,13 +169,18 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth" })
   })
 
-  it("checks repeated navigations without installing session hooks", async () => {
+  it("updates useUserSession() with the answer of a guard read", async () => {
     vi.stubGlobal("window", {})
-    mocks.state.value = null
+    // The server rendered the page signed in. The session then ended, such as by a sign-out in another tab.
+    mocks.state.value = session
     await plugin.setup({ payload: mocks.payload })
+    const { loggedIn, user } = useUserSession()
+    expect(user.value).toEqual(session.user)
+    mocks.getSession.mockResolvedValue({ data: null })
 
-    for (let i = 0; i < 3; i++) await mocks.middleware?.(userPage)
+    expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
 
-    expect(mocks.useSession).not.toHaveBeenCalled()
+    expect(user.value).toBeNull()
+    expect(loggedIn.value).toBe(false)
   })
 })
