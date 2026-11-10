@@ -39,6 +39,7 @@ catalogs:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
     "@better-auth/oauth-provider": ^1.7.15
+    "@better-auth/passkey": 1.7.15
     "@noble/hashes": ^2.2.0
     better-auth: ^1.7.15
     jose: ^6.2.12
@@ -219,7 +220,6 @@ catalogs:
   workspace:
     isomorphic-git: ^1.44.10
     minimatch: ^10.2.6
-    mountx: 0.0.2
     mrmime: ^2.0.1
     picomatch: ^4.0.7
     tinyglobby: ^0.2.17

@@ -17,7 +17,6 @@ export const consoleDatabaseKey: unique symbol = Symbol.for("vitehub.console.dat
 export const consoleDatabaseRegistryKey: unique symbol = Symbol.for("vitehub.console.database.registry")
 export const consoleDatabaseRootKey: unique symbol = Symbol.for("vitehub.console.database.root")
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
-export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
 export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
 export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
@@ -69,9 +68,16 @@ export interface ConsoleDatabaseInspection {
   names: readonly string[]
 }
 
+export interface ConsoleMediaLibrary {
+  runConsoleMediaAction: typeof import("./runtime/server/media.ts").runConsoleMediaAction
+  uploadConsoleMedia: typeof import("./runtime/server/media.ts").uploadConsoleMedia
+}
+
 export interface ConsoleBlobInspection {
   storage: BlobStorage
   stores: readonly string[]
+  /** Loads the media library. Only builds with Blob install it, so other builds ship without it. */
+  media?: () => Promise<ConsoleMediaLibrary>
 }
 
 type ConsoleBlobByRoot = ConsoleProjectRegistry<ConsoleBlobInspection>
