@@ -923,6 +923,33 @@ describe("Database Nuxt integration", () => {
   })
 
   it.each([
+    ["no cloudflare options", {}],
+    ["only a databaseId", { databaseId: "configured-id" }],
+    ["only a databaseName", { databaseName: "configured-db" }],
+  ])("writes types for a D1 Definition with %s in nuxt prepare and keeps the build check", async (_case, cloudflare) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-prepare-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), `export default defineDatabase({ cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
+      const prepare = createNuxt({ _prepare: true, dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1" })(undefined, prepare.nuxt)
+
+      await expect(callHook(prepare.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).resolves.toBeUndefined()
+      await expect(readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain("@vite-hub/database")
+      // `tsconfig.server.json` points `@vite-hub/database/drizzle` to this module.
+      await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).resolves.toContain("createHostedDrizzleDb")
+
+      const build = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1" })(undefined, build.nuxt)
+      await expect(callHook(build.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
     ["no use", undefined],
     ["a Database use", { name: "@vite-hub/connections/vite", vitehub: { databases: () => [{ database: "default", name: "connections", reason: "Stores Connection grants." }] } }],
   ])("checks the implicit default D1 Database only when a plugin needs it: %s", async (_case, plugin) => {

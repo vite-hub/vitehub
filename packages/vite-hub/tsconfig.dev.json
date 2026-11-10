@@ -73,6 +73,7 @@
     "src/**/*.ts",
     "../browser/src/registry-modules.d.ts",
     "../database/src/runtime/definition-runtime.d.ts",
+    "scripts/**/*.ts",
     "test/**/*.ts",
     "test/**/*.test-d.ts"
   ],
@@ -86,12 +87,6 @@
     "src/console/ui.ts",
     "test/console-invocation-views",
     // Browser code of the comments overlay, also checked by tsconfig.console.json.
-    "src/comments-overlay/loader-core.ts",
-    "src/comments-overlay/loader.ts",
-    "src/comments-overlay/overlay.ts",
-    "src/comments-overlay/virtual.d.ts",
-    "test/comments-overlay-loader.test.ts",
-    "test/comments-overlay-mount.test.ts",
     "test/console-comment-thread-dismissal.test.ts",
     // The page pill script, also checked by tsconfig.console.json.
     "src/page"
