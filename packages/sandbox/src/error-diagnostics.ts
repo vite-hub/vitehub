@@ -127,5 +127,11 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_R0155: dynamicError,
     SANDBOX_R0156: dynamicError,
     SANDBOX_R0159: dynamicError,
+    // container runtime
+    SANDBOX_R0160: dynamicError,
+    SANDBOX_R0161: dynamicError,
+    SANDBOX_R0162: dynamicError,
+    SANDBOX_R0163: dynamicError,
+    SANDBOX_R0164: dynamicError,
   },
 })
