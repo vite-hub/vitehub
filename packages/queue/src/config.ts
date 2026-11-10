@@ -4,7 +4,7 @@ import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { QueueModuleOptions, QueueProvider, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
+import type { QueueOptions, QueueProvider, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface QueueResolutionInput {
@@ -91,7 +91,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, post
   )
 }
 
-export function normalizeQueueOptions(options: QueueModuleOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
+export function normalizeQueueOptions(options: QueueOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
   if (options === false) return undefined
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw queueErrorDiagnostics.QUEUE_INVALID_CONFIG()

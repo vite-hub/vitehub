@@ -205,7 +205,7 @@ export type QueueModuleProviderOptions =
   | PostgresQueueModuleProviderOptions
   | VercelQueueModuleProviderOptions
 
-export type QueueModuleOptions =
+export type QueueOptions =
   | false
   | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions

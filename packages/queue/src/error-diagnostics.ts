@@ -84,8 +84,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Install a supported `@vercel/queue` version, or pass a `client` that has `send()` and `handleCallback()`.",
     },
     QUEUE_VERCEL_SDK_UNAVAILABLE: {
-      why: "`@vercel/queue` cannot be loaded.",
-      fix: "Add `@vercel/queue` to the app dependencies. Read `error.cause` for the import error.",
+      why: "`@vercel/queue` or `@vercel/functions` cannot be loaded.",
+      fix: "Add `@vercel/queue` and `@vercel/functions` to the app dependencies. Read `error.cause` for the import error.",
     },
 
     // Definition and build errors. ViteHub throws them when Vite reads the config or builds the app.

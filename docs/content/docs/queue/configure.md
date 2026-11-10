@@ -80,7 +80,7 @@ export default defineConfig({
 :::
 ::
 
-For the other options, such as `region`, use the Queue package alone. Pass them to `hubQueue()`, or to a top-level `queue` key, which wins:
+Set other Queue options directly in `vitehub({ queue: { ... } })` or the Nuxt `vitehub.queue` object. With the Queue package alone, pass them to `hubQueue()`:
 
 ```ts [vite.config.ts]
 import { hubQueue } from '@vite-hub/queue/vite'
@@ -110,7 +110,7 @@ Turns off runtime dispatch and the generated Vercel consumer functions. Runtime 
 | Provider | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue`. Supports idempotency, region, retention, and delay. |
+| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
 | Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node preset without a Postgres Database. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
 | Postgres | `queue: { provider: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node preset with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit provider without a Postgres Database needs it. Every instance runs jobs. Supports `delaySeconds` and `idempotencyKey`. Install `postgres`. |
 

@@ -35,6 +35,8 @@ vitehub bundle --against .vitehub/bundle-before.json --json  # the same as JSON
 
 The commands read `.vitehub/bundle/` and need no dev server. Development builds are not measured.
 
+The build also saves the report location in `.vitehub/bundle-root.json` at the build's working directory and beside the Vite config. This lets `vitehub bundle` find reports for a configured nested root without loading the project. Run a production build once to create this file for reports from an older version.
+
 ## What the report says
 
 - **Client and server.** Bytes and gzip bytes of the JavaScript that the build wrote, and the files that load at startup: the entries and every file that they import statically. On the server, startup code runs before the first request. Client startup combines all page entries, counting shared files once; a single page can load less.

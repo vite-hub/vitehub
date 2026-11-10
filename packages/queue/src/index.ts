@@ -37,7 +37,7 @@ export type {
   QueueHandler,
   QueueJob,
   QueueJobStore,
-  QueueModuleOptions,
+  QueueOptions,
   QueueModuleProviderOptions,
   QueueProvider,
   QueueProviderOptions,

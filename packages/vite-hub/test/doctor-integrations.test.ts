@@ -215,9 +215,9 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, queue: { provider: \"vercel\" }, env: { server: { token: 1 } } })] })",
+        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, logs: true, contentImportBase: \"vite-hub/content\" })] })",
       ),
-    })).toEqual(Array(5).fill("VHUB0031"))
+    })).toEqual(Array(7).fill("VHUB0031"))
   })
 
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
@@ -236,7 +236,7 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: true, connections: true, env: { prefix: \"APP_\" } })] })",
+        "export default defineConfig({ plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, observability: { logs: true }, env: { prefix: \"APP_\", server: {} } })] })",
       ),
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", env: { server: {} }, connections: false, queue: { provider: \"postgres\" } } })\n",
     }, "nuxt")).toEqual([])
