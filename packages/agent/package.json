@@ -155,11 +155,6 @@
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
-    "./server/github": {
-      "types": "./dist/server/github.d.ts",
-      "import": "./dist/server/github.js",
-      "default": "./dist/server/github.js"
-    },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js",
@@ -194,7 +189,6 @@
     "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "catalog:ai",
     "@ai-sdk/openai": "catalog:ai",
     "@ai-sdk/provider": "catalog:ai",
     "@cfworker/json-schema": "4.1.1",
@@ -207,6 +201,7 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/channels": "workspace:*",
+    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
@@ -216,7 +211,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "@yarnpkg/parsers": "catalog:tooling",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
@@ -226,8 +220,7 @@
     "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
-    "valibot": "catalog:runtime",
-    "yaml": "catalog:tooling"
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",

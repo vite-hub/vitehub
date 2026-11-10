@@ -155,7 +155,7 @@ describe("operations that run app code", () => {
   it("marks the workflow, queue, task, and schedule operations that start app code", async () => {
     const { workflowOperations } = await import("../../workflow/dist/operations.js")
     // Generated code imports the Queue operations by file path. They are not a package export.
-    const { queueOperations } = await import("../../queue/dist/operations.js")
+    const { queueOperations } = await import("../../queue/src/operations.ts")
     const { scheduleOperations } = await import("../../schedule/dist/operations.js")
     const { taskOperations } = await import("../src/task/operations.ts")
     const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()

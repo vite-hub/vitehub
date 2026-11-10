@@ -1,6 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { crc32, deflateRawSync } from "node:zlib";
 import { parse } from "yaml";
 
 import type { RunnableTutorialData, TutorialFiles } from "./steps";
@@ -34,9 +33,40 @@ function frontmatterField(markdown: string, field: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/** The frameworks of `::tabs{sync="framework"}`, in tab order. */
+export const frameworks = ["Nuxt", "Nitro", "Vite"] as const;
+export type Framework = typeof frameworks[number];
+
+/**
+ * A page as a reader of one framework sees it: the content of that framework's tab stays, and the other tabs of every
+ * `::tabs{sync="framework"}` block go away. Runnable tutorials run a Vite fixture, so they read the Vite view.
+ */
+export function frameworkView(markdown: string, framework: Framework): string {
+  const lines = markdown.replaceAll("\r\n", "\n").split("\n");
+  const out: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const tabs = /^(:{2,})tabs\{[^}]*sync="framework"[^}]*\}\s*$/.exec(lines[index]!);
+    if (!tabs) {
+      out.push(lines[index]!);
+      continue;
+    }
+    const colons = tabs[1]!;
+    let keep = false;
+    for (index++; index < lines.length && lines[index]!.trim() !== colons; index++) {
+      const line = lines[index]!;
+      const item = new RegExp(`^${colons}:tabs-item\\{[^}]*label="([^"]*)"`).exec(line);
+      if (item) keep = item[1] === framework;
+      else if (line.trim() === `${colons}:`) keep = false;
+      else if (keep) out.push(line);
+    }
+  }
+  return out.join("\n");
+}
+
 /** The `::tutorial-step` blocks of a page, in order, with the file labels of their code blocks. */
 export function parseTutorialSteps(markdown: string): { title: string, labels: string[] }[] {
   const steps: { title: string, labels: string[] }[] = [];
+  markdown = frameworkView(markdown, "Vite");
   for (const match of markdown.matchAll(/^::tutorial-step\{([^}]*)\}\n([\s\S]*?)^::$/gm)) {
     const title = /title="([^"]*)"/.exec(match[1]!)?.[1];
     if (!title) throw new Error(`A ::tutorial-step block has no title: ::tutorial-step{${match[1]}}`);
@@ -47,6 +77,7 @@ export function parseTutorialSteps(markdown: string): { title: string, labels: s
 
 /** The code block of `label` in a page, without its fences. */
 export function codeBlock(markdown: string, label: string): string | undefined {
+  markdown = frameworkView(markdown, "Vite");
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp("^```[^\\n]*\\[" + escaped + "\\]\\n([\\s\\S]*?)\\n```", "m").exec(markdown);
   return match ? `${match[1]}\n` : undefined;
@@ -168,49 +199,4 @@ export async function buildRunnableTutorial(input: {
     files,
     steps,
   };
-}
-
-/** A deflated .zip of text files, so a reader can download the starter of a tutorial. */
-export function createZip(files: TutorialFiles, folder: string): Uint8Array {
-  const local: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const [path, contents] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
-    const name = Buffer.from(`${folder}/${path}`, "utf8");
-    const data = Buffer.from(contents, "utf8");
-    const compressed = deflateRawSync(data);
-    const checksum = crc32(data);
-    // DOS date 1980-01-01, so the archive is the same on every build.
-    const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034B50, 0);
-    header.writeUInt16LE(20, 4);
-    header.writeUInt16LE(0x0800, 6);
-    header.writeUInt16LE(8, 8);
-    header.writeUInt16LE(0, 10);
-    header.writeUInt16LE(0x21, 12);
-    header.writeUInt32LE(checksum, 14);
-    header.writeUInt32LE(compressed.length, 18);
-    header.writeUInt32LE(data.length, 22);
-    header.writeUInt16LE(name.length, 26);
-    header.writeUInt16LE(0, 28);
-    local.push(header, name, compressed);
-
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014B50, 0);
-    entry.writeUInt16LE(20, 4);
-    entry.writeUInt16LE(20, 6);
-    header.copy(entry, 8, 6, 26);
-    entry.writeUInt16LE(name.length, 28);
-    entry.writeUInt32LE(offset, 42);
-    central.push(entry, name);
-    offset += header.length + name.length + compressed.length;
-  }
-  const directory = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054B50, 0);
-  end.writeUInt16LE(Object.keys(files).length, 8);
-  end.writeUInt16LE(Object.keys(files).length, 10);
-  end.writeUInt32LE(directory.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return new Uint8Array(Buffer.concat([...local, directory, end]));
 }

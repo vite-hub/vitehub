@@ -27,11 +27,19 @@ describe("public package export contracts", () => {
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
     expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
-    expect(content).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(content).toContain("fetch(request: Request): Promise<Response>")
     expect(server).toContain("(event: unknown): Promise<unknown>")
-    expect(content).toContain("(event: unknown): Promise<unknown>")
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
+    expect(content).not.toContain('from "h3"')
+  })
+
+  it("publishes exactly the allowlisted subpaths of each package", () => {
+    const published = Object.fromEntries(packageInfos.map(info => [info.packageName, Object.keys(readPackageManifest(info.name).exports || {})]))
+    expect(published).toEqual(publicPackageExportAllowlist)
+    for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
+    // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("publishes exactly the allowlisted subpaths of each package", () => {
@@ -77,6 +85,10 @@ describe("public package export contracts", () => {
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/i18n", "@vite-hub/i18n"],
+      ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
+      ["vite-hub/i18n/server", "@vite-hub/i18n"],
+      ["vite-hub/i18n/vue", "@vite-hub/i18n"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],

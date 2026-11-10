@@ -1130,6 +1130,9 @@ async function createWorkspaceTempDir(prefix: string) {
   }
   const rootDir = await mkdtemp(join(baseDir, prefix))
   tempDirs.push(rootDir)
+  // Provider output keeps a copy of the app's source root: the nearest folder with .git or pnpm-workspace.yaml.
+  // Without this file, every build copies the whole repository.
+  await writeFile(join(rootDir, "pnpm-workspace.yaml"), "packages: []\n")
   return rootDir
 }
 

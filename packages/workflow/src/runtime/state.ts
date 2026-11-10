@@ -98,13 +98,13 @@ function isWorkflowHandle(value: unknown): value is { name: string } {
     name?: unknown
     defer?: unknown
     getRun?: unknown
-    run?: unknown
+    start?: unknown
   }
 
   if (typeof candidate.name !== "string") return false
   if (typeof candidate.defer !== "function") return false
   if (typeof candidate.getRun !== "function") return false
-  return typeof candidate.run === "function"
+  return typeof candidate.start === "function"
 }
 
 function findExportedInlineWorkflowDefinition(

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { ownModule } from "@vite-hub/internal/build/paths"
 
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
@@ -134,7 +134,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
           ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
         assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined, setting?.databaseUrl)
-        if (environment?.command === "build") assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
+        if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
         localFileWarning = environment?.command === "build" && !setting?.databaseUrl && presetsWithoutPersistentFiles.has(options.preset ?? "")
           ? `[vitehub] Agent Invocation journal: the ${options.preset} preset has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
           : undefined

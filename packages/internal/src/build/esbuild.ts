@@ -1,5 +1,6 @@
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -112,6 +113,12 @@ function collectPackageExportCandidates(packageName: string, exportsValue: unkno
   return candidates
 }
 
+interface ResolvedBareAliasPaths {
+  canonical: string
+  normalized: string
+  publicSpecifier?: string
+}
+
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
@@ -139,7 +146,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
-      const resolvedBareAliasPaths = new Map<string, Promise<{ canonical: string, normalized: string, publicSpecifier?: string } | undefined>>()
+      const resolvedBareAliasPaths = new Map<string, Promise<ResolvedBareAliasPaths | undefined>>()
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
         const resolveWithContext = (specifier: string) => build.resolve(specifier, {
@@ -175,6 +182,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             : canonicalSpecifier === canonicalAlias)
         }
         if (!match && isAbsolute(args.path)) {
+          // Start every alias resolution at once. Awaiting them one by one costs one esbuild round trip per alias.
+          const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
             const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
@@ -255,6 +264,11 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
               })()
               if (!args.pluginData) resolvedBareAliasPaths.set(cacheKey, resolution)
             }
+            candidates.push({ alias, resolution })
+          }
+          // The loop below stops at the first match, so settle every resolution before it reads them in order.
+          await Promise.allSettled(candidates.map(candidate => candidate.resolution))
+          for (const { alias, resolution } of candidates) {
             const paths = await resolution
             if (!paths) continue
             if (paths.publicSpecifier) {
@@ -477,6 +491,27 @@ function createFileUrlPlugin(): Plugin {
   }
 }
 
+/**
+ * Copies a `.wasm?module` import next to the bundle and keeps it as a relative `.wasm` import. Wrangler and Nitro load
+ * such an import as a compiled WebAssembly module, which Workers need because they can't compile WebAssembly bytes.
+ */
+function createWasmModulePlugin(outdir: string): Plugin {
+  return {
+    name: "vitehub-wasm-module",
+    setup(build) {
+      build.onResolve({ filter: /\.wasm\?module$/ }, async (args) => {
+        const resolved = await build.resolve(args.path.slice(0, -"?module".length), { importer: args.importer, kind: args.kind, resolveDir: args.resolveDir })
+        if (resolved.errors.length) return { errors: resolved.errors }
+        const bytes = await readFile(resolved.path)
+        const name = `${basename(resolved.path, ".wasm")}-${createHash("sha256").update(bytes).digest("hex").slice(0, 8)}.wasm`
+        await mkdir(outdir, { recursive: true })
+        await copyFile(resolved.path, join(outdir, name))
+        return { external: true, path: `./${name}` }
+      })
+    },
+  }
+}
+
 export async function bundleEsmEntry(
   entryFile: string,
   outfile: string,
@@ -499,6 +534,8 @@ export async function bundleEsmEntry(
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())
   if (viteAliasPlugin) plugins.push(viteAliasPlugin)
   plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime))
+  // Node.js compiles WebAssembly bytes. Other targets, such as Workers, need the file as a compiled module.
+  if (platform !== "node") plugins.unshift(createWasmModulePlugin(dirname(outfile)))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,
@@ -524,6 +561,8 @@ export async function bundleEsmEntry(
     format,
     // Syntax and identifier minification can change function and class names.
     keepNames: options.minifySyntax || options.minifyIdentifiers,
+    // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
+    loader: platform === "node" ? { ".wasm": "binary" } : undefined,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     resolveExtensions: options.extensions,

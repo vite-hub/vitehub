@@ -1,4 +1,5 @@
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { defineConfig } from "vite-plus";
 
@@ -29,9 +30,17 @@ const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./error
 
 const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
+// `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
+// with it all of jose, which a bundle cannot drop from CommonJS. Bundle the one module that `@vercel/blob` calls.
+const vercelOidcTokenReader = fileURLToPath(new URL(
+  "get-vercel-oidc-token-with-refresh.js",
+  pathToFileURL(createRequire(import.meta.resolve("@vercel/blob")).resolve("@vercel/oidc")),
+));
+
 export default defineConfig({
   pack: {
     alias: {
+      "@vercel/oidc": vercelOidcTokenReader,
       "async-retry": fileURLToPath(new URL("./src/internal/vercel-retry.ts", import.meta.url)),
       "is-buffer": fileURLToPath(new URL("./src/internal/vercel-is-buffer.ts", import.meta.url)),
       throttleit: fileURLToPath(new URL("./src/internal/vercel-throttle.ts", import.meta.url)),
@@ -87,6 +96,7 @@ export default defineConfig({
       "src/drivers/vercel.ts",
       "src/drivers/vercel-bundled.ts",
       "src/index.ts",
+      "src/internal/vercel-blob.ts",
       "src/media.ts",
       "src/operations.ts",
       "src/reference.ts",
