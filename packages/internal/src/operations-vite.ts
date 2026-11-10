@@ -6,7 +6,8 @@ import { collectOperationContributions, operationRpcPath } from "./operations.ts
 import { flattenPluginOptions } from "./contributions.ts"
 import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "./cli.ts"
 
-const owners = new Set(["@vite-hub/kv/operations", "@vite-hub/blob/operations", "@vite-hub/email/operations", "@vite-hub/rate-limit/operations"])
+// The first of these plugins hosts the shared RPC. Its operations module also exports the handler factory.
+const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite"])
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
@@ -56,7 +57,7 @@ export async function installStandaloneOperationRpc(config: { root?: string, plu
   const plugins = await flattenPluginOptions(config.plugins)
   if (plugins.some(plugin => Reflect.get(plugin, "name") === "vite-hub/dependencies" || Reflect.get(plugin, "name") === "vite-hub/console")) return
   const contributions = (await collectOperationContributions(plugins)).filter(source => source.runtime !== false)
-  if (contributions.find(source => owners.has(source.module))?.module !== module) return
+  if (contributions.find(source => owners.has(source.plugin))?.module !== module) return
   const root = resolve(config.root ?? process.cwd())
   const handler = resolve(root, ".vitehub/nitro/operations/rpc.mjs")
   const source = [

@@ -1,0 +1,123 @@
+{
+  "name": "@vite-hub/i18n",
+  "version": "0.1.0",
+  "description": "Write messages in your language in Vue templates, scripts, and server code. ViteHub compiles them to message IDs, keeps one translation record per message, and picks the locale of each request.",
+  "keywords": [
+    "gettext",
+    "i18n",
+    "lingui",
+    "localization",
+    "translation",
+    "vite",
+    "vitehub",
+    "vue"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/i18n"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "./dist/vue.js"
+  ],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/i18n#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/i18n#build && vp test"
+  },
+  "dependencies": {
+    "@babel/core": "catalog:i18n",
+    "@diglot/core": "catalog:i18n",
+    "@diglot/store": "catalog:i18n",
+    "@lingui/babel-plugin-lingui-macro": "catalog:i18n",
+    "@lingui/cli": "catalog:i18n",
+    "@lingui/conf": "catalog:i18n",
+    "@lingui/core": "catalog:i18n",
+    "@lingui/extractor-vue": "catalog:i18n",
+    "@lingui/format-po": "catalog:i18n",
+    "@lingui/message-utils": "catalog:i18n",
+    "@lingui/vue": "catalog:i18n",
+    "@vite-hub/runtime": "workspace:*",
+    "@vue/compiler-sfc": "^3.5.44",
+    "magic-string": "^0.30.21",
+    "proper-lockfile": "catalog:"
+  },
+  "devDependencies": {
+    "@diglot/cli": "catalog:i18n",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "catalog:tooling",
+    "@types/proper-lockfile": "catalog:",
+    "@vite-hub/internal": "workspace:*",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:vue-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

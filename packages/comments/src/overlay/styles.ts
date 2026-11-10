@@ -16,7 +16,8 @@ export const overlayStyles = `
 }
 .root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif); }
 .root > * { pointer-events: auto; }
-.root > .cursors, .root > .outlines { pointer-events: none; }
+/* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
+.root > .cursors, .root > .outlines, .root > [data-slot="comment-layer"] { pointer-events: none; }
 .avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 

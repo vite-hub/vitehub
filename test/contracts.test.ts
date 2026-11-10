@@ -373,7 +373,7 @@ describe("playground import contracts", () => {
     expect(shimProperties.sort()).toEqual(sourceExports)
     expect(viteE2e).toContain('alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile')
     expect(viteE2e).toContain('resolve(queuePackageDir, "src/runtime/create-client.ts")')
-    expect(viteE2e).not.toContain('export { createQueueClient, deferQueue, getQueue, runQueue }')
+    expect(viteE2e).not.toContain('export { createQueueClient, deferQueue, sendQueue, useQueue }')
     expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
     expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)")
     expect(vercelQueueWrapper).toContain("createVercelQueueRuntimeClient")
