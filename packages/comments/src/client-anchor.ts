@@ -313,6 +313,21 @@ interface TextResolution {
   score: number
 }
 
+/** The nearest block around an element, such as the paragraph around a `<strong>`: its right edge is the pin's gutter. */
+function blockOf(element: Element): Element {
+  const view = ownerDocument(element)?.defaultView
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const display = view?.getComputedStyle(node).display ?? "block"
+    if (!display.startsWith("inline") && display !== "contents") return node
+  }
+  return element
+}
+
+/** The space between a text block and its 28px pin, as in Drop. */
+const PIN_GUTTER = 8
+/** The room that a pin takes right of its spot at the screen's edge: the pin and 2px. */
+const PIN_ROOM = 28 + 2
+
 function resolveText(anchor: TextAnchor, element: Element): TextResolution | undefined {
   const nodes = textNodes(element)
   const text = nodes.map(node => node.data).join("")
@@ -323,7 +338,7 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
   const to = boundary(nodes, start + anchor.exact.length, true)
   const own = boxOf(element)
   let rect = own
-  let first = own
+  let last = own
   if (from && to) {
     const doc = ownerDocument(element) ?? document
     const range = doc.createRange()
@@ -333,14 +348,20 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
       const { left, top, width, height } = range.getBoundingClientRect()
       if (visible({ left, top, width, height })) rect = { left, top, width, height }
     }
-    const line = typeof range.getClientRects === "function" ? range.getClientRects()[0] : undefined
-    first = line && visible(line) ? { left: line.left, top: line.top, width: line.width, height: line.height } : rect
+    const lines = typeof range.getClientRects === "function" ? [...range.getClientRects()].filter(visible) : []
+    const line = lines.at(-1)
+    last = line ? { left: line.left, top: line.top, width: line.width, height: line.height } : rect
   }
   if (!visible(rect)) return undefined
-  const x = first.left
-  const y = first.top
+  // As in Drop, the pin sits in the gutter right of the quote's block, level with the quote's last line, so it covers
+  // no text. It stays on screen when the block reaches the right edge.
+  const view = ownerDocument(element)?.defaultView
+  const block = boxOf(blockOf(element))
+  const x = Math.min(Math.max(block.left + block.width, last.left + last.width) + PIN_GUTTER, (view?.innerWidth ?? Infinity) - PIN_ROOM)
+  const y = last.top + last.height / 2
   return {
-    position: { clipped: isClipped(element, x, y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
+    // Clipping follows the quote, not the pin: the gutter can be outside a scroll container that shows the quote.
+    position: { clipped: isClipped(element, last.left + Math.max(0, last.width - 1), y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
     score: match.score,
     ambiguous: match.ambiguous,
   }
@@ -365,6 +386,31 @@ function isClipped(element: Element, x: number, y: number): boolean {
     if (x < box.left - 1 || x > box.left + box.width + 1 || y < box.top - 1 || y > box.top + box.height + 1) return true
   }
   return false
+}
+
+/**
+ * The range of the quote of a text anchor on the page, for a highlight. It finds the quote as `resolveAnchor()` does,
+ * and returns `undefined` when that would detach the anchor.
+ */
+export function anchorRange(anchor: TextAnchor, root: ParentNode = document): Range | undefined {
+  let best: { range: Range, score: number, ambiguous: boolean } | undefined
+  for (const element of lookup(root, anchor.selector)) {
+    const nodes = textNodes(element)
+    const match = findQuote(nodes.map(node => node.data).join(""), anchor)
+    const from = match && boundary(nodes, match.start, false)
+    const to = match && boundary(nodes, match.start + anchor.exact.length, true)
+    if (!match || !from || !to) continue
+    if (best && match.score === best.score) {
+      best.ambiguous = true
+      continue
+    }
+    if (best && match.score < best.score) continue
+    const range = (ownerDocument(element) ?? document).createRange()
+    range.setStart(from.node, from.offset)
+    range.setEnd(to.node, to.offset)
+    best = { range, score: match.score, ambiguous: match.ambiguous }
+  }
+  return best && !best.ambiguous ? best.range : undefined
 }
 
 /**
