@@ -31,7 +31,10 @@ describe("Auth request instances", () => {
     provider.handler.mockReset().mockImplementation(async () => new Response("ok"))
   })
 
-  afterEach(() => resetAuth())
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetAuth()
+  })
 
   it("reuses one instance for requests with equal resolved options", async () => {
     const definition = defineAuth({ appName: "ViteHub" })
@@ -83,6 +86,32 @@ describe("Auth request instances", () => {
     await send({ "x-secret": "another-secret-at-least-32-bytes-long" })
     await send({})
     expect(provider.betterAuth).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([
+    ["BETTER_AUTH_SECRET", "first-secret-at-least-32-characters", "second-secret-at-least-32-characters"],
+    ["AUTH_SECRET", "first-secret-at-least-32-characters", "second-secret-at-least-32-characters"],
+    ["BETTER_AUTH_SECRETS", "1:first-secret-at-least-32-characters", "2:second-secret-at-least-32-characters"],
+    ["BETTER_AUTH_TRUSTED_ORIGINS", "https://one.example", "https://two.example"],
+  ])("builds another instance when Better Auth's %s changes", async (name, first, second) => {
+    const guard = withAuth(() => "ok", defineAuth({ appName: "ViteHub" }))
+    vi.stubEnv(name, first)
+    await guard(request("https://app.example/one"))
+    await guard(request("https://app.example/two"))
+    vi.stubEnv(name, second)
+    await guard(request("https://app.example/three"))
+    expect(provider.betterAuth).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])("does not read the environment values that the options replace in a callback=%s Definition", async (callback) => {
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", "not-a-hash")
+    vi.stubEnv("VITEHUB_SECRET", "short")
+    const secret = "explicit-secret-at-least-32-characters"
+    for (const runtime of [{ secret }, { secrets: [{ version: 1, value: secret }] }]) {
+      const definition = callback ? defineAuth(() => ({ adminClaim: false, ...runtime })) : defineAuth({ adminClaim: false, runtime })
+      expect((await handleAuthRequest(definition, request("https://app.example/api/auth/ok"))).status).toBe(200)
+      expect(await withAuth(() => "ok", definition)(request("https://app.example/private"))).toBe("ok")
+    }
   })
 
   it("does not share an instance that captured the bindings of another request", async () => {
