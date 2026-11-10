@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type {
   AgentHookObserver,
   AgentHookObserverEvent,
@@ -10,7 +9,7 @@ import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 function observerList(hooks?: AgentHookObserverHooks): AgentHookObserver[] {
   const observers = hooks?.["hook:observe"]
   if (!observers) return []
-  return hasRuntimeType(observers, "function") ? [observers] : [...observers]
+  return typeof observers === "function" ? [observers] : [...observers]
 }
 
 function errorMetadata(error: unknown): AgentHookObserverEvent["error"] {

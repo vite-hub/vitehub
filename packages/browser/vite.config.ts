@@ -1,6 +1,6 @@
 import { defineConfig } from "vite-plus"
 
-import { packDefaults } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
@@ -23,5 +23,13 @@ export default defineConfig({
       "src/providers/local.ts",
       "src/vite.ts",
     ],
+    exports: {
+      customExports(exports) {
+        return normalizePackageExports(Object.fromEntries(
+          Object.entries(exports).filter(([key]) => !key.startsWith("./internal/")),
+        ))
+      },
+      inlinedDependencies: false,
+    },
   },
 })

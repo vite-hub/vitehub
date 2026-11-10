@@ -44,12 +44,12 @@ The optional provider `id` must be a string. Unreadable or non-string IDs are le
 
 Clients share one definition load per runtime registry. A failed load retries on the next send. A new registry clears the cache.
 
-```ts [server/api/build-finished.post.ts] fragment
+```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
 
 export default defineEventHandler(async () => {
-  const [error, receipt] = await useChannel('alerts').send('Build finished.', { chatId: 'build-room' })
+  const [error, receipt] = await useChannel('alerts').send('Build finished.', { chatId: '@build_room' })
   if (error) throw error
   return receipt
 })
