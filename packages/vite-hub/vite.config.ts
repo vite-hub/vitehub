@@ -164,7 +164,6 @@ export default defineConfig({
         { from: "src/error-diagnostics.ts", to: "dist" },
         { from: ".vitehub/console", to: "dist/console/runtime/public" },
         { from: ".vitehub/skills", to: "dist/console/runtime/public" },
-        { from: ".vitehub/comments-overlay", to: "dist" },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
