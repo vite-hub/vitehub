@@ -336,3 +336,8 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
   };
   return bridge;
 }
+
+export { createEnvAuthenticator } from "./auth.ts";
+export type { EnvAgentScope, EnvAgentSession, EnvAuthenticatorOptions, EnvHumanSession } from "./auth.ts";
+export { createEnvBridgeHandler } from "./http.ts";
+export type { EnvBridgeRequestOptions, EnvManagement, EnvManagementResolver } from "./http.ts";

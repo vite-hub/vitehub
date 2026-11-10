@@ -8,6 +8,7 @@ const dynamicError = {
 const withFix = (fix: string) => ({ ...dynamicError, fix })
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: ENV_R0007 and ENV_R0024.
 export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
@@ -17,7 +18,6 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0004: withFix("Pass the key that the provider reads as the second argument, for example `env.provider('vault', 'db/password')`."),
     ENV_R0005: withFix("Pass one plain options object, for example `env({ secret: true })`."),
     ENV_R0006: withFix("Set `optional: true` or `required`, not both."),
-    ENV_R0007: dynamicError,
     ENV_R0008: withFix("Change the Env declaration at the path in the error details, as the message says."),
     ENV_R0009: withFix("Load Server Env with `await loadServerEnv()`, or run the code in `runWithServerEnv()`. A provider value cannot be read without `await`."),
     ENV_R0010: withFix("Give the variable a value at its source: set it in `.env` or in the host environment, or return it from the provider or the custom source. Or set `optional: true` on the declaration, or a `default` if the variable is not secret. Run `vitehub env check` to list the missing variables."),
@@ -34,7 +34,6 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0021: withFix("This is a ViteHub bug. Report it at https://github.com/vite-hub/vitehub/issues with the message and your Vite config."),
     ENV_R0022: withFix("Pass unique, non-empty strings, for example `env.enum(['development', 'production'])`."),
     ENV_R0023: withFix("Change the `default` so that it matches the schema, for example a number for `env.number()`."),
-    ENV_R0024: dynamicError,
     ENV_R0025: withFix("Put a stage name after `--stage`, for example `vitehub env check --stage production`."),
     ENV_R0026: withFix("Remove the option. `vitehub env <command> --help` lists the options."),
     ENV_R0027: withFix("Add `vitehub()` or `hubEnv()` to the Vite plugins of the selected stage."),
