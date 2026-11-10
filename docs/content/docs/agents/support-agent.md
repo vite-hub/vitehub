@@ -1,21 +1,21 @@
 ---
 title: Build a support Agent
-description: Compose a support Agent that answers in Teams from scoped Workspace evidence.
+description: Build a support Agent that answers in Teams from files it is allowed to read.
 navigation.order: 80
 navigation.group: Recipes
 icon: i-lucide-life-buoy
 navigation.kind: Guides
 ---
 
-A support Agent needs a source boundary, a read tool, a caller check, and a
-Channel. Keep those choices in one Agent Definition so you can inspect the
-resolved contract before you connect production credentials.
+A support Agent needs files to read, a read tool, a caller check, and a
+Channel (the chat service it answers in). Put them in one Agent Definition, so
+you can inspect the result before you add production credentials.
 
 ## Compose the Agent
 
-This example mounts Markdown files from `support/knowledge`, allows signed-in
-staff to use that Source, and exposes read-only Workspace tools. `access()`
-must run before `workspaceShell()` so the shell receives the scoped Workspace.
+This example mounts Markdown files from `support/knowledge` as a Source, lets
+signed-in staff use it, and adds read-only Workspace tools. Put `access()`
+before `workspaceShell()`, so the shell gets the scoped Workspace.
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -62,19 +62,18 @@ export default defineAgent({
 })
 ```
 
-The Source is available under its `docs` key, but it does not grant access by
-itself. Each Access scope grants that key. `public` and `staff` are separate
-scope names even though this example gives them the same Source; use different
-Source or path grants when staff can read more.
+The Source has the key `docs`, but the key alone grants no access. Each
+Access scope grants it. `public` and `staff` are separate scopes with the same
+Source here. Give staff different Source or path grants when they can read more.
 
-`replyToSubscribedThreads` lets the Agent answer later human replies in a
-subscribed Teams thread without a new mention. It does not subscribe every
-conversation. Keep the default mention requirement when the Agent must answer
-only explicit requests.
+`replyToSubscribedThreads` lets the Agent answer later replies in a subscribed
+Teams thread without a new mention. It does not subscribe every conversation.
+Keep the default mention requirement if the Agent must answer only explicit
+requests.
 
 ## Write the evidence policy
 
-Put the model-facing rules beside the Agent as `instructions.md`:
+Put the rules for the model in `instructions.md` next to the Agent:
 
 ```md [server/agents/support/instructions.md]
 # Support
@@ -101,27 +100,25 @@ authorization from message text.
 ::
 ```
 
-Instructions describe behavior and evidence policy. Put file access in the
-Workspace and tool schemas in Capabilities. The coverage directives let
-`vitehub agent info` report whether the policy names every configured Source
-and Capability.
+Instructions say how to behave and what evidence to use. File access goes in
+the Workspace, and tool schemas go in Capabilities. With the `::source` and
+`::capability` directives, `vitehub agent info` reports if the policy names
+every Source and Capability.
 
 ## Pass trusted identity
 
 Authenticate the Teams request before ViteHub resolves Access. The resolver
-must use the trusted `invoker` or provider identity. Never choose a scope from
-message text. If an invocation has no invoker, this example uses `public`; set
-`defaultScope` to `undefined` and return no scope when anonymous requests
-must fail.
+must use the trusted `invoker` or provider identity, never message text. With
+no invoker, this example uses `public`. To make anonymous requests fail, set
+`defaultScope` to `undefined` and return no scope.
 
-The `role: 'admin'` value is recorded with the selected scope. It does not
-create a new identity or bypass a Channel provider's permissions. Keep the
-`all: true` grant for a separate, explicitly authorized scope when staff need
-the complete Workspace.
+`role: 'admin'` is recorded with the scope. It does not create a new identity
+or bypass Channel provider permissions. If staff need the whole Workspace, put
+the `all: true` grant in a separate, explicitly authorized scope.
 
 ## Inspect before connecting production
 
-Run these commands from the project root after enabling the Node Agent host:
+Turn on the Node Agent host, then run from the project root:
 
 ```sh
 pnpm vite build
@@ -131,20 +128,19 @@ pnpm vitehub inspect definitions --kind agent
 pnpm vitehub agent info --agent support --json
 ```
 
-Check that the resolved definition lists the `teams` Channel, the `docs`
-Source, the read-only `workspaceShell` Capability, and the Access scopes. Send
-a test message in a development Teams installation, then inspect its
-Invocation in the Console. Confirm that a Workspace search stays inside the
-granted Source before enabling the production webhook.
+Check that the definition lists the `teams` Channel, the `docs` Source, the
+read-only `workspaceShell` Capability, and the Access scopes. Send a test
+message in a development Teams install, then inspect its Invocation in the
+Console. Before you turn on the production webhook, confirm that a Workspace
+search stays inside the granted Source.
 
-For a Channel that should not write messages while you test prompts, pass
-`dryRun: true` to the Invocation. Read methods still run, while replies and
-other Channel writes are recorded as skipped deliveries.
+To test prompts without Channel writes, pass `dryRun: true` to the Invocation.
+Reads still run. Replies and other writes are recorded as skipped deliveries.
 
-## Continue with the references
+## Read more
 
-- [Channels](/docs/agents/channels) explains mentions, subscriptions, webhooks, and dry runs.
-- [Access](/docs/agents/capabilities/access) defines scope resolution and chat admission.
-- [Workspace context](/docs/agents/workspace-context) covers Sources, mounts, and provider workspaces.
-- [Instructions](/docs/agents/instructions) documents bindings and reusable policy.
-- [Observability](/docs/agents/observability) adds Console status and event delivery for a hosted Agent.
+- [Channels](/docs/agents/channels): mentions, subscriptions, webhooks, and dry runs.
+- [Access](/docs/agents/capabilities/access): scope resolution and chat admission.
+- [Workspace context](/docs/agents/workspace-context): Sources, mounts, and provider workspaces.
+- [Instructions](/docs/agents/instructions): bindings and reusable policy.
+- [Observability](/docs/agents/observability): Console status and event delivery for a hosted Agent.

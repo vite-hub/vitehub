@@ -96,11 +96,14 @@ function sandboxTaskProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox/task', './runtime/provider-loader', 'runtime/provider-loader.js')
 }
 
+/** The path of the Sandbox Task runtime state module. Generated code of other owners imports it by path. */
+export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
+
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
-  [sandboxTaskRuntimeStateSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js'),
+  [sandboxTaskRuntimeStateSpecifier]: sandboxTaskRuntimeStateModule,
 }
 
 function toSandboxTaskAliasEntries(aliases: AliasMap): SandboxTaskAlias[] {

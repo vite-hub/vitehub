@@ -238,6 +238,7 @@ describe("docs Nuxt setup", () => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
+    expect(templates.get("docs/manifest.d.ts")?.()).toContain("declare const manifest: DocsManifest\n")
     expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })
@@ -406,11 +407,16 @@ describe("docs Nuxt setup", () => {
     expect(raw.endsWith("\n\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
   })
 
+  it("shows a colored logo as it is, with its dark version", async () => {
+    const options = await setupDocs({ site: { logo: { light: "/logo.svg", dark: "/logo-dark.svg" } } }, "/portal/")
+    expect(options.runtimeConfig.public.docs.site.logo).toEqual({ src: "/portal/logo.svg", dark: "/portal/logo-dark.svg", mask: false })
+  })
+
   it("keeps manifest and Nitro resources app-relative and advertises public URLs below the app base", async () => {
     const options = await setupDocs({ site: { url: "https://docs.example.com", logo: "/logo.svg" } }, "/portal/")
     expect(options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs",
-      site: { url: "https://docs.example.com", logo: "/portal/logo.svg" },
+      site: { url: "https://docs.example.com", logo: { src: "/portal/logo.svg", dark: null, mask: true } },
       mcp: { url: "https://docs.example.com/portal/mcp" },
     })
     expect(options.agentDiscovery.siteUrl).toBe("https://docs.example.com")

@@ -7,19 +7,59 @@ navigation.group: Databases
 icon: i-lucide-database
 ---
 
-Use Turso when you want hosted libSQL while keeping a SQLite Drizzle schema.
-ViteHub connects through its libSQL driver. It does not move existing local rows
-to the hosted database.
+Use Turso for hosted libSQL with your SQLite Drizzle schema. ViteHub connects
+through its libSQL driver. It does not copy local rows to Turso.
 
-Complete [Save your first Database row](/docs/database/get-started). Keep its
-Database Definition and notes routes. Create a separate Turso database for this
-check and obtain its URL and authentication token.
+First, complete [Save your first Database row](/docs/database/get-started) and
+keep its Database Definition and notes routes. Create a new Turso database and
+copy its URL and auth token.
 
 ## Configure the hosted connection
 
-Enable Database and declare runtime environment sources. Keep secrets out of
-literal build configuration.
+Read the values from the environment at runtime, not the build config.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	preset: 'node',
+  	database: {
+  		connection: {
+  			url: env({ source: env.source('TURSO_DATABASE_URL') }),
+  			authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+  		},
+  	},
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+	plugins: [vitehub({
+		preset: 'node',
+		database: {
+			connection: {
+				url: env({ source: env.source('TURSO_DATABASE_URL') }),
+				authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+			},
+		},
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -37,26 +77,25 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
-A connection declared on a Database Definition takes precedence over matching
-integration options. Remove an old local connection from the Definition if the
-app still reads SQLite.
+A connection in the Database Definition wins over these options. If the app
+still reads SQLite, remove the old connection from the Definition.
 
-Set the variables in the shell used for migrations and in the deployment's
-server environment:
+Set the variables in the migration shell and the server environment:
 
 ```bash [Terminal]
 export TURSO_DATABASE_URL='libsql://your-database.turso.io'
 export TURSO_AUTH_TOKEN='your-auth-token'
 ```
 
-Use `preset: 'vercel'` for a Vercel build. Keep the same connection declaration
-and routes. The provider remains Turso.
+For Vercel, use `preset: 'vercel'` with the same connection and routes. The
+provider stays Turso.
 
 ## Apply the schema and check a row
 
-Generate the migration if your schema has changed. Review the SQL before
-applying it to the new hosted database:
+Generate a migration if the schema changed. Review the SQL before you apply it:
 
 ```bash [Terminal]
 pnpm vitehub db generate
@@ -65,7 +104,7 @@ pnpm vitehub db migrate
 pnpm dev
 ```
 
-Call the notes routes in another terminal:
+In another terminal, call the notes routes:
 
 ```bash [Terminal]
 curl --fail-with-body http://localhost:3000/api/notes \
@@ -73,17 +112,16 @@ curl --fail-with-body http://localhost:3000/api/notes \
 curl --fail-with-body http://localhost:3000/api/notes
 ```
 
-The read includes the new note. Restart the app and repeat the GET request.
-Confirm the same row in Turso. An existing database can return additional rows.
+The read includes the note. Restart, repeat the GET, and find the row in Turso.
+An older database can return more rows.
 
 ## Diagnose connection errors
 
-- A missing table means the target database lacks the migration. Check the URL
-  before applying SQL.
-- An authentication error requires a valid token for that database.
-- Unexpected local rows usually mean a Definition overrides the hosted connection.
+- Missing table: the database lacks the migration. Check the URL before you
+  apply SQL.
+- Authentication error: use a valid token for that database.
+- Local rows: a Definition probably overrides the hosted connection.
 
-Back up an existing database before changing its schema. Read
-[Database configuration](/docs/database/configure) for migration checks and
-[Turso documentation](https://docs.turso.tech/) for current database access and
-service limits.
+Back up a database before you change its schema. See
+[Database configuration](/docs/database/configure) for migration checks and the
+[Turso docs](https://docs.turso.tech/) for access and limits.
