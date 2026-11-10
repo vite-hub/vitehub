@@ -7,7 +7,6 @@ import { packageInfos, readPackageManifest } from "./utils/repo"
 export const publicPackageExportAllowlist: Readonly<Record<string, readonly string[]>> = {
   "@vite-hub/agent": [
     ".",
-    "./ai-sdk",
     "./capabilities",
     "./channels",
     "./cli",
@@ -22,12 +21,9 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./invocations/drizzle",
     "./invocations/sqlite",
     "./mcp",
-    "./mcp/stdio",
-    "./messages",
     "./observability",
     "./observability/host",
     "./observability/posthog",
-    "./output",
     "./process-host",
     "./runtime/process",
     "./server",
