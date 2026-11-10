@@ -1,6 +1,8 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
+import { isListedConsoleOrigin } from "./cors.ts"
+
 import type { JSONWebKeySet } from "jose"
 import type { verifyConsoleJwt } from "./bearer-jwt.ts"
 import type { ConsoleUser } from "../../auth-types.ts"
@@ -47,7 +49,19 @@ export interface ConsoleOAuthConfig {
 }
 
 export type ConsoleOAuthState =
-  | { ready: true, auth: ConsoleOAuthAuth, context: ConsoleOAuthContext, issuer: string, metadataUrl: string, resource: string }
+  | {
+    ready: true
+    auth: ConsoleOAuthAuth
+    context: ConsoleOAuthContext
+    issuer: string
+    metadataUrl: string
+    resource: string
+    /**
+     * The Console resource, `<origin><base>/_vitehub`, and its metadata URL, when the Auth issues tokens for it. A hosted
+     * Console signs in for this resource and sends its token to the data routes.
+     */
+    console?: { metadataUrl: string, resource: string }
+  }
   | { ready: false, code: ConsoleDiagnosticCode, message: string }
 
 const wellKnownPrefix = "/.well-known/oauth-protected-resource"
@@ -81,6 +95,16 @@ function pluginOptions(plugin: { options?: unknown } | undefined): Record<string
 function jwtIssuer(context: ConsoleOAuthContext): string {
   const jwt = pluginOptions(findPlugin(context, "jwt")).jwt
   return isRecord(jwt) && typeof jwt.issuer === "string" && jwt.issuer ? jwt.issuer : context.baseURL
+}
+
+/** The Console resource next to an MCP resource: `<origin><base>/_vitehub` for `<origin><base>/_vitehub/mcp`. */
+export function consoleResourceOf(mcpResource: string): string | undefined {
+  return mcpResource.endsWith("/_vitehub/mcp") ? mcpResource.slice(0, -"/mcp".length) : undefined
+}
+
+function oauthResources(context: ConsoleOAuthContext): unknown[] {
+  const options = pluginOptions(findPlugin(context, "oauth-provider"))
+  return Array.isArray(options.resources) ? options.resources.map(entry => isRecord(entry) ? entry.identifier : entry) : []
 }
 
 /** What the Auth must have so that Better Auth issues access tokens that the Console can check. Empty when it is complete. */
@@ -142,6 +166,7 @@ async function buildState(config: ConsoleOAuthConfig, event: ConsoleRequestEvent
         ready: false,
       }
     }
+    const consoleResource = consoleResourceOf(resource)
     return {
       auth,
       context,
@@ -149,6 +174,9 @@ async function buildState(config: ConsoleOAuthConfig, event: ConsoleRequestEvent
       metadataUrl: `${origin}${wellKnownPrefix}${new URL(resource).pathname}`,
       ready: true,
       resource,
+      ...(consoleResource && oauthResources(context).includes(consoleResource)
+        ? { console: { metadataUrl: `${origin}${wellKnownPrefix}${new URL(consoleResource).pathname}`, resource: consoleResource } }
+        : {}),
     }
   }
   catch (error) {
@@ -215,7 +243,8 @@ function bannedUser(user: Record<string, unknown>): boolean {
 }
 
 /**
- * Check an OAuth access token that Better Auth's `oauthProvider` and `jwt` plugins issued for the MCP endpoint. The keys
+ * Check an OAuth access token that Better Auth's `oauthProvider` and `jwt` plugins issued for the MCP endpoint, or, on a
+ * Console data route called from an origin in `console.origins`, for the Console resource. The keys
  * come from the app's own Auth in-process, and the issuer and audience from trusted configuration: a request cannot pick
  * them. The signature algorithm is pinned to the ones in the key set. The person is read from the Auth by the `sub` claim,
  * so a deleted or banned user loses access with the token still unexpired.
@@ -224,17 +253,21 @@ function bannedUser(user: Record<string, unknown>): boolean {
  */
 export async function verifyConsoleBearer(request: Request, event: ConsoleRequestEvent, config: ConsoleOAuthConfig, development: boolean): Promise<ConsoleBearerResult | undefined> {
   const token = bearerToken(request)
-  // An access token is for the MCP endpoint only. Other Console routes keep to the session.
-  if (!token || !isMcpPath(config, request)) return undefined
+  if (!token) return undefined
+  const mcp = isMcpPath(config, request)
+  // Same-origin calls and the CLI keep to the session, so a bearer that `console.authorize` checks still reaches it.
+  if (!mcp && !isListedConsoleOrigin(request.headers.get("origin"))) return undefined
   const state = await resolveConsoleOAuth(config, event, request, development)
   if (!state.ready) return { ok: false, state }
+  const audience = mcp ? state.resource : state.console?.resource
+  if (!audience) return { ok: false, state }
   try {
     const jwks = jwksOf(await state.auth.api.getJwks())
     const algorithms = [...new Set((jwks?.keys ?? []).flatMap(key => typeof key.alg === "string" ? [key.alg] : []))]
     if (!jwks || !algorithms.length) return { ok: false, state }
     const payload = await config.verify(token, jwks, {
       algorithms,
-      audience: state.resource,
+      audience,
       clockTolerance: clockToleranceSeconds,
       issuer: state.issuer,
       requiredClaims: ["exp", "sub"],

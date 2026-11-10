@@ -131,7 +131,7 @@ On Cloudflare, set `preset: 'cloudflare'` and `workflow: true`, with the same Wo
 In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts` becomes `steps.chargeCard`, with the provider step name `checkout/01.charge-card.ts`. Do not rename a step file while runs are in progress, because the new name is not in their step log.
 
 ```ts [server/workflows/checkout/index.ts]
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow(
   'checkout',
@@ -190,7 +190,7 @@ Start the run with an id from the order:
 
 ```ts [server/api/checkout.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { startWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)

@@ -52,16 +52,9 @@ export interface MultipartUploadTask {
 
 const defaultPartSize = 10 * 1024 * 1024
 
-function isFile(value: unknown): value is File {
-  try {
-    // The native name getter validates File slots across realms without trusting
-    // Symbol.toStringTag or the value's prototype chain.
-    const name = Object.getOwnPropertyDescriptor(File.prototype, "name")?.get
-    return name?.call(value) !== undefined
-  }
-  catch {
-    return false
-  }
+// A File from another realm (an iframe) also matches. An input element has a name but no arrayBuffer().
+function isFile(value: UploadInput): value is File {
+  return "name" in value && typeof value.name === "string" && "arrayBuffer" in value && typeof value.arrayBuffer === "function"
 }
 
 function toFiles(input: UploadInput): File[] {

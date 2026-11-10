@@ -19,6 +19,7 @@ const mcpWarningSchema = v.object({
   phase: v.picklist(["discovery", "resolve"]),
   server: v.string(),
   statusCode: v.optional(v.pipe(v.number(), v.integer(), v.minValue(400), v.maxValue(599))),
+  code: v.optional(v.string()),
 })
 
 /** Return valid MCP availability warnings recorded in an Agent run input. */
