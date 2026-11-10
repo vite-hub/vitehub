@@ -7,7 +7,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 // Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
 import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
-import { defineCommentSubject, defineComments, installComments } from "../src/index.ts"
+import { defineCommentSubject, defineComments } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsStore } from "../src/operations-core/store.ts"

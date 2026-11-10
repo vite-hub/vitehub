@@ -1,13 +1,12 @@
 import { defineDiagnostics } from "nostics"
 
+import { commentsClientCodes } from "../client-diagnostics.ts"
+
 // Each code identifies one failure site. Keep published codes stable.
 export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/comments/diagnostics",
   codes: {
-    COMMENTS_R0001: {
-      why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
-      fix: "Pass an element, a non-empty selection, or a point that is over an element of the page.",
-    },
+    ...commentsClientCodes,
     COMMENTS_R0002: {
       why: ({ id }: { id: string }) => `The comment thread "${id}" does not exist.`,
       fix: "List the threads again, because someone may have deleted this one.",
@@ -59,10 +58,6 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_R0014: {
       why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
       fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
-    },
-    COMMENTS_R0015: {
-      why: "The comment list kept changing while its pages were loading.",
-      fix: "Refresh again. The previous cache is kept until two complete scans agree.",
     },
     COMMENTS_R0016: {
       why: "The thread is resolved, so it takes no new replies.",

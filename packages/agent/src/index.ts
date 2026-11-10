@@ -9,7 +9,7 @@ export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition }
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { hasChatMessageHeaders, stripEchoedChatMessageMetadata } from "./internal/chat-message-header.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
-import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { readDiscoveredAgentIdentity, readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -62,6 +62,7 @@ import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import { namedAgentChannels } from "./internal/named-channels.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
@@ -932,8 +933,11 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
+  // A caller outside the host routes, such as a developer route, runs a discovered Agent with its host identity.
+  const hostIdentity = owner || context.agentIdentity ? undefined : readDiscoveredAgentIdentity(agent)
+  if (hostIdentity) context = { ...context, agentIdentity: hostIdentity }
   // Keep host discovery separate from the identity minted for Connection access.
-  const discovered = context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
+  const discovered = hostDiscovered(context)
   context = { ...context, [agentWorkflowDiscovery]: discovered }
   const name = agent.name || readDiscoveredAgentName(agent)
   if (!name) return { ...context, agentIdentity: !owner ? context.agentIdentity : undefined, [agentIdentityOwner]: agent, [agentEnvIdentity]: undefined }
@@ -967,12 +971,16 @@ function resolveAgentWorkflowRuntimeBinding<
   return agent.runtime && agent.runtime.kind === "workflow" ? agent.runtime : undefined
 }
 
+/** Whether the host discovered the running Agent, so its Workflow name selects the discovered Workflow. */
+function hostDiscovered(context: IdentityRuntimeContext): boolean {
+  return context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
+}
+
 function canDispatchAgentWorkflow(
   binding: AgentWorkflowRuntimeBinding | undefined,
   context: IdentityRuntimeContext,
 ): binding is AgentWorkflowRuntimeBinding {
-  const discovered = context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
-  return Boolean(binding && (!("discoveryDefault" in binding) || (discovered && context.agentIdentity)))
+  return Boolean(binding && (!("discoveryDefault" in binding) || (hostDiscovered(context) && context.agentIdentity)))
 }
 
 function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -986,7 +994,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\")." })
 }
 
-async function deferAgentWorkflowRecovery<TPayload, TResult>(
+async function startAgentWorkflowRecovery<TPayload, TResult>(
   handle: WorkflowHandle<TPayload, TResult>,
   payload: TPayload,
   options: { id?: string },
@@ -994,7 +1002,7 @@ async function deferAgentWorkflowRecovery<TPayload, TResult>(
   let failure: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await handle.defer(payload, options)
+      await handle.start(payload, options)
       return
     }
     catch (error) {
@@ -1023,7 +1031,12 @@ async function getAgentWorkflowHandle<
 
   const { createWorkflow } = await loadAgentWorkflowModule()
   const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
-  const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  const registry = getWorkflowRuntimeRegistry()
+  const discoveredWorkflow = registry && Object.hasOwn(registry, name) ? registry[name] : undefined
+  if (discoveredWorkflow && !reuseRegistry && !recovery) {
+    throw agentDiagnostics.AGENT_R0422({ message: `[vitehub] Workflow name ${JSON.stringify(name)} belongs to a discovered Agent. Another Agent cannot use it. Give this Agent its own name with workflow("other-name"), or run the discovered Agent.` })
+  }
+  const registered = (reuseRegistry && discoveredWorkflow) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
   if (registered) {
     const definition = await loadWorkflowDefinition(name)
     if (Boolean(definition?.internalAgentInvocationRecovery) !== recovery) {
@@ -1141,7 +1154,7 @@ export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntim
       // is disabled. There is no provider run to inspect in this case, so keep
       // the claimed reservation for the inline retry path.
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
-      const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, Boolean(context.agentIdentity))
+      const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
       if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
       if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
@@ -1282,7 +1295,7 @@ async function runAgentAsWorkflow<
   let parsedInputData = false
   try {
     workflowName = resolveAgentWorkflowName(agent, binding, context)
-    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, hostDiscovered(context))
     // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
     parsedInput = hasAgentDefinition(agent)
       ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
@@ -1375,10 +1388,10 @@ async function runAgentAsWorkflow<
       const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
         agent,
         getAgentInvocationRecoveryWorkflowName(handle.name),
-        Boolean(context.agentIdentity),
+        hostDiscovered(context),
         true,
       )
-      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
+      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => startAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agentInvocationName(agent, context) ? { agentName: agentInvocationName(agent, context) } : {}),
           runId,
@@ -1417,7 +1430,7 @@ async function runAgentAsWorkflow<
     // journal signal at the last possible point before accepting the run.
     replayJournal?.abortSignal.throwIfAborted()
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
@@ -2082,6 +2095,8 @@ export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runti
 export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
+export { activeProviderSandbox, agentSettings, recordProviderCheckout, withoutForgeAccess } from "./composition.ts"
+export type { ProviderSandboxSession } from "./composition.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
@@ -2110,9 +2125,21 @@ function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli">
 }
 
 function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
-  inputs: AgentChannelInputs<TRuntimeConfig> | undefined,
+  inputs: AgentChannelInputs<TRuntimeConfig> | readonly string[] | undefined,
 ): AgentChannels<TRuntimeConfig> | undefined {
-  if (!inputs) return inputs
+  if (!inputs) return undefined
+  if (Array.isArray(inputs)) {
+    return namedAgentChannels<TRuntimeConfig>(inputs, (value, name) => {
+      const channel = normalizeAgentChannelInput<TRuntimeConfig>(value)
+      if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] server/channels/${name} must default-export defineChannel() from vite-hub/channels.` })
+      }
+      if (capabilitiesContributeWorkspace(channel.capabilities)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] The Channel "${name}" adds an Agent Workspace, which ViteHub must see in the Agent file. List it inline: channels: { ${name}: channel }.` })
+      }
+      return channel
+    })
+  }
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
@@ -3237,6 +3264,10 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
   const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
   if (configured) return configured
+  // Named lists follow the same per-key layering rules as inline Channel records.
+  if (isRuntimeRecord(options) && Array.isArray(options.channels)) {
+    options = { ...options, channels: normalizeAgentChannels(options.channels) }
+  }
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options, settings => {
     const channels = normalizeAgentChannels(settings.channels)
@@ -4759,6 +4790,7 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
+      trackInputData: internalDefinition?.[baseAgentData] !== undefined,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
