@@ -99,7 +99,7 @@ Some rules read the whole project:
 
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
-- `vite-hub/_internal/*` is for generated ViteHub code only.
+- `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
 - `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
 - `.vitehub/**` and `.nuxt/vitehub/**` are build output, rewritten on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub's own runtime, such as `#vitehub/agent/registry`.
@@ -266,7 +266,7 @@ The rule accepts a `SecretEnv` passed to a function, which can call `.unseal()`.
 
 A credential is written in source, or a config file reads it when Vite loads. ViteHub writes the `env.server` registry and Email options into the generated server module, so these values end up in the build output.
 
-In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server`, including `vitehub.env.server` in Nuxt:
+In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server` of `vitehub()` and of the `vitehub` key in Nuxt, and in the `server` option of `hubEnv()`:
 
 - a value or a `default` that reads `process.env` or `import.meta.env`
 - a `default` on a declaration with `secret: true`
@@ -274,33 +274,39 @@ In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.ser
 
 It also reports credential options of `hubEmail()` and the `email` option that are string literals or `process.env` reads. In server code, it reports string literals for credential keys in `defineAuth()`, `google()` and `apiKey()` from `vite-hub/connections`, and the `vite-hub/gateways` Gateway presets, including their `headers`.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Invalid: the token is in the build output.
-      githubToken: env({ secret: true, default: 'ghp_123' }),
-      airtableToken: process.env.AIRTABLE_TOKEN,
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Invalid: the token is in the build output.
+        githubToken: env({ secret: true, default: 'ghp_123' }),
+        airtableToken: process.env.AIRTABLE_TOKEN,
+      },
     },
-  },
+  })],
 })
 ```
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Valid
-      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
-      airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Valid
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+      },
     },
-  },
+  })],
 })
 ```
 
@@ -914,19 +920,26 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
-- `queue: { ... }` ignores its fields. The preset selects the Queue provider.
-- In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. Put them in the top-level `env` key of the Vite config.
+- `logs` moved into `observability`, as `observability: { logs }`.
+- `contentImportBase` was removed.
+- In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
-export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
-})
-
-// Valid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
   plugins: [vitehub({ preset: 'vercel' })],
+})
+```
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+// Valid
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
 ```
 

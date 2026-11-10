@@ -89,7 +89,7 @@ export interface KVStoresConfig {
   stores: Record<string, KVStoreConfig>
 }
 
-export type KVModuleOptions = KVStoreConfig | InferredKVStoreConfig | KVStoresConfig | false
+export type KVOptions = KVStoreConfig | InferredKVStoreConfig | KVStoresConfig | false
 
 export interface ResolvedKVModuleOptions {
   store: ResolvedKVStoreConfig

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
 import { createProgram, flattenDiagnosticMessageText, getPreEmitDiagnostics, ModuleKind, ModuleResolutionKind, ScriptTarget } from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -117,7 +117,7 @@ describe("Database Definitions in Nuxt layers", () => {
       options: { ...app.options, dev: true },
     })
     // The Vite integration owns generated types and `vitehub db` commands, so it must scan the same layers.
-    expect(Reflect.get(app.options.vite, "database")).toMatchObject({ nuxtServerDirs: app.serverDirs, projectRoot: app.appDir })
+    expect(getResolvedFeatureOptions(app.options.vite, "database")).toMatchObject({ nuxtServerDirs: app.serverDirs, projectRoot: app.appDir })
 
     const nitroConfig: Record<string, unknown> = {}
     for (const hook of hooks) await hook(nitroConfig)

@@ -17,7 +17,7 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 - For Nitro: a Nitro 3 app that adds `nitro()` in `vite.config.ts`.
 
 ::details{summary="Why Node.js 22.22?"}
-`vite-hub` installs Nitro, which needs Node.js 22.22. A package installed alone, without `vite-hub`, can need less: Queue needs 22.19, and most others 22.18.
+ViteHub uses Nitro, which needs Node.js 22.22. A package installed alone, without `vite-hub`, can need less: Queue needs 22.19, and most others 22.18.
 
 On Node.js 22, features that open a local SQLite file (a `file:` Database, Console sign-in, and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
 ::
@@ -106,7 +106,9 @@ Create `package.json`. In an existing app, set `"type": "module"` and add the sc
 }
 ```
 
-Install ViteHub with its Nitro and H3 versions, plus Vite and TypeScript:
+Install ViteHub with its Nitro and H3 versions, plus Vite and TypeScript.
+`nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports
+`3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
 pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8

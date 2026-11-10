@@ -26,9 +26,9 @@ describe("public package export contracts", () => {
 
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
-    expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(server).toContain("fetch(request: Request): Promise<Response>")
     expect(content).toContain("fetch(request: Request): Promise<Response>")
-    expect(server).toContain("(event: unknown): Promise<unknown>")
+    expect(server).not.toContain('from "h3"')
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain('from "h3"')
@@ -47,7 +47,7 @@ describe("public package export contracts", () => {
     expect(published).toEqual(publicPackageExportAllowlist)
     for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
-    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit|schedule))(?:\/|$)/.test(subpath))).toEqual([])
+    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {
@@ -107,7 +107,7 @@ describe("public package export contracts", () => {
     expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
     expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
-    for (const subpath of ["database", "database/postgres", "operations", "server"]) {
+    for (const subpath of ["database", "database/postgres", "server"]) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
       expect(contract?.optionalRuntimePeers).toEqual([])
       expect(contract?.optionalDeclarationPeers).toEqual([])
@@ -164,7 +164,6 @@ describe("public package export contracts", () => {
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {
     const lazyPeerExports = new Map<string, string>([
       ["@vite-hub/agent", "@vite-hub/workflow"],
-      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
       ["@vite-hub/browser/internal/chromium", "playwright-core"],
@@ -229,10 +228,12 @@ describe("public package export contracts", () => {
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
     const manifest = readPackageManifest("auth")
-    for (const dependency of ["@cloudflare/workers-types", "@types/node", "bun-types"]) {
-      expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@types/node"], "auth should install @types/node").toEqual(expect.any(String))
+    for (const dependency of ["@cloudflare/workers-types", "bun-types"]) {
+      expect(manifest.dependencies?.[dependency], `auth should not install ${dependency}`).toBeUndefined()
     }
     const hostDeclarations = readFileSync(join(packageDir("auth"), "src/host-declarations.d.ts"), "utf8")
+    expect(hostDeclarations).toContain('/// <reference path="./bun-sqlite.d.ts" />')
     expect(hostDeclarations).toContain("interface Timer")
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })

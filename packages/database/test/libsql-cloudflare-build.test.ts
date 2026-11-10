@@ -34,9 +34,9 @@ async function createProject(definition: string) {
 /** Runs the Vite plugin as a Vite build or dev server for `preset`, and returns how it resolves `#vitehub/database/libsql`. */
 async function resolveLibsql(root: string, preset: string, command: "build" | "serve" = "build") {
   const plugin = hubDatabase()
-  // SAFETY: hubDatabase exposes configResolved and resolveId as callable Vite hooks.
+  // SAFETY: hubDatabase exposes configResolved and resolveId.handler as callable Vite hooks.
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command, nitro: { preset }, plugins: [{ name: "nitro:main" }], root })
-  const resolveId = plugin.resolveId as (id: string) => string | undefined
+  const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
   return { config: plugin.api.getConfig(), id: resolveId("#vitehub/database/libsql") }
 }
 

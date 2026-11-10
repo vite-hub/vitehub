@@ -6,7 +6,7 @@ import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import { bindingResolver } from "../resend/bindings.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
 
 import type { CallExpression, File, Identifier, ImportDeclaration, MemberExpression, ObjectPattern } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"

@@ -236,9 +236,9 @@ describe("Postgres build configuration", () => {
     // SAFETY: These are Vite hook handlers returned by hubDatabase.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: rootDir })
     // SAFETY: These are Vite hook handlers returned by hubDatabase.
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     // SAFETY: These are Vite hook handlers returned by hubDatabase.
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
 
     const code = await load((await resolveId("#vitehub/database/databases"))!)
     expect(code).toContain("runtime/postgres")

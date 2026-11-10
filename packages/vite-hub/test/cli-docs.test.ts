@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -96,7 +97,7 @@ describe("CLI documentation contract", () => {
       workspacePlugin,
       viteHubTaskPlugin(),
       // The task plugin contributes these only for an app that has tasks.
-      { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: "vite-hub/_internal/task/operations" }] } },
+      { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
       // The Console plugin contributes every Console operation; the reference documents the Database ones.
       { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.")), module: "vite-hub/console/server" }] } },
       typesPlugin,
