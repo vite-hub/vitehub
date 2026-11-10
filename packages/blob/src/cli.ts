@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises"
 import * as v from "valibot"
 
 import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { callOperationFromCli, table as formatTable } from "@vite-hub/internal/operations"
 
 import {
   blobDevDefaultListLimit,
@@ -225,11 +225,6 @@ async function readUpload(path: string): Promise<{ data: string } | BlobCliFailu
 
 function formatSize(size: number | undefined): string {
   return size === undefined ? "-" : `${size} B`
-}
-
-function formatTable(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function formatMetadata(value: Record<string, unknown>): string | undefined {
