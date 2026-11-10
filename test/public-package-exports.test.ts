@@ -1,10 +1,12 @@
+import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { parse } from "valibot"
 
-import { publicPackageBinContracts, publicPackageExportAllowlist, publicPackageExportContracts } from "./public-package-exports"
-import { packageDir, packageInfos, readPackageManifest } from "./utils/repo"
+import { publicPackageBinContracts, publicPackageExportContracts } from "./public-package-exports"
+import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot } from "./utils/repo"
 
 describe("public package export contracts", () => {
   it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
@@ -26,28 +28,28 @@ describe("public package export contracts", () => {
 
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
-    expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(server).toContain("fetch(request: Request): Promise<Response>")
     expect(content).toContain("fetch(request: Request): Promise<Response>")
-    expect(server).toContain("(event: unknown): Promise<unknown>")
+    expect(server).not.toContain('from "h3"')
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain('from "h3"')
   })
 
-  it("publishes exactly the allowlisted subpaths of each package", () => {
-    const published = Object.fromEntries(packageInfos.map(info => [info.packageName, Object.keys(readPackageManifest(info.name).exports || {})]))
-    expect(published).toEqual(publicPackageExportAllowlist)
-    for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
+  it("publishes exactly the checked-in subpaths of each package", () => {
+    for (const info of packageInfos) {
+      const path = `packages/${info.name}/package.json`
+      const subpaths = Object.keys(readPackageManifest(info.name).exports || {})
+      // The checked-in `exports` map is the reviewed list of public subpaths. `vp pack` rewrites it from the build
+      // entries, so a build that adds or drops a subpath fails here until the rewritten manifest is staged.
+      const checkedIn = parse(packageManifestSchema, JSON.parse(execFileSync("git", ["show", `:${path}`], { cwd: repoRoot, encoding: "utf8" })))
+      expect(subpaths, `the build rewrote the exports of ${path}`).toEqual(Object.keys(checkedIn.exports || {}))
+      // A wildcard would publish the private modules that generated code imports by file path (`ownModule()` in
+      // `@vite-hub/internal/build/paths`).
+      expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
+    }
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
-    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
-  })
-
-  it("publishes exactly the allowlisted subpaths of each package", () => {
-    const published = Object.fromEntries(packageInfos.map(info => [info.packageName, Object.keys(readPackageManifest(info.name).exports || {})]))
-    expect(published).toEqual(publicPackageExportAllowlist)
-    for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
-    // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
-    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {
@@ -85,6 +87,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/forge", "@vite-hub/forge"],
       ["vite-hub/i18n", "@vite-hub/i18n"],
       ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
       ["vite-hub/i18n/server", "@vite-hub/i18n"],
@@ -175,7 +178,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/sandbox/task/vite", "vite"],
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
-      ["@vite-hub/workspace/nitro", "vite"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
     ])

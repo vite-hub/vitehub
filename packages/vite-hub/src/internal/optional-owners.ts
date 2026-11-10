@@ -56,6 +56,8 @@ export const optionalFeaturePackages = {
   "comments": features.comments.packages,
   // Connections store grants in the default Database and turn `database` on.
   "connections": features.connections.packages,
+  // The prebuilt Console app, which the Console page loads.
+  "console": features.console.packages,
   // The Console reads the Agent Invocation journal with libSQL, and its /debug command with Drizzle.
   "console agents": consoleFeaturePackages.agents,
   // `console: { mcpClient: true }` connects the Console to MCP servers.

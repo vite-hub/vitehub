@@ -1,5 +1,6 @@
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installRequestStandardContext } from "@vite-hub/runtime"
 
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
@@ -7,11 +8,11 @@ import { runtimeBuilds } from "../installed.ts"
 import { commentsMcpTools } from "./mcp.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
-import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { InstallCommentsOptions } from "../install.ts"
 import type { CommentsRuntime } from "../operations-core/service.ts"
 import type { CommentsDatabase } from "../operations-core/store.ts"
+import type { CommentsRequestEvent } from "../types.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
@@ -100,14 +101,16 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
-      async allowed({ event, request }) {
-        // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
-        const identity = await resolveCommentsIdentity(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
+      async allowed({ request }) {
+        // In a ViteHub app, the Request of the session route carries the Standard Context of the request.
+        installRequestStandardContext(request)
+        // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
+        const event = request as Request & CommentsRequestEvent
+        const identity = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
         if (identity === false) return false
         const { user, gate } = identity
         const page = new URL(request.url).searchParams.get("page")
-        // SAFETY: as above, the H3 event of the page tools session route.
-        const subject = page ? (await resolveCommentsPage(options.comments, event as H3Event, request, page)).subject : undefined
+        const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
         if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true
         // Someone who may only sign in, or switch accounts, gets the button. The overlay loads when they press it.
         return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false

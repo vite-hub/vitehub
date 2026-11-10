@@ -670,7 +670,9 @@ describe("hubQueue", () => {
     })
     for (const consumer of consumers) {
       const handler = await readFile(consumer.handler, "utf8")
-      expect(handler).toContain("handleHostedVercelQueueCallback(event, name, definition)")
+      expect(handler).toContain("handleHostedVercelQueueCallback(request, name, definition)")
+      expect(handler).toContain("async fetch(request)")
+      expect(handler).not.toContain("defineHandler")
     }
   })
 

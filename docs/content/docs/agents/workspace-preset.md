@@ -16,7 +16,7 @@ Set `agent: true` and `workspace: true` in your [ViteHub configuration](/docs/ag
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 import workspace from 'vite-hub/presets/workspace'
-import { github } from 'vite-hub/source/github'
+import { github } from 'vite-hub/source'
 
 export default defineAgent({
   preset: 'workspace',
