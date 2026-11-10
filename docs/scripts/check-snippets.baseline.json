@@ -110,11 +110,6 @@
     "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
-    "label": "server/connections/github.ts",
-    "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
     "label": null,
     "error": "TS2304 Cannot find name 'content'."

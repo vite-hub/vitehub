@@ -99,10 +99,79 @@ ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, 
 
 ### Fallback key
 
-`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed:
+`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed. Declare the GitHub token in your host configuration:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/connections/github.ts]
 import { useServerEnv } from '#vitehub/env/server'
+import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
   provider: apiKey({
