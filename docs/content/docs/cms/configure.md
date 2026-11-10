@@ -201,6 +201,6 @@ With the earlier setup, the app has a Database Definition that lists `workspaceH
    })
    ```
 
-4. Run `pnpm vitehub db generate`. The tables are unchanged, so it writes no new migration.
+4. Run `pnpm vitehub database generate`. The tables are unchanged, so it writes no new migration.
 
 If the old Workspace name and its store identity differ, the preset cannot use both. Keep the manual setup with `defineContent({ workspace })`.

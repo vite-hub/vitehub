@@ -95,8 +95,7 @@ import { defineConfig } from "vite";
 import { workflowConfig } from "./server/workflow-runtime.ts";
 
 export default defineConfig({
-  plugins: [hubWorkflow()],
-  workflow: workflowConfig,
+  plugins: [hubWorkflow(workflowConfig)],
 });
 ```
 
@@ -156,7 +155,7 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Make a Vercel workflow durable
 
-A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same context-shaped handler and register a native Workflow DevKit entry:
+A plain Vercel definition executes inline and does not survive a function restart. Install `@vercel/functions` as shown in the provider table above for all Vercel definitions. For durable execution, also install the Workflow DevKit packages, keep the same context-shaped handler, and register a native entry:
 
 ```sh
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6

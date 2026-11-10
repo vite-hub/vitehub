@@ -46,7 +46,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowModuleOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `workflow` | `boolean` or `WorkflowOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
 | `provider` | `WorkflowProvider` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |
@@ -92,9 +92,9 @@ The handler gets a `WorkflowExecutionContext` with `name`, `payload`, `provider`
 
 ### Add a durable Vercel entry
 
-Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. For durable execution on Vercel, add a Workflow DevKit entry:
+Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. First [install `@vercel/functions`](/docs/workflows/hosts#install-vercel-dependencies), which all Vercel definitions require. For durable execution on Vercel, also install the Workflow DevKit packages and add a native entry:
 
-```bash [Terminal]
+```bash pm [Terminal]
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 

@@ -249,7 +249,7 @@ Each feature other than Env, Source, Logs, and the Console needs its own package
 
 Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the preset cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
-Each provider's guide lists its SDKs. For example, Vercel Workflow needs `workflow` and `@workflow/builders`, and a Sandbox Task needs `typescript` and its provider's SDK.
+Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) needs `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. A Sandbox Task needs `typescript` and its provider's SDK.
 ::
 
 ## Build for production
