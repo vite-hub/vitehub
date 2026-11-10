@@ -72,7 +72,7 @@ describe("inputCommands({ debug })", () => {
         return runAgentWithContext(agent, context, { prompt })
       }
       const link = async (runId: string) =>
-        `https://chat.example/_vitehub/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`
+        `https://console.vitehub.dev/open?project=${encodeURIComponent("https://chat.example")}&path=${encodeURIComponent(`/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`)}`
 
       await run("thread-one", "hello", { threadId: "t1" })
       await run("thread-two", "hello", { threadId: "t2" })

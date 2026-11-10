@@ -229,7 +229,8 @@ describe("Agent plugin", () => {
       plugins: [],
       root,
     })
-    const transform = (name: keyof typeof files) => (plugin.transform as (...args: unknown[]) => Promise<string | undefined>)
+    const transformHook = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
+    const transform = (name: keyof typeof files) => (transformHook as (...args: unknown[]) => Promise<string | undefined>)
       .call({ parse: parseAst }, sources[name], files[name])
 
     expect(await transform("review")).toContain("export default vitehubWithDiscoveredAgentName(vitehubWithDeclaredAgentWorkspace(defineAgent({ channels: { github: github({ pullRequest: true }) } }), \"review\"), \"review\")")
@@ -252,7 +253,8 @@ describe("Agent plugin", () => {
       plugins: [],
       root,
     })
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call({ parse: parseAst }, source, file)
+    const transformHook = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
+    const transformed = await (transformHook as (...args: unknown[]) => Promise<string | undefined>).call({ parse: parseAst }, source, file)
     expect(transformed).toContain("vitehubRegisterAgentChannels({ [\"hooks\"]: vitehubChannel0 })")
   })
 })
