@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "v
 
 import type { WorkflowExecutionContext, WorkflowProviderStep } from "../src/types.ts"
 import { normalizeWorkflowOptions } from "../src/config.ts"
+import { defineWorkflow } from "../src/definition.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
@@ -136,7 +137,7 @@ const openWorkflowMock = vi.hoisted(() => {
 })
 
 it("types handler-owned results and unknown named Workflow results honestly", () => {
-  const inline = createWorkflow<{ message: string }, { reply: string }>("typed-inline", async ({ payload }) => ({ reply: payload.message }))
+  const inline = createWorkflow<{ message: string }, { reply: string }>("typed-inline", async (payload) => ({ reply: payload.message }))
   const discovered = createWorkflow<{ message: string }>("typed-discovered")
 
   expectTypeOf<Awaited<ReturnType<typeof inline.start>>["result"]>().toEqualTypeOf<{ reply: string } | undefined>()
@@ -345,7 +346,7 @@ describe("workflow runtime", () => {
   it("defines inline workflows and returns a typed runtime handle", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
-    const workflow = createWorkflow<{ message: string }, { reply: string }>("inline-reply", async ({ payload }) => ({
+    const workflow = createWorkflow<{ message: string }, { reply: string }>("inline-reply", async (payload) => ({
       reply: payload.message.toUpperCase(),
     }))
 
@@ -418,7 +419,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
     const workflow = createWorkflow<{ message: string }, { reply: string }>("object-inline-reply", {
-      handler: async ({ payload }) => ({
+      handler: async (payload) => ({
         reply: payload.message.toUpperCase(),
       }),
       id: ({ payload }) => payload?.message || "missing",
@@ -442,7 +443,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload, step }) => {
+        default: { handler: async (payload, { step }) => {
           await step?.sleep?.("settle", "1 second")
           return { payload }
         } },
@@ -499,7 +500,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload }) => ({ payload }) },
+        default: { handler: async (payload) => ({ payload }) },
       }),
     })
 
@@ -863,7 +864,7 @@ describe("workflow runtime", () => {
       event: { id: "run-1", payload: { message: "hello" } },
       name: "welcome",
       registry: {
-        welcome: async () => ({ default: { handler: async ({ payload }) => ({ payload }) } }),
+        welcome: async () => ({ default: { handler: async (payload) => ({ payload }) } }),
       },
       step,
     })).resolves.toEqual(await serializeResponse(toResponse({ payload: { message: "hello" } })))
@@ -928,7 +929,7 @@ describe("workflow runtime", () => {
       event: { id: "run-1" },
       name: "welcome",
       registry: {
-        welcome: async () => ({ default: { handler: async ({ step }) => {
+        welcome: async () => ({ default: { handler: async (_payload, { step }) => {
           await step?.sleep?.("settle", "1 second")
           throw original
         } } }),
@@ -975,7 +976,7 @@ describe("workflow runtime", () => {
     const registry = {
       welcome: async () => ({
         default: {
-          handler: async ({ payload }: { payload: unknown }) => {
+          handler: async (payload: unknown) => {
             const before = getActiveCloudflareEnv()?.REQUEST_ID
             arrivals += 1
             if (arrivals === 2) release()
@@ -1009,7 +1010,7 @@ describe("workflow runtime", () => {
         pipeline: async () => ({
           default: {
             options: { rootStep: false },
-            handler: async ({ step }) => {
+            handler: async (_payload, { step }) => {
               await step?.do?.("pipeline/01.first", {}, async () => "first")
               await step?.do?.("pipeline/02.second", {}, async () => "second")
               return "done"
@@ -1065,7 +1066,7 @@ describe("workflow runtime", () => {
 
   it("gives workflows without step files an empty step runner", async () => {
     const seen: unknown[] = []
-    const handler = (context: WorkflowExecutionContext) => {
+    const handler = (_payload: unknown, context: WorkflowExecutionContext) => {
       seen.push(context.steps)
       return "done"
     }
@@ -1094,13 +1095,13 @@ describe("workflow runtime", () => {
       name: "pipeline",
       registry: {
         pipeline: async () => {
-          createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))
+          createWorkflow("pipeline", async (payload, { steps }: { steps: Record<string, (input: unknown) => Promise<unknown>> }) => await steps.first!(payload))
           const definition = takeInlineWorkflowDefinition("pipeline")!
           const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
           return {
             ...definition,
             options: { ...definition.options, rootStep: false },
-            handler: async context => await definition.handler({
+            handler: async (payload, context) => await definition.handler(payload, {
               ...context,
               steps: createWorkflowSteps(context, steps),
             }),
@@ -1132,7 +1133,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload, step }) => {
+        default: { handler: async (payload, { step }) => {
           await step?.sleep?.("settle", "1 second")
           return { payload }
         } },
@@ -1166,7 +1167,7 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload, step }) => {
+        default: { handler: async (payload, { step }) => {
           await step?.sleep?.("settle", "1 second")
           return { payload }
         } },
@@ -1992,6 +1993,21 @@ describe("workflow runtime", () => {
     expect(worker.start).toHaveBeenCalled()
   })
 
+  it.each(["default", "direct"])("rejects mismatched names in %s OpenWorkflow registry definitions", async (shape) => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const definition = defineWorkflow("onboard", async () => ({ ok: true }))
+    setWorkflowRuntimeRegistry({
+      "onboard-user": async () => shape === "default" ? { default: definition } : definition,
+    })
+
+    await expect(createOpenWorkflowWorker()).rejects.toMatchObject({ code: "WORKFLOW_C0019" })
+    expect(openWorkflowMock.definitions.has("onboard-user")).toBe(false)
+    expect(openWorkflowMock.newWorker).not.toHaveBeenCalled()
+  })
+
   it("registers OpenWorkflow handlers created in another JavaScript realm", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
@@ -2297,13 +2313,13 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       pipeline: async () => {
-        createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))
+        createWorkflow("pipeline", async (payload, { steps }: { steps: Record<string, (input: unknown) => Promise<unknown>> }) => await steps.first!(payload))
         const definition = takeInlineWorkflowDefinition("pipeline")!
         const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
         return {
           ...definition,
           options: { ...definition.options, rootStep: false },
-          handler: async context => await definition.handler({
+          handler: async (payload, context) => await definition.handler(payload, {
             ...context,
             steps: createWorkflowSteps(context, steps),
           }),
@@ -2336,7 +2352,7 @@ describe("workflow runtime", () => {
         resolveDefinition = resolve
       })
       return {
-        default: { handler: async ({ payload }: { payload: unknown }) => ({ payload }) },
+        default: { handler: async (payload: unknown) => ({ payload }) },
       }
     })
 

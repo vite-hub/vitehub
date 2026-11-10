@@ -54,7 +54,7 @@ export async function buildContentSnapshotModules(options: {
   // A module id inside the project, so `importBase` resolves from the app as the generated Content routes do.
   const entry = join(options.projectRoot, ".vitehub/content/snapshots.build.mjs")
   const code = [
-    `import { content } from ${JSON.stringify(pathToFileURL(options.file).href)}`,
+    `import content from ${JSON.stringify(pathToFileURL(options.file).href)}`,
     `import { buildContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}`,
     // The parse runs while the module loads: the runner closes when runnerImport() returns.
     "export default await buildContentSnapshots(content)",

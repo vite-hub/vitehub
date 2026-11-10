@@ -299,7 +299,7 @@ describe("Console document editor discovery", () => {
     const sourcesOnly = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["kv"] })
     expect(sourcesOnly.documents).toEqual({})
 
-    await writeFile(join(root, "server/content.ts"), `import { defineContent, documents } from "vite-hub/content"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["env", "kv"] })
     expect(catalog.documents).toEqual({ content: join(root, "server/content.ts") })
     // Without Schedule, nothing runs scheduled publishes, so Content names the fix.
@@ -311,7 +311,7 @@ describe("Console document editor discovery", () => {
   it("reads whether a Schedule Definition runs scheduled Content publishes", async () => {
     const root = await temporaryRoot()
     await mkdir(join(root, "server/schedules"), { recursive: true })
-    await writeFile(join(root, "server/content.ts"), `import { defineContent, documents } from "vite-hub/content"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     await writeFile(join(root, "server/schedules/cleanup.ts"), `import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 * * * *", handler: () => {} })\n`)
     const without = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
     expect(without.content.content).toMatchObject({ setup: { schedule: { message: "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`." } } })
@@ -331,7 +331,7 @@ describe("Console document editor discovery", () => {
     const root = await temporaryRoot()
     const plugin = join(root, "console.mjs")
     const entry = join(root, "server/content.ts")
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, blobStores: [] })
     const source = await readFile(plugin, "utf8")
 
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
@@ -345,7 +345,7 @@ describe("Console document editor discovery", () => {
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)
     expect(source).toContain(`"id":"content"`)
 
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: {} }, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [] })
     const without = await readFile(plugin, "utf8")
     expect(without).not.toContain("installConsoleDocuments")
     expect(without).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)

@@ -48,7 +48,7 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
     const runtime: string = JSON.parse(await readFile(aliasFile, "utf8"))
     const source = await readFile(runtime, "utf8")
     expect(source).toContain(`[${JSON.stringify(name)}]: {`)
-    expect(source).toContain("export function useDatabase")
+    expect(source).toContain("export const useDatabase = createUseDatabase(")
     await expect(readFile(join(buildDir, "nuxt.d.ts"), "utf8")).resolves.toContain("reference")
   }
   finally {

@@ -35,7 +35,7 @@ Create `server/content.ts`. It tells Content where your Markdown files are:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export default defineContent({
   sources: {

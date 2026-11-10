@@ -267,32 +267,6 @@ The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, 
 
 This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
 
-## Limit trusted-host command memory
-
-On Linux, set `runtime.resources` to cap the combined memory of one session's commands and their descendants:
-
-```ts fragment
-runtime: {
-  kind: "trusted-host",
-  resources: {
-    cgroupParent: "/sys/fs/cgroup/system.slice/agent.service",
-    memoryHighBytes: 3 * 1024 ** 3,
-    memoryMaxBytes: 4 * 1024 ** 3,
-    memorySwapMaxBytes: 128 * 1024 ** 2,
-  },
-}
-```
-
-Use a writable delegated cgroup v2 parent with the memory controller. For systemd 254 or later, `Delegate=memory` and `DelegateSubgroup=controller` place the controller in a separate child. `ProtectControlGroups` must allow the delegated subtree to be written. The parent must contain no processes before Sandbox enables the controller. Sandbox fails closed when configured limits cannot be enforced. Swap defaults to zero.
-
-All `exec` and `spawn` commands in the session share one budget, including native provider tools. A local OOM kills the whole command group and rejects pending waits with `SANDBOX_R0158`, the memory limit, peak bytes and OOM kill count. Further commands fail until a new session opens. Closing the session kills remaining descendants, including processes that left their process group, and removes its cgroup. `sandbox.plan.resources` exposes the configured limits.
-
-Checkout materialization, toolchain provisioning and requirement checks run before session commands and remain under the controller's service limits. The trusted launcher also prepares its environment under that budget, then joins the session cgroup before executing the command or any caller-controlled loader hooks. Keep those limits in place. This resource policy does not add filesystem or network isolation. Trusted commands can use the host user's authority to change cgroup membership; use an isolated Sandbox runtime such as `vercel` or `cloudflare` for untrusted code.
-
-On kernels without `memory.peak`, the OOM diagnostic reports `peak=unavailable`. Sandbox invalidates the session on a local allocation OOM, including allocation failures without a kill. This signal identifies exhaustion of the session budget and works with `memory_localevents` mounts. Ancestor or host kills alone do not invalidate it. The diagnostic reports the observed `memory.events` kill count as context, not proof of the kill cause; that count can exclude descendant victims on `memory_localevents` mounts. Sandbox removes nested cgroups during close. The launcher restores the command environment only after joining the session group.
-
-If descendants remain alive after a kill, close waits up to 10 seconds for the cgroup to become empty. A timeout rejects close and retains the cgroup and state lease. Retry close after the descendants exit; cleanup must succeed before that state can be reused.
-
 ## Sandbox Tasks
 
 A Sandbox Task is one job that runs inside one Sandbox. `@vite-hub/sandbox/task` runs a discovered Sandbox Task Definition inside a provider-backed Sandbox. It owns discovery, package staging, typed invocation, timeouts, and result transport. The rest of this package owns the Sandbox: the execution environment and its isolation.
@@ -353,7 +327,7 @@ export default async function releaseNotes(payload: ReleaseNotesPayload = {}) {
 }
 ```
 
-Invoke the discovered name from server code. `runSandboxTask()` returns a native Web `Response` and infers its payload from the Definition:
+Invoke the discovered name from server code. `runSandboxTask()` returns a native Web `Response` and infers its payload from the Definition. A registered handler with a required payload requires that argument at invocation; optional and zero-argument handlers can be invoked without it. The handler's context defaults to `{}` when omitted:
 
 ```ts
 // src/server.ts

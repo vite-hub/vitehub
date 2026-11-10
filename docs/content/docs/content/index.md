@@ -14,7 +14,7 @@ icon: i-lucide-file-text
   import sqliteFullTextSearch
     from 'comark-content/plugins/sqlite-full-text-search'
   import { defineContent } from 'vite-hub/content'
-  import { glob } from 'vite-hub/source/glob'
+  import { glob } from 'vite-hub/source'
 
   export default defineContent({
     // Keep a search index in SQLite

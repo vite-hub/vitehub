@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SOURCE_R0010.
 export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/source/diagnostics",
   codes: {
@@ -18,7 +19,6 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_R0007: dynamicError,
     SOURCE_R0008: dynamicError,
     SOURCE_R0009: dynamicError,
-    SOURCE_R0010: dynamicError,
     SOURCE_R0011: dynamicError,
     SOURCE_R0012: dynamicError,
     SOURCE_R0013: dynamicError,

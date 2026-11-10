@@ -75,7 +75,7 @@ export default defineConfig({
 
 ```ts
 // server/sync.ts
-import type { ViteHubContext } from "@vite-hub/env/server";
+import type { ViteHubContext } from "@vite-hub/runtime";
 import { useServerEnv } from "#vitehub/env/server";
 
 export async function sync(event: ViteHubContext) {
@@ -189,7 +189,7 @@ The [runnable schema lab](./examples/schema-lab/README.md) builds a browser bund
 
 ## Presets
 
-Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
+Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env`.
 
 | Preset | Declares |
 | --- | --- |
@@ -230,8 +230,8 @@ export default {
 
 ```ts
 // server/env/credentials.ts
-import { defineEnvProvider } from "@vite-hub/env/provider"
-import type { SecretEnv } from "@vite-hub/env/secret"
+import { defineEnvProvider } from "@vite-hub/env"
+import type { SecretEnv } from "@vite-hub/env"
 
 export default defineEnvProvider<{ gatewayKey: SecretEnv<string> }>({
   async read({ env, keys, signal }) {
@@ -311,6 +311,18 @@ export default {
     plugins: [hubEnv()],
   },
 };
+```
+
+To type code without running Vite, such as in a test or a docs check, pass the same `env` options to `createEnvTypes()`. It returns the contents of `.vitehub/types/env.d.ts`:
+
+```ts
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createEnvTypes, env } from "@vite-hub/env/vite";
+
+mkdirSync(".vitehub/types", { recursive: true });
+writeFileSync(".vitehub/types/env.d.ts", createEnvTypes({
+  server: { githubToken: env({ secret: true, source: env.source("GITHUB_TOKEN") }) },
+}));
 ```
 
 Public Env and `env.define` values are compiled into client bundles. Never put credentials in either section. The host still owns secret storage and injection; Env owns declarations, resolution, generated accessors, validation, and default redaction.

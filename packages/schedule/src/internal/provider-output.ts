@@ -214,11 +214,9 @@ export function readStaticScheduleTimeZone(file: string): string | null | undefi
  */
 export function readStaticScheduleTiming(file: string): { cron: string, timeZone?: string } | undefined {
   if (!existsSync(file)) return undefined
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
   if (!definition) return undefined
-  const cron = staticString(definition.call.arguments.length > 1
-    ? argumentExpression(definition.call.arguments[0])
-    : definition.options && findProperty(definition.options, "cron")?.value)
+  const cron = staticString(definition.options && findProperty(definition.options, "cron")?.value)
   const timeZone = definition.options && findProperty(definition.options, "timeZone")
   if (!cron || (timeZone && !(timeZone.value && staticString(timeZone.value)))) return undefined
   const zone = timeZone?.value && staticString(timeZone.value)

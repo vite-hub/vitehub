@@ -58,10 +58,10 @@ describe("Content cms preset on libSQL", () => {
   it("generates the history tables, then saves, publishes, and reads in dev and in a build", async () => {
     const root = await project()
     const appPlugins = plugins(root)
-    // `vitehub db` runs drizzle-kit from the app's dependencies.
+    // `vitehub database` runs drizzle-kit from the app's dependencies.
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
 
-    const generate = await runCli(root, appPlugins, ["db", "generate"])
+    const generate = await runCli(root, appPlugins, ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrationsDir = join(root, "server/databases/default/migrations")
@@ -75,7 +75,7 @@ describe("Content cms preset on libSQL", () => {
       "CREATE TABLE `workspace_history_revisions`",
       "CREATE TABLE `workspace_history_workspaces`",
     ])
-    const migrate = await runCli(root, appPlugins, ["db", "migrate"])
+    const migrate = await runCli(root, appPlugins, ["database", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 

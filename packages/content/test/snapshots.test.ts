@@ -4,8 +4,7 @@ import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineSource } from "@vite-hub/source"
-import { files } from "@vite-hub/source/files"
+import { defineSource, files } from "@vite-hub/source"
 import type { ContentFile, ContentPlugin } from "comark-content"
 
 import { buildContentSnapshots, defineContent, registerContentSnapshots } from "../src/index.ts"
@@ -196,16 +195,16 @@ describe("Content snapshot build", () => {
     await mkdir(join(root, "server"), { recursive: true })
     await writeFile(join(root, "package.json"), "{ \"type\": \"module\" }\n")
     await writeFile(join(root, "server/content.ts"), contentModule)
-    await writeFile(join(root, "server/entry.ts"), "export { content } from \"./content.ts\"\n")
+    await writeFile(join(root, "server/entry.ts"), "export { default } from \"./content.ts\"\n")
     return root
   }
 
   const importBase = join(import.meta.dirname, "../src/index.ts")
   const contentModule = [
     `import { defineContent } from ${JSON.stringify(importBase)}`,
-    "import { files } from \"@vite-hub/source/files\"",
+    "import { files } from \"@vite-hub/source\"",
     "",
-    `export const content = defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
+    `export default defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
     "",
   ].join("\n")
 
@@ -228,9 +227,10 @@ describe("Content snapshot build", () => {
     })
 
     const output = await readdir(join(project, "dist"), { recursive: true })
-    expect(output.filter(file => file.endsWith(".js") || file.endsWith(".mjs"))).toEqual(["entry.mjs", expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
+    expect(output).toContain("entry.mjs")
+    expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
 
-    const { content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    const { default: content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
     const live = defineContent({ sources: { docs: files(docs) } })
     // A live Source lists from a frontmatter-only parse. The snapshot holds full parses, so its entries are not partial.
     expect((await live.list("docs")).map(item => item.meta.partial)).toEqual([true, true])

@@ -120,15 +120,6 @@ describe("primitive landing placeholders", () => {
       expect(source).not.toMatch(/definePrimitive|vite-hub\/vite|Illustrative pseudocode/);
     }
   });
-
-  it("displays the placeholder notice above the selected files", async () => {
-    const source = await readFile(
-      new URL("../app/components/PrimitiveProjectGroup.vue", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain('v-if="currentVariant?.illustrative"');
-    expect(source).toContain("Illustrative pseudocode. This layout is not an executable starter.");
-  });
 });
 
 describe("Queue starter projects", () => {

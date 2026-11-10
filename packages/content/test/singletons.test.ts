@@ -305,7 +305,7 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
   it("keeps the Content section for collections defined with singleton()", async () => {
     const root = await temporaryRoot()
     await mkdir(join(root, "server"), { recursive: true })
-    await writeFile(join(root, "server/content.ts"), `import { defineContent, singleton } from "vite-hub/content"\nexport default defineContent({ workspace: "site", collections: { settings: singleton({ path: "settings.json", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { singleton } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { settings: singleton({ path: "settings.json", fields: {} }) } })\n`)
     await expect(contentConsoleSection.entry({ projectRoot: root })).resolves.toBe(join(root, "server/content.ts"))
   })
 })

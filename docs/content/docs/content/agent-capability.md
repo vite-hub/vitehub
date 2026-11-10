@@ -15,7 +15,8 @@ For application code, see the [Content server API](/docs/content/server-api).
 Define collections and an `authorize` policy in `server/content.ts`:
 
 ```ts [server/content.ts]
-import { defineContent, documents, singleton } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export default defineContent({

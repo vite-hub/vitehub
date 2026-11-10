@@ -12,6 +12,7 @@ import { hubDb } from "../src/nuxt.ts"
 import { resolveConfigValue } from "../src/config-value.ts"
 import { resolveRuntimeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { runtimeConfig } from "../src/runtime/definition-config.ts"
+import { createUseDatabase } from "../src/runtime/use-database.ts"
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
 import type { Plugin } from "vite"
@@ -929,7 +930,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), `export default defineDatabase({ cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
+      await writeFile(join(rootDir, "server/databases/default.ts"), `export default defineDatabase({ cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
       const prepare = createNuxt({ _prepare: true, dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1" })(undefined, prepare.nuxt)
 
@@ -1138,11 +1139,12 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
         () => ({}),
         () => new Error("missing"),
+        createUseDatabase,
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
@@ -1171,12 +1173,13 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
-      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
         { name: "default", schema: { notes: "notes" } },
         { historyRefs: "refs" },
         (input: unknown) => created.push(input),
         () => ({}),
         () => new Error("missing"),
+        createUseDatabase,
       ) as { useDatabase: (name: string) => { schema: unknown } }
 
       expect(runtime.useDatabase("default").schema).toEqual({ historyRefs: "refs", notes: "notes" })

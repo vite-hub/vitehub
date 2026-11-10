@@ -90,7 +90,7 @@ async function generateMigration(rootDir: string) {
   return { sql: migration ? await readFile(join(migrationsDir, migration), "utf8") : "" }
 }
 
-describe("db generate schema forms", () => {
+describe("database generate schema forms", () => {
   for (const [form, { definition, tables }] of Object.entries(forms)) {
     it(`creates every table for a ${form} schema`, async () => {
       const rootDir = await createProject(definition)
@@ -151,7 +151,7 @@ describe("Database table names", () => {
 
     const onFallback = vi.fn()
     await expect(loadDatabaseTableNames(handler, { onFallback })).resolves.toEqual(["notes", "missing"])
-    expect(onFallback).toHaveBeenCalledWith(expect.stringContaining("vitehub db generate` requires the Definition to load"))
+    expect(onFallback).toHaveBeenCalledWith(expect.stringContaining("vitehub database generate` requires the Definition to load"))
   })
 
   it("requires a default export with a schema object", async () => {

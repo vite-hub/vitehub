@@ -45,13 +45,13 @@ describe("Comments in a built Nitro 3 app", () => {
     // Production output must never invent a local identity, even with NODE_ENV=development.
     const app = () => vitehub({ console: { auth: false }, preset: "node" })
 
-    const generate = await runCli(root, app(), ["db", "generate"])
+    const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrations = join(root, "server/databases/default/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `vitehub_comment_counters`", "CREATE TABLE `vitehub_comment_forge`", "CREATE TABLE `vitehub_comment_messages`", "CREATE TABLE `vitehub_comment_threads`"])
-    const migrate = await runCli(root, app(), ["db", "migrate"])
+    const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 

@@ -4,9 +4,12 @@ import { collectContributions, describeContribution, flattenPluginOptions } from
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveDefaultDatabase } from "./default-database-name.ts"
 
 import type { CollectedContribution, Contribution, ContributionContext } from "@vite-hub/internal/contributions"
 import type { DatabaseDialect } from "./types.ts"
+
+export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./default-database-name.ts"
 
 const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
 
@@ -29,7 +32,7 @@ interface DatabaseTableContributionFields extends DatabaseContributionFields {
 
 /**
  * Drizzle tables that another package adds to a Database Definition from its Vite plugin. The Database plugin merges
- * them into the generated Drizzle schema, so `vitehub db generate` writes their migrations and
+ * them into the generated Drizzle schema, so `vitehub database generate` writes their migrations and
  * `useDatabase(name).schema` holds them, without the application editing its Definition. `name` names the group of
  * tables, and `definition.export` names an export that holds an object of Drizzle tables.
  */
@@ -37,7 +40,7 @@ export type DatabaseContribution = Contribution & DatabaseTableContributionField
 
 /**
  * A Database Definition that another package adds from its Vite plugin, for example because the application has no
- * Database the package can use. It behaves like a discovered Definition: `vitehub db generate`, the runtime,
+ * Database the package can use. It behaves like a discovered Definition: `vitehub database generate`, the runtime,
  * provisioning, and inspection see it. Its migrations go where an application Definition with the same name keeps
  * them, so adding that Definition later continues the same history.
  */
@@ -121,23 +124,6 @@ export interface ResolvedDatabaseContribution extends CollectedDatabaseContribut
 /** A use whose target Database is resolved. */
 export interface ResolvedDatabaseUse extends CollectedDatabaseUse {
   database: string
-}
-
-/** How `resolveDefaultDatabase()` picked a Database, or why it could not. */
-export type DefaultDatabaseResolution =
-  | { status: "resolved", name: string, reason: "default" | "only" }
-  | { status: "ambiguous", names: string[] }
-  | { status: "none" }
-
-/**
- * Resolves "the default or only Database": the Definition named `default`, else the only Definition. Several
- * Definitions without a `default` are ambiguous; no Definitions resolve to `none`.
- */
-export function resolveDefaultDatabase(databaseNames: readonly string[]): DefaultDatabaseResolution {
-  if (databaseNames.includes("default")) return { name: "default", reason: "default", status: "resolved" }
-  if (databaseNames.length === 1) return { name: databaseNames[0]!, reason: "only", status: "resolved" }
-  if (databaseNames.length) return { names: [...databaseNames].sort(), status: "ambiguous" }
-  return { status: "none" }
 }
 
 function isDatabaseDialect(value: unknown): value is DatabaseDialect {

@@ -1,4 +1,5 @@
-import { defineContent, documents, image, optional, seo, singleton } from "vite-hub/content"
+import { defineContent, image, optional, seo } from "vite-hub/content"
+import { documents, singleton } from "vite-hub/content/collections"
 import { cmsContentAuthorize } from "vite-hub/cms/access"
 import { z } from "zod"
 

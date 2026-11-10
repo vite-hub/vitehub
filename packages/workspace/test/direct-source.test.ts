@@ -1,5 +1,4 @@
-import { createSource } from "@vite-hub/source"
-import { file } from "@vite-hub/source/file"
+import { createSource, file } from "@vite-hub/source"
 import { describe, expect, it } from "vitest"
 
 import { createWorkspace } from "../src/core/workspace.ts"

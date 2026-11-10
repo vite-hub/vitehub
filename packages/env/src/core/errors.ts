@@ -51,9 +51,9 @@ function createEnvError<TCode extends EnvErrorCode>(options: EnvErrorOptions<TCo
   })
 }
 
-export function invalidEnvDeclaration(path: string, diagnostic: string): ViteHubError<"ENV_DECLARATION_INVALID", EnvErrorDetails<"ENV_DECLARATION_INVALID">> {
+export function invalidEnvDeclaration(path: string, diagnostic: string, cause?: unknown): ViteHubError<"ENV_DECLARATION_INVALID", EnvErrorDetails<"ENV_DECLARATION_INVALID">> {
   return createEnvError({
-    cause: envErrorDiagnostics.ENV_R0008({ message: diagnostic }),
+    cause: envErrorDiagnostics.ENV_R0008({ message: diagnostic, ...(cause === undefined ? {} : { cause }) }),
     code: "ENV_DECLARATION_INVALID",
     details: optionalPath(path),
   })

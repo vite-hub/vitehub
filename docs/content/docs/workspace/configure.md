@@ -291,7 +291,7 @@ Bind a Source definition with `{ source, mount, materialize }`. You can reuse
 the same definition for direct reads or Content:
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```

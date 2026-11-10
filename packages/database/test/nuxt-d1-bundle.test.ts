@@ -71,7 +71,7 @@ describe("Nuxt Cloudflare bundles", () => {
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await symlink(join(packageRoot, "node_modules"), join(root, "node_modules"), "dir")
-      const definition = join(root, "server/databases/config.ts")
+      const definition = join(root, "server/databases/default.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, [
         `import { defineDatabase } from ${JSON.stringify(join(packageRoot, "src/index.ts"))}`,
