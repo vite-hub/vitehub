@@ -75,6 +75,7 @@
     "src/**/*.ts",
     "../browser/src/registry-modules.d.ts",
     "../database/src/runtime/definition-runtime.d.ts",
+    "scripts/**/*.ts",
     "test/**/*.ts",
     "test/**/*.test-d.ts"
   ],
