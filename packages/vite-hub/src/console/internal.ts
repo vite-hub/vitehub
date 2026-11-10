@@ -37,7 +37,6 @@ export const consoleDocumentsKey: unique symbol = Symbol.for("vitehub.console.do
 export const consoleDocumentsRegistryKey: unique symbol = Symbol.for("vitehub.console.documents.registry")
 export const consoleDocumentsRootKey: unique symbol = Symbol.for("vitehub.console.documents.root")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
-export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
 export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
 export const consoleAuthKey: unique symbol = Symbol.for("vitehub.console.auth")
@@ -193,35 +192,8 @@ function defaultConsoleInvocationScope(): ConsoleInvocationScope {
   return globalThis as ConsoleInvocationScope
 }
 
-export function createConsoleInvocationsIdentity(
-  projectRoot: string,
-  fixture?: string,
-  revision?: string,
-  runtimeBinding?: string,
-): string {
-  if (!fixture) return `sqlite:${projectRoot}`
-  const identity = `fixture:${projectRoot}:${fixture}${runtimeBinding ? `:${runtimeBinding}` : ""}`
-  return revision ? `${identity}:${revision}` : identity
-}
-
-export function resolveConsoleInvocationsRevision(
-  identity: string,
-  scope: ConsoleInvocationScope = globalThis,
-): string | undefined {
-  const registry = processRegistry(scope)
-  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
-  const revisions = registry?.[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
-  return revisions?.get(identity)
-}
-
-export function resolveConsoleInvocationsByIdentity(
-  identity: string,
-  scope: ConsoleInvocationScope = globalThis,
-): AgentInvocations | undefined {
-  const registry = processRegistry(scope)
-  const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
-  return registered?.get(identity)
-    ?? (scope[consoleInvocationsIdentityKey] === identity ? scope[consoleInvocationsKey] : undefined)
+export function createConsoleInvocationsIdentity(projectRoot: string): string {
+  return `sqlite:${projectRoot}`
 }
 
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
@@ -261,9 +233,6 @@ function retireConsoleInvocationsIdentity(registry: ConsoleInvocationRegistry, i
   const roots = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
   if (roots && [...roots.values()].includes(identity)) return false
   invocationsByRoot(registry[consoleInvocationsRegistryKey])?.delete(identity)
-  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
-  const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
-  revisions?.delete(identity)
   return true
 }
 
@@ -378,24 +347,20 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaul
     ?? scope[consoleInvocationsKey]
 }
 
-const consoleFixtureInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations.fixture")
+const consoleSuppliedInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations.supplied")
 
 /**
- * Marks a journal that the Console supplies to discovered Agents, such as the in-memory journal of fixture mode.
- * It replaces the app-wide Agent journal in development.
+ * Marks a journal that the Console supplies to discovered Agents through `installConsoleAgentDefinitions()`.
+ * It replaces the app-wide Agent journal.
  */
-export function markConsoleFixtureInvocations(invocations: AgentInvocations): void {
-  Object.defineProperty(invocations, consoleFixtureInvocationsKey, { configurable: true, enumerable: false, value: true })
+export function markConsoleSuppliedInvocations(invocations: AgentInvocations): void {
+  Object.defineProperty(invocations, consoleSuppliedInvocationsKey, { configurable: true, enumerable: false, value: true })
 }
 
-/** The Console journal when the Console supplies it, as in fixture mode. The Console reads every other journal from its owner. */
-export function resolveConsoleFixtureInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
+/** The Console journal when the Console supplies it. The Console reads every other journal from its owner. */
+export function resolveConsoleSuppliedInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
   const invocations = resolveConsoleInvocations(scope)
-  if (!invocations) return undefined
-  if (Reflect.get(invocations, consoleFixtureInvocationsKey) === true) return invocations
-  // A fixture install also records its fixture revision.
-  const identity = scope[consoleInvocationsIdentityKey]
-  return identity && resolveConsoleInvocationsRevision(identity) ? invocations : undefined
+  return invocations && Reflect.get(invocations, consoleSuppliedInvocationsKey) === true ? invocations : undefined
 }
 
 export function installConsoleInvocationFallback(
@@ -403,7 +368,6 @@ export function installConsoleInvocationFallback(
   projectRoot: string,
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
   identity: string = projectRoot,
-  revision?: string,
 ): void {
   scope[consoleInvocationsKey] = invocations
   scope[consoleInvocationsRootKey] = projectRoot
@@ -420,13 +384,6 @@ export function installConsoleInvocationFallback(
       ?? new Map<string, string>()
     identities.set(projectRoot, identity)
     registry[consoleInvocationsRootIdentityRegistryKey] = identities
-    if (revision) {
-      // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
-      const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
-        ?? new Map<string, string>()
-      revisions.set(identity, revision)
-      registry[consoleInvocationsRevisionRegistryKey] = revisions
-    }
     registry[consoleInvocationsKey] = invocations
   }
 }

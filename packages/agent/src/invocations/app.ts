@@ -164,7 +164,7 @@ export function resolveDefaultAgentInvocations(): AgentInvocations | undefined {
 
 /**
  * Replace the app-wide journal of Agent Definitions that set no journal, while `resolve` returns a journal.
- * A development tool, such as the fixture mode of the ViteHub Console, uses it. Pass `undefined` to remove it.
+ * The Console uses it for a journal that `installConsoleAgentDefinitions()` receives. Pass `undefined` to remove it.
  */
 export function installAgentInvocationsOverride(resolve: (() => AgentInvocations | undefined) | undefined): void {
   if (resolve) runtime()[overrideInvocationsKey] = resolve

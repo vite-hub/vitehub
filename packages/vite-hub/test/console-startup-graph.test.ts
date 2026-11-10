@@ -57,8 +57,6 @@ describe("Console server startup graph", () => {
         [],
         { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         [],
-        undefined,
-        undefined,
         false,
         () => true,
         false,

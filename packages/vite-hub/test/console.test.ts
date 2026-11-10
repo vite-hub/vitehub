@@ -26,7 +26,6 @@ import {
   consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
-  consoleInvocationsRevisionRegistryKey,
   consoleInvocationsRootIdentityRegistryKey,
   consoleInvocationsRootKey,
   consoleProjectRootKey,
@@ -34,20 +33,17 @@ import {
   consoleSectionsKey,
   consoleSectionsRootKey,
   consoleSectionsRegistryKey,
-  createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
   resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
-import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandlerRoute from "../src/console/runtime/server/agents.get.ts"
 import agentInvocationsHandlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { createConsoleFixtureInvocations, installConsoleFixtureInvocations } from "../src/console/runtime/server/invocations-fixture.ts"
 import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/invocations/default"
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
@@ -115,23 +111,6 @@ function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[
       : undefined
   if (typeof candidate !== "function") throw new TypeError("Expected a callable Vite plugin hook.")
   return Reflect.apply(candidate, context, args)
-}
-
-function fixtureDocument(id?: string) {
-  return {
-    invocations: id
-      ? [{
-          agentName: "support",
-          createdAt: "2026-08-27T10:00:00.000Z",
-          id,
-          observations: [],
-          status: "completed" as const,
-          traceId: `${id}-trace`,
-          updatedAt: "2026-08-27T10:00:00.000Z",
-        }]
-      : [],
-    version: 1 as const,
-  }
 }
 
 /** A test event whose URL and Node response a test can change between calls. */
@@ -202,7 +181,6 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
-  Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
   Reflect.deleteProperty(process, consoleSectionsKey)
   Reflect.deleteProperty(process, consoleProjectNameKey)
@@ -216,287 +194,6 @@ afterEach(() => {
 installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 describe("Agent invocation console", () => {
-  it("loads versioned invocation fixtures into an in-memory journal", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-"))
-    try {
-      const file = join(root, "console.fixture.json")
-      await writeFile(file, JSON.stringify({
-        invocations: [{
-          agentName: "support",
-          createdAt: "2026-08-27T10:00:00.000Z",
-          id: "fixture-invocation",
-          observations: [{
-            attributes: { "message.content": "Fixture reply", "message.role": "assistant" },
-            name: "agent.message",
-            sequence: 1,
-            timestamp: "2026-08-27T10:00:01.000Z",
-            type: "run",
-          }],
-          status: "completed",
-          traceId: "fixture-trace",
-          updatedAt: "2026-08-27T10:00:01.000Z",
-        }],
-        version: 1,
-      }))
-
-      const invocations = createConsoleFixtureInvocations(file)
-
-      await expect(invocations.get("fixture-invocation")).resolves.toMatchObject({
-        agentName: "support",
-        observations: [expect.objectContaining({ name: "agent.message" })],
-      })
-      await expect(invocations.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "fixture-invocation" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("replaces an installed journal when the fixture identity changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-switch-"))
-    const fixture = (id: string) => ({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id,
-        observations: [],
-        status: "completed",
-        traceId: `${id}-trace`,
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })
-    try {
-      const firstFile = join(root, "first.json")
-      const secondFile = join(root, "second.json")
-      await writeFile(firstFile, JSON.stringify(fixture("first")))
-      await writeFile(secondFile, JSON.stringify(fixture("second")))
-
-      const first = installConsoleFixtureInvocations(root, firstFile)
-      const second = installConsoleFixtureInvocations(root, secondFile)
-
-      expect(second).not.toBe(first)
-      await expect(second.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "second" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("replaces an installed journal when a fixture is rewritten in place", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-rewrite-"))
-    const fixture = (id: string) => ({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id,
-        observations: [],
-        status: "completed",
-        traceId: `${id}-trace`,
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })
-    try {
-      const file = join(root, "fixture.json")
-      const firstFixture = parseConsoleFixture(fixture("first"))
-      const firstRevision = consoleFixtureRevision(firstFixture)
-      await writeFile(file, JSON.stringify(firstFixture))
-      const first = installConsoleFixtureInvocations(root, file)
-      const existingRealm = {
-        process,
-        [consoleInvocationsIdentityKey]: createConsoleInvocationsIdentity(root, file, firstRevision),
-        [consoleInvocationsIdentityRootKey]: root,
-        [consoleInvocationsRootKey]: root,
-      }
-
-      await writeFile(file, JSON.stringify(fixture("second")))
-      const second = installConsoleFixtureInvocations(root, file)
-
-      expect(second).not.toBe(first)
-      expect(resolveConsoleInvocations(existingRealm)).toBe(first)
-      expect(resolveConsoleInvocations()).toBe(second)
-      expect(Reflect.get(process, consoleInvocationsRegistryKey).size).toBe(2)
-      await expect(second.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "second" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("isolates same-revision fixture journals by runtime binding", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-runtime-"))
-    try {
-      const file = join(root, "fixture.json")
-      const fixture = parseConsoleFixture(fixtureDocument("shared"))
-      const revision = consoleFixtureRevision(fixture)
-      await writeFile(file, JSON.stringify(fixture))
-
-      const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
-      const second = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-b")
-      const refreshedFirst = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
-
-      expect(second).not.toBe(first)
-      expect(refreshedFirst).toBe(first)
-      expect(createConsoleInvocationsIdentity(root, file, revision, "runtime-a"))
-        .not.toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime-b"))
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("installs reused fixture journals in the current runtime realm", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-realm-"))
-    try {
-      const file = join(root, "fixture.json")
-      const fixture = parseConsoleFixture(fixtureDocument("shared"))
-      const revision = consoleFixtureRevision(fixture)
-      await writeFile(file, JSON.stringify(fixture))
-
-      const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime")
-      delete scope[consoleInvocationsKey]
-      delete scope[consoleInvocationsIdentityKey]
-      delete scope[consoleInvocationsIdentityRootKey]
-      delete scope[consoleInvocationsRootKey]
-
-      const reused = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime")
-
-      expect(reused).toBe(first)
-      expect(resolveConsoleInvocations()).toBe(first)
-      expect(scope[consoleInvocationsIdentityKey]).toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime"))
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("installs a validated generated snapshot after the fixture changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-snapshot-"))
-    try {
-      const file = join(root, "fixture.json")
-      const fixture = parseConsoleFixture(fixtureDocument("generated"))
-      await writeFile(file, JSON.stringify(fixture))
-      await writeFile(file, "not json")
-
-      const invocations = installConsoleFixtureInvocations(root, file, fixture, consoleFixtureRevision(fixture))
-
-      await expect(invocations.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "generated" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("rejects malformed and duplicate fixture records", () => {
-    expect(parseConsoleFixture({
-      invocations: [{
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "anonymous",
-        observations: [],
-        status: "completed",
-        traceId: "anonymous-trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    }).invocations[0]?.agentName).toBe(consoleFixtureFallbackAgentName)
-    expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
-    expect(() => parseConsoleFixture(fixtureDocument("a".repeat(513))))
-      .toThrow("invocations[0].id must be at most 512 characters")
-    expect(() => parseConsoleFixture({
-      invocations: [0, 1].map(() => ({
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "duplicate",
-        observations: [],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      })),
-      version: 1,
-    })).toThrow("duplicate invocation id")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "missing-observation-fields",
-        observations: [{ sequence: 0, type: "run" }],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow("observations[0].name must be a non-empty string")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "missing-observation-timestamp",
-        observations: [{ name: "agent.message", sequence: 0, type: "run" }],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow("observations[0].timestamp must be a non-empty string")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00",
-        id: "timezone-less-timestamp",
-        observations: [],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow("createdAt must be a valid timezone-qualified timestamp")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "invalid-extension",
-        metadata: { score: Number.POSITIVE_INFINITY },
-        observations: [],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow('invocations[0]["metadata"]["score"] must be a finite number')
-    for (const observation of [
-      { metadata: { score: Number.POSITIVE_INFINITY } },
-      { trace: { id: "trace", metadata: { score: Number.POSITIVE_INFINITY } } },
-    ]) {
-      expect(() => parseConsoleFixture({
-        invocations: [{
-          agentName: "support",
-          createdAt: "2026-08-27T10:00:00.000Z",
-          id: "invalid-observation-extension",
-          observations: [{
-            name: "agent.message",
-            sequence: 0,
-            timestamp: "2026-08-27T10:00:00.000Z",
-            type: "run",
-            ...observation,
-          }],
-          status: "completed",
-          traceId: "trace",
-          updatedAt: "2026-08-27T10:00:00.000Z",
-        }],
-        version: 1,
-      })).toThrow("must be a finite number")
-    }
-  })
-
   it("serializes generated Agent registry refreshes", async () => {
     const releases: Array<() => void> = []
     const started: number[] = []
@@ -1635,228 +1332,6 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("generates a fixture-backed journal only for development servers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-host-"))
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-data-"))
-    try {
-      const fixture = join(fixtureRoot, "console.fixture.json")
-      await writeFile(join(root, "package.json"), "{}\n")
-      const fixtureWithPrototypeData = JSON.parse(`{
-        "version": 1,
-        "invocations": [{
-          "createdAt": "2026-08-27T10:00:00.000Z",
-          "id": "prototype-data",
-          "observations": [{
-            "attributes": { "__proto__": { "preserved": true } },
-            "name": "agent.message",
-            "sequence": 0,
-            "timestamp": "2026-08-27T10:00:00.000Z",
-            "type": "run"
-          }],
-          "status": "completed",
-          "traceId": "prototype-data-trace",
-          "updatedAt": "2026-08-27T10:00:00.000Z"
-        }]
-      }`)
-      await writeFile(fixture, JSON.stringify(fixtureWithPrototypeData))
-      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected a console config hook.")
-      const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
-
-      await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
-      await callPluginHook(plugin.configResolved, {}, [{ root }])
-      await callPluginHook(plugin.buildStart, {})
-
-      const generatedPlugin = config.nitro?.plugins?.[0] ?? ""
-      const generated = await readFile(generatedPlugin, "utf8")
-      expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)}, `)
-      expect(generated).toContain("JSON.parse(")
-      const generatedInstallation = generated.split("\n").find(line => line.startsWith("const vitehubConsoleInvocations"))
-      if (!generatedInstallation) throw new TypeError("Expected a generated fixture installation.")
-      let generatedSnapshot: unknown
-      runInNewContext(generatedInstallation, {
-        installConsoleFixtureInvocations: (_root: string, _file: string, snapshot: unknown) => {
-          generatedSnapshot = snapshot
-        },
-      })
-      // SAFETY: The generated installation was produced from the fully validated fixture above.
-      const generatedAttributes = (generatedSnapshot as { invocations: Array<{ observations: Array<{ attributes: object }> }> })
-        .invocations[0]!.observations[0]!.attributes
-      expect(Object.hasOwn(generatedAttributes, "__proto__")).toBe(true)
-      expect(Reflect.get(generatedAttributes, "__proto__")).toEqual({ preserved: true })
-
-      const listeners = new Map<string, () => Promise<void>>()
-      const logger = { error: vi.fn() }
-      const add = vi.fn()
-      const configureServerHook = plugin.configureServer
-      if (!configureServerHook) throw new TypeError("Expected a configureServer hook.")
-      const configureServer = "handler" in configureServerHook
-        ? configureServerHook.handler
-        : configureServerHook
-      await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { add, on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
-      expect(add).toHaveBeenCalledWith(fixture)
-      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
-
-      const concurrentPlugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
-      const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
-      await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
-      await callPluginHook(concurrentPlugin.configResolved, {}, [{ root }])
-      await callPluginHook(concurrentPlugin.buildStart, {})
-      const concurrentGeneratedPlugin = concurrentConfig.nitro?.plugins?.[0] ?? ""
-      expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(generated)
-      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
-
-      await listeners.get("change")?.()
-      const refreshed = await readFile(generatedPlugin, "utf8")
-      expect(refreshed).not.toBe(generated)
-
-      await writeFile(fixture, "not json")
-      await expect(listeners.get("change")?.()).resolves.toBeUndefined()
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshed)
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
-
-      await rm(fixture)
-      await expect(listeners.get("unlink")?.()).resolves.toBeUndefined()
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshed)
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
-
-      await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
-      await listeners.get("add")?.()
-      await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
-
-      await expect(Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }]))
-        .rejects.toThrow("Console fixture mode is development-only")
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-      await rm(fixtureRoot, { force: true, recursive: true })
-    }
-  })
-
-  it("does not materialize fixture state when Vite configuration aborts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-abort-"))
-    const fixture = join(root, "console.fixture.json")
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(fixture, JSON.stringify(fixtureDocument("aborted")))
-      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-
-      for (const hook of ["config", "configResolved"] as const) {
-        const state: ConsoleInvocationRootState = {}
-        await expect(createServer({
-          configFile: false,
-          plugins: [
-            consoleVitePlugin({ console: { auth: false }, invocationRootState: state }),
-            consoleInvocationRootPlugin(undefined, undefined, state),
-            { name: `fixture-${hook}-failure`, [hook]: () => { throw new Error(`${hook} failed`) } },
-          ],
-          root,
-          server: { middlewareMode: true },
-        })).rejects.toThrow(`${hook} failed`)
-
-        const generatedPlugin = resolve(root, ".vitehub/nitro/console", `plugin-${state.binding}.mjs`)
-        await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-        expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).not.toBe(true)
-        expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
-        expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
-      }
-    }
-    finally {
-      vi.unstubAllEnvs()
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("ignores inherited fixtures during Vite CLI discovery", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-cli-discovery-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const generatedPlugin = resolve(root, ".vitehub/nitro/console/plugin.mjs")
-      await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
-      await writeFile(generatedPlugin, "// active fixture plugin\n")
-      vi.stubEnv(consoleFixtureEnvironmentVariable, join(root, "missing.fixture.json"))
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node" })
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected a console config hook.")
-      const configHandler = "handler" in configHook ? configHook.handler : configHook
-
-      await expect(Reflect.apply(configHandler, {}, [
-        { root, vitehubCliDiscovery: true },
-        { command: "serve", mode: "development" },
-      ])).resolves.toBeUndefined()
-      const configResolvedHook = plugin.configResolved
-      if (!configResolvedHook) throw new TypeError("Expected a configResolved hook.")
-      const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
-      await Reflect.apply(configResolvedHandler, {}, [{ root }])
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe("// active fixture plugin\n")
-    }
-    finally {
-      vi.unstubAllEnvs()
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("cleans up and restores a refreshed fixture across runtime restart", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-refresh-close-"))
-    const fixture = join(root, "console.fixture.json")
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(fixture, JSON.stringify(fixtureDocument("initial")))
-      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const state: ConsoleInvocationRootState = {}
-      const plugin = consoleVitePlugin({ console: { auth: false }, invocationRootState: state, sections: ["agents"] })
-      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
-      await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
-      await callPluginHook(plugin.configResolved, {}, [{ root }])
-      await callPluginHook(plugin.buildStart, {})
-      const generatedPlugin = config.nitro?.plugins?.[0]
-      if (!generatedPlugin) throw new TypeError("Expected a generated Console plugin.")
-
-      const listeners = new Map<string, () => Promise<void>>()
-      await callPluginHook(plugin.configureServer, {}, [{
-        config: { logger: { error: vi.fn() } },
-        watcher: {
-          add: vi.fn(),
-          on: (event: string, listener: () => Promise<void>) => listeners.set(event, listener),
-        },
-      }])
-      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
-      const refresh = listeners.get("change")?.()
-      const runtimePlugin = consoleInvocationRootPlugin(root, state.identity, state)
-      await callPluginHook(runtimePlugin.closeBundle, {})
-      await refresh
-
-      expect(state.closed).toBe(true)
-      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-      await listeners.get("change")?.()
-      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-      expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).toBe(false)
-      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(false)
-      expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
-
-      const resolved = { id: "/agent.ts" }
-      await callPluginHook(runtimePlugin.buildStart, { resolve: vi.fn().mockResolvedValue(resolved) })
-      expect(state.closed).toBe(false)
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("replacement")
-      const transformed = callPluginHook(runtimePlugin.transform, {}, ["", resolved.id])
-      // SAFETY: The generated script returns the isolated realm used by this focused restart test.
-      const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
-      const invocations = resolveConsoleInvocations(realm)
-      if (!invocations) throw new TypeError("Expected the restarted fixture journal.")
-      await expect(invocations.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "replacement" })],
-      })
-    }
-    finally {
-      vi.unstubAllEnvs()
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
   it("serves discovered Agent names in stable order for the active project", async () => {
     const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -1961,48 +1436,19 @@ describe("Agent invocation console", () => {
     await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({ sections: ["kv"] })
   })
 
-  it("rebinds already evaluated Agent realms to a refreshed fixture revision", async () => {
-    const projectRoot = "/project"
-    const fixture = "/fixture.json"
-    const firstIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "first")
-    const secondIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "second")
-    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
-
-    const state = { identity: firstIdentity, projectRoot }
-    updateConsoleInvocationRootState(state, projectRoot, firstIdentity)
-    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, state)
-    const resolved = { id: "/agent.ts" }
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
-    await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
-    const transformed = transform("", resolved.id)
-    // SAFETY: The generated script returns the isolated realm used by this focused binding test.
-    const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
-    expect(resolveConsoleInvocations(realm)).toBe(first)
-
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
-    updateConsoleInvocationRootState(state, projectRoot, secondIdentity)
-
-    expect(resolveConsoleInvocations(realm)).toBe(second)
-  })
-
   it("keeps configured identities across concurrent same-root runtimes", async () => {
     const projectRoot = "/project"
-    const firstIdentity = "fixture:/project:/fixture.json:first"
-    const secondIdentity = "fixture:/project:/fixture.json:second"
-    const thirdIdentity = "fixture:/project:/fixture.json:third"
+    const firstIdentity = "runtime:/project:first"
+    const secondIdentity = "runtime:/project:second"
+    const thirdIdentity = "runtime:/project:third"
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
     const third = fakeInvocations("third")
-    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity)
     const firstState = { identity: firstIdentity, projectRoot }
     updateConsoleInvocationRootState(firstState, projectRoot, firstIdentity)
     const firstPlugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, firstState)
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity)
     const secondState = { identity: secondIdentity, projectRoot }
     updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
     const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
@@ -2018,25 +1464,23 @@ describe("Agent invocation console", () => {
     expect(resolveConsoleInvocations(firstRealm)).toBe(first)
     expect(resolveConsoleInvocations(secondRealm)).toBe(second)
 
-    installConsoleInvocationFallback(third, projectRoot, globalThis, thirdIdentity, "third")
+    installConsoleInvocationFallback(third, projectRoot, globalThis, thirdIdentity)
     updateConsoleInvocationRootState(firstState, projectRoot, thirdIdentity)
 
     expect(resolveConsoleInvocations(firstRealm)).toBe(third)
     expect(resolveConsoleInvocations(secondRealm)).toBe(second)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(firstIdentity)).toBe(false)
-    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(firstIdentity)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(true)
 
     await callPluginHook(secondPlugin.closeBundle, {})
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
-    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(secondIdentity)).toBe(false)
   })
 
-  it("retires the current fixture journal when its only runtime closes", async () => {
+  it("retires the current journal when its only runtime closes", async () => {
     const projectRoot = "/project"
-    const identity = "fixture:/project:/fixture.json:revision"
+    const identity = "runtime:/project"
     const invocations = fakeInvocations("fixture")
-    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity, "revision")
+    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity)
     const state = { identity, projectRoot }
     updateConsoleInvocationRootState(state, projectRoot, identity)
     const plugin = consoleInvocationRootPlugin(projectRoot, identity, state)
@@ -2045,7 +1489,6 @@ describe("Agent invocation console", () => {
 
     expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).has(projectRoot)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(identity)).toBe(false)
-    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(identity)).toBe(false)
     expect(Reflect.has(process, consoleInvocationsKey)).toBe(false)
     expect(resolveConsoleInvocations()).toBeUndefined()
     expect(scope[consoleInvocationsRootKey]).toBeUndefined()
@@ -2055,9 +1498,9 @@ describe("Agent invocation console", () => {
 
   it("keeps a shared runtime binding until its last server environment closes", async () => {
     const projectRoot = "/project"
-    const identity = "fixture:/project:/fixture.json:revision"
+    const identity = "runtime:/project"
     const invocations = fakeInvocations("fixture")
-    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity, "revision")
+    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity)
     const state: ConsoleInvocationRootState = { identity, projectRoot }
     updateConsoleInvocationRootState(state, projectRoot, identity)
     const plugin = consoleInvocationRootPlugin(projectRoot, identity, state)
@@ -2084,14 +1527,14 @@ describe("Agent invocation console", () => {
 
   it("restores a surviving same-root runtime when the current runtime closes", async () => {
     const projectRoot = "/project"
-    const firstIdentity = "fixture:/project:/fixture.json:first"
-    const secondIdentity = "fixture:/project:/fixture.json:second"
+    const firstIdentity = "runtime:/project:first"
+    const secondIdentity = "runtime:/project:second"
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
-    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity)
     const firstState = { identity: firstIdentity, projectRoot }
     updateConsoleInvocationRootState(firstState, projectRoot, firstIdentity)
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity)
     const secondState = { identity: secondIdentity, projectRoot }
     updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
     const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
@@ -2473,35 +1916,6 @@ describe("Agent invocation console", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
-
-  it("keeps fallback Agent Definition journals bound to refreshed fixtures", () => {
-    const projectRoot = "/project"
-    const fixture = "/fixture.json"
-    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const definition = defineAgent({ driver: { run: () => "ok" }, name: "support" })
-
-    installConsoleInvocationFallback(
-      first,
-      projectRoot,
-      globalThis,
-      createConsoleInvocationsIdentity(projectRoot, fixture, "first"),
-      "first",
-    )
-    installConsoleAgentDefinitions([
-      { definition: { default: definition }, fallbackName: "help" },
-    ], { invocations: first })
-    expect(definition.invocations).toBe(first)
-
-    installConsoleInvocationFallback(
-      second,
-      projectRoot,
-      globalThis,
-      createConsoleInvocationsIdentity(projectRoot, fixture, "second"),
-      "second",
-    )
-    expect(definition.invocations).toBe(second)
   })
 
   it("rebinds Console-owned direct Agent journals while preserving later user assignments", () => {
@@ -4230,9 +3644,9 @@ describe("Agent invocation console", () => {
 
   it("resolves the current journal identity from a project-root-only Agent realm", () => {
     const fixture = fakeInvocations("fixture")
-    installConsoleInvocationFallback(fixture, "/project", { process }, "fixture:/project:/fixture.json")
+    installConsoleInvocationFallback(fixture, "/project", { process }, "runtime:/project")
 
-    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get("/project")).toBe("fixture:/project:/fixture.json")
+    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get("/project")).toBe("runtime:/project")
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(fixture)
   })
 
@@ -4242,42 +3656,11 @@ describe("Agent invocation console", () => {
     const firstScope = { process }
     const secondScope = { process }
 
-    installConsoleInvocationFallback(first, "/project", firstScope, "fixture:/project:/first.json")
-    installConsoleInvocationFallback(second, "/project", secondScope, "fixture:/project:/second.json")
+    installConsoleInvocationFallback(first, "/project", firstScope, "runtime:/project:first")
+    installConsoleInvocationFallback(second, "/project", secondScope, "runtime:/project:second")
 
     expect(resolveConsoleInvocations(firstScope)).toBe(first)
     expect(resolveConsoleInvocations(secondScope)).toBe(second)
-    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
-  })
-
-  it("keeps concurrent fixture revisions bound to their runtime journal", () => {
-    const first = fakeInvocations("first")
-    const second = fakeInvocations("second")
-    const firstScope = { process }
-    const secondScope = { process }
-    const firstIdentity = createConsoleInvocationsIdentity("/project", "/fixture.json", "first-revision")
-    const secondIdentity = createConsoleInvocationsIdentity("/project", "/fixture.json", "second-revision")
-
-    installConsoleInvocationFallback(first, "/project", firstScope, firstIdentity, "first-revision")
-    installConsoleInvocationFallback(second, "/project", secondScope, secondIdentity, "second-revision")
-
-    const firstAgentRealm = {
-      process,
-      [consoleInvocationsIdentityKey]: firstIdentity,
-      [consoleInvocationsIdentityRootKey]: "/project",
-      [consoleInvocationsRootKey]: "/project",
-    }
-    const secondAgentRealm = {
-      process,
-      [consoleInvocationsIdentityKey]: secondIdentity,
-      [consoleInvocationsIdentityRootKey]: "/project",
-      [consoleInvocationsRootKey]: "/project",
-    }
-
-    expect(resolveConsoleInvocations(firstScope)).toBe(first)
-    expect(resolveConsoleInvocations(secondScope)).toBe(second)
-    expect(resolveConsoleInvocations(firstAgentRealm)).toBe(first)
-    expect(resolveConsoleInvocations(secondAgentRealm)).toBe(second)
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
   })
 
@@ -4350,8 +3733,8 @@ describe("Agent invocation console", () => {
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
     const projectRoot = "/project"
-    const firstIdentity = "fixture:/project:/first.json"
-    const secondIdentity = "fixture:/project:/second.json"
+    const firstIdentity = "runtime:/project:first"
+    const secondIdentity = "runtime:/project:second"
     installConsoleInvocationFallback(first, projectRoot, { process }, firstIdentity)
     installConsoleInvocationFallback(second, projectRoot, { process }, secondIdentity)
 
@@ -4801,41 +4184,6 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("preserves tool payloads in fixture-backed console journals", async () => {
-    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-tools-"))
-    try {
-      const file = join(projectRoot, "console.fixture.json")
-      await writeFile(file, JSON.stringify({ invocations: [], version: 1 }))
-      const invocations = installConsoleFixtureInvocations(projectRoot, file)
-      const agent = defineAgent({
-        driver: { run: () => (async function* () {
-            yield { id: "tool-1", input: { query: "fixture" }, name: "lookup", type: "tool-call" }
-            yield { id: "tool-1", name: "lookup", output: { answer: "preserved" }, type: "tool-result" }
-            yield { type: "finish" }
-          })() },
-        runtime: false,
-      })
-      const result = await runAgentWithContext(agent, runtime("console-fixture-tool"), {})
-      // SAFETY: This Driver fixture always returns the async generator defined above.
-      for await (const _event of result as AsyncIterable<unknown>) {}
-
-      const invocation = await invocations.getByRunId("console-fixture-tool")
-      expect(invocation?.observations).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          attributes: expect.objectContaining({ "tool.input": { query: "fixture" } }),
-          name: "agent.tool.start",
-        }),
-        expect.objectContaining({
-          attributes: expect.objectContaining({ "tool.output": { answer: "preserved" } }),
-          name: "agent.tool.finish",
-        }),
-      ]))
-    }
-    finally {
-      await rm(projectRoot, { force: true, recursive: true })
-    }
-  })
-
   it("accepts public read-only requests", () => {
     expect(() => assertConsoleRequest(event("203.0.113.2"))).not.toThrow()
     expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
@@ -4930,7 +4278,6 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command, mode }])
       const initial = await readFile(config.nitro!.plugins![0]!, "utf8")
       await callPluginHook(plugin.configResolved, {}, [config])
-      await callPluginHook(plugin.buildStart, {})
       const refreshed = await readFile(config.nitro!.plugins![0]!, "utf8")
 
       vi.stubEnv("NODE_ENV", mode)

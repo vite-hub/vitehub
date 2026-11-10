@@ -104,7 +104,7 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/sync.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("sync")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "sync" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], true)
     const invokeEnabled = await readFile(plugin, "utf8")
     await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
     const invokeDisabled = await readFile(plugin, "utf8")
@@ -122,7 +122,7 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/__proto__.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("__proto__")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "__proto__" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], true)
 
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
   })
