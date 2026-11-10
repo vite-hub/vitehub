@@ -95,11 +95,6 @@
       "import": "./dist/nitro.js",
       "default": "./dist/nitro.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -141,16 +136,6 @@
       "import": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
     },
-    "./internal/runtime/registry": {
-      "types": "./dist/runtime/registry.d.ts",
-      "import": "./dist/runtime/registry.js",
-      "default": "./dist/runtime/registry.js"
-    },
-    "./internal/runtime/state": {
-      "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js",
-      "default": "./dist/runtime/state.js"
-    },
     "./internal/runtime/workspace": {
       "types": "./dist/runtime/workspace.d.ts",
       "import": "./dist/runtime/workspace.js",
@@ -166,9 +151,10 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/workspace#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/workspace#build && vp test"
+    "test": "vp run --cache -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/forge": "workspace:*",
