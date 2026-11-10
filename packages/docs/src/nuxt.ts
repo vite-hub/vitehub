@@ -26,7 +26,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { createDocsManifest } from "./manifest.ts"
+import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
@@ -50,9 +50,12 @@ export interface DocsSiteOptions {
   /** Canonical origin, such as `https://vitehub.dev`. Raw Markdown links, canonical links, and the sitemap use it. */
   url?: string
   description?: string
-  /** Path of a one-color SVG mark beside the name. The theme fills it with the text color. */
-  logo?: string
-  /** A short label after the name, such as `beta`, with an optional tooltip on the header brand. */
+  /**
+   * The mark beside the name. A path is a one-color SVG that the theme fills with the text color, so it follows light and
+   * dark mode. `{ light, dark? }` shows images as they are, such as a colored logo, with `dark` in dark mode.
+   */
+  logo?: string | { light: string, dark?: string }
+  /** A short label after the name, such as `beta`, with an optional tooltip on the site brand. */
   badge?: { label: string, tooltip?: string }
 }
 
@@ -154,11 +157,18 @@ export interface DocsModuleOptions {
   examples?: string
 }
 
+/** The site mark: `mask` fills `src` with the text color, else `src` shows as it is, and `dark` in dark mode. */
+export interface DocsLogo {
+  src: string
+  dark: string | null
+  mask: boolean
+}
+
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
 export interface DocsPublicConfig {
   appBase: string
   base: string
-  site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
+  site: { name: string, url: string, description: string, logo: DocsLogo | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
   railExclude: string[]
   groups: DocsGroup[]
@@ -401,12 +411,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }])
     }
 
-    // The manifest is data, not code: the app and the server import the same file, so both see a content change.
+    // The manifest is data, not code: the server imports the whole manifest, and the app a copy with only the page
+    // fields that it reads. Both are written from the same manifest, so both see a content change.
     // `JSON.parse` of a string parses much faster than an object literal of the same size, and every page loads it.
     const manifestSource = () => `export default JSON.parse(${JSON.stringify(JSON.stringify(manifest))})\n`
     const manifestFile = addTemplate({ filename: "docs/manifest.mjs", getContents: manifestSource, write: true }).dst
-    nuxt.options.alias["#docs/manifest"] = manifestFile
-    addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    // Types `#docs/manifest` in server code. Nitro 2 maps the alias to `docs/manifest` without an extension, so the
+    // declaration is `.d.ts`, not `.d.mts`. Nuxt finds a `.d.ts` beside the module too.
+    addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
     addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
@@ -729,6 +743,12 @@ function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
+function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | null {
+  if (!logo) return null
+  if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
+  return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
+}
+
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
   const url = (site.url ?? "").replace(/\/+$/, "")
@@ -740,7 +760,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
       name: site.name ?? "Docs",
       url,
       description: site.description ?? "",
-      logo: site.logo ? docsAppPath(site.logo, appBase) : null,
+      logo: docsLogo(site.logo, appBase),
       badge: site.badge ? { label: site.badge.label, tooltip: site.badge.tooltip ?? null } : null,
     },
     categories: options.categories ?? [],

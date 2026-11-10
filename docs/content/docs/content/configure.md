@@ -8,46 +8,46 @@ icon: i-lucide-sliders-horizontal
 
 ## Definition options
 
-`defineContent(options)` takes read-only Sources, editable document collections, or both. Each Source and each collection becomes one Comark instance, composed with Comark's `contentHub()`. A single `source` becomes an instance named `default`.
+`defineContent(options)` takes read-only Sources, editable collections, or both. Each one becomes a Comark instance, joined with Comark's `contentHub()`. A single `source` becomes the instance `default`.
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `source` | Content Source input | One read-only Source. Cannot be combined with `sources`. |
-| `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
-| `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons, in Markdown, JSON, or YAML. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
-| `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` without wiring. See [CMS options](/docs/cms/configure#options). Cannot be combined with `workspace`. |
-| `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
-| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
-| `live` | `'auto' \| false` | Live co-editing of Markdown documents. `auto` (default) turns it on when Realtime is enabled and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
-| `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
-| `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. A Comark parse plugin here throws `CONTENT_R0006`. |
-| `markdown` | Comark parser options | Applied to each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
-| Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
+| `source` | Content Source input | One read-only Source. Not with `sources`. |
+| `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources, one instance each. |
+| `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons in Markdown, JSON, or YAML. Each is an instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
+| `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` with no setup. See [CMS options](/docs/cms/configure#options). Not with `workspace`. |
+| `workspace` | `string` | Your own Workspace for `collections`. Required with `collections` unless `extends` sets it. It needs retained history. |
+| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that surfaces check with `content.can()`. See [Access](#access). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
+| `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
+| `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
+| `markdown` | Comark parser options | Used by each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
+| Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Passed to each instance. ViteHub sets `basePath` to `/api/content`. |
 
-Plugin options are evaluated when the runtime is created. Recreate or rebuild the runtime to change them.
+Plugin options are read once. Rebuild the runtime to change them.
 
 ### Source inputs
 
 | Input | Behavior |
 | --- | --- |
-| Source definition, such as `glob()` or `defineSource()` | Opens a new Reader for each load. Overlapping refreshes, fresh snapshots, and fresh document reads keep their selected revisions. |
+| Source definition, such as `glob()` or `defineSource()` | Opens a new Reader per load. Overlapping refreshes, snapshots, and document reads keep their selected revisions. |
 | Registered Source name | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
-| Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
-| `glob()` from `vite-hub/source/glob` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
+| Explicit reader with `items()` | Keeps its caller-owned lifecycle and revision across refreshes. |
+| `glob()` from `vite-hub/source/glob` | Serves project files, such as `glob('content/docs/**/*.md')`. The build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
-Each item's public path comes from its `path`, or from its key. Items need `content` or `data`. ViteHub serializes structured `data` as JSON before Comark parses it.
+An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
 
-Use `contentSource(input, { prefix, schema })` to set Comark options for one Source. Add `url`, such as `'/:id'`, to list its documents in the sitemap; see [Source URLs](/docs/content/seo#source-urls). A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Pass the adapter through `defineContent()` to isolate overlapping loads.
+`contentSource(input, { prefix, schema })` sets Comark options for one Source. Add `url`, such as `'/:id'`, to list its documents in the sitemap. See [Source URLs](/docs/content/seo#source-urls). A direct adapter picks a Reader when `keys()` starts an enumeration, and later `getItem()` calls use it until the next one. Pass the adapter through `defineContent()` to keep overlapping loads apart.
 
 ## Document collections
 
-Use a collection when people or Agents edit the content at runtime. Sources stay read-only. A collection stores files in a Workspace, validates their fields, keeps every save as a draft revision, and serves only what you publish. Files are Markdown with frontmatter, or JSON or YAML data; see [Singletons and data files](#singletons-and-data-files).
+Use a collection when people or Agents edit content at runtime. A collection stores files in a Workspace (versioned file storage), validates their fields, keeps each save as a draft revision, and serves only what you publish. Files are Markdown with frontmatter, or [JSON or YAML](#singletons-and-data-files).
 
 ### Store the collection
 
-Collections need a Workspace with retained history. The [CMS](/docs/cms) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the tables go to the implicit `default` Database.
+Collections need a Workspace with retained history. The [CMS](/docs/cms) preset, `defineContent({ extends: cms })`, sets it up at build time. It turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds the history tables and the [Editing together](/docs/content/editing-together) `contentSessionsSchema` table to your Database (the implicit `default` Database if you define none).
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
@@ -62,7 +62,7 @@ export const content = defineContent({
 
 Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
 
-To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. Add `contentSessionsSchema` from `vite-hub/content/database` to the same Database for presence and edit leases. A Workspace without retained history fails on first use with `CONTENT_R0007`.
+To use your own Workspace, pass its name as `workspace` instead of `extends`. Its Store must keep history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. For presence and edit leases, add `contentSessionsSchema` from `vite-hub/content/database` to that Database. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
 ### Define collections
 
@@ -90,21 +90,21 @@ export const content = defineContent({
 
 | `documents()` option | Type | Description |
 | --- | --- | --- |
-| `path` | `string \| string[]` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). A list takes files from [several folders](#several-folders). With `locales`, `{locale}` marks the locale folder. |
+| `path` | `string \| string[]` | Workspace glob for the files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder. The extension sets the [format](#data-files). A list reads [several folders](#several-folders). With `locales`, `{locale}` marks the locale folder. |
 | `locales` | `string[]` | Locales of a [translated collection](#locales), such as `['en', 'es']`. The first one is the source locale. |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
-| `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` when the plural is not the singular plus `s`, so the Console shows **New person**. Defaults to the collection name in title case. |
-| `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`, `name`, `label`, and `heading` that is a string field, then to the first required string field. |
-| `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
-| `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json' \| 'image' \| 'file', default? }`. An `image` or `file` prop opens the same Media picker as `image()` and `file()` fields, limited to `store` when set, and stores the picked file as a string: its served URL, or its Blob pathname when the store is not served. Content stores the Markdown as written and does not check component use. |
-| `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, sitemaps and canonical links use it, and [`content.resolve(path)`](#find-the-document-of-a-page) maps a page back to its document with it. See [Document URLs](/docs/content/seo#document-urls). |
-| `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
+| `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` for irregular plurals, so the Console shows **New person**. Defaults to the collection name in title case. |
+| `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first string field among `title`, `name`, `label`, and `heading`, then the first required string field. |
+| `search` | `string[]` | Fields that `list({ search })` matches. Defaults to all string fields plus the body. |
+| `components` | `Record<string, DocumentComponent>` | Comark components that bodies can use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json' \| 'image' \| 'file', default? }`. An `image` or `file` prop opens the Media picker of `image()` and `file()` fields, limited to `store` when set. It stores the file as a string: its served URL, or its Blob pathname if the store is not served. Content stores the Markdown as written and does not check component use. |
+| `url` | `string \| ({ id, data }) => string \| null` | Each document's public URL, such as `'/blog/:id'`. Reads return it as `document.url`. Sitemaps and canonical links use it, and [`content.resolve(path)`](#find-the-document-of-a-page) maps a page back to its document. See [Document URLs](/docs/content/seo#document-urls). |
+| `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default, one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
-A document id is the file path below the collection folder, without the extension. `posts/hello.md` is `hello`, and `posts/2026/launch.md` is `2026/launch`. The Markdown body after the frontmatter is the document `body`.
+A document id is the file path below the collection folder, without extension: `posts/hello.md` is `hello`, `posts/2026/launch.md` is `2026/launch`. The Markdown after the frontmatter is the `body`.
 
 ### Several folders
 
-Pass a list of globs when documents of one collection live in different folders. All globs share one extension.
+Pass a list of globs when one collection's documents are in several folders. All globs use one extension.
 
 ```ts [server/content.ts] fragment
 pages: documents({
@@ -113,24 +113,24 @@ pages: documents({
 })
 ```
 
-The Console new-document form offers a folder for each glob (the folder before its first wildcard) and builds the path in the folder you pick. A document id is the path below the folder that all globs share, without the extension: `content/news/launch.md` is `news/launch`. When the globs share no folder, the id is the whole path without the extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. A glob of one collection may overlap a glob of another collection only if no file can match both: each pair of globs is checked, and `defineContent()` throws `CONTENT_R0006` when two collections overlap. Content lists only the folders before the first wildcard of each glob when it reads a revision, so other files in a large repository are not read.
+The Console's new-document form offers each glob's folder and builds the path there. An id is the path below the folder all globs share, without extension: `content/news/launch.md` is `news/launch`. With no shared folder, the id is the whole path without extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. If globs of two collections can match the same file, `defineContent()` throws `CONTENT_R0006`. Content lists only each glob's folder when it reads a revision, so it skips other files in a large repository.
 
 ::warning
-Adding a glob can change the ids of the documents you already have. Ids are relative to the folder that all globs share, so a glob in another folder moves that folder up: `posts/**/*.md` has ids like `hello`, and `['posts/**/*.md', 'news/*.md']` has ids like `posts/hello`. Schedules, saved `expect` entries, and links that use ids then point at other documents. Ids stay the same when the new glob is inside the folder you already use, such as `['posts/**/*.md', 'posts/archive/**/*.md']`. Otherwise, change the `url` of the collection so that the URLs stay the same with the new ids, publish or cancel pending schedules first, and expect a document's revision history under its new id.
+Adding a glob can change existing ids. Ids are relative to the folder all globs share, so a glob in another folder moves that folder up: `posts/**/*.md` has ids like `hello`, but `['posts/**/*.md', 'news/*.md']` has ids like `posts/hello`. Schedules, saved `expect` entries, and links with ids then point at other documents. Ids stay the same when the new glob is inside the current folder, such as `['posts/**/*.md', 'posts/archive/**/*.md']`. Otherwise, change the collection `url` so URLs stay the same, publish or cancel pending schedules first, and expect each document's history under its new id.
 ::
 
 ### Find the document of a page
 
-`content.resolve(path)` maps an app path to the document that the page shows, for example to link a page to an Edit button. It returns `{ collection, id }`, or `null`.
+`content.resolve(path)` finds the document a page shows, for example for an Edit button. It returns `{ collection, id }`, or `null`.
 
 ```ts
 const route = await content.resolve('/blog/hello?utm=x')
 // { collection: 'posts', id: 'hello' }
 ```
 
-Each `documents()` collection maps a document to a path with its [`url`](/docs/content/seo#document-urls), the same URL that reads carry as `document.url`. A document whose `url` is `null` has no page and does not resolve. A collection without `url` maps the id after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. A query string, a hash, and a trailing slash are ignored. When two collections give the same path, the first one defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads what a read without `ref` reads (`published`, or `draft` in a preview request); pass `{ ref: 'draft' }` to include documents that are not published.
+A collection maps documents to paths with its [`url`](/docs/content/seo#document-urls). A document with `url: null` has no page. Without `url`, the path is `/` plus the id, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. Query strings, hashes, and trailing slashes are ignored. If two collections give the same path, the first defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads `published`, or `draft` in a preview request. Pass `{ ref: 'draft' }` to include unpublished documents.
 
-Content builds the map from paths to documents once per revision of the ref and keeps it, so a call costs a lookup until the ref changes. A `url` pattern whose only placeholder is `:id`, such as `'/blog/:id'`, needs only the ids, so Content reads no documents to build the map. A `url` function or a pattern with a field reads the documents that `list()` reads, so on `published` a document whose fields do not validate does not resolve. A `url` that throws for one document skips that document, with one warning per collection. Singletons do not resolve.
+Content builds the path map once per ref revision, so later calls are lookups. A pattern with only `:id`, such as `'/blog/:id'`, reads no documents. A `url` function or a field pattern reads what `list()` reads, so on `published` an invalid document does not resolve. A `url` that throws skips that document, with one warning per collection. Singletons do not resolve.
 
 ### Locales
 
@@ -199,18 +199,18 @@ The [Console editor](/docs/content/console#translations) switches between locale
 
 ### Fields
 
-`fields` is a record, not one object schema, so each field can come from a different library. Zod 4 and Valibot object schemas reject validators from other libraries, such as `image()`; a record of fields accepts any [Standard Schema](https://standardschema.dev), as written.
+`fields` is a record, not one object schema, so each field can come from a different library. Zod 4 and Valibot object schemas reject other libraries' validators, such as `image()`. A record accepts any [Standard Schema](https://standardschema.dev) as written.
 
-`vite-hub/content` exports every field helper: `image()` and `file()` for a [Blob reference](/docs/blob/server-api#blob-reference-schemas), `seo()`, and `optional()`. Blob owns `image()` and `file()`, and `vite-hub/blob` exports the same functions. The Workspace `file()` mount loader from `vite-hub/workspace` is a different helper; when one module needs both, rename one import, such as `import { file as fileField } from 'vite-hub/content'`.
+`vite-hub/content` exports every field helper: `image()` and `file()` for a [Blob reference](/docs/blob/server-api#blob-reference-schemas) (also exported by `vite-hub/blob`), `seo()`, and `optional()`. The Workspace `file()` mount loader from `vite-hub/workspace` is a different helper. To use both, rename one import, such as `import { file as fileField } from 'vite-hub/content'`.
 
-- **Typed data.** `data` takes each field's output type, so `date` is a `Date`. `save()` takes each field's input type.
-- **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator that has no `.optional()` in `optional()` from `vite-hub/content`.
-- **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`. Nested objects and lists are stored as YAML blocks, one value per line, so a diff shows the value that changed.
+- **Typed data.** `data` has each field's output type, so `date` is a `Date`. `save()` takes the input type.
+- **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator without `.optional()` in `optional()` from `vite-hub/content`.
+- **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()`, not `z.date()`. Nested objects and lists are YAML blocks, one value per line, so a diff shows what changed.
 - **Other keys.** Frontmatter keys without a field stay in the file and are left out of `data`.
 
 ### Singletons and data files
 
-Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path. It lives in `collections` next to your collections, with the same drafts, publishing, history, validation, and access.
+Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path in `collections`. It gets the same drafts, publishing, history, validation, and access.
 
 ```ts [server/content.ts]
 import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
@@ -237,16 +237,16 @@ export const content = defineContent({
 })
 ```
 
-ViteHub does not own a settings schema. The fields above are an example: define the ones your site reads.
+ViteHub has no settings schema. These fields are an example. Define the ones your site reads.
 
 | `singleton()` option | Type | Description |
 | --- | --- | --- |
-| `path` | `string` | Workspace path of one file, such as `settings.json`, `config/site.yaml`, or `pages/home.md`. No wildcards. The extension sets the [format](#data-files). |
+| `path` | `string` | Workspace path of one file, such as `settings.json`, `config/site.yaml`, or `pages/home.md`, without wildcards. The extension sets the [format](#data-files). |
 | `fields` | `Record<string, StandardSchema>` | One validator per field, as in `documents()`. |
-| `url` | `string \| ({ id, data }) => string \| null` | The public URL of the document, such as `'/'`. Omit it for data without a page, such as settings. |
+| `url` | `string \| ({ id, data }) => string \| null` | The document's public URL, such as `'/'`. Omit it for data without a page, such as settings. |
 | `editing` | `{ lease?: boolean }` | As in `documents()`. |
 
-The document id is the file name without the extension, so `settings.json` is `settings`. You rarely need it: every method of a singleton works without an id.
+The id is the file name without extension: `settings.json` is `settings`. You rarely need it, because singleton methods work without an id.
 
 ```ts
 const settings = content.collection('settings')
@@ -257,11 +257,11 @@ await content.publish({ expect: [{ collection: 'settings', digest: draft.digest 
 await settings.status()                    // { state: 'published', ... }
 ```
 
-`content.collection('settings')` has `kind: 'singleton'` and `id`; a collection has `kind: 'documents'`. Code that handles any collection, such as a tool, may pass the id like it does for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
+`content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
 
 #### Data files
 
-The file extension sets the format of a collection or singleton:
+The file extension sets the format:
 
 | Extension | Format | Stored as | Body |
 | --- | --- | --- | --- |
@@ -269,13 +269,13 @@ The file extension sets the format of a collection or singleton:
 | `.yaml`, `.yml` | `yaml` | One YAML mapping, in block style. | None. |
 | Any other, such as `.md` | `markdown` | YAML frontmatter above a Markdown body. | `body`. |
 
-A JSON or YAML document is its fields only. `body` is always empty, and `save()` rejects a non-empty one with `CONTENT_INVALID`. A file whose root is not one object, such as a JSON array, fails validation for every writer. Each save renders the whole file from the field values, in field definition order, so the same values always produce the same bytes, and each nested value is its own line.
+A JSON or YAML document is only its fields. `body` is always empty, and `save()` rejects a non-empty one with `CONTENT_INVALID`. A file whose root is not one object, such as a JSON array, fails validation for every writer. Each save renders the whole file from the values in field order, so equal values give equal bytes, with each nested value on its own line.
 
-`/api/content` serves published data files like Markdown documents, at a path that follows the Workspace path: `settings.json` is `/api/content/get/settings`, and `authors/ada.yaml` is `/api/content/get/authors/ada`. Content installs Comark's JSON and YAML parsers for those collections.
+`/api/content` serves published data files like Markdown, at a path that follows the Workspace path: `settings.json` is `/api/content/get/settings`, and `authors/ada.yaml` is `/api/content/get/authors/ada`. Content installs Comark's JSON and YAML parsers for them.
 
 ### JSON Schema
 
-`content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's [Standard JSON Schema](https://standardschema.dev). The Console editor builds its form from it, and the Content Agent Capability builds its tool input from it. Comark gets the same schema narrowed to its subset.
+`content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's [Standard JSON Schema](https://standardschema.dev). The Console editor builds its form from it, and the Agent Capability its tool input. Comark gets it narrowed to its subset.
 
 | Field | JSON Schema |
 | --- | --- |
@@ -285,7 +285,7 @@ A JSON or YAML document is its fields only. `body` is always empty, and `save()`
 | `v.pipe(v.string(), v.minLength(1))` | `{ type: 'string', minLength: 1 }` |
 | `v.pipe(v.string(), v.isoDate())` | `{ type: 'string', format: 'date' }` |
 
-Zod 4 schemas carry a Standard JSON Schema. Zod cannot represent a `Date`, so Content projects Zod date fields as the ISO `date-time` string they are stored as. Valibot schemas carry none, so Content converts them with `@valibot/to-json-schema`, as Agent tools do. Pass them as they are:
+Zod 4 schemas have a Standard JSON Schema. Zod cannot represent a `Date`, so Content shows Zod date fields as the stored ISO `date-time` string. Valibot schemas have none, so Content converts them with `@valibot/to-json-schema`, like Agent tools. Pass them as they are:
 
 ```ts [server/content.ts]
 import * as v from 'valibot'
@@ -296,39 +296,39 @@ const fields = {
 }
 ```
 
-A field whose JSON Schema is empty gets no form control or type hint, so `defineContent()` warns once per such field and names the collection and the field. The field still validates.
+A field with an empty JSON Schema gets no form control or type hint, so `defineContent()` warns once per field, naming the collection and field. It still validates.
 
 ### Drafts and publishing
 
 Content uses two [history refs](/docs/workspace/server-api#refs) in the Workspace:
 
-- `draft`: every `save()`, `remove()`, and `restore()` commits one revision here.
-- `published`: `content.publish()` copies the selected draft documents here in one revision.
+- `draft`: each `save()`, `remove()`, and `restore()` commits one revision here.
+- `published`: `content.publish()` copies the selected drafts here in one revision.
 
-`/api/content/**` serves only `published` documents and is read-only. Content adds no write routes. Write from server code, the Console, or the Content Agent Capability, or call the server API from your own route.
+`/api/content/**` is read-only and serves only `published`. To write, use server code, the Console, the Agent Capability, or your own route.
 
-Each collection's Comark instance reads the `published` head. Content reads check the head first and refresh the instance when another process or host published, so every instance converges without a shared cache.
+Each collection reads the `published` head, and refreshes when another process or host published, so all instances agree without a shared cache.
 
-Saves that touch different documents never conflict: when another save moves the draft head, Content commits again on the new head. Pass `ifDigest` to reject a save when the same document changed; see [Server API](/docs/content/server-api#conflicts).
+Saves to different documents never conflict. When another save moves the draft head, Content commits again on the new head. Pass `ifDigest` to reject a save when the same document changed. See [Server API](/docs/content/server-api#conflicts).
 
 ### Validation for every writer
 
-Content registers a `vitehub.content` Workspace plugin with a `write:validate` hook for each collection path. What it accepts depends on where the file goes:
+Content adds a `vitehub.content` Workspace plugin with a `write:validate` hook for each collection path. What it accepts depends on the target:
 
 | Where | Accepted |
 | --- | --- |
-| The `draft` ref | Work in progress. Fields may fail validation. A file that cannot be read as an object of fields is refused: invalid YAML or JSON, a root that is not one object, or a body on a JSON or YAML document. |
+| The `draft` ref | Unfinished work: fields may fail validation. It refuses a file that is not an object of fields: invalid YAML or JSON, a root that is not one object, or a body on a JSON or YAML document. |
 | `published`, any other ref, and Workspace `fs` writes | Only documents whose fields validate. |
 
-Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and history commits. A refused write fails with `CONTENT_INVALID`. The hook also checks the other writes at a document path:
+Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and history commits. A refused write fails with `CONTENT_INVALID`. The hook also checks other writes at a document path:
 
-- **Deletes.** Deleting a document from the draft works like `remove()`. Deleting it from `published` fails with `CONTENT_R0013`: a document leaves the published site only when `publish()` publishes its deletion.
-- **Directories.** `mkdir` at a document path, such as `posts/hello.md`, fails with `CONTENT_INVALID`. Folders that hold documents, such as `posts/2026`, are allowed.
-- **Bytes.** Binary content must be UTF-8 text and a valid document for its ref. Other bytes fail with `CONTENT_INVALID`.
+- **Deletes.** A draft delete works like `remove()`. A delete on `published` fails with `CONTENT_R0013`. A document leaves the site only when `publish()` publishes its deletion.
+- **Directories.** `mkdir` at a document path, such as `posts/hello.md`, fails with `CONTENT_INVALID`. Folders of documents, such as `posts/2026`, are allowed.
+- **Bytes.** Binary content must be UTF-8 text and a valid document for its ref, else it fails with `CONTENT_INVALID`.
 
 ### Drafts in progress
 
-`save()` stores fields that fail validation in the draft and returns them as `issues`, so an editor can autosave half-finished work. The stored values come back in `data` as written. `status()` counts the issues, and `get({ ref: 'draft' })` and `list({ ref: 'draft' })` return them.
+`save()` stores invalid fields in the draft and returns them as `issues`, so an editor can autosave unfinished work. `data` returns the values as written. `status()` counts the issues. `get({ ref: 'draft' })` and `list({ ref: 'draft' })` return them.
 
 ```ts fragment
 const draft = await posts.save('hello', { data: { title: '' } })
@@ -336,19 +336,19 @@ draft.issues // [{ field: 'title', path: [], message: 'Add a title.' }]
 await content.publish({ collection: 'posts' }) // CONTENT_INVALID naming posts/hello
 ```
 
-`publish()` and `schedule()` validate every document they would publish. One with issues fails the whole call with `CONTENT_INVALID`, and `details.documents` names each invalid document with its issues. Nothing is published.
+`publish()` and `schedule()` validate every document they would publish. One with issues fails the whole call with `CONTENT_INVALID`, and nothing is published. `details.documents` names each invalid document and its issues.
 
 `save()` still throws `CONTENT_INVALID` for input that cannot become a file: `data` that is not a plain object, values that do not survive a JSON round trip, a body that is not a string, or a body on a JSON or YAML document.
 
-The hook is installed when `server/content.ts` loads. The generated Content route and any import of `content` load it. `publish()` validates again, so a file written before the hook was installed cannot reach `published` unless it is valid.
+The hook starts when `server/content.ts` loads, through the generated Content route or any import of `content`. `publish()` validates again, so a file written before the hook cannot reach `published` unless it is valid.
 
 ### Sources and collections together
 
-A runtime can combine read-only `sources` with `collections`. Names share one namespace, so a collection cannot reuse a Source name. Use Sources for content you change through code, such as files in the repository, and collections for content edited at runtime.
+A runtime can combine read-only `sources` with `collections`. They share one namespace, so a collection cannot reuse a Source name. Use Sources for content you change in code, such as repository files, and collections for content edited at runtime.
 
 ## Access
 
-`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
+`authorize` decides what a user may do with a collection. The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()`. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts] fragment
 export const content = defineContent({
@@ -360,13 +360,13 @@ export const content = defineContent({
 
 | Field | Value |
 | --- | --- |
-| `user` | The signed-in Auth user, or `null`. The Console passes the Console user. An Agent passes the Auth user its Actor stands for, or `null`. |
-| `actor` | The Actor of the Agent Invocation when an Agent makes the call, such as the Content Agent Capability. `undefined` otherwise. |
+| `user` | The signed-in Auth user, or `null`. The Console passes the Console user. An Agent passes its Actor's Auth user, or `null`. |
+| `actor` | The Agent Invocation's Actor when an Agent calls, such as the Agent Capability. Else `undefined`. |
 | `collection` | The collection name. |
 | `action` | `read` for drafts, `write` for save, remove, and restore, or `publish`. |
-| `id` | The document, when the action targets one. |
+| `id` | The document, if the action targets one. |
 
-One policy covers people and Agents. Check `actor` to give Agents less than the user they act for:
+One policy covers people and Agents. Check `actor` to give Agents less than their user:
 
 ```ts [server/content.ts] fragment
 authorize: ({ user, actor, action }) => {
@@ -375,7 +375,11 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default policy: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`. `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read` on each published document it shows.
+
+::warning
+Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.
+::
 
 ### Sources parsed at build
 
@@ -387,15 +391,13 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 - `refresh()` parses the Source again.
 - A `glob()` whose options are not literals reads its files from disk at run time, so the server parses it.
 
-The parsed documents add to the server bundle. The 344 pages of the ViteHub docs add about 5 MB, or 1.1 MB with gzip.
-
-The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
+The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
 
 ## Providers
 
-Content has no hosted provider. Comark Content stores its query and search index in the database that you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
+Content has no hosted provider. Comark Content keeps its query and search index in the database you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
 
-To add full-text search to read-only Sources, install `comark-content` for the plugin imports. Content already owns the runtime needed to read and render Markdown.
+For full-text search on read-only Sources, install `comark-content` for the plugin imports. Content already has what it needs to read and render Markdown.
 
 ```bash
 pnpm add comark-content
@@ -415,7 +417,7 @@ export const content = defineContent({
 })
 ```
 
-For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. The Node SQLite adapter uses local state. Review [Limits and errors](/docs/content/limits-and-errors) before running multiple server instances.
+For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. The Node SQLite adapter keeps local state. Read [Limits and errors](/docs/content/limits-and-errors) before you run several server instances.
 
 | Database | Import | Use |
 | --- | --- | --- |
@@ -424,13 +426,13 @@ For client search, pass `searchClient()` from `comark-content/plugins/sqlite-ful
 
 Full-text search does not run on Cloudflare Workers yet. Workers have no Node SQLite, and SQLite WASM cannot start inside a request there, which is where Content loads.
 
-The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
+The `vitehub()` Vite plugin and the Nuxt module generate the Content route for every preset. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
 See [Limits and errors](/docs/content/limits-and-errors) before running Content in production.
 
 ## Render Markdown with Comark UI
 
-Content bundles the Comark UI parser preset with the HTML-only `annotate`, `diff`, and `quiz` plugins disabled. ViteHub UI includes the matching components and document styles. Render a Content page directly:
+Content bundles the Comark UI parser preset, with the HTML-only `annotate`, `diff`, and `quiz` plugins off. ViteHub UI has the matching components and styles. Render a Content page directly:
 
 ```vue
 <script setup lang="ts">
@@ -444,15 +446,15 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-Use `@vite-hub/ui/markdown` with the owner packages. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
+With the owner packages, use `@vite-hub/ui/markdown`. You need no Comark UI install, component map, or stylesheet. `components` overrides single renderers. It also takes a Markdown string and streams.
 
-`markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
+`markdown.plugins` extends the preset. A plugin with a preset plugin's name replaces it, so an app can set file readers, icon collections, or a private diagram service. The include plugin stays off. Badges and chips load images by URL.
 
-Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for their schema, Markdown conversion, and loss check. Content installs its Comark and Tiptap runtimes; apps do not configure them. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.
+Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for schema, Markdown conversion, and the loss check. Content installs its Comark and Tiptap runtimes, so apps do not configure them. Components need no separate editor node definition. A document that cannot round-trip opens read-only and stays editable in Source.
 
 ### Render HTML on the server
 
-A server route without Vue renders a document with `renderContentHtml()` from `vite-hub/content`. It uses the same Comark UI preset that Content parses with, so math and the other preset components render as HTML. The app does not install `@comark/html` or `comark-ui`.
+A server route without Vue renders a document with `renderContentHtml()` from `vite-hub/content`. It uses Content's Comark UI preset, so math and other preset components render as HTML. You do not install `@comark/html` or `comark-ui`.
 
 ```ts [server/routes/guides/[slug].get.ts]
 import { defineHandler, getRouterParam } from 'h3'
@@ -476,12 +478,12 @@ await renderContentHtml(guide, {
 })
 ```
 
-A component that the preset and `components` do not know renders as an element with its own tag name. Pass a document from `content.get()`. List results have no `nodes`.
+An unknown component renders as an element with its tag name. Pass a document from `content.get()`, because list results have no `nodes`.
 
 ### Migrate an existing Comark setup
 
-Replace the app's Comark renderer, component map, and document stylesheet imports with `Markdown` from `vite-hub/ui/markdown`. Pass the parsed page as `value`. Keep only app-specific renderer overrides in `components`.
+Replace the app's Comark renderer, component map, and stylesheet imports with `Markdown` from `vite-hub/ui/markdown`. Pass the parsed page as `value`. Keep only app-specific overrides in `components`.
 
-Remove app dependencies on Comark UI and Tiptap packages that were installed only for Content. Keep packages that the app imports directly, such as optional search plugins or extensions for a custom editor.
+Remove Comark UI and Tiptap packages you installed only for Content. Keep packages the app imports directly, such as search plugins or custom editor extensions.
 
-For a custom editor, use `createContentEditorCodec()` or `contentRealtimeEditor()` from `vite-hub/content/editor`. The collection-specific `contentEditorComponents` and `contentEditorKitOptions` helpers are removed. The separate `contentMarkdownLossOf` and `describeContentMarkdownLoss` helpers are also removed; use the codec's `verify()` method. There are no compatibility aliases.
+For a custom editor, use `createContentEditorCodec()` or `contentRealtimeEditor()` from `vite-hub/content/editor`. The `contentEditorComponents`, `contentEditorKitOptions`, `contentMarkdownLossOf`, and `describeContentMarkdownLoss` helpers are removed. Use the codec's `verify()` method. There are no compatibility aliases.
