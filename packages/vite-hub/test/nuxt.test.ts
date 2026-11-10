@@ -2011,8 +2011,8 @@ describe("ViteHub Nuxt integration", () => {
     const rootAgent = "/tmp/vitehub-nuxt/unrelated.agent.ts"
     const viteAgent = "/tmp/vitehub-nuxt/app/support.agent.ts"
     await mkdir(resolve(viteWorkflow, ".."), { recursive: true })
-    await writeFile(rootWorkflow, "export default defineWorkflow(async () => undefined)\n")
-    await writeFile(viteWorkflow, "export default defineWorkflow(async () => undefined)\n")
+    await writeFile(rootWorkflow, "export default defineWorkflow(\"release\", async () => undefined)\n")
+    await writeFile(viteWorkflow, "export default defineWorkflow(\"preview\", async () => undefined)\n")
     await writeFile(rootAgent, "export default defineAgent({})\n")
     await writeFile(viteAgent, "export default defineAgent({})\n")
     const development = createNuxt(true)

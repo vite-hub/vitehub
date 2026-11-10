@@ -259,6 +259,62 @@ pnpm vitehub i18n status --json
 
 The old catalogs have no export baseline comments. They can create records without overwriting translations that are already saved. Import exits with `1` if an entry is refused; fix the reported entry before continuing. Keep the old catalogs until every locale imports successfully and you have checked the translations. Commit the new `locales/<locale>/segments/` records, then remove the old PO catalogs. Use `export` for subsequent PO edits so they carry the record baselines.
 
+## Store translations in a Workspace
+
+By default, translations are files in your repository, and a new translation needs a deploy. To change translations without a deploy, store them in a [Workspace](/docs/workspace) with retained history, such as the Blob and Database store or the GitHub store:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+  ],
+})
+```
+:::
+::
+
+The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments/<hh>/<hash>.json`. It has two refs:
+
+- **`draft`** gets every save. The site does not show it.
+- **`published`** is what the site shows. [`useTranslations().publish()`](/docs/i18n/server-api#usetranslations) copies the changed drafts to it in one revision.
+
+The server reads the head of `published` at most once every 5 seconds, and compiles each revision once. A request after a publish gets the new translations. The browser gets them from `/_vitehub/i18n/<locale>.json`, which sends only the messages of browser code. Its ETag is the revision, so the browser downloads a catalog again only after a publish.
+
+The build still reads `locales/` and embeds those translations. Published records override them; messages without a published record keep their build translation. When a Workspace read fails, the server keeps its last working catalogs, or the build snapshot before the first successful read. `vitehub i18n status`, `export`, `import`, and `prune` work on `locales/`, not on the Workspace.
+
 ## What the build does
 
 - **Messages become IDs in the browser.** The build replaces each message with a short ID, a hash of the source text and its context. In a production build, the browser code has IDs and no source text.
