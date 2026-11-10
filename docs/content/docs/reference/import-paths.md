@@ -75,6 +75,7 @@ the same behavior.
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
+| `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
 | `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` preset's Workspace, its tables, and a Database when the app has none. `vitehub()` registers it. |
