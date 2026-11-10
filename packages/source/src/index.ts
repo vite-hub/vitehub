@@ -37,14 +37,12 @@ export type {
   ProviderCollectionOptions,
   ProviderCollectionLoader,
 } from "./core/collection.ts"
-export { combineSources } from "./core/combine-sources.ts"
 export { splitSource } from "./core/split-source.ts"
 export type { SplitSource, SplitSourceItem, SplitSourceKey, SplitSourceOptions, SplitSourcePart } from "./core/split-source.ts"
-export { defineSource, defineSources } from "./core/define.ts"
+export { defineSource } from "./core/define.ts"
 export { createSource } from "./core/reader.ts"
 export {
   clearSources,
-  getRegisteredSource,
   registerSource,
   registerSources,
   useSource,

@@ -79,8 +79,9 @@ export interface OperationContext {
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
   /**
-   * The server event of the HTTP request that carries the call, such as an H3 event, when there is one. Operations
-   * hand it to app hooks that read the request's own session, such as `identify` of Comments.
+   * The request event of the HTTP request that carries the call, when there is one: the Request of the Console route,
+   * with its Standard Context. Operations hand it to app hooks that read the request's own session, such as `identify`
+   * of Comments.
    */
   event?: unknown
   /** Operations set a success status here, such as 202 for an accepted call. */
@@ -128,7 +129,7 @@ export interface OperationDefinition<Input, Output> {
     positional?: string[]
     /** Human output, written verbatim. Without it the CLI prints JSON. `--json` always prints JSON. */
     format?: (output: Output) => string
-    /** `vitehub <namespace>` runs this command when no command is named, such as `vitehub usage`. */
+    /** `vitehub <namespace>` runs this command when no command is named. */
     default?: boolean
     /**
      * Route of the app that takes a signed dispatch of this operation, such as `/_vitehub/schedules/run`. With `--url`
@@ -214,7 +215,7 @@ function checkDefinition(definition: unknown): void {
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
 /** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
-export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments"]
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]
 
 /** CLI namespaces owned by built-in commands. */
 export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
