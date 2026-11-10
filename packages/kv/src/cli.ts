@@ -17,7 +17,7 @@ import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult
 export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface KVCliOptions {
-  /** Asks whether `del` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
+  /** Asks whether `delete` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
   confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
 }
@@ -27,7 +27,9 @@ type KVCliOption = "cursor" | "json-value" | "limit" | "prefix" | "ttl"
 interface KVCommand {
   description: string
   key: boolean
-  name: KVDevOperation
+  name: "delete" | Exclude<KVDevOperation, "del">
+  /** The `kv.*` operation that the command runs. */
+  operation: KVDevOperation
   options: readonly KVCliOption[]
   value?: boolean
 }
@@ -61,11 +63,11 @@ const kvDevTargetErrors = {
 }
 
 const kvCommands: readonly KVCommand[] = [
-  { description: "List keys of a KV store, one page at a time.", key: false, name: "list", options: ["prefix", "limit", "cursor"] },
-  { description: "Print the value of one key.", key: true, name: "get", options: [] },
-  { description: "Check if a key exists. The exit code is 0 when it exists and 1 when it does not.", key: true, name: "has", options: [] },
-  { description: "Write the value of one key.", key: true, name: "set", options: ["ttl", "json-value"], value: true },
-  { description: "Delete one key.", key: true, name: "del", options: [] },
+  { description: "List keys of a KV store, one page at a time.", key: false, name: "list", operation: "list", options: ["prefix", "limit", "cursor"] },
+  { description: "Print the value of one key.", key: true, name: "get", operation: "get", options: [] },
+  { description: "Check if a key exists. The exit code is 0 when it exists and 1 when it does not.", key: true, name: "has", operation: "has", options: [] },
+  { description: "Write the value of one key.", key: true, name: "set", operation: "set", options: ["ttl", "json-value"], value: true },
+  { description: "Delete one key.", key: true, name: "delete", operation: "del", options: [] },
 ]
 
 const optionUsage: Record<KVCliOption, string> = {
@@ -88,7 +90,7 @@ function commandUsage(command: KVCommand): string {
   const key = command.key ? " <key>" : ""
   const value = command.value ? " <value|@file>" : ""
   const options = command.options.map(option => ` ${optionUsage[option]}`).join("")
-  return `vitehub kv ${command.name}${key}${value}${options} [--store <name>] [--json]${command.name === "del" ? " [--yes]" : ""} [--url <url>]`
+  return `vitehub kv ${command.name}${key}${value}${options} [--store <name>] [--json]${command.name === "delete" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -103,7 +105,7 @@ function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): vo
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      KV store. Defaults to `default`.",
     "  --json              Print JSON.",
-    ...(command.name === "del" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
+    ...(command.name === "delete" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
@@ -148,7 +150,7 @@ function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
       parsed.json = true
       continue
     }
-    if (command.name === "del" && (arg === "--yes" || arg === "-y")) {
+    if (command.name === "delete" && (arg === "--yes" || arg === "-y")) {
       parsed.yes = true
       continue
     }
@@ -365,10 +367,10 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
     writeUsage(command, context.stdout)
     return 0
   }
-  if (command.name === "del" && !parsed.yes) {
+  if (command.name === "delete" && !parsed.yes) {
     const question = `Delete key ${parsed.key} from KV store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv del deletes a key and was not confirmed." })
+    if (!confirmed) return writeFailure(parsed, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv delete deletes a key and was not confirmed." })
   }
   const input: Record<string, unknown> = {}
   if (parsed.cursor !== undefined) input.cursor = parsed.cursor
@@ -379,21 +381,21 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   if (parsed.ttl !== undefined) input.ttl = parsed.ttl
   if (command.value) input.value = value
   const called = await callOperationFromCli({
-    ...(command.name === "del" ? { confirmed: true } : {}),
+    ...(command.name === "delete" ? { confirmed: true } : {}),
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,
     ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     ...(parsed.url ? { url: parsed.url } : {}),
-  }, `kv.${command.name}`, input)
+  }, `kv.${command.operation}`, input)
   if (!called.ok) return writeFailure(parsed, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
   const result = called.value
   if (!isRecord(result)) return writeFailure(parsed, context, { message: "The kv operation answered with an invalid result." })
-  const commandResult = parseResult(command.name, result)
+  const commandResult = parseResult(command.operation, result)
   if (!commandResult) return writeFailure(parsed, context, { message: "The kv operation answered with an invalid result shape." })
   if (!parsed.json) return writeResult(commandResult, context)
   context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
-  return exitCode(command.name, result)
+  return exitCode(command.operation, result)
 }
 
 /**

@@ -57,10 +57,8 @@
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
-    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "pathe": "catalog:unjs",
-    "undici": "8.12.2"
+    "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -69,6 +67,7 @@
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "undici": "8.12.2",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",

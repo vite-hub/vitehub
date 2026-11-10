@@ -1,4 +1,5 @@
 import { fork } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -368,6 +369,50 @@ describe("hubConnections", () => {
       "/_vitehub/connections/connect/**",
       "/_vitehub/connections/callback",
     ]);
+  });
+
+  it.each(["server/connections/github.ts", "src/github.connection.ts"])("refreshes docs when Markdown next to %s is added and deleted", async (definitionPath) => {
+    const root = await createTempProject();
+    const definition = await writeConnection(root, definitionPath);
+    const docsFile = definition.replace(/\.ts$/, ".md");
+    const plugin = hubConnections();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (plugin.config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
+    await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root });
+    const registryFile = (config.nitro as { alias: Record<string, string> }).alias[CONNECTIONS_REGISTRY_ID]!;
+    const watcher = Object.assign(new EventEmitter(), { add: vi.fn() });
+    const httpServer = new EventEmitter();
+    const module = {};
+    const invalidateModule = vi.fn();
+    const logger = { error: vi.fn() };
+    const server = {
+      config: { root, logger },
+      httpServer,
+      moduleGraph: { getModuleById: () => module, invalidateModule },
+      watcher,
+    };
+    await (plugin.configureServer as (server: unknown) => void)(server);
+    await expect(readFile(registryFile, "utf8")).resolves.not.toContain('docs["github"]');
+
+    await writeFile(docsFile, "Connect the team account.\n");
+    watcher.emit("add", docsFile);
+    await vi.waitFor(async () => {
+      expect(invalidateModule).toHaveBeenCalledWith(module);
+      await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(`${docsFile}?raw`));
+    });
+
+    invalidateModule.mockClear();
+    await rm(docsFile);
+    watcher.emit("unlink", docsFile);
+    await vi.waitFor(async () => {
+      expect(invalidateModule).toHaveBeenCalledWith(module);
+      await expect(readFile(registryFile, "utf8")).resolves.not.toContain('docs["github"]');
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+
+    httpServer.emit("close");
+    expect(watcher.listenerCount("add")).toBe(0);
+    expect(watcher.listenerCount("unlink")).toBe(0);
   });
 
   it.each(["ts", "tsx", "jsx"])("writes registry types and refreshes on %s hot update", async (extension) => {

@@ -1,5 +1,6 @@
 import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 import type { WorkspaceStore } from "../core/types.ts"
 
 // Retain ownership and retirement evidence when metadata persistence is unavailable.
@@ -96,7 +97,7 @@ export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string
   if (Object.hasOwn(owner, "removing") && owner.removing === true) {
     const current = await store.stat(path)
     if (current?.type === "file" && (!Object.hasOwn(owner, "revision") || !owner.revision || !current.revision)) {
-      throw new Error(`[vitehub] Cannot retry interrupted removal without a file revision: ${path}. Inspect the file and remove it explicitly if cleanup is still needed.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0074({ message: `[vitehub] Cannot retry interrupted removal without a file revision: ${path}. Inspect the file and remove it explicitly if cleanup is still needed.` })
     }
     const remaining = current?.type === "file" ? await store.readFile(path) : undefined
     if (current?.type !== "file" || !Object.hasOwn(owner, "revision") || current.revision !== owner.revision || !Object.hasOwn(owner, "digest") || !owner.digest || !remaining || await sha256(remaining.content) !== owner.digest) {
