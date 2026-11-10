@@ -16,7 +16,7 @@ import { createCloudflareWorkflowNitroConfig } from "../src/internal/vite-build.
 import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { nitroOrderPlugins } from "../../vite-hub/src/nitro-order.ts"
-import type { WorkflowModuleOptions } from "../src/types.ts"
+import type { WorkflowOptions } from "../src/types.ts"
 import { deferWorkflow } from "../src/runtime/client.ts"
 import * as workflowState from "../src/runtime/state.ts"
 
@@ -172,13 +172,13 @@ it.each([false, true])("preserves Nitro's Wrangler config while cleaning standal
   }
 })
 
-async function runConfigHook(config: UserConfig & { nitro?: Record<string, unknown> }, hosting: string, plugins: Plugin[] = []): Promise<Record<string, unknown>> {
+async function runConfigHook(config: UserConfig & { nitro?: Record<string, unknown> }, hosting: string, plugins: Plugin[] = [], workflow: WorkflowOptions = {}): Promise<Record<string, unknown>> {
   let nitro: Record<string, unknown> = {}
   await resolveConfig({
     configFile: false,
     logLevel: "silent",
     ...config,
-    plugins: [hubWorkflow({}, { hosting }), ...plugins, {
+    plugins: [hubWorkflow(workflow, { hosting }), ...plugins, {
       name: "nitro:init",
       config(config) {
         // SAFETY: The Workflow hook supplies Nitro's configuration before this hook runs.
@@ -227,27 +227,23 @@ it("adds Cloudflare Workflows to the Nitro Worker of a Vite build", async () => 
 })
 
 it.each<{
-  initial: WorkflowModuleOptions
-  final: WorkflowModuleOptions
+  workflow: WorkflowOptions
   cloudflare: boolean
 }>([
-  { initial: { provider: "vercel" }, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
-  { initial: false, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
-  { initial: { provider: "cloudflare", binding: "EARLY" }, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
-  { initial: { provider: "cloudflare" }, final: false, cloudflare: false },
-  { initial: { provider: "cloudflare" }, final: { provider: "openworkflow" }, cloudflare: false },
-])("uses the final Workflow config for Nitro: $initial -> $final", async ({ initial, final, cloudflare }) => {
+  { workflow: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { workflow: false, cloudflare: false },
+  { workflow: { provider: "openworkflow" }, cloudflare: false },
+])("uses the Workflow options for Nitro: $workflow", async ({ workflow, cloudflare }) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-final-nitro-"))
   try {
     await mkdir(join(root, "server", "workflows"), { recursive: true })
     await writeFile(join(root, "server", "workflows", "welcome.ts"), "export default async () => 'ok'\n")
     let resolved: ResolvedConfig | undefined
-    const nitro = await runConfigHook({ root, workflow: initial }, "cloudflare-module", [{
-      name: "application-override",
+    const nitro = await runConfigHook({ root }, "cloudflare-module", [{
+      name: "application-resolved",
       enforce: "post",
-      config: () => ({ workflow: final }),
       configResolved(config) { resolved = config },
-    }])
+    }], workflow)
     expect(nitro.cloudflare).toEqual(cloudflare ? {
       wrangler: { workflows: [expect.objectContaining({ binding: expect.stringContaining("FINAL") })] },
     } : undefined)
@@ -257,7 +253,7 @@ it.each<{
     if (!resolved) throw new TypeError("Expected resolved Vite config")
     generated.mockClear()
     await runProviderOutput(resolved)
-    expect(generated).toHaveBeenCalledWith(expect.objectContaining({ cloudflareInNitro: cloudflare, workflow: final }), expect.any(Function))
+    expect(generated).toHaveBeenCalledWith(expect.objectContaining({ cloudflareInNitro: cloudflare, workflow }), expect.any(Function))
   }
   finally {
     await rm(root, { recursive: true, force: true })
