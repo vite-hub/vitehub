@@ -131,7 +131,7 @@ describe("i18n in a built Nitro 3 app", () => {
     // The libSQL file and the Blob folder are relative to the working directory, as when the app runs.
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
-    for (const command of [["db", "generate"], ["db", "migrate"]]) {
+    for (const command of [["database", "generate"], ["database", "migrate"]]) {
       const result = await runCli(root, live(), command)
       expect(result.stderr, command.join(" ")).toBe("")
       expect(result.exitCode).toBe(0)
