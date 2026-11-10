@@ -21,6 +21,7 @@ icon: i-lucide-code-2
 | `usePublicEnv` from `#vitehub/env/public` | Read Public Env in browser code. |
 | `useServerEnv` from `#vitehub/env/server` | Read Server Env in server code. |
 | `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
+| `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
 | `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | A secret value that prints hidden by default. |
 | `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a Server Env registry yourself. |
 | `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
@@ -108,23 +109,21 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
     nitro(),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::
@@ -143,22 +142,20 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::

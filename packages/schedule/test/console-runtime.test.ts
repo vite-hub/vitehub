@@ -211,6 +211,6 @@ describe("Schedule Console runtime records", () => {
   })
 
   it("names the runtime reader in the Console section", () => {
-    expect(scheduleConsoleSection).toMatchObject({ runtime: { export: "readScheduleConsoleRecords", module: "@vite-hub/schedule/runtime/console" } })
+    expect(scheduleConsoleSection).toMatchObject({ runtime: { export: "readScheduleConsoleRecords", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) } })
   })
 })

@@ -21,7 +21,7 @@ icon: i-lucide-code-2
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
 | `contentSource` from `vite-hub/content` | Adapt one Source with Comark options such as `prefix` and `schema`, and a sitemap [`url`](/docs/content/seo#source-urls). |
 | `renderContentHtml` from `vite-hub/content` | [Render a document to HTML](/docs/content/configure#render-html-on-the-server) in a server route without a framework. |
-| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime from an H3 or Nitro route in another server. |
+| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime as a Fetchable route, `{ fetch(request) }`, in another server. Nitro and H3 accept it as a route handler. |
 | `generateContentTypes`, `defineContentTypesPlugin` from `vite-hub/content` | Generate the [Content types](#types), or write them from a Nitro plugin in development. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
