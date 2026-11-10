@@ -205,7 +205,7 @@ Two Nuxt layers declare the same table in one database. Rename one, or declare t
 
 ### DATABASE_MISSING_D1_RESOURCE
 
-D1 output needs the database id and name at build time. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. For values known only at runtime, use D1 HTTP or a remote libSQL connection.
+D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 
