@@ -89,7 +89,29 @@ describe("AutoForm", () => {
     await submit()
     expect(root.querySelector("[data-field=email] [data-error]")?.textContent).toBe("Enter a valid email.")
     expect(root.querySelector("[data-field=email] :is(input, select, textarea)")?.getAttribute("aria-invalid")).toBe("true")
+    // One announcement: focus goes to the field, which reads its error. Field errors are not alerts.
+    expect(root.querySelectorAll("[data-field] [role=alert]")).toHaveLength(0)
     expect(await store.list()).toEqual([])
+  })
+
+  it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
+    history.replaceState(null, "", "/contact?form=error")
+    try {
+      const { root, type, element } = await mount()
+      await nextTick()
+      expect(root.querySelector("[role=status]")?.textContent).toBe("The message was not sent. Check the form and try again.")
+      await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
+      await type("[data-field=topic] :is(input, select, textarea)", "idea")
+      await type("[data-field=message] :is(input, select, textarea)", "Add dark mode.")
+      element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
+      await nextTick()
+      // The old result goes away, and the label does not change, so the button keeps its width.
+      expect(root.querySelector("[role=status]")?.textContent).toBe("")
+      expect(root.querySelector("button")?.textContent).toBe("Send")
+    }
+    finally {
+      history.replaceState(null, "", "/")
+    }
   })
 
   it("sends valid values, stores them, and shows the sent message", async () => {

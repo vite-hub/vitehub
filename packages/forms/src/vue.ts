@@ -1,5 +1,5 @@
 import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
-import { computed, defineComponent, h, ref, useId } from "vue"
+import { computed, defineComponent, h, onMounted, ref, useId } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
 import { unwrap } from "./schema.ts"
@@ -163,7 +163,8 @@ const AutoFormControl = defineComponent({
           ? h("label", { for: id }, [control, " ", field.label])
           : [h("label", { for: id }, field.label), control],
         field.description ? h("p", { id: helpId, "data-help": "" }, field.description) : null,
-        store.errors ? h("p", { id: errorId, "data-error": "", role: "alert" }, store.errors[0]) : null,
+        // No alert role: focus moves to the first invalid field, which reads its error through `aria-describedby`.
+        store.errors ? h("p", { id: errorId, "data-error": "" }, store.errors[0]) : null,
       ])
     }
   },
@@ -186,6 +187,8 @@ export const AutoForm = defineComponent({
     schema: { type: Object as PropType<FormSchema>, required: true },
     submitLabel: { type: String, default: "Send" },
     sentMessage: { type: String, default: "Thanks. Your message was sent." },
+    /** Shown after a post without JavaScript that the server refused. */
+    errorMessage: { type: String, default: "The message was not sent. Check the form and try again." },
     /** The honeypot field of `defineForm()`. `false` leaves it out. */
     honeypot: { type: [String, Boolean] as PropType<string | false>, default: "website" },
     anchor: { type: Object as PropType<FormAnchor>, default: undefined },
@@ -201,6 +204,16 @@ export const AutoForm = defineComponent({
       get anchor() { return props.anchor },
       get base() { return props.base },
     } as SubmitFormOptions)
+    // A post without JavaScript comes back with `?form=sent` or `?form=error`. Show it in the status region.
+    const returned = ref<"sent" | "error">()
+    onMounted(() => {
+      const result = new URLSearchParams(globalThis.location?.search).get("form")
+      if (result === "sent" || result === "error") returned.value = result
+    })
+    const status = () => {
+      if (sent.value || returned.value === "sent") return slots.sent?.() ?? props.sentMessage
+      return returned.value === "error" ? props.errorMessage : undefined
+    }
     // The event form of `handleSubmit()`, so it cancels the browser post.
     const submit = handleSubmit(form, async (_output: unknown, _event: SubmitEvent) => {
       await send(props.honeypot ? { [props.honeypot]: trap.value } : {})
@@ -208,7 +221,11 @@ export const AutoForm = defineComponent({
     })
     // The button stays focusable while it sends, so a second submit is ignored here instead.
     const onSubmit = (event: SubmitEvent) => {
-      if (!form.isSubmitting) return submit(event)
+      if (!form.isSubmitting) {
+        // A new send replaces the result of an earlier post without JavaScript.
+        returned.value = undefined
+        return submit(event)
+      }
       event.preventDefault()
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.
@@ -229,8 +246,9 @@ export const AutoForm = defineComponent({
         : null,
       form.errors ? h("p", { "data-error": "", role: "alert" }, form.errors[0]) : null,
       // The live region is always there, so screen readers announce the text when it appears.
-      h("p", { "data-sent": sent.value ? "" : undefined, role: "status" }, sent.value ? slots.sent?.() ?? props.sentMessage : undefined),
-      h("button", { type: "submit", "aria-disabled": form.isSubmitting ? "true" : undefined, "aria-busy": form.isSubmitting ? "true" : undefined }, form.isSubmitting ? `${props.submitLabel}…` : props.submitLabel),
+      h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status" }, status()),
+      // The label stays the same while it sends, so the button keeps its width. `aria-busy` tells that it sends.
+      h("button", { type: "submit", "aria-disabled": form.isSubmitting ? "true" : undefined, "aria-busy": form.isSubmitting ? "true" : undefined }, props.submitLabel),
     ])
   },
 })
