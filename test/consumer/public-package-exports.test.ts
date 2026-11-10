@@ -156,6 +156,7 @@ async function requiredPeerSpecs() {
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    nitro: await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/nitro/package.json")),
     nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
