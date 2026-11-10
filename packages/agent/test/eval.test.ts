@@ -73,7 +73,7 @@ vi.mock("@vite-hub/workspace/test", () => ({
   registerWorkspace,
 }))
 
-vi.mock("ai", () => ({
+vi.mock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway,
   jsonSchema: vi.fn(schema => schema),
   isStepCount: vi.fn(count => ({ count })),
   Output: { object: vi.fn(({ schema }) => ({ schema })) },

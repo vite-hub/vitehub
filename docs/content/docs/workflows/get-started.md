@@ -24,8 +24,31 @@ Add the Workflow package:
 pnpm add @vite-hub/workflow
 ```
 
-Add `workflow: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `workflow: true` to the ViteHub options of your app. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workflow: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -34,8 +57,9 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', workflow: true })],
 })
 ```
+::::
+:::
 
-Did you choose Nuxt in Installation? Then add `workflow: true` to the options of the `vite-hub/nuxt` module.
 
 ::
 
@@ -89,11 +113,11 @@ Create `server/api/onboard.post.ts`. This route starts the `onboard-user` Workfl
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from 'vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
-  return runWorkflow('onboard-user', payload)
+  return startWorkflow('onboard-user', payload)
 })
 ```
 

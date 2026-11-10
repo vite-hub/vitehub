@@ -133,7 +133,7 @@ export interface ChannelHandlerContext {
 
 /**
  * Handles one inbound event after ViteHub stored the delivery. A throw or a returned failed `Result`, such as the
- * result of `runQueue()`, retries the delivery.
+ * result of `sendQueue()`, retries the delivery.
  */
 export type ChannelHandler<TData = unknown> = (event: ChannelEvent<TData>, context: ChannelHandlerContext) => unknown
 
