@@ -110,16 +110,6 @@
     "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/connections/configure.md#6fb59e04b48a",
-    "label": "server/connections/portal.ts",
-    "error": "TS2304 Cannot find name 'useServerEnv'."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#1b24c8752be5",
-    "label": "server/connections/portal.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'login'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineConnection'.\nTS2304 Cannot find name 'oauthLogin'.\nTS2304 Cannot find name 'useServerEnv'.\nTS7006 Parameter 'tenant' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
     "label": "server/connections/github.ts",
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
