@@ -206,14 +206,14 @@ Each feature is off until you turn it on in the ViteHub options, for example `kv
 
 ## Add feature packages
 
-Each feature other than Env, Source, Logs, and the Console needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
+Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
 
 ```text [output/missing-package.txt]
 [vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
 ::details{summary="Which features need their own package?"}
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
+`vite-hub` includes Env, Source, Logs, and the Console routes. Every other feature, and the Console app, has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
 | Feature | Add these packages |
 | --- | --- |
@@ -223,6 +223,7 @@ Each feature other than Env, Source, Logs, and the Console needs its own package
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
+| `console` | `@vite-hub/console-client`, the prebuilt Console app |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `i18n` | `@vite-hub/i18n` |

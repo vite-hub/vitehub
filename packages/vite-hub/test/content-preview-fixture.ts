@@ -22,7 +22,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import * as v from "valibot"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { registerWorkspace } from "@vite-hub/workspace/test"
-import { defineContent, documents } from "vite-hub/content"
+import { defineContent } from "vite-hub/content"
+import { documents } from "vite-hub/content/collections"
 
 const objects = new Map()
 const object = (pathname, bytes) => ({ pathname, size: bytes.byteLength, contentType: "application/octet-stream", uploadedAt: new Date() })

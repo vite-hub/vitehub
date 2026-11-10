@@ -1471,6 +1471,12 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1025: dynamicError,
     AGENT_R1027: dynamicError,
     AGENT_R1028: dynamicError,
+    AGENT_R1030: dynamicError,
+    AGENT_R1031: dynamicError,
+    AGENT_R1032: dynamicError,
+    AGENT_R1033: dynamicError,
+    AGENT_R1034: dynamicError,
+    AGENT_R1035: dynamicError,
     AGENT_R1029: {
       why: "The default Agent Invocation journal cannot open a file: URL in a Cloudflare Worker.",
       fix: "Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL or agent.invocations.databaseUrl to a remote libSQL URL, or remove the file URL to use the host default journal.",
