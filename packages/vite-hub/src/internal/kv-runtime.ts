@@ -1,11 +1,10 @@
-import { fileURLToPath } from "node:url"
-
+import { ownModule } from "@vite-hub/internal/build/paths"
 import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 
 type ResolvedKV = ReturnType<typeof resolveKVViteConfig>["kv"]
 
 export const upstashDriverSpecifier = "@vite-hub/kv/runtime/upstash-driver"
-export const disabledUpstashDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/disabled-upstash"))
+export const disabledUpstashDriver = ownModule(import.meta.url, "internal/disabled-upstash-driver")
 
 /**
  * The `#vitehub/kv/config` module when KV is off, with the exports of the one `@vite-hub/kv/vite` generates. The Console

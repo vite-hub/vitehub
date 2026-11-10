@@ -17,7 +17,7 @@ vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   }
 })
 
-const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
+const kvCacheDriver = "/kv/dist/runtime/nitro-cache.js"
 
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
@@ -115,6 +115,7 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKv: integrationMocks.hubKv,
   hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
+  kvNitroCacheDriver: "/kv/dist/runtime/nitro-cache.js",
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
@@ -837,19 +838,19 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
       importBase: "vite-hub/_internal/agent",
-      kvImport: "vite-hub/_internal/kv",
+      kvImport: "vite-hub/kv",
       processDiscordGateway: true,
       providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
       runtimeCapabilityImports: {
         auth: "vite-hub/auth/agent",
-        blob: "vite-hub/_internal/blob",
+        blob: "vite-hub/blob",
         connections: false,
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
-        kv: "vite-hub/_internal/kv",
+        kv: "vite-hub/kv",
       },
       workflowImportBase: "vite-hub/_internal/workflow",
       workspaceDependencyRuntimeImports: {
@@ -863,7 +864,7 @@ describe("vitehub", () => {
       },
     }))
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({ driver: "fs" }, {
-      importBase: "vite-hub/_internal/blob",
+      importBase: "vite-hub/blob",
       presetDriver: expect.any(Function),
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
@@ -884,7 +885,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
       providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
       runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
@@ -893,7 +894,7 @@ describe("vitehub", () => {
       hosting: "node-server",
       importBase: "vite-hub/_internal/workflow",
       providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
       includeUserAppEntry: true,
       workspaceDependencyRuntimeImports: {
@@ -952,12 +953,10 @@ describe("vitehub", () => {
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/rate-limit",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ preset: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/rate-limit",
       provider: "cloudflare",
     })
     expect(pluginNames(vitehub({
@@ -965,7 +964,6 @@ describe("vitehub", () => {
       rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
     }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/rate-limit",
       projectRoot: "packages/policies",
       provider: "cloudflare",
       scanDirs: ["rules"],
@@ -1296,10 +1294,10 @@ describe("vitehub", () => {
     )).toMatch(/\/vite-hub\/dist\/auth\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
-      "vite-hub/_internal/blob/runtime/state",
+      "vite-hub/blob",
       "/app/.vitehub/nitro/blob/plugin.ts",
       pluginResolveOptions,
-    )).toMatch(/\/vite-hub\/dist\/_internal\/blob\/runtime\/state\.js$/)
+    )).toMatch(/\/vite-hub\/dist\/blob\.js$/)
   })
 
   it("resolves generated Nitro and H3 imports from the app, then from vite-hub's Nitro", async () => {
@@ -1406,7 +1404,7 @@ describe("vitehub", () => {
     vitehub({ agent: true, preset: "node", workflow: true })
     const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
     expect(defaultAliases).toEqual({
-      "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+      "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
     })
 
     const upstashPlugins = vitehub({ agent: true, preset: "node", kv: true, workflow: true })
@@ -2010,7 +2008,7 @@ describe("vitehub", () => {
     vitehub({ preset, blob: true })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver }),
-      { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) },
+      { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
   })
 
@@ -2057,7 +2055,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
       driver: "netlify-blobs",
       name: "assets",
-    }), { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) })
+    }), { importBase: "vite-hub/blob", presetDriver: expect.any(Function) })
   })
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
@@ -2282,7 +2280,7 @@ describe("vitehub", () => {
     vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver: "fs" }),
-      { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) },
+      { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
   })
 

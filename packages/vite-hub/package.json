@@ -133,21 +133,6 @@
       "import": "./dist/_internal/auth/runtime/console.js",
       "default": "./dist/_internal/auth/runtime/console.js"
     },
-    "./_internal/blob": {
-      "types": "./dist/_internal/blob.d.ts",
-      "import": "./dist/_internal/blob.js",
-      "default": "./dist/_internal/blob.js"
-    },
-    "./_internal/blob/operations": {
-      "types": "./dist/_internal/blob/operations.d.ts",
-      "import": "./dist/_internal/blob/operations.js",
-      "default": "./dist/_internal/blob/operations.js"
-    },
-    "./_internal/blob/runtime/state": {
-      "types": "./dist/_internal/blob/runtime/state.d.ts",
-      "import": "./dist/_internal/blob/runtime/state.js",
-      "default": "./dist/_internal/blob/runtime/state.js"
-    },
     "./_internal/comments/operations": {
       "types": "./dist/_internal/comments/operations.d.ts",
       "import": "./dist/_internal/comments/operations.js",
@@ -168,60 +153,10 @@
       "import": "./dist/_internal/content/runtime/console.js",
       "default": "./dist/_internal/content/runtime/console.js"
     },
-    "./_internal/database/runtime/state": {
-      "types": "./dist/_internal/database/runtime/state.d.ts",
-      "import": "./dist/_internal/database/runtime/state.js",
-      "default": "./dist/_internal/database/runtime/state.js"
-    },
-    "./_internal/email/operations": {
-      "types": "./dist/_internal/email/operations.d.ts",
-      "import": "./dist/_internal/email/operations.js",
-      "default": "./dist/_internal/email/operations.js"
-    },
-    "./_internal/email/runtime/console": {
-      "types": "./dist/_internal/email/runtime/console.d.ts",
-      "import": "./dist/_internal/email/runtime/console.js",
-      "default": "./dist/_internal/email/runtime/console.js"
-    },
-    "./_internal/kv": {
-      "types": "./dist/_internal/kv.d.ts",
-      "import": "./dist/_internal/kv.js",
-      "default": "./dist/_internal/kv.js"
-    },
-    "./_internal/kv/runtime/nitro-cache": {
-      "types": "./dist/_internal/kv/runtime/nitro-cache.d.ts",
-      "import": "./dist/_internal/kv/runtime/nitro-cache.js",
-      "default": "./dist/_internal/kv/runtime/nitro-cache.js"
-    },
-    "./_internal/kv/operations": {
-      "types": "./dist/_internal/kv/operations.d.ts",
-      "import": "./dist/_internal/kv/operations.js",
-      "default": "./dist/_internal/kv/operations.js"
-    },
-    "./_internal/kv/runtime/disabled-upstash": {
-      "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",
-      "import": "./dist/_internal/kv/runtime/disabled-upstash.js",
-      "default": "./dist/_internal/kv/runtime/disabled-upstash.js"
-    },
     "./_internal/markdown-template": {
       "types": "./dist/_internal/markdown-template.d.ts",
       "import": "./dist/_internal/markdown-template.js",
       "default": "./dist/_internal/markdown-template.js"
-    },
-    "./_internal/queue/operations": {
-      "types": "./dist/_internal/queue/operations.d.ts",
-      "import": "./dist/_internal/queue/operations.js",
-      "default": "./dist/_internal/queue/operations.js"
-    },
-    "./_internal/rate-limit/runtime": {
-      "types": "./dist/_internal/rate-limit/runtime.d.ts",
-      "import": "./dist/_internal/rate-limit/runtime.js",
-      "default": "./dist/_internal/rate-limit/runtime.js"
-    },
-    "./_internal/rate-limit/operations": {
-      "types": "./dist/_internal/rate-limit/operations.d.ts",
-      "import": "./dist/_internal/rate-limit/operations.js",
-      "default": "./dist/_internal/rate-limit/operations.js"
     },
     "./_internal/sandbox/task/runtime/state": {
       "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
