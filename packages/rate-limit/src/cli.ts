@@ -1,14 +1,12 @@
-import { createInterface } from "node:readline/promises"
-
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { askOnTerminal, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
 import type { RateLimitWindow } from "./types.ts"
 
@@ -167,21 +165,9 @@ function parseInspection(operation: RateLimitCommand["name"], value: unknown): R
   return parsed.success ? { operation, value: parsed.output } : undefined
 }
 
-function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: { code?: string, fix?: string, message: string }): number {
-  const message = redactInspectionText(failure.message)
-  if (parsed.json) context.stdout.write(`${JSON.stringify({ error: { ...failure, message } }, null, 2)}\n`)
-  else context.stderr.write(`${message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
-}
-
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
+/** Writes a failure like the other primitive CLIs, but redacts the message, since it can echo a limited key. */
+function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: ViteHubCliFailure): number {
+  return writeCliFailure(parsed.json, context, { ...failure, message: redactInspectionText(failure.message) })
 }
 
 async function runRateLimitCommand(
