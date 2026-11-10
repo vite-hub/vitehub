@@ -5,8 +5,8 @@
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
 // must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
 
@@ -39,7 +39,7 @@ export function snippetSources() {
   return [...docs, ...readmes]
 }
 
-export function extractBlocks(markdown) {
+export function extractBlocks(markdown, languages = fenceLanguages) {
   const lines = markdown.replaceAll("\r\n", "\n").split("\n")
   const blocks = []
   for (let index = 0; index < lines.length; index++) {
@@ -53,7 +53,7 @@ export function extractBlocks(markdown) {
       body.push(lines[end].startsWith(indent) ? lines[end].slice(indent.length) : lines[end].trimStart())
       end++
     }
-    if (fenceLanguages.has(language)) {
+    if (languages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
       const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
@@ -142,13 +142,17 @@ export function collectSnippets(sources = snippetSources()) {
   for (const source of sources) {
     const page = relative(repoRoot, source.file)
     const used = new Set()
-    extractBlocks(readFileSync(source.file, "utf8")).forEach((block, index) => {
+    const markdown = readFileSync(source.file, "utf8")
+    const fixtures = extractBlocks(markdown, new Set(["dotenv"]))
+      .filter(block => block.label && !block.fragment)
+      .map(({ code, label }) => ({ code, label }))
+    extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
       let name = block.label && /\.(?:[cm]?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, file: join(pageRoot, name), page, pageRoot })
+      snippets.push({ ...block, file: join(pageRoot, name), fixtures, page, pageRoot })
     })
   }
   return snippets
@@ -169,7 +173,7 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = await registryDeclarations(pageSnippets)
+  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -285,6 +289,77 @@ async function registryDeclarations(pageSnippets) {
   return declarations
 }
 
+const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
+
+async function envPluginDeclarations(plugins, config) {
+  const plugin = await plugins
+  if (Array.isArray(plugin)) {
+    const declarations = []
+    for (const child of plugin) declarations.push(...await envPluginDeclarations(child, config))
+    return declarations
+  }
+  return plugin?.name === "@vite-hub/env/vite" ? [plugin.api.resolveDeclarations(config)] : []
+}
+
+/**
+ * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
+ * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
+ */
+async function envDeclarations(pageSnippets) {
+  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
+  if (!configs.length) return []
+  const env = { public: {}, server: {} }
+  const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
+  try {
+    // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
+    for (const fixture of pageSnippets[0].fixtures ?? []) {
+      const file = resolve(directory, fixture.label)
+      if (!file.startsWith(`${directory}${sep}`)) continue
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, fixture.code)
+    }
+    for (const [index, snippet] of configs.entries()) {
+      const file = join(directory, `${index}.ts`)
+      writeFileSync(file, snippet.code)
+      let config
+      try {
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
+        for (const declarations of [config?.env, ...await envPluginDeclarations(config?.plugins, config)]) {
+          Object.assign(env.public, declarations?.public)
+          Object.assign(env.server, declarations?.server)
+        }
+      }
+      catch {
+        // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
+        return []
+      }
+    }
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+  const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
+  const pageRoot = pageSnippets[0].pageRoot
+  // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.
+  const authEnv = [
+    `import type { ServerEnv } from "#vitehub/env/server"`,
+    "declare global {",
+    "  namespace ViteHub {",
+    "    interface AuthRuntimeEnv extends ServerEnv {}",
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+  return [
+    { code: createEnvTypes(env, { projectRoot: pageRoot }), file: join(pageRoot, envTypesFile) },
+    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
+  ]
+}
+
+/** The page's generated Env types replace the untyped `#vitehub/env` declarations of an app without Env options. */
+const envTypesFile = ".vitehub/types/env.d.ts"
+
 /**
  * The installed files that the programs read, parsed once. Each page with generated declarations gets its own
  * program, and TypeScript binds a shared file only once.
@@ -299,6 +374,22 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     ...[...appDeclarations, ...declarations].map(declaration => [declaration.file, declaration.code]),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
+  // A page can show one file several times as it grows. A relative import gets the last full version of the
+  // file that the page shows above the importing block, and a later version imports as if it were at its label.
+  const versions = new Map()
+  const labelFiles = new Map()
+  for (const snippet of snippets) {
+    if (!snippet.pageRoot || !/\.(m?ts|tsx)$/.test(snippet.label ?? "")) continue
+    const file = join(snippet.pageRoot, snippet.label.replace(/^\/+/, ""))
+    labelFiles.set(snippet.file, file)
+    versions.set(file, [...versions.get(file) ?? [], snippet])
+  }
+  const lines = new Map(snippets.map(snippet => [snippet.file, snippet.line]))
+  const shownVersion = (file, importer) => {
+    const shown = versions.get(file).filter(snippet => !snippet.fragment)
+    const line = lines.get(importer) ?? Number.POSITIVE_INFINITY
+    return (shown.findLast(snippet => snippet.line < line) ?? shown[0])?.file ?? file
+  }
   const virtualDirectories = new Set()
   for (const file of virtualFiles.keys()) {
     for (let directory = dirname(file); directory !== dirname(directory) && !virtualDirectories.has(directory); directory = dirname(directory)) virtualDirectories.add(directory)
@@ -336,6 +427,12 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return installedResolutions.get(key)
   }
   host.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
+    if (virtualFiles.has(containingFile) && /^\.\.?\//.test(text)) {
+      const resolved = ts.resolveModuleName(text, labelFiles.get(containingFile) ?? containingFile, options, host)
+      const file = resolved.resolvedModule?.resolvedFileName
+      if (!file || !versions.has(file)) return resolved
+      return { ...resolved, resolvedModule: { ...resolved.resolvedModule, resolvedFileName: shownVersion(file, containingFile) } }
+    }
     const bare = !/^[./~#]/.test(text)
     // An app installs one Vite. The workspace links one per set of peer versions, and the package
     // declarations would otherwise compare plugins of two Vite copies.
@@ -353,7 +450,8 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return resolved
   })
 
-  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
+  const typedEnv = declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`))
+  const program = ts.createProgram([...typedEnv ? [] : ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
   const failures = []
   for (const snippet of snippets) {
     if (snippet.fragment) continue
