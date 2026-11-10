@@ -237,7 +237,7 @@ export interface ResolvedDBViteConfig {
   tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
 }
 
-export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+export type DatabaseOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
   connection?: DatabaseConnectionConfig
 }
 

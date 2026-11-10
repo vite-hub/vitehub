@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { createRequire, findPackageJSON } from "node:module"
 import { pathToFileURL } from "node:url"
 
-import type { DBModulePublicOptions } from "./types.ts"
+import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { MigrationPlan } from "./internal/migration-plan.ts"
@@ -451,7 +451,7 @@ async function runDrizzleKitWithConfig(
 }
 
 export function createDbCliContributor(
-  options?: false | Exclude<DBModulePublicOptions, false>["cli"],
+  options?: false | Exclude<DatabaseOptions, false>["cli"],
   getConfig?: ResolvedDBViteConfigProvider,
 ): ViteHubCliContributor | undefined {
   if (options === false) return

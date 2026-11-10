@@ -217,6 +217,6 @@ pnpm vitehub content sitemap --xml --site https://example.com
 
 ## How it reaches storage
 
-`vitehub content` sends `{ operation, input }` to `/_vitehub/rpc/__call`, the route the Console uses. The `@vite-hub/content` app plugin adds the operations from `@vite-hub/content/operations`, so the Console editor, the CLI, and agents run the same code. See [Operations](/docs/development/operations).
+`vitehub content` sends `{ operation, input }` to `/_vitehub/rpc/__call`, the same route the Console uses. The app plugin `@vite-hub/content` contributes the `content.*` operations. The Console editor, the CLI, and agents run the same code. See [Operations](/docs/development/operations).
 
 `vitehub inspect definitions --kind content` lists the Content file without starting a server.

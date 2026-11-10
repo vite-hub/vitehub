@@ -1829,14 +1829,9 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 
 After you open the Console, go back to any app page. The ViteHub pill stays while its hint cookie is set, or when you open a page with `?vitehub`. The server checks each tool's access, because the cookie grants nothing. Signed-out visitors do not get the editor.
 
-Choose **Console** to open it in a floating window. **Content** shows only when Content is installed and you have the full `content` grant. With `content:read`, use Content through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the Content editor.
+Choose **Console** to open it in a floating window. Content lives in the Console's Content section, so the pill has no separate Content button. To change text on the page itself, use **Edit** in the [Comments](/docs/comments/configure#mark-content-fields) segment: a click on a field marked with `contentField()` edits its text in place, and a field that is not plain text opens its document in the Console window. Content's own read, write, and publish policies still apply.
 
-- While you select, an open Content window moves aside. <kbd>Esc</kbd>, a second **Select field**, or a click outside a field cancels and brings it back.
-- A click while you select never follows a link.
-- A minimized window stays minimized until you pick a field.
-- You can browse collections with the keyboard in the Content window. Content's read, write, and publish policies still apply.
-
-When the page belongs to a document with an unpublished saved draft, the Content segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
+When the page belongs to a document with an unpublished saved draft, the Console segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
 
 On the draft page, a **Draft** tab sits on the pill, on the side facing the page, and the page has no banner. The tab marks text blocks that differ from the live page, such as headings, paragraphs, and list items. **N changes** turns the marks off and on. The pill compares the text of each block with the live page in a hidden frame, so a moved paragraph is not a change. Images, links, and styles are not compared. Removed blocks are counted. The tab hides while the pill is collapsed. **Back to live** shows the page as guests see it. Client-side navigation shows the next page live and checks it for a draft. The draft view shows the saved draft, not unsaved text.
 
@@ -1849,7 +1844,7 @@ Expanding or minimizing the window keeps the document and unsaved text.
 
 The editor loads on first use. In production it uses a same-origin iframe and needs an accepted Console session. A normal Console page still refuses framing. `?embed=1` allows same-origin framing only after the access check. Your Content Security Policy must allow the same-origin frame.
 
-Comments uses the same window for the page's threads and replies, without **Open in new tab**. When the Content editing tool is available, the Comments **Edit** action opens the document editor. Otherwise, plain-text field editing stays available as the Comments and Content policies allow.
+Comments uses the same window for the page's threads and replies, without **Open in new tab**. Its **Edit** action edits plain-text fields in place. A field that is not plain text opens its document in Console. Without the Console tool, **Open Content** links to the Content page. The Comments and Content policies still apply.
 
 ## Inspect logs
 

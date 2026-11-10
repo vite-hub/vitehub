@@ -310,6 +310,16 @@ describe("database.migrateOnStart", () => {
     expect(plan?.pending.map(migration => [migration.name, migration.dataLoss])).toEqual([[init.tag, []], [seed.tag, []], [dropLegacy.tag, []]])
   })
 
+  it("skips a migration chunk that holds only comments", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const commented = { ...seed, sql: `-- Sample rows.\n--> statement-breakpoint\n${seed.sql}\n--> statement-breakpoint\n/* The end. */\n` }
+    await writeMigrations(root, [init, commented])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    const started = await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
+    expect(started.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
+  })
+
   it("refuses to drop a table that a pending rebuild filled with older rows", async () => {
     const root = await createProject()
     const url = `file:${join(root, "app.sqlite")}`
