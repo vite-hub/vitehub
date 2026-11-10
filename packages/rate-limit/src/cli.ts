@@ -4,7 +4,7 @@ import * as v from "valibot"
 
 import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -107,11 +107,6 @@ function parseArgs(args: readonly string[]): ParsedRateLimitArgs {
   if (!parsed.help && !parsed.name) throw rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message: "Missing Rate Limit ID." })
   if (!parsed.help && !parsed.key) throw rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message: "Missing Rate Limit key." })
   return parsed
-}
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function scopeNotice(scope: string): string {
