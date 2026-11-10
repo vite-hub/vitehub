@@ -33,7 +33,6 @@ export async function readConsoleBuild(base: string): Promise<string | undefined
   try {
     const value = await requestConsole(base)
     const build = value instanceof Object ? Reflect.get(value, "build") : undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     return typeof build === "string" && build ? build : undefined
   }
   catch {

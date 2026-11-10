@@ -10,7 +10,7 @@ import { promisify } from "node:util"
 
 import { build, buildSync } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
@@ -1074,7 +1074,7 @@ it("preserves the active Vercel function after ownership state bookkeeping fails
 
   const functionContents = await readFile(functionFile)
   const ownership: unknown = JSON.parse(await readFile(markerFile, "utf8"))
-  if (!isRuntimeRecord(ownership) || !hasRuntimeType(ownership.digest, "string")) throw new TypeError("Expected a Workflow ownership digest.")
+  if (!isRuntimeRecord(ownership) || typeof ownership.digest !== "string") throw new TypeError("Expected a Workflow ownership digest.")
   expect(ownership.digest).toBe(createHash("sha256").update(functionContents).digest("hex"))
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
 })

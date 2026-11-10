@@ -227,7 +227,6 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
     && Object.hasOwn(value, "cron")
 }
@@ -236,7 +235,6 @@ async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefi
   let loaded: unknown
   if (registry) {
     const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
     loaded = typeof entry === "function" ? await entry() : undefined
   }
   else {

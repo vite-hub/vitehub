@@ -88,7 +88,6 @@ let threadsRequest: AbortController | undefined;
 let messagesRequest: AbortController | undefined;
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   return typeof value === "string" && value ? value : undefined;
 }
 
@@ -114,7 +113,6 @@ function parseRetention(value: unknown): Retention {
   const source = record(value);
   return {
     durable: source.durable === true,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     maxMessages: typeof source.maxMessages === "number" ? source.maxMessages : 100,
     mode: source.mode === "durable-transcripts" ? "durable-transcripts" : "provider-window",
     ...(text(source.warning) ? { warning: text(source.warning)! } : {}),

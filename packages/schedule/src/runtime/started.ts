@@ -136,7 +136,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function unwrapStartableDefinition(loaded: unknown): ScheduleDefinition | undefined {
   const candidate = isRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
   return isRecord(candidate) && typeof candidate.handler === "function" && !Object.hasOwn(candidate, "cron")
     // SAFETY: The checks above prove the fields that the tick reads.
     ? candidate as unknown as ScheduleDefinition

@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
@@ -402,7 +401,6 @@ export function defineContent<
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
   if (authorize !== undefined && typeof authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -589,9 +587,9 @@ export function defineContent<
     unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
     publishDue: (dueOptions?: ContentPublishDueOptions) => requireDocuments().publishDue(dueOptions),
     revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
-      if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
+      if (typeof collectionOrOptions !== "string") return requireDocuments().history(collectionOrOptions)
       // Without a string id, the second argument is the options of a singleton.
-      return hasRuntimeType(id, "string") ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
+      return typeof id === "string" ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
     },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {

@@ -360,7 +360,6 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
           indexScopes(item as AstNode, scope, nextFunctionScope)
         }
       }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- AST child traversal excludes scalar metadata from parser-owned nodes.
       else if (child && typeof child === "object") {
         // SAFETY: Traversal reads only optional AST fields from parser-owned child objects.
         indexScopes(child as AstNode, scope, nextFunctionScope)
@@ -419,7 +418,6 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
           if ((item as AstNode).type === "ReturnStatement" || (item as AstNode).type === "ThrowStatement") break
         }
       }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only traverse parser-owned child objects.
       else if (child && typeof child === "object") {
         // SAFETY: Parser-owned AST children expose optional common node fields.
         indexWrites(child as AstNode, fn, guards)

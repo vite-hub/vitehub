@@ -61,7 +61,6 @@ export function installedConsoleAccessPolicy(): ConsoleAccessPolicy | undefined 
 
 /** Whether a value stays a path on the same origin after URL normalization. */
 export function isConsoleSignInPage(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The value comes from configuration or generated output.
   if (typeof value !== "string" || !/^\/(?!\/)[^\\\s]*$/.test(value)) return false
   // Dot segments can turn a single-slash input into a network-path reference when serialized.
   return !new URL(value, "http://vitehub.local").pathname.startsWith("//")

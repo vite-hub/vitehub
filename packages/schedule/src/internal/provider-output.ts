@@ -38,20 +38,16 @@ const generatedRegistryFileName = "registry.mjs"
 type ImportResolver = (specifier: string) => string
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config is parsed as unknown and must be narrowed before reading fields.
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function readStringArray(value: unknown): string[] {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
   return Array.isArray(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
     ? value.filter((entry): entry is string => typeof entry === "string")
     : []
 }
 
 function isVercelCron(value: unknown): value is { path: string, schedule: string } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
   return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
 }
 

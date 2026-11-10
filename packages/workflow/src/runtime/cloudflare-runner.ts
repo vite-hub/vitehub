@@ -2,7 +2,6 @@ import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/
 
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -24,19 +23,19 @@ export interface RunCloudflareWorkflowOptions {
 }
 
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  if (!hasRuntimeType(error, "object") || error === null) return false
+  if (typeof error !== "object" || error === null) return false
   try {
     const candidate = error as object
     const retryable = Reflect.get(candidate, "isRetryable")
     if (retryable !== false) return false
     const nativeIsError: unknown = Reflect.get(Error, "isError")
-    if (hasRuntimeType(nativeIsError, "function")) {
+    if (typeof nativeIsError === "function") {
       return (nativeIsError as (value: unknown) => unknown)(candidate) === true
     }
 
 
     const clone = Reflect.get(globalThis, "structuredClone")
-    if (!hasRuntimeType(clone, "function")) return false
+    if (typeof clone !== "function") return false
     try {
       return (clone as (value: unknown) => unknown)(candidate) instanceof Error
     }
