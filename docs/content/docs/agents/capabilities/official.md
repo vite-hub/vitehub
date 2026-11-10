@@ -10,7 +10,7 @@ navigation.kind: Reference
 
 A Capability gives an Agent one ability. Pick one below by task. Each page shows setup, what the Agent gets, and how to verify it.
 
-Import factories from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabilities` in a standalone package. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a full example. Server Primitive Capabilities are documented next to their server API.
+Import factories from `vite-hub/agent/capabilities`. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a full example. Server Primitive Capabilities are documented next to their server API.
 
 ## Catalog
 
@@ -40,6 +40,7 @@ Import factories from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabil
 | Blob storage | [`blob()`](/docs/blob/agent-capability) | Read or edit scoped objects. |
 | Database | [`db()`](/docs/database/agent-capability) | Guarded SQL queries, schema, or writes. |
 | Content | [`content()`](/docs/content/agent-capability) | Read, draft, publish, and schedule Content documents, checked by the `authorize` policy. |
+| i18n | [`i18n()`](/docs/i18n/agent-capability) | Find missing translations, save drafts, and publish them with approval, without a deploy. |
 | Email | [`email()`](/docs/email/agent-capability) | Send authorized plain-text email through the Email primitive. |
 | Channel delivery | [`channelDelivery()`](/docs/channels/agent-capability) | Send the result through a Channel to a recipient your app picks. |
 | Sandbox execution | [`sandbox()`](/docs/sandbox/agent-capability) | Run an allowlisted program in isolation. |
