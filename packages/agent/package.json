@@ -90,30 +90,10 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
-    "./eve": {
-      "types": "./dist/eve.d.ts",
-      "import": "./dist/eve.js",
-      "default": "./dist/eve.js"
-    },
     "./internal/default-invocations": {
       "types": "./dist/internal/default-invocations.d.ts",
       "import": "./dist/internal/default-invocations.js",
       "default": "./dist/internal/default-invocations.js"
-    },
-    "./internal/workspace/internal/runtime/hosted": {
-      "types": "./dist/internal/workspace/internal/runtime/hosted.d.ts",
-      "import": "./dist/internal/workspace/internal/runtime/hosted.js",
-      "default": "./dist/internal/workspace/internal/runtime/hosted.js"
-    },
-    "./internal/workspace/internal/runtime/hosted-vercel-blob": {
-      "types": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
-      "import": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js",
-      "default": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js"
-    },
-    "./internal/workspace/runtime": {
-      "types": "./dist/internal/workspace/runtime.d.ts",
-      "import": "./dist/internal/workspace/runtime.js",
-      "default": "./dist/internal/workspace/runtime.js"
     },
     "./invocations": {
       "types": "./dist/invocations/index.d.ts",
@@ -150,11 +130,6 @@
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./output": {
       "types": "./dist/output.d.ts",
       "import": "./dist/output.js",
@@ -165,45 +140,15 @@
       "import": "./dist/process.js",
       "default": "./dist/process.js"
     },
-    "./runtime/invocations-dev": {
-      "types": "./dist/runtime/invocations-dev.d.ts",
-      "import": "./dist/runtime/invocations-dev.js",
-      "default": "./dist/runtime/invocations-dev.js"
-    },
-    "./runtime/registry": {
-      "types": "./dist/runtime/registry.d.ts",
-      "import": "./dist/runtime/registry.js",
-      "default": "./dist/runtime/registry.js"
-    },
-    "./runtime/workflow": {
-      "types": "./dist/runtime/workflow.d.ts",
-      "import": "./dist/runtime/workflow.js",
-      "default": "./dist/runtime/workflow.js"
-    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
-    "./server/github": {
-      "types": "./dist/server/github.d.ts",
-      "import": "./dist/server/github.js",
-      "default": "./dist/server/github.js"
-    },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
-    },
-    "./server/registry": {
-      "types": "./dist/server/registry.d.ts",
-      "import": "./dist/server/registry.js",
-      "default": "./dist/server/registry.js"
-    },
-    "./server/workspace": {
-      "types": "./dist/server/workspace.d.ts",
-      "import": "./dist/server/workspace.js",
-      "default": "./dist/server/workspace.js"
     },
     "./state": {
       "types": "./dist/state.d.ts",
@@ -256,7 +201,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "@yarnpkg/parsers": "catalog:tooling",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
@@ -266,8 +210,7 @@
     "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
-    "valibot": "catalog:runtime",
-    "yaml": "catalog:tooling"
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",

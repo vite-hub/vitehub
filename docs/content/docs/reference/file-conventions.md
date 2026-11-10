@@ -21,7 +21,7 @@ ViteHub finds each Definition (a file that declares one feature, such as a queue
 | Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named ones | `src/database.ts` for the default, or `<path>.database.ts` for a named one | `default` or the relative path. Do not mix default and named modes. Nuxt layer Definitions with the same name merge their tables. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Relative path. |
 | Realtime | `server/realtime/<path>.ts` | None | Normalized relative path. |
-| Workflow | `server/workflows/<path>.ts`, or a folder with `index.ts` or numbered step files | `<path>.workflow.ts` | Relative file or folder path. Agent Definitions use their Agent name by default. `workflow(...)` overrides it, and `runtime: false` opts out. |
+| Workflow | `server/workflows/<path>.ts`, or a folder with `index.ts` or numbered step files | `<path>.workflow.ts` | Relative file or folder path. Agent Definitions use their Agent name by default. `agentWorkflow(...)` overrides it, and `runtime: false` opts out. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Relative path. |
 | Task | `server/tasks/<path>.ts` | None | Nitro task name: the relative path with `/` changed to `:`, so `server/tasks/db/seed.ts` is `db:seed`. An `index` file uses its folder name. Only `vitehub()` on a Vite + Nitro host registers these files. |
 | Sandbox Task | `server/sandbox-tasks/<path>/{package.json,index.ts}` | `<path>.sandbox-task.ts` outside `server/sandbox-tasks/` | Folder or suffix path, without the trailing `.sandbox-task`. |

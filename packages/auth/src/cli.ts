@@ -39,6 +39,7 @@ export function createAuthCliContributor(options: { fetch?: typeof fetch } = {})
       description: "List auth events or daily aggregates as JSON.",
       usage,
       async run(args, context) {
+        // Internal invariant: the catch below prints only the message, which already says what to do.
         try {
           if (args.includes("--help") || args.includes("-h")) {
             context.stdout.write(`${usage}\n\nSet VITEHUB_AUTH_COOKIE to an authorized session cookie. VITEHUB_AUTH_URL supplies the default URL. Output is JSON.\n`)

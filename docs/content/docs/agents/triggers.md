@@ -106,7 +106,7 @@ This streaming route needs a host lifetime API that stays active until the strea
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Invoker identity, session selection, or trusted metadata into the Trigger input.
 
 > [!WARNING]
-> Authenticate the caller before you put Actor identity, session selection, or trusted metadata into the Trigger input.
+> Authenticate the caller before you put Invoker identity, session selection, or trusted metadata into the Trigger input.
 
 A route that calls a Trigger directly must, in order: authenticate the caller, reject threads the caller does not own, then load the thread's messages in order, add the new one, and pass them all. `triggerHistory` limits that input; it does not load missing messages from `threadId` or a session ID.
 

@@ -12807,7 +12807,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async () => { throw failure },
+            start: async () => { throw failure },
           }),
         }) as never,
       })
@@ -12984,7 +12984,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async () => ({
+            start: async () => ({
               id: "existing-run",
               provider: "openworkflow",
               result: { text: "Already finished." },
@@ -13047,7 +13047,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async (_payload: unknown, options: { id?: string }) => {
+            start: async (_payload: unknown, options: { id?: string }) => {
               providerRunId = options.id || ""
               throw failure
             },
@@ -13086,7 +13086,7 @@ describe("agent message protocol", () => {
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const defer = vi.fn(async (_payload: unknown, _options?: unknown) => ({ id: "recovery", provider: "cloudflare" as const, status: "queued" as const }))
+      const startRecovery = vi.fn(async (_payload: unknown, _options?: unknown) => ({ id: "recovery", provider: "cloudflare" as const, status: "queued" as const }))
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
         details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
@@ -13103,8 +13103,8 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
-            ? { defer }
-            : { run: async () => { throw failure } },
+            ? { start: startRecovery }
+            : { start: async () => { throw failure } },
         }) as never,
       })
       try {
@@ -13120,8 +13120,8 @@ describe("agent message protocol", () => {
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
 
-        expect(defer).toHaveBeenCalledOnce()
-        expect(defer.mock.calls[0]?.[0]).toMatchObject({
+        expect(startRecovery).toHaveBeenCalledOnce()
+        expect(startRecovery.mock.calls[0]?.[0]).toMatchObject({
           invocationRecovery: {
             agentName: "ambiguous-cloudflare-agent",
             sourceRunId: "accepted/workflow",
@@ -13130,7 +13130,7 @@ describe("agent message protocol", () => {
         })
         await expect(invocations.getByRunId("accepted/workflow", "ambiguous-cloudflare-agent")).resolves.toMatchObject({ status: "pending" })
 
-        defer.mockRejectedValue(new Error("recovery unavailable"))
+        startRecovery.mockRejectedValue(new Error("recovery unavailable"))
         await expect(runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations,
@@ -13142,7 +13142,7 @@ describe("agent message protocol", () => {
           runtime: "cloudflare-agents",
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
-        expect(defer).toHaveBeenCalledTimes(4)
+        expect(startRecovery).toHaveBeenCalledTimes(4)
         await expect(invocations.getByRunId("orphaned/workflow", "ambiguous-cloudflare-agent")).resolves.toBeUndefined()
 
         await expect(runAgentWithContext(defineAgent({
@@ -13155,7 +13155,7 @@ describe("agent message protocol", () => {
           runtime: "cloudflare-agents",
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
-        expect(defer).toHaveBeenCalledTimes(4)
+        expect(startRecovery).toHaveBeenCalledTimes(4)
       }
       finally {
         setAgentWorkflowRuntimeLoaders({
@@ -13182,7 +13182,7 @@ describe("agent message protocol", () => {
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        workflow: async () => ({ createWorkflow: () => ({ run: async () => accepted }) }) as never,
+        workflow: async () => ({ createWorkflow: () => ({ start: async () => accepted }) }) as never,
       })
       try {
         const result = await runAgentWithContext(defineAgent({
@@ -13221,7 +13221,7 @@ describe("agent message protocol", () => {
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
-          createWorkflow: () => ({ run: async () => { throw failure } }),
+          createWorkflow: () => ({ start: async () => { throw failure } }),
         }) as never,
       })
       try {
@@ -13271,14 +13271,15 @@ describe("agent message protocol", () => {
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
-          createWorkflow: () => ({
-            defer: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }),
-            run: async (payload: unknown, options: { id?: string }) => {
-              workflowPayload = payload
-              providerRunId = options.id || ""
-              return { id: providerRunId, status: "queued" }
-            },
-          }),
+          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
+            ? { start: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }) }
+            : {
+                start: async (payload: unknown, options: { id?: string }) => {
+                  workflowPayload = payload
+                  providerRunId = options.id || ""
+                  return { id: providerRunId, status: "queued" }
+                },
+              },
         }) as never,
       })
       try {
@@ -13336,7 +13337,7 @@ describe("agent message protocol", () => {
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
-          createWorkflow: () => ({ run: async () => { throw failure } }),
+          createWorkflow: () => ({ start: async () => { throw failure } }),
         }) as never,
       })
       try {
@@ -13389,8 +13390,8 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
-            ? { defer: async () => ({ id: "recovery", provider: "openworkflow", status: "queued" }) }
-            : { run: async () => ({ id: "child-run", provider: "openworkflow", status: "queued" }) },
+            ? { start: async () => ({ id: "recovery", provider: "openworkflow", status: "queued" }) }
+            : { start: async () => ({ id: "child-run", provider: "openworkflow", status: "queued" }) },
         }) as never,
       })
       try {
@@ -13437,7 +13438,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async (payload: { run?: { runId?: string } }, options: { id?: string }) => {
+            start: async (payload: { run?: { runId?: string } }, options: { id?: string }) => {
               payloadRunId = payload.run?.runId
               providerRunId = options.id
               return { id: options.id || "missing", provider: "openworkflow", status: "queued" }
@@ -13538,7 +13539,7 @@ describe("agent message protocol", () => {
         workflow: async () => ({
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
             ? {
-                defer: async (payload: unknown) => {
+                start: async (payload: unknown) => {
                   recoveryAttempts++
                   if (!recoveryAvailable || recoveryAttempts < 3) throw new Error("recovery provider unavailable")
                   deferredRecovery = payload
@@ -13547,7 +13548,7 @@ describe("agent message protocol", () => {
               }
             : {
                 name,
-                run: async () => ({ id: `${name}-${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
+                start: async () => ({ id: `${name}-${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
               },
         }) as never,
       })

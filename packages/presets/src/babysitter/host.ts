@@ -9,7 +9,7 @@ import type { AgentInput, AgentCallbackContext } from "@vite-hub/agent";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
 import { createProcessAgentHost } from "@vite-hub/agent/process";
-import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "@vite-hub/agent/server/github";
+import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "../github/index.ts";
 import { createBabysitterPreflight } from "./preflight.ts";
 import { babysitterQueueHealth } from "./queue-health.ts";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
