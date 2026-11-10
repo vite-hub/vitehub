@@ -1,6 +1,7 @@
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
 
 import { discoverAgentDefinitions } from "../discovery.ts"
@@ -8,6 +9,7 @@ import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
+import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
 import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -320,12 +322,38 @@ function uniqueAgentDefinitions(
   return [...unique.values()]
 }
 
+/**
+ * Resolves the stage config and loads modules in its SSR environment. A dev server would also start every other
+ * environment, such as Nitro's dev worker and the Agents in it, and the Channel commands never use them.
+ */
+async function createStageModuleLoader(vite: typeof import("vite"), config: ViteStageServerConfig) {
+  const nitro = createCliDiscoveryNitroCloser()
+  try {
+    const resolved = await vite.resolveConfig({ ...config, plugins: [nitro.plugin] }, "serve")
+    const environment = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false })
+    await environment.init()
+    return {
+      close: async () => {
+        try { await environment.close() }
+        finally { await nitro.close() }
+      },
+      config: resolved,
+      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await environment.runner.import(url),
+    }
+  }
+  catch (error) {
+    await nitro.close()
+    throw error
+  }
+}
+
 async function loadQueuedChannelTargets(
   input: ChannelSyncLoadInput,
   syncOnly: boolean,
 ): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const vite = await import("vite")
-  return await withViteStageServer(vite, input, async (server) => {
+  const stageVite = { createServer: async (config: ViteStageServerConfig) => await createStageModuleLoader(vite, config), loadEnv: vite.loadEnv }
+  return await withViteStageServer(stageVite, input, async (server) => {
     const targets: Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }> = []
     const stageRoot = server.config.root
     const stageServerDirs = (server.config as typeof server.config & {

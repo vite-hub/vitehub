@@ -60,8 +60,11 @@ function colocatedSkills(file: string) {
   return decodeColocatedAgentSkills(readColocatedAgentSkills(file))
 }
 
+/** The part of a Vite dev server that loads an Agent module. */
+export type ViteAgentModuleServer = Pick<ViteDevServer, "config" | "ssrLoadModule">
+
 export async function loadViteAgent(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ): Promise<LoadedViteAgent | undefined> {
   const module = await createViteWorkspaceAgentLoader(server, definition)()
@@ -78,7 +81,7 @@ export async function loadViteAgent(
 }
 
 export function createViteWorkspaceAgentLoader(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ) {
   return async () => {
