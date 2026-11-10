@@ -37,7 +37,7 @@ The build gives the server every message of the code, with its source text, cont
 | --- | --- | --- | --- |
 | `i18n_status` | `read` | `allow` | For each translated locale: `messages`, `published`, `drafted`, and `missing`. |
 | `i18n_list_missing` | `read` | `allow` | Messages that a locale does not translate, published or drafted, with `source`, `context`, `origins`, and `previous`. Pages of `limit` (default 50, at most 200), with `cursor`. |
-| `i18n_save_translation` | `write` | `allow` | Saves one translation to the `draft` ref, with `review: "machine"` and the Actor as `by`. |
+| `i18n_save_translation` | `write` | `allow` | Saves one translation to the `draft` ref, with `review: "machine"` and the Invoker as `by`. |
 | `i18n_publish` | `publish` | `require-approval` | Copies every changed draft to the `published` ref in one revision. |
 
 `previous` is the translation of an older version of the message, when its source text changed a little. The Agent can edit it instead of starting again.

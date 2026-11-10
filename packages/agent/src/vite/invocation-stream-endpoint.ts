@@ -1,6 +1,5 @@
 import { createExecutionContext } from "@vite-hub/runtime"
 import { join } from "node:path"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -729,7 +728,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
               ...invocation.input,
               context: {
                 ...withPayloadDefaults(invocation.input.context || {}, {
-                  invokerProfileId: hasRuntimeType(body.invokerProfileId, "string") ? body.invokerProfileId : undefined,
+                  invokerProfileId: typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined,
                 }),
                 ...(isRecord(body.meta) ? {
                   channel: withPayloadDefaults(isRecord(invocation.input.context?.channel) ? invocation.input.context.channel : {}, { meta: body.meta }),

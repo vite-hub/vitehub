@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord, runtimeType } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type {
   AgentCallbackContext,
@@ -43,7 +43,7 @@ function storedInvokerReplayProvenance(input: AgentRunInput): TrustedInvokerRepl
   const context = contextRecord(input.context)
   const value = portableReplayProvenance.get(context) ?? context[resolvedAgentInvokerReplayProvenanceKey]
   if (!isRecord(value) || !trustedReplayProvenance.has(value)
-    || !hasRuntimeType(value.hasContext, "boolean") || !hasRuntimeType(value.hasInvoker, "boolean")) return
+    || typeof value.hasContext !== "boolean" || typeof value.hasInvoker !== "boolean") return
   return { hasContext: value.hasContext, hasInvoker: value.hasInvoker, invoker: value.invoker }
 }
 
@@ -83,7 +83,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function stringValue(value: unknown): string | undefined {
-  return hasRuntimeType(value, "string") && value.trim() ? value.trim() : undefined
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 function contextRecord(input: unknown): Record<PropertyKey, unknown> {
@@ -91,7 +91,7 @@ function contextRecord(input: unknown): Record<PropertyKey, unknown> {
 }
 
 function profileIdFromSelector(value: unknown): string | undefined {
-  if (hasRuntimeType(value, "string")) return stringValue(value)
+  if (typeof value === "string") return stringValue(value)
   if (isRecord(value)) return stringValue(value.id)
 }
 
@@ -101,7 +101,7 @@ export function hasUnreplayableAgentInputContext(inputContext: unknown): boolean
   return Reflect.ownKeys(context).some((key) => {
     if (!profileSelectorKeys.some(selector => selector === key)) return true
     const value = context[key]
-    if (hasRuntimeType(value, "string")) return !profileIdFromSelector(value)
+    if (typeof value === "string") return !profileIdFromSelector(value)
     return !isRecord(value) || Reflect.ownKeys(value).some(key => key !== "id") || !profileIdFromSelector(value)
   })
 }
@@ -182,7 +182,7 @@ export function normalizeAgentInvokerOptions<
   if (!isRecord(runtimeOptions)) {
     throw agentDiagnostics.AGENT_R0641({ message: "[vitehub] defineAgent({ invoker }) must be an object." })
   }
-  if (runtimeOptions.resolve !== undefined && !hasRuntimeType(runtimeOptions.resolve, "function")) {
+  if (runtimeOptions.resolve !== undefined && typeof runtimeOptions.resolve !== "function") {
     throw agentDiagnostics.AGENT_R0642({ message: "[vitehub] defineAgent({ invoker.resolve }) must be a function." })
   }
   return {
@@ -253,7 +253,7 @@ export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunI
   const serializedMeta: unknown = invoker.meta === undefined
     ? undefined
     : JSON.parse(JSON.stringify(invoker.meta, (_key, value) => {
-        return ["bigint", "function", "symbol"].includes(runtimeType(value)) ? undefined : value
+        return ["bigint", "function", "symbol"].includes(typeof value) ? undefined : value
       }))
   const portableMeta = isRecord(serializedMeta) ? serializedMeta : undefined
   const portableInvoker: AgentInvoker = { ...invoker }

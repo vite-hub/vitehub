@@ -1,5 +1,5 @@
 import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
-import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -50,7 +50,7 @@ it("discovers executable Agent Eval files without treating fixture directories a
 })
 
 function responseChunkText(chunk: unknown) {
-  if (hasRuntimeType(chunk, "string")) return chunk
+  if (typeof chunk === "string") return chunk
   if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
   if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8")
   return String(chunk)
@@ -86,10 +86,10 @@ async function devLoopTokenHeaders(root: string): Promise<Record<string, string>
 
 async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
   const hook = plugin.configureServer
-  if (hasRuntimeType(hook, "function")) {
+  if (typeof hook === "function") {
     await hook(server)
   }
-  else if (hook && hasRuntimeType(hook, "object") && "handler" in hook && hasRuntimeType(hook.handler, "function")) {
+  else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") {
     await hook.handler(server)
   }
 }
@@ -2015,7 +2015,7 @@ describe("agent chat capability discovery", () => {
 
       // No Workspace plugin participates in this standalone Agent setup.
       const plugin = hubAgent()
-      if (hasRuntimeType(plugin.configResolved, "function")) {
+      if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { command: "serve", root, server: { port: 3000 } } as never)
       }
       await configurePluginServer(plugin, { ...server, environments: { nitro: { dispatchFetch } } })
@@ -2078,7 +2078,7 @@ describe("agent chat capability discovery", () => {
       return { default: agent }
     })
     const plugin = (await import("../src/vite.ts")).hubAgent()
-    if (hasRuntimeType(plugin.configResolved, "function")) {
+    if (typeof plugin.configResolved === "function") {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await plugin.configResolved.call({} as never, {
         command: "serve",

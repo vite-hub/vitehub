@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 /**
  * Build-time facts about an Agent module that a package declares in its package.json:
@@ -40,7 +40,7 @@ function readTraits(manifestPath: string): AgentModuleTraits {
   if (isRuntimeRecord(agent)) {
     for (const trait of ["processHost"] as const) {
       const value = agent[trait]
-      if (Array.isArray(value)) traits[trait] = value.filter(item => hasRuntimeType(item, "string"))
+      if (Array.isArray(value)) traits[trait] = value.filter(item => typeof item === "string")
     }
   }
   manifests.set(manifestPath, traits)

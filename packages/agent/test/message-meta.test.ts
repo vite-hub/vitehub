@@ -4,7 +4,7 @@ import { createChatMessageTriggerInput, markDerivedChatTriggerInvoker } from "..
 import { defineAgent, portableAgentWorkflowInput } from "../src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -22,7 +22,7 @@ const metaSchema = {
   "~standard": {
     validate(input: unknown) {
       const meta = isRuntimeRecord(input) && !Array.isArray(input) ? input : undefined
-      if (!meta || ![undefined, "support", "technical"].includes(hasRuntimeType(meta.audience, "string") ? meta.audience : undefined)) {
+      if (!meta || ![undefined, "support", "technical"].includes(typeof meta.audience === "string" ? meta.audience : undefined)) {
         return { issues: [{ message: "audience must be support or technical" }] }
       }
       return { value: { audience: meta.audience ?? "support" } }

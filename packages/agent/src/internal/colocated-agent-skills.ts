@@ -1,5 +1,5 @@
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export const colocatedAgentSkillsSymbol: symbol = Symbol.for("vitehub.agent.colocatedSkills")
@@ -29,9 +29,9 @@ export function decodeColocatedAgentSkills(
 }
 
 export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedAgentSkills | undefined): Agent {
-  if (!agent || !hasRuntimeType(agent, "object")) return agent
+  if (!agent || typeof agent !== "object") return agent
   const setDiscoveredSkills: unknown = Reflect.get(agent, discoveredSkillsSetter)
-  if (hasRuntimeType(setDiscoveredSkills, "function")) {
+  if (typeof setDiscoveredSkills === "function") {
     setDiscoveredSkills(skills)
     return agent
   }
@@ -42,7 +42,7 @@ export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedA
       configurable: true,
       enumerable: true,
       value: {
-        ...(hasRuntimeType(previous, "object") ? previous : {}),
+        ...(typeof previous === "object" ? previous : {}),
         ...skills,
       },
     })
@@ -95,7 +95,7 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
     enumerable: true,
     get: () => {
       const inherited: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
-      return { ...(hasRuntimeType(inherited, "object") ? inherited : undefined), ...discovered, ...added }
+      return { ...(typeof inherited === "object" ? inherited : undefined), ...discovered, ...added }
     },
   })
   return resolved
@@ -119,10 +119,10 @@ export function inspectAgentSkillFiles(agent: object): { path: string, size: num
   const sources: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
   if (!isRuntimeRecord(sources)) return []
   return Object.values(sources).flatMap((source: unknown) => {
-    if (!isRuntimeRecord(source) || !hasRuntimeType(source.workspacePath, "string")) return []
+    if (!isRuntimeRecord(source) || typeof source.workspacePath !== "string") return []
     const path = source.workspacePath
     const content = source.content
-    if (hasRuntimeType(content, "string")) return [{ path, size: utf8ByteLength(content), read: () => new TextEncoder().encode(content) }]
+    if (typeof content === "string") return [{ path, size: utf8ByteLength(content), read: () => new TextEncoder().encode(content) }]
     return content instanceof Uint8Array ? [{ path, size: content.byteLength, read: () => content.slice() }] : []
   }).sort((left, right) => left.path.localeCompare(right.path))
 }

@@ -1,6 +1,6 @@
 import { assertKnownPresetOptions, isPresetOptionsRecord, readPresetSelection } from "@vite-hub/internal/presets"
 
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type { AgentDefinition } from "./types.ts"
 
@@ -41,10 +41,10 @@ export function resolveAgentPresetExtension(
   const selection = readPresetSelection(extension, "Agent")
   const tupleOptions = selection.options
   let parent = selection.preset
-  if (hasRuntimeType(parent, "string")) parent = resolve(parent)
-  const configKey: unknown = parent && hasRuntimeType(parent, "object") ? Reflect.get(parent, "configKey") : undefined
+  if (typeof parent === "string") parent = resolve(parent)
+  const configKey: unknown = parent && typeof parent === "object" ? Reflect.get(parent, "configKey") : undefined
   let namedOptions: Record<string, unknown> | undefined
-  if (hasRuntimeType(configKey, "string") && Object.hasOwn(overrides, configKey)) {
+  if (typeof configKey === "string" && Object.hasOwn(overrides, configKey)) {
     const value = overrides[configKey]
     if (value !== undefined && !isPresetOptionsRecord(value)) throw new TypeError(`[vitehub] Agent ${configKey} options must be an object.`)
     namedOptions = value
@@ -55,8 +55,8 @@ export function resolveAgentPresetExtension(
   }
   const supplied = tupleOptions ? mergeOptions(namedOptions ?? {}, tupleOptions) : namedOptions
   if (supplied) {
-    const defaults: unknown = parent && hasRuntimeType(parent, "object") ? Reflect.get(parent, "options") : undefined
-    assertKnownPresetOptions(defaults, supplied, `Agent ${hasRuntimeType(configKey, "string") ? configKey : "preset"}`)
+    const defaults: unknown = parent && typeof parent === "object" ? Reflect.get(parent, "options") : undefined
+    assertKnownPresetOptions(defaults, supplied, `Agent ${typeof configKey === "string" ? configKey : "preset"}`)
     overrides.options = supplied
   }
   return { ...overrides, extends: parent }
