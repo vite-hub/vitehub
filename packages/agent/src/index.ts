@@ -87,7 +87,7 @@ import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal,
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
+import { type AgentMessagePhase, type Message, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   agentInvokerInputReplayProvenance,
@@ -1062,7 +1062,7 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (isAttachmentBlob(data)) data = new Uint8Array(await blobArrayBuffer(data))
+      if (isAttachmentBlob(data)) data = new Uint8Array(await data.arrayBuffer())
       if (isArrayBufferValue(data)) data = new Uint8Array(data)
       const portable = isUint8ArrayValue(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
@@ -2273,7 +2273,6 @@ function defineBaseAgent<
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
             requirements: driver.requirements,
-            retention: driver.retention,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
           })))
@@ -2590,13 +2589,7 @@ type AgentCapabilitiesOption<
 >
 
 type ValidateStaticAgentCapability<TCapability> =
-  TCapability extends AgentCapabilityDefinition
-    ? TCapability
-    : Extract<keyof TCapability, symbol> extends never
-      ? never
-      : TCapability[Extract<keyof TCapability, symbol>] extends true
-        ? TCapability
-        : never
+  TCapability extends AgentCapabilityDefinition ? TCapability : never
 
 type ValidateStaticAgentCapabilities<TCapabilities> =
   TCapabilities extends readonly unknown[]

@@ -158,7 +158,7 @@ describe("shadcn/ui parts", () => {
           h(AttachmentTrigger, { "aria-label": "Open report.pdf" }),
           h(AttachmentMedia, { variant: "image" }, () => h("img", { alt: "", src: "/report.png" })),
           h(AttachmentContent, () => h(AttachmentTitle, () => "report.pdf")),
-          h(AttachmentAction, { "aria-label": "Remove report.pdf", icon: "i-ph-x-light" }),
+          h(AttachmentAction, { "aria-label": "Remove report.pdf", icon: "i-lucide-x" }),
         ]),
       { global: { components: { UButton: ButtonStub } } },
     );

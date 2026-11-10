@@ -324,7 +324,66 @@ Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHe
 
 `secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
-```ts [server/channels/prefect.ts] fragment
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
 import { useServerEnv } from '#vitehub/env/server'
 
@@ -403,10 +462,14 @@ The conversation merges three sources, and no message appears twice:
 A transcript keeps messages after the provider forgets them. With durable Agent State (libSQL or a Cloudflare Durable Object), every chat message in and out goes to the transcript store, so your State holds conversation text for each author. Set `transcripts: false` on a Channel, or `messages: { transcripts: false }` for all, to keep none. Pass a config to set limits:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { telegram } from 'vite-hub/agent/channels'
+
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   channels: {
-    support: telegram({ transcripts: { maxPerUser: 500, retention: '90d' } }),
-    private: telegram({ transcripts: false }),
+    support: telegram({ messages: { transcripts: { maxPerUser: 500, retention: '90d' } } }),
+    private: telegram({ messages: { transcripts: false } }),
   },
 })
 ```
@@ -470,7 +533,30 @@ Replay runs an Agent on messages from before it existed, or again after a change
 
 To join older Invocations without `vitehub.channel.key`, add `history.invocationItem(invocation): TItem | undefined | Promise<TItem | undefined>`. This read-only hook gets the stored `AgentInvocationRecord` and rebuilds an item for `key()` and `thread()`. Existing key annotations win. The journal keeps no raw trigger input or `input.context`, so return `undefined` when observations and annotations cannot identify the item. A throwing hook also leaves the record unjoined.
 
-```ts [server/agents/labeller.ts] fragment
+The Channel reads and labels messages through two helpers of the app, here over a JSON mail API:
+
+```ts [server/lib/mailbox.ts]
+const api = 'https://mail.example.com/api'
+
+export interface Email { id: string, subject: string }
+
+export async function listEmails(query: { after?: string, folder: 'archive' | 'inbox', limit: number }): Promise<Email[]> {
+  const url = new URL(`${api}/messages`)
+  url.searchParams.set('folder', query.folder)
+  url.searchParams.set('limit', String(query.limit))
+  if (query.after) url.searchParams.set('after', query.after)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The mail API answered ${response.status}`)
+  return await response.json() as Email[]
+}
+
+export async function applyLabels(id: string, labels: string[]) {
+  const response = await fetch(`${api}/messages/${id}/labels`, { method: 'POST', body: JSON.stringify(labels) })
+  if (!response.ok) throw new Error(`The mail API answered ${response.status}`)
+}
+```
+
+```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
 import { defineCollection } from 'vite-hub/source'
@@ -875,7 +961,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to `/_vitehub/agents/~support/invocations/${invocationId.value}` with it.
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the hosted Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the hosted Console](/docs/development/console#links-to-the-hosted-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 

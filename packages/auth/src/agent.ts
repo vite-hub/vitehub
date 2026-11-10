@@ -15,6 +15,7 @@ import type {
 } from "@vite-hub/agent"
 import type { AuthenticationSessionSnapshot } from "./session.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 // The server module loads Better Auth. Agent routes import this module at startup, so load the server on first use.
 // One shared import also keeps Vitest module mocks in place for concurrent first calls.
@@ -265,6 +266,3 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}

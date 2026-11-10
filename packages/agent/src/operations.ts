@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import {
@@ -168,11 +168,6 @@ interface ChannelListEntry extends ChannelTarget {
   simulated: boolean
   /** The path of the chat page of a simulated Channel. */
   simulator?: string
-}
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function formatChannels({ channels }: { channels: readonly ChannelListEntry[] }): string {

@@ -1,41 +1,14 @@
-import { installConsoleProjectRoot } from "./project-root.ts"
-import { installConsoleBuildScope, installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth, resolveConsoleBuild, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
+import { resolveConsoleAuth, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
-// Generated Console output installs its access policy from this entry, next to its sections.
+// Request-time access checks and sign-in pages. Generated output installs setters from `./setup.ts`.
 export { consoleConnectionsActor, consoleRealtimeAccess, resolveConsoleAppAuthIdentity } from "./access.ts"
-export { installConsoleAccess } from "./access-policy.ts"
 export { verifyConsoleJwt } from "./bearer-jwt.ts"
 export { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../../auth-pages.ts"
-export { installConsolePageTool } from "./page-tool.ts"
-export { installConsoleClient } from "./client-assets.ts"
-export { installConsoleOrigins } from "./cors.ts"
-export { installConsoleRuntime } from "./runtime.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
-export { installConsoleDevelopment } from "./development.ts"
-
-export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false): readonly ConsoleSectionId[] {
-  return installConsoleSectionScope(projectRoot, sections, undefined, independentAuth)
-}
-
-export function installConsoleProjectName(projectRoot: string, projectName: string): string {
-  installConsoleProjectRoot(projectRoot)
-  return installConsoleProjectNameScope(projectRoot, projectName)
-}
-
-/**
- * Install the build id of the generated Console output. It changes when the Console catalog or the Console client
- * changes, so an open Console compares it to know that a newer Console is deployed.
- */
-export function installConsoleBuild(projectRoot: string, build: string): string {
-  return installConsoleBuildScope(projectRoot, build)
-}
-
-export function getConsoleBuild(): string | undefined {
-  return resolveConsoleBuild()
-}
+export { installConsoleAccess, installConsoleDevelopment, installConsoleOrigins, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "./setup.ts"
 
 export function getConsoleSections(): readonly ConsoleSectionId[] {
   return resolveConsoleSections()

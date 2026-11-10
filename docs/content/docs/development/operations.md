@@ -156,9 +156,11 @@ Each input schema key becomes a flag. `url`, `timeout`, `json`, `yes`, and `inpu
 To let an agent call operations, add the capability:
 
 ```ts [server/agents/editor.ts]
+import { defineAgent } from 'vite-hub/agent'
 import { operations } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [operations({ include: ['reports.*'], approve: 'write' })],
 })
 ```
@@ -211,7 +213,7 @@ Core error codes:
 
 The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, since it needs `console.auth`.
 
-In `vite dev` without a `console` option, the app serves the RPC (no Console page) with the local policy, so every section is open.
+In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, and accepts calls from the [hosted Console](/docs/development/console#in-development) without a token.
 
 ::warning
 A dev RPC without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To open the dev Console to other people, set `console.auth` to `"app"` or a Console Auth config.
@@ -237,8 +239,8 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-- `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV Console pages run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
+- `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
 - `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
-- The task operations exist only when the app has tasks. The `tasks` section has no Console page, and `console.authorize` grants it by name.
+- The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
 - Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
 - The Workspace operations read a Workspace's kept history and run as `vitehub workspace history`, `refs`, and `show`.

@@ -5,7 +5,7 @@ import { installAgentInvocationsOverride } from "@vite-hub/agent/invocations/app
 
 import { createConsoleInvocationsIdentity, installConsoleInvocationFallback, markConsoleFixtureInvocations, resolveConsoleFixtureInvocations, resolveConsoleInvocationsByIdentity, resolveConsoleInvocationsRevision } from "../../internal.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
-import { defaultAgentInvocationsMetadataContent } from "@vite-hub/agent/internal/default-invocations"
+import { defaultAgentInvocationsMetadataContent } from "@vite-hub/agent/internal/default-invocations-core"
 
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"

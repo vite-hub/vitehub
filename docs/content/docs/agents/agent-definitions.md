@@ -168,14 +168,17 @@ export default defineAgent({
 import { runAgent } from 'vite-hub/agent'
 import labeller from '../agents/labeller'
 
-const [error, result] = await runAgent(labeller, {
-  data: { from: email.from, subject: email.subject },
-  prompt: `${email.from}: ${email.subject}`,
-})
-if (error) throw error
-const output = result.output
-if (!output) throw new Error('Expected labeller output')
-// output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+export async function labelEmail(email: { from: string, subject: string }) {
+  const [error, result] = await runAgent(labeller, {
+    data: { from: email.from, subject: email.subject },
+    prompt: `${email.from}: ${email.subject}`,
+  })
+  if (error) throw error
+  const output = result.output
+  if (!output) throw new Error('Expected labeller output')
+  // output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+  return output.label
+}
 ```
 
 The type of `result.output` is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again.
