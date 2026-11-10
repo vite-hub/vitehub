@@ -31,9 +31,11 @@ Add `observability.logs` and `console` to the ViteHub options of your app. Keep 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
+const isDev = process.env.NODE_ENV === 'development'
+
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', observability: { logs: true }, console: process.env.NODE_ENV === 'development' ? { auth: false } : false },
+  vitehub: { preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
 })
 ```
 ::::
@@ -44,12 +46,16 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig(({ command }) => ({
-  plugins: [
-    vitehub({ preset: 'node', observability: { logs: true }, console: command === 'serve' ? { auth: false } : false }),
-    nitro(),
-  ],
-}))
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      nitro(),
+    ],
+  }
+})
 ```
 ::::
 
@@ -58,11 +64,15 @@ export default defineConfig(({ command }) => ({
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig(({ command }) => ({
-  plugins: [
-    vitehub({ preset: 'node', observability: { logs: true }, console: command === 'serve' ? { auth: false } : false }),
-  ],
-}))
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+    ],
+  }
+})
 ```
 ::::
 :::
