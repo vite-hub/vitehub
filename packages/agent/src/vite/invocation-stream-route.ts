@@ -30,8 +30,25 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
       ? undefined
       : new Response("Forbidden Agent Dev Loop token.", { status: 403 }),
     handle: (req, res, grant) => {
-      void import("./invocation-stream-endpoint.ts").then(({ handleAgentInvocationStreamEndpoint }) =>
-        handleAgentInvocationStreamEndpoint(server, req, res, grant, tokenOptions, runtimeOptions))
+      let closed = req.aborted || res.destroyed
+      const onClose = () => { closed = true }
+      req.once("aborted", onClose)
+      res.once("close", onClose)
+      void import("./invocation-stream-endpoint.ts")
+        .then(({ handleAgentInvocationStreamEndpoint }) => {
+          // The handler installs its own cancellation listener synchronously at handoff.
+          if (!closed && !res.destroyed) handleAgentInvocationStreamEndpoint(server, req, res, grant, tokenOptions, runtimeOptions)
+        })
+        .catch(() => {
+          if (closed || res.destroyed) return
+          res.statusCode = 500
+          res.setHeader("Content-Type", "text/plain; charset=utf-8")
+          res.end("Agent Invocation Stream endpoint failed.")
+        })
+        .finally(() => {
+          req.off("aborted", onClose)
+          res.off("close", onClose)
+        })
     },
     header: agentInvocationStreamHeader,
     headerValue: agentInvocationStreamHeaderValue,
