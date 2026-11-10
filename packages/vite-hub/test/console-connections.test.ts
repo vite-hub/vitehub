@@ -28,6 +28,7 @@ import type { ConsoleSectionId } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { vitehub } from "../src/index.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const connection = {
   account: { email: "ada@example.com", id: "1" },
@@ -257,7 +258,7 @@ describe("Console session user", () => {
       const file = await writeConsoleConnectionsActor(root)
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
       const actor = await readFile(file, "utf8")
-      expect(actor).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
+      expect(actor).toContain(`import { consoleConnectionsActor } from ${JSON.stringify(generatedModules.consoleSections)}`)
       expect(actor).toContain("viteHubConsoleConnectionsActor(request)")
       expect(actor).toContain("return consoleConnectionsActor(request)")
       expect(actor).not.toContain("user:open")

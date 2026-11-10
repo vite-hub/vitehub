@@ -41,7 +41,7 @@ export interface ConsoleOAuthConfig {
   path: string
   /** Resource identifier of the endpoint, `<origin>/_vitehub/mcp`. Absolute. Without it, the origin below plus `path`. */
   resource?: string
-  /** Checks a token's signature and claims. Pass `verifyConsoleJwt` from `vite-hub/console/sections`. */
+  /** Checks a token's signature and claims. Pass `verifyConsoleJwt` from the Console sections module. */
   verify: typeof verifyConsoleJwt
 }
 

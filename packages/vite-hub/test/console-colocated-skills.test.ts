@@ -7,6 +7,7 @@ import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { agentRuntimeModule } from "@vite-hub/agent/vite"
 import { agentWithColocatedSkills } from "../../agent/dist/runtime/workflow.js"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 it("loads colocated Skills into the production Console definition", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-skills-"))
@@ -34,7 +35,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     const definition = defineAgent({ driver: codexDriver(), runtime: false, workspace: {} })
     const source = generated
       .replace(/^import .+$/gm, "")
-      .replace(`import("vite-hub/console/operations")`, "Promise.resolve({ installConsoleOperations: installOperations })")
+      .replace(`import(${JSON.stringify(generatedModules.consoleOperations)})`, "Promise.resolve({ installConsoleOperations: installOperations })")
       .replace(`import("vite-hub/console/server")`, "Promise.resolve({ installConsoleAgentDefinitions: installAgents })")
       .replace(`import(${JSON.stringify(skillsImport)})`, "Promise.resolve({ agentWithColocatedSkills: withSkills })")
       .replace(`import(${JSON.stringify(agentUrl)})`, "Promise.resolve(agentModule)")

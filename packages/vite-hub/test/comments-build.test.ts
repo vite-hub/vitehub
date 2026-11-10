@@ -11,6 +11,7 @@ import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli, serverBuild } from "./support/content-cms.ts"
 
 import type { CommentThread } from "@vite-hub/comments/client"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Comments in a built Nitro 3 app", () => {
@@ -30,7 +31,7 @@ describe("Comments in a built Nitro 3 app", () => {
       // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
       "server/plugins/test-user.ts": [
         "import { definePlugin } from 'nitro'",
-        "import { installConsoleAccess } from 'vite-hub/console/sections'",
+        `import { installConsoleAccess } from ${JSON.stringify(generatedModules.consoleSections)}`,
         "export default definePlugin(app => {",
         "  app.hooks.hook('request', event => {",
         "    installConsoleAccess(event.req.headers.get('x-test-user') === 'ana'",

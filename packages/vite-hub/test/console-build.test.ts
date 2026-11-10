@@ -16,6 +16,7 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const sectionsHandler = allowed(sectionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
@@ -76,7 +77,7 @@ describe("Console build id", () => {
       const first = await generatedBuild(file, root, ["kv"])
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
-      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleClient, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleClient, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSections)}`)
       expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {

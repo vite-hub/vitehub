@@ -16,6 +16,7 @@ import { cloudflareAccessIssuer } from "../src/console/auth-path.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { installStandardContext } from "../src/runtime/h3.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const teamDomain = "acme.cloudflareaccess.com"
@@ -306,7 +307,7 @@ describe("Cloudflare Access Console Auth", () => {
       const handlers = await writeConsoleAuthHandlers(root, defaults)
       expect(handlers).toEqual({ auth: "cloudflare-access", clientSources: [], middleware: handlers.middleware })
       const middleware = await readFile(handlers.middleware, "utf8")
-      expect(middleware).toContain('from "vite-hub/console/auth/cloudflare-access"')
+      expect(middleware).toContain(`from ${JSON.stringify(generatedModules.consoleAuthCloudflareAccess)}`)
       expect(middleware).toContain("resolveServerEnv(settings, event)")
       expect(middleware).not.toContain("#vitehub/auth/server")
 

@@ -8,6 +8,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { build } from "esbuild"
 import { resolveInlineConsoleAuthGates, type InlineConsoleAuth } from "./auth-inline-config.ts"
 import { cloudflareAccessIssuer, consoleAuthMountBase, consoleAuthPath } from "./auth-path.ts"
+import { generatedModules } from "../internal/generated-modules.ts"
 
 import type { EnvRuntimeRegistry } from "@vite-hub/env"
 import type { CloudflareAccessConsoleAuth } from "./auth-cloudflare-access.ts"
@@ -145,7 +146,7 @@ async function writeCloudflareAccessMiddleware(root: string, config: ResolvedClo
   const middleware = consoleAuthMiddlewareFile(root)
   await writeFileIfChanged(middleware, [
     'import { resolveServerEnv } from "vite-hub/env"',
-    'import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access"',
+    `import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from ${JSON.stringify(generatedModules.consoleAuthCloudflareAccess)}`,
     `const settings = JSON.parse(${JSON.stringify(JSON.stringify(config.settings))})`,
     "export default function viteHubConsoleAuthMiddleware(event) {",
     `  return handleCloudflareAccessConsoleRequest(event, () => resolveServerEnv(settings, event), ${JSON.stringify(mountBaseURL)})`,
@@ -207,7 +208,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
     writeFileIfChanged(definitionFile, [
       ...(inline
         ? [
-            'import { createInlineConsoleAuth } from "vite-hub/console/auth/inline"',
+            `import { createInlineConsoleAuth } from ${JSON.stringify(generatedModules.consoleAuthInline)}`,
             `export const input = createInlineConsoleAuth(${JSON.stringify(config)})`,
           ]
         : [
@@ -300,7 +301,7 @@ export const consoleConnectionsActorId = "#vitehub/console/connections-actor"
 export async function writeConsoleConnectionsActor(root: string, sessionActorModule?: string): Promise<string> {
   const file = resolve(root, ".vitehub/nitro/console/connections-actor.mjs")
   await writeFileIfChanged(file, [
-    'import { consoleConnectionsActor } from "vite-hub/console/sections"',
+    `import { consoleConnectionsActor } from ${JSON.stringify(generatedModules.consoleSections)}`,
     ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
     // The Request carries the Standard Context of the event, so the Console access policy reads it like an event.
     "export default function viteHubConsoleConnectionsActor(request) {",

@@ -84,6 +84,7 @@ import { allowed } from "./support/console-access.ts"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { consoleEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const agentsHandler = allowed(agentsHandlerRoute)
 const invocationHandler = allowed(invocationHandlerRoute)
@@ -848,8 +849,8 @@ describe("Agent invocation console", () => {
         "/_vitehub/page/session",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/blob")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleBlob)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(
         `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
@@ -912,7 +913,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub", "/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp", "/_vitehub/page/session"])
       expect(config.nitro?.handlers.find(handler => handler.route === "/_vitehub/env/manage")).toMatchObject({ method: "post" })
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1053,8 +1054,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
@@ -1103,9 +1104,9 @@ describe("Agent invocation console", () => {
         "/_vitehub/page/session",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
-      expect(generated).toContain(`import("vite-hub/console/database")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
       expect(generated).toContain(`import("vite-hub/database/drizzle")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
@@ -1206,8 +1207,8 @@ describe("Agent invocation console", () => {
         "/_vitehub/page/session",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
@@ -1292,8 +1293,8 @@ describe("Agent invocation console", () => {
         "/_vitehub/page/session",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
@@ -1443,8 +1444,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandbox-tasks":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("must not run")

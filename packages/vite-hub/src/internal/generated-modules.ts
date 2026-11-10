@@ -1,0 +1,20 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
+
+/**
+ * Modules of this package that only generated code imports. Generated code imports each one by its absolute path, so
+ * each is a build entry and not a package export.
+ */
+export const generatedModules = {
+  commentsRealtime: ownModule(import.meta.url, "comments/realtime"),
+  commentsRuntimeAuth: ownModule(import.meta.url, "comments/runtime/auth"),
+  connectionsAgent: ownModule(import.meta.url, "connections/agent"),
+  consoleAuthCloudflareAccess: ownModule(import.meta.url, "console/auth-cloudflare-access"),
+  consoleAuthInline: ownModule(import.meta.url, "console/auth-inline"),
+  consoleBlob: ownModule(import.meta.url, "console/runtime/server/blob"),
+  consoleDatabase: ownModule(import.meta.url, "console/runtime/server/database"),
+  consoleDefinitions: ownModule(import.meta.url, "console/runtime/server/definitions"),
+  consoleDocuments: ownModule(import.meta.url, "console/runtime/server/documents"),
+  consoleEnv: ownModule(import.meta.url, "console/runtime/server/env"),
+  consoleOperations: ownModule(import.meta.url, "console/runtime/server/operation-contributions"),
+  consoleSections: ownModule(import.meta.url, "console/runtime/server/sections"),
+}

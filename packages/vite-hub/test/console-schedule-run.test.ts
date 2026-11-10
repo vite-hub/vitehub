@@ -29,6 +29,7 @@ import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { allowed } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const definitionsHandler = allowed(definitionsHandlerRoute)
 
@@ -110,7 +111,7 @@ describe("Console Schedule runs", () => {
     const invokeDisabled = await readFile(plugin, "utf8")
 
     expect(invokeEnabled).toContain(`{ installConsoleDefinitions, installConsoleSchedules }`)
-    expect(invokeEnabled).toContain(`import("vite-hub/console/definitions")`)
+    expect(invokeEnabled).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
     expect(invokeEnabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["sync"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) })`)
     expect(invokeDisabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, {})`)
     expect(invokeDisabled).not.toContain(pathToFileURL(handler).href)

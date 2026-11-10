@@ -33,7 +33,6 @@ import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
-import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -85,7 +84,6 @@ describe("Console Auth package exports", () => {
     expect(typeof createConsoleAppAuthAccess).toBe("function");
     expect(typeof createConsoleAppAuthPages).toBe("function");
     expect(typeof defineConsoleAuthClient).toBe("function");
-    expect(typeof createInlineConsoleAuth).toBe("function");
   });
 });
 
@@ -142,6 +140,10 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/state",
   "@vite-hub/comments/runtime/connect",
   "@vite-hub/comments/runtime/connect/node",
+  // Generated code imports these through `vite-hub` forwarders by path. The forwarders are not package exports.
+  "@vite-hub/comments/realtime",
+  "@vite-hub/comments/runtime/auth",
+  "@vite-hub/connections/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/request-stats",
@@ -278,7 +280,9 @@ describe("framework package contract", () => {
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
-    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
+    // Generated code imports these forwarders by path, so an app reaches the owner without installing it.
+    const generatedForwarders = ["src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts"];
+    expect(sourceForwarders).toEqual([...exportedForwarders, ...generatedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -289,16 +293,7 @@ describe("framework package contract", () => {
       "./console",
       "./console/auth",
       "./console/auth/client",
-      "./console/auth/cloudflare-access",
-      "./console/auth/inline",
-      "./console/blob",
-      "./console/database",
-      "./console/definitions",
-      "./console/documents",
-      "./console/env",
       "./console/mcp-client",
-      "./console/operations",
-      "./console/sections",
       "./console/server",
       "./console/ui",
       "./deployment",
