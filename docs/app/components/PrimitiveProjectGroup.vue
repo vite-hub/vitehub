@@ -12,7 +12,7 @@ watch(currentVariant, (variant) => {
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-xl border border-default bg-elevated">
+  <div class="overflow-hidden rounded-(--vh-frame-radius) border border-default bg-elevated">
     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-default px-4 py-3">
       <div class="flex items-center gap-2 text-xs text-muted">
         <span class="size-2 rounded-full bg-primary" aria-hidden="true" />

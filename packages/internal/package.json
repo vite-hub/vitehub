@@ -193,6 +193,11 @@
       "import": "./dist/runtime/cache-bypass.js",
       "default": "./dist/runtime/cache-bypass.js"
     },
+    "./runtime/mcp-server": {
+      "types": "./dist/runtime/mcp-server.d.ts",
+      "import": "./dist/runtime/mcp-server.js",
+      "default": "./dist/runtime/mcp-server.js"
+    },
     "./runtime/mcp-tools": {
       "types": "./dist/runtime/mcp-tools.d.ts",
       "import": "./dist/runtime/mcp-tools.js",
@@ -267,11 +272,6 @@
       "types": "./dist/build/deno-runtime-packages.d.ts",
       "import": "./dist/build/deno-runtime-packages.js",
       "default": "./dist/build/deno-runtime-packages.js"
-    },
-    "./build/mode": {
-      "types": "./dist/build/mode.d.ts",
-      "import": "./dist/build/mode.js",
-      "default": "./dist/build/mode.js"
     },
     "./build/page-tools": {
       "types": "./dist/build/page-tools.d.ts",

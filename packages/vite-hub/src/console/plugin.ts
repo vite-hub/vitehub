@@ -1,16 +1,13 @@
-import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
-import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
+import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
-import { resolveConsoleClient } from "./client.ts"
-import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
-import { consoleRuntimeDigestFile, digestConsoleRuntime } from "./runtime-digest.ts"
+import { consoleFixtureRevision, readConsoleFixture, type ConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
@@ -24,35 +21,13 @@ function resolveConsoleRuntimeRoot(): string {
   const root = [
     fileURLToPath(new URL("./runtime", import.meta.url)),
     fileURLToPath(new URL("./console/runtime", import.meta.url)),
-  ].find(root => ["page.get.ts", "page.get.js"].some(file => existsSync(join(root, "server", file))))
+  ].find(root => ["rpc.ts", "rpc.js"].some(file => existsSync(join(root, "server", file))))
   if (!root) throw viteHubErrorDiagnostics.VITE_HUB_B0001({ message: "[vitehub] Could not locate the packaged Console runtime." })
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 /** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
 export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
-let consoleRuntimeDigest: string | undefined
-
-/**
- * The digest of the packaged Console runtime. The package build writes it, so an installed package does not read the
- * runtime files on each start. Source checkouts compute it once per process.
- */
-function readConsoleRuntimeDigest(): string {
-  if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
-  const file = join(consoleRuntimeRoot, consoleRuntimeDigestFile)
-  consoleRuntimeDigest = existsSync(file) ? readFileSync(file, "utf8").trim() : digestConsoleRuntime(consoleRuntimeRoot)
-  return consoleRuntimeDigest
-}
-
-/** A short id of the generated Console output and the Console client. It is the same for the same Console. */
-function consoleBuildId(contents: string): string {
-  return createHash("sha256")
-    .update(contents)
-    .update("\0")
-    .update(readConsoleRuntimeDigest())
-    .digest("hex")
-    .slice(0, 16)
-}
 
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
@@ -68,9 +43,10 @@ export interface ConsoleAccessBuild {
   oauth?: { issuer?: string, path: string, resource?: string }
   /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
   impersonation?: true
-  /** Path of the sign-in page under the application mount, such as `/sign-in`. */
-  signInPage?: string
-  /** `console.origins`, for `token` mode only: the browser origins that may call the data routes with the token. */
+  /**
+   * `console.origins`: the browser origins that may call the data routes, such as the hosted Console. `token` mode
+   * accepts them with the token. `local` and `open` accept them on the development server only.
+   */
   origins?: readonly string[]
 }
 
@@ -86,6 +62,7 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "console", name: "console" },
   { exportName: "agentDb", name: "db" },
   { exportName: "email", name: "email" },
+  { exportName: "agentI18n", name: "i18n" },
   { exportName: "kv", name: "kv" },
 ]
 
@@ -131,7 +108,7 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     const routes = JSON.stringify(access.check.appRoutes)
     imports.push(`import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from ${JSON.stringify(generatedModules.consoleSections)}`)
     oauthAuth = "(request, event) => vitehubGetAuthForRequest(request, undefined, event)"
-    fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
+    fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "signedIn: vitehubConsoleAppPages.signedIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
     // The Auth server module loads Better Auth. Import it on the first Console request, not when the server starts.
     setup.push(
       'const vitehubAuthServer = () => import("#vitehub/auth/server")',
@@ -159,7 +136,6 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     fields.push("authorize: vitehubConsoleAuthorize")
   }
   if (access.impersonation) fields.push("impersonation: true")
-  if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   // Install the list even when it is empty, so a reload in the same process revokes origins that were removed.
   afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins ?? [])})`)
   return {
@@ -172,23 +148,47 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
 }
 
+/** What the generated Console Nitro plugin installs. The Nuxt module and the Vite plugin both write it with these options. */
+export interface ConsoleNitroPluginOptions {
+  /** The generated plugin file. */
+  file: string
+  projectRoot: string
+  sections: readonly ConsoleSectionId[]
+  /** The discovered Agents, Schedules, operations, and section content. */
+  catalog: ConsoleBuildCatalog
+  blobStores: readonly string[]
+  /** The Console fixture file in fixture mode. */
+  fixture?: string
+  /** The invocation journal binding of this dev server. */
+  runtimeBinding?: string
+  /** Let the Console start Agent Invocations and run manual Schedules. */
+  invoke?: boolean
+  /** Write nothing when this returns `false`, such as after the dev server closed. */
+  active?: () => boolean
+  /** The Console Auth mode that the generated handlers serve, or `false` without Console Auth. */
+  independentAuth?: true | "cloudflare-access" | false
+  access?: ConsoleAccessBuild
+  runtimeCapabilityImports?: Record<string, false | string>
+  development?: boolean
+}
+
 function renderConsoleNitroPlugin(
-  projectRoot: string,
-  configuredSections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  fixture?: string,
-  fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
-  runtimeBinding?: string,
-  invoke = false,
-  independentAuth: true | "cloudflare-access" | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-  development = false,
-  applicationBase = "/",
-  pageTools = true,
+  {
+    projectRoot,
+    sections: configuredSections,
+    catalog,
+    blobStores,
+    fixture,
+    runtimeBinding,
+    invoke = false,
+    independentAuth = false,
+    access,
+    runtimeCapabilityImports,
+    development = false,
+  }: ConsoleNitroPluginOptions,
+  fixtureSnapshot: ConsoleFixture | undefined,
 ): string {
+  const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
@@ -250,16 +250,13 @@ function renderConsoleNitroPlugin(
       ? [`installConsoleAgentDefinitions([${definitions}], ${fixture ? `{ invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }` : `{ projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }`})`]
       : []),
   ]
-  // The page loads the prebuilt app of @vite-hub/console-client. A Console that serves only the RPC needs no app.
-  const client = pageTools ? resolveConsoleClient() : undefined
   return [
-    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, ${client ? "installConsoleClient, " : ""}installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSections)}`,
+    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     ...(agentsEnabled && fixture ? [`import { installConsoleFixtureInvocations } from "vite-hub/console/server"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
-    ...(client ? [`installConsoleClient(${JSON.stringify({ script: client.script, style: client.style, pageTool: client.pageTool })})`] : []),
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
@@ -277,32 +274,14 @@ function renderConsoleNitroPlugin(
     ...(agentsEnabled && fixture
       ? [`const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`]
       : []),
-    // The Console link lives in the shared page tools pill.
-    pageTools
-      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(applicationBase)} }) }`
-      : "export default function viteHubConsolePlugin() {}",
+    "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
 }
 
-export async function writeConsoleNitroPlugin(
-  file: string,
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  fixture?: string,
-  runtimeBinding?: string,
-  invoke = false,
-  active: () => boolean = () => true,
-  independentAuth: true | "cloudflare-access" | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-  development = false,
-  applicationBase = "/",
-  pageTools = true,
-): Promise<string> {
+/** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
+export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
+  const { file, projectRoot, fixture, runtimeBinding, active = () => true } = options
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
     projectRoot,
@@ -311,9 +290,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, independentAuth, access, runtimeCapabilityImports, development, applicationBase, pageTools)
-  // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
-  const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
+  const contents = renderConsoleNitroPlugin(options, snapshot)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

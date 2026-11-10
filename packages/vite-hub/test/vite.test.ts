@@ -136,7 +136,6 @@ vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.vite
 import type { KVOptions } from "@vite-hub/kv"
 import { getResolvedFeatureOptions, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
-import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub, type ViteHubOptions } from "../src/index.ts"
@@ -243,17 +242,22 @@ function providerAliasesFromCall(call: readonly unknown[] | undefined, index = 0
   return aliases as Record<string, string>
 }
 
-function pluginAliases(plugin: Plugin): Record<string, string> {
+function pluginAliasEntries(plugin: Plugin): { find: RegExp, replacement: string }[] {
   const config = callHook(plugin.config, [{}])
   if (!isRuntimeRecord(config) || !("resolve" in config)) throw new TypeError("Expected plugin resolve configuration.")
   const resolve = config.resolve
-  if (!isRuntimeRecord(resolve) || !("alias" in resolve)) throw new TypeError("Expected plugin aliases.")
-  const alias = resolve.alias
-  if (!isStringRecord(alias)) {
-    throw new TypeError("Expected plugin aliases to be a string record.")
-  }
-  // SAFETY: The preceding check validates every alias value.
-  return alias as Record<string, string>
+  if (!isRuntimeRecord(resolve) || !("alias" in resolve) || !Array.isArray(resolve.alias)) throw new TypeError("Expected plugin aliases.")
+  return resolve.alias.map((entry: unknown) => {
+    if (!isRuntimeRecord(entry) || !(entry.find instanceof RegExp) || typeof entry.replacement !== "string") {
+      throw new TypeError("Expected each plugin alias to be an exact pattern and a path.")
+    }
+    return { find: entry.find, replacement: entry.replacement }
+  })
+}
+
+/** The plugin's aliases by the one specifier each pattern matches. */
+function pluginAliases(plugin: Plugin): Record<string, string> {
+  return Object.fromEntries(pluginAliasEntries(plugin).map(({ find, replacement }) => [find.source.slice(1, -1).replace(/\\(.)/g, "$1"), replacement]))
 }
 
 type ProviderImportPlugin = Plugin & {
@@ -517,16 +521,9 @@ describe("vitehub", () => {
     }
   })
 
-  it("adds the Console to the Vite DevTools dock outside static DevTools builds", () => {
+  it("adds no Vite DevTools dock, since apps serve no Console page", () => {
     const plugin = dependencyPluginByName(vitehub({ console: { auth: false }, preset: "node" }), "vite-hub/console")
-    // SAFETY: The Console plugin declares the `devtools` field that `@vitejs/devtools` reads.
-    const { devtools } = plugin as Plugin & { devtools: ConsoleViteDevTools }
-    const register = vi.fn()
-
-    devtools.setup({ docks: { register }, viteConfig: { base: "/portal/" } })
-
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({ id: "vitehub-console", type: "iframe", url: "/portal/_vitehub" }))
-    expect(devtools.capabilities).toEqual({ build: false })
+    expect(plugin).not.toHaveProperty("devtools")
   })
 
   it("keeps an application KV route beside the Console RPC route", async () => {
@@ -572,7 +569,7 @@ describe("vitehub", () => {
       })
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/**" }),
+          expect.objectContaining({ route: "/_vitehub/sign-in", middleware: true }),
           expect.objectContaining({ route: "/_vitehub/rpc/**" }),
         ]),
       })
@@ -809,6 +806,7 @@ describe("vitehub", () => {
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
+        i18n: false,
         kv: "vite-hub/kv",
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
@@ -1327,13 +1325,21 @@ describe("vitehub", () => {
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
   })
 
-  it("aliases non-JavaScript exports before the JavaScript entry they sit under", () => {
+  it("aliases non-JavaScript exports, such as vite-hub/ui/styles.css, on their own", () => {
     const aliases = pluginAliases(dependencyPlugin())
-    const specifiers = Object.keys(aliases)
 
     expect(aliases["vite-hub/ui/styles.css"]).toMatch(/packages\/vite-hub\/dist\/ui\/styles\.css$/)
     expect(aliases["vite-hub/ui"]).toMatch(/packages\/vite-hub\/dist\/ui\.js$/)
-    expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
+  })
+
+  it("matches each facade alone, so a subpath the package doesn't export isn't rewritten into a facade's file", () => {
+    const entries = pluginAliasEntries(dependencyPlugin())
+    const matching = (id: string) => entries.filter(({ find }) => find.test(id)).map(({ replacement }) => replacement)
+
+    expect(matching("vite-hub/realtime")).toEqual([expect.stringMatching(/packages\/vite-hub\/dist\/realtime\.js$/)])
+    expect(matching("vite-hub/realtime/client")).toEqual([expect.stringMatching(/packages\/vite-hub\/dist\/realtime\/client\.js$/)])
+    expect(matching("vite-hub/realtime/nope")).toEqual([])
+    expect(matching("vite-hub/ui/styles.css")).toEqual([expect.stringMatching(/packages\/vite-hub\/dist\/ui\/styles\.css$/)])
   })
 
   it("leaves facades of an absent owner package unaliased so their import names the package to install", () => {
@@ -2014,10 +2020,9 @@ describe("vitehub", () => {
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob/client", "/app/server/api.ts"])).not.toThrow()
 
     const dependency = dependencyPlugin({ preset: "deno" })
-    // SAFETY: dependencyPlugin returns the concrete plugin whose config hook supplies this alias shape.
-    const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
-    expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
-    expect(config.resolve.alias["vite-hub/blob/client"]).toEqual(expect.any(String))
+    const aliases = pluginAliases(dependency)
+    expect(aliases["vite-hub/blob"]).toBeUndefined()
+    expect(aliases["vite-hub/blob/client"]).toEqual(expect.any(String))
     expect(() => callHook(dependency.resolveId, ["@vite-hub/blob", "/app/.vitehub/agents.mjs"])).toThrow("Blob is unavailable")
   })
 
