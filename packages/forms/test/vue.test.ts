@@ -48,7 +48,8 @@ describe("AutoForm", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const sent = vi.fn()
-    createApp(AutoForm, { name: "contact", schema: clientSchema, onSent: sent }).mount(root)
+    const app = createApp(AutoForm, { name: "contact", schema: clientSchema, onSent: sent })
+    app.mount(root)
     await nextTick()
     const element = <T extends Element>(selector: string) => root.querySelector<T>(selector)!
     const type = async (selector: string, value: string) => {
@@ -68,7 +69,7 @@ describe("AutoForm", () => {
       await new Promise(resolve => setTimeout(resolve, 0))
       await nextTick()
     }
-    return { root, store, sent, element, type, submit }
+    return { app, root, store, sent, element, type, submit }
   }
 
   it("draws labelled controls, the honeypot, and the submit button", async () => {
@@ -119,6 +120,25 @@ describe("AutoForm", () => {
     // An empty select shows "Choose one", not its first option, before the app runs.
     expect(html).toMatch(/<option value(="")? disabled selected>Choose one<\/option>/)
     expect(html).not.toMatch(/<option value="bug" selected/)
+  })
+
+  it.each([
+    ["required", v.picklist(["bug", "undefined"])],
+    ["optional", v.optional(v.picklist(["bug", "undefined"]))],
+    ["nullable", v.nullable(v.picklist(["bug", "null"]), null)],
+  ])("keeps an empty %s select distinct from literal nullish choices in server HTML", async (_name, choice) => {
+    const root = document.createElement("div")
+    root.innerHTML = await renderToString(createSSRApp(AutoForm, { name: "contact", schema: v.object({ topic: choice }) }))
+    const selected = root.querySelectorAll("option[selected]")
+    expect(selected).toHaveLength(1)
+    expect(selected[0]?.textContent).toBe("Choose one")
+  })
+
+  it.each(["undefined", "null"])("keeps the literal %s choice selectable in server HTML", async (value) => {
+    const schema = v.object({ topic: v.optional(v.picklist(["bug", value]), value) })
+    const root = document.createElement("div")
+    root.innerHTML = await renderToString(createSSRApp(AutoForm, { name: "contact", schema }))
+    expect([...root.querySelectorAll("option[selected]")].map(option => option.textContent)).toEqual([value])
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
@@ -244,6 +264,26 @@ describe("AutoForm", () => {
     expect(await store.list()).toHaveLength(1)
   })
 
+  it.each([false, true])("cancels a pending check when input changes (restored: %s)", async (restore) => {
+    let release!: () => void
+    const waiting = new Promise<void>(resolve => { release = resolve })
+    const check = vi.fn(async () => { await waiting; return true })
+    const schema = v.objectAsync({ message: v.pipeAsync(v.string(), v.checkAsync(check)) })
+    const { root, store, sent, type, element, submit } = await mount(v.object({ message: v.string() }), schema as never)
+    await type("[data-field=message] textarea", "Clicked value")
+    element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
+    await vi.waitFor(() => expect(check).toHaveBeenCalled())
+    await type("[data-field=message] textarea", "Edited after click")
+    if (restore) await type("[data-field=message] textarea", "Clicked value")
+    release()
+    await vi.waitFor(() => expect(root.querySelector("button")?.hasAttribute("aria-busy")).toBe(false))
+    expect(await store.list()).toEqual([])
+    expect(sent).not.toHaveBeenCalled()
+    // A fresh click may submit the current input.
+    await submit()
+    expect((await store.list()).map(row => row.data)).toEqual([{ message: restore ? "Clicked value" : "Edited after click" }])
+  })
+
   it("removes the result through Vue Router when the app has one", async () => {
     history.replaceState(null, "", "/contact?plan=pro&form=contact.sent#top")
     try {
@@ -252,7 +292,7 @@ describe("AutoForm", () => {
       document.body.append(root)
       const app = createApp(AutoForm, { name: "contact", schema: ContactSchema })
       // The router keeps its own copy of the address, so native history would come back on the next navigation.
-      app.config.globalProperties.$router = { currentRoute: { value: { query: { plan: "pro", form: "contact.sent" }, hash: "#top" } }, replace }
+      app.config.globalProperties.$router = { currentRoute: { value: { query: { plan: "pro", form: "contact.sent" }, hash: "#top" } }, isReady: async () => {}, replace }
       app.mount(root)
       await nextTick()
       expect(root.querySelector("[role=status]")?.textContent).toBe("Thanks. Your message was sent.")
@@ -294,10 +334,13 @@ describe("AutoForm", () => {
 
   it("shows a schema check that throws as the form error", async () => {
     const schema = v.objectAsync({ message: v.pipeAsync(v.string(), v.checkAsync(async () => { throw new Error("The check is down.") })) })
-    const { root, submit, type } = await mount(ContactSchema, schema as never)
+    const { app, root, submit, type } = await mount(ContactSchema, schema as never)
+    const errorHandler = vi.fn()
+    app.config.errorHandler = errorHandler
     await type("[data-field=message] textarea", "Hello there")
     await submit()
-    expect(root.querySelector("form > [data-error]")?.textContent).toBeTruthy()
+    expect(root.querySelector("form > [role=alert]")?.textContent).toBe("The check is down.")
+    expect(errorHandler).not.toHaveBeenCalled()
   })
 
   it("puts a server issue under its field", async () => {

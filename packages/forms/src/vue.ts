@@ -1,5 +1,5 @@
 import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, validate } from "@formisch/vue"
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId } from "vue"
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId, watch } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
 import { unwrap } from "./schema.ts"
@@ -15,6 +15,7 @@ export type { FormAnchor, FormIssue, SubmitFormOptions } from "./client.ts"
 /** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */
 interface QueryRouter {
   currentRoute: { value: { query: Record<string, unknown>, hash: string } }
+  isReady: () => Promise<void>
   replace: (to: { query: Record<string, unknown>, hash: string }) => Promise<unknown>
 }
 
@@ -158,7 +159,7 @@ const AutoFormControl = defineComponent({
           // An optional select can go back to empty.
           // `selected` on the options, since a server-rendered select has no value: the browser would show the first option.
           h("option", { value: "", disabled: field.required, selected: value === undefined || value === null || value === "" }, "Choose one"),
-          ...options.map(option => h("option", { value: String(option), selected: String(option) === String(value) }, String(option))),
+          ...options.map(option => h("option", { value: String(option), selected: value !== undefined && value !== null && String(option) === String(value) }, String(option))),
         ])
       }
       else {
@@ -239,25 +240,30 @@ export const AutoForm = defineComponent({
     const statusElement = ref<HTMLElement>()
     // Vue Router keeps its own copy of the address, so the query goes through it when the app has one.
     const router = getCurrentInstance()?.appContext.config.globalProperties.$router as QueryRouter | undefined
-    onMounted(() => {
+    onMounted(async () => {
       mounted.value = true
       const url = globalThis.location ? new URL(globalThis.location.href) : undefined
       returned.value ??= resultOf(url?.searchParams.get("form"))
+      // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
+      // Not when the visitor is already in a field: that would close the keyboard on a phone.
+      const active = globalThis.document?.activeElement
+      if (returned.value && (!active || active === document.body)) statusElement.value?.focus()
       // A reload, a shared link, or a later navigation back must not show the result again.
       if (url && resultOf(url.searchParams.get("form"))) {
         if (router) {
-          const { form: _form, ...query } = router.currentRoute.value.query
-          void router.replace({ query, hash: router.currentRoute.value.hash })
+          // An app-shell form can mount before the router reaches the requested page.
+          await router.isReady()
+          const route = router.currentRoute.value
+          // A guard may have redirected to a page with another form's result while we waited.
+          if (typeof route.query.form !== "string" || !resultOf(route.query.form)) return
+          const { form: _form, ...query } = route.query
+          await router.replace({ query, hash: route.hash })
         }
         else {
           url.searchParams.delete("form")
           history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`)
         }
       }
-      // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
-      // Not when the visitor is already in a field: that would close the keyboard on a phone.
-      const active = globalThis.document?.activeElement
-      if (returned.value && (!active || active === document.body)) statusElement.value?.focus()
     })
     const status = () => {
       if (sent.value || returned.value === "sent") return slots.sent?.() ?? props.sentMessage
@@ -271,6 +277,10 @@ export const AutoForm = defineComponent({
     // The button stays focusable while it sends, so a second submit is ignored here instead.
     // Reactive, so the button shows that it is busy while a slow check runs.
     const checking = ref(false)
+    // Pre-validation is outside Formisch's submission lifecycle. Track edits through it, including an edit that
+    // restores the old value, so an outdated attempt cannot start a fresh submission after its check finishes.
+    let inputRevision = 0
+    watch(() => getInput(form), () => { inputRevision++ }, { deep: true, flush: "sync" })
     const onSubmit = async (event: SubmitEvent) => {
       event.preventDefault()
       if (form.isSubmitting || checking.value) return
@@ -280,10 +290,17 @@ export const AutoForm = defineComponent({
       // first, so the field already points to its error when `handleSubmit()` focuses it. It also marks the form
       // submitted, so a corrected field validates again as the user types.
       checking.value = true
-      // A schema check that throws is left to `handleSubmit()`, which shows it as the form error.
-      const result = await validate(form).catch(() => undefined).finally(() => { checking.value = false })
-      if (!result?.success) await nextTick()
-      await submit(event)
+      const revision = inputRevision
+      try {
+        // A schema check that throws is left to `handleSubmit()`, which shows it as the form error.
+        const result = await validate(form).catch(() => undefined)
+        if (!result?.success) await nextTick()
+        if (inputRevision !== revision) return
+        await submit(event)
+      }
+      finally {
+        checking.value = false
+      }
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.
     const prefix = `vitehub-form-${props.name}-${useId()}`
