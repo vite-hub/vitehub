@@ -95,7 +95,9 @@ describe("Auth Nuxt integration", () => {
     [{ "/docs/**:rest": false }, '"/docs/**:rest": false'],
     [{ "/a/**/b": "user" }, '"/a/**/b": "user"'],
     [{ "/a/": "user" }, '"/a/": "user"'],
-    [{ "/team/:id": "user", "/team/*": false }, '"/team/*": false'],
+    [{ "/team/:id": "user", "/team/:slug": false }, '"/team/:slug": false'],
+    [{ "/team/*": false }, '"/team/*": false'],
+    [{ "/a/*/c": "user" }, '"/a/*/c": "user"'],
   ] as const)("stops the build on an invalid auth.routes entry %j", (routes, entry) => {
     const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt" } }
 
@@ -126,7 +128,8 @@ describe("Auth Nuxt integration", () => {
     [{ "/account": "user", "/account/:id": false }, { "/account": "user", "/account/1": "public" }],
     [{ "/account/:id": "user", "/account/:id/:tab": false }, { "/account/1": "user", "/account/1/x": "public" }],
     [{ "/:org/settings": "user", "/acme/:page": false }, { "/acme/settings": "public", "/other/settings": "user" }],
-    [{ "/a/**": false, "/a/:b/**": "user", "/a/*/c": "guest" }, { "/a": "public", "/a/b": "user", "/a/b/c": "guest", "/a/b/c/d": "user" }],
+    [{ "/a/**": false, "/a/:b/**": "user", "/a/:b/c": "guest" }, { "/a": "public", "/a/b": "user", "/a/b/c": "guest", "/a/b/c/d": "user" }],
+    [{ "/team/**": false, "/team/:id": "user" }, { "/team": "public", "/team/a": "user", "/team/a/b": "public" }],
     [{ "/**": "guest", "/:id": "user", "/x": false }, { "/x": "public", "/y": "user", "/y/z": "guest" }],
   ] as const)("keeps the most specific pattern of %j in any key order through the Nuxt 5 matcher", (routes, expected) => {
     const entries = Object.entries(routes)

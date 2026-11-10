@@ -508,8 +508,8 @@ export default defineNuxtConfig({
 - `'user'` sends a visitor without a session to `/login?redirect=<the page>`. A direct load and a navigation in the browser go to the same page.
 - `'guest'` sends a signed-in user to `/`. Use it for the login and sign-up pages.
 - `false` removes the guard of a wider pattern. Here, `/dashboard/pricing` is public.
-- A key is a Nuxt route rule pattern with static segments, `:name` or `*` for one segment, and a last `/**` for the path and every path below it. When patterns overlap, the most specific pattern wins: Nuxt compares the segments from the left, and a static segment wins over `:name` or `*`, which win over `**`.
-- Optional, repeated, and regex params, such as `/account/:id?`, stop the build with `AUTH_B0003`, because Nuxt then orders the patterns by their position and not by how specific they are. For an optional segment, add one key with the segment and one key without it. Two keys that match the same pages, such as `/team/:id` and `/team/*`, also stop the build.
+- A key is a Nuxt route rule pattern with static segments, `:name` for one segment, and a last `/**` for the path and every path below it. When patterns overlap, the most specific pattern wins: Nuxt compares the segments from the left, and a static segment wins over `:name`, which wins over `**`.
+- Optional, repeated, and regex params, such as `/account/:id?`, stop the build with `AUTH_B0003`, because Nuxt then orders the patterns by their position and not by how specific they are. For an optional segment, add one key with the segment and one key without it. A `*` also stops the build, because Nuxt reads a last `*` as `**`: use `:name` for one segment and `/**` for every depth. Two keys that differ only in param names, such as `/team/:id` and `/team/:slug`, also stop the build.
 
 ViteHub adds the guard to the `appMiddleware` route rule of each pattern and keeps the other rules of the pattern. A wrong key or value stops the build with `AUTH_B0003`.
 
