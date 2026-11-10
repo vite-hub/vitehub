@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { api } from "../src/overlay/api.ts"
 import { captureMarked } from "../src/overlay/marker.ts"
 import { pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
@@ -56,6 +57,33 @@ function stroke(points: Array<[number, number]>) {
 }
 
 describe("Highlight in the Comments segment", () => {
+  it("cancels Highlight on navigation and waits for permission on the new page", async () => {
+    const { bar } = await site()
+    tool(bar, "Highlight")!.click()
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    stroke([[20, 20], [60, 20]])
+
+    let answer!: (value: Awaited<ReturnType<typeof api.session>>) => void
+    const pending = new Promise<Awaited<ReturnType<typeof api.session>>>((resolve) => { answer = resolve })
+    const session = vi.spyOn(api, "session").mockReturnValueOnce(pending)
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(layer()).toBeNull())
+    expect(session).toHaveBeenCalledWith("/next")
+    tool(bar, "Highlight")!.click()
+    press(document.body, "b")
+    expect(layer()).toBeNull()
+
+    answer([undefined, { user: ada, can: { read: true, comment: false, resolve: false }, realtime: false, content: false }])
+    await vi.waitFor(() => expect(tool(bar, "Highlight")).toBeNull())
+    press(document.body, "b")
+    expect(layer()).toBeNull()
+
+    history.pushState(null, "", "/allowed")
+    await vi.waitFor(() => expect(tool(bar, "Highlight")).not.toBeNull())
+    press(document.body, "b")
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+  })
+
   it.each(["button", "B"])("resumes Highlight after a guest gives their name using %s", async (action) => {
     const { bar, shadow } = await site(null)
     if (action === "button") tool(bar, "Highlight")!.click()
