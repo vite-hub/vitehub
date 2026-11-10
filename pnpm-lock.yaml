@@ -3264,9 +3264,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       mlly:
         specifier: catalog:unjs
         version: 1.8.2
@@ -3295,6 +3292,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
