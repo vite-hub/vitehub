@@ -3,7 +3,7 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessHasScope, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
@@ -141,6 +141,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
     if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
+    if (!consoleAccessHasScope(context.access, "write")) throw consoleRequestError(403, "The access token lacks the vitehub:write scope.", "CONSOLE_ACCESS_DENIED")
     return (await loadConsoleMedia()).uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
@@ -169,6 +170,10 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
   if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
+  }
+  // An OAuth access token holds the scope of what it may do: `vitehub:read`, `vitehub:write`, or both.
+  if (!consoleAccessHasScope(context.access, classification.kind === "read" || classification.readOnly ? "read" : "write")) {
+    throw consoleRequestError(403, `The access token lacks the ${classification.kind === "read" || classification.readOnly ? "vitehub:read" : "vitehub:write"} scope for ${operation.name}.`, "CONSOLE_ACCESS_DENIED")
   }
   assertOperationConfirmation(request, classification)
   // Navigation and other reads that do not need a person skip the session lookup.
