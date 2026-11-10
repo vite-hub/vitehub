@@ -43,13 +43,13 @@ boundary for code that can modify the host's JavaScript environment.
 Long-lived Node services can also use `createProcessReconciler()` from the `/node`
 entry to coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
-manager should trigger that drain through the `vitehub-drain` command included
-with the owner-package installation, `@vite-hub/runtime`. Lifecycle callbacks
+manager should trigger that drain through `vitehub drain MAINPID [STATUS_URL]`
+from the `vite-hub` package, for example in systemd `ExecStop`. Lifecycle callbacks
 must return before an external caller starts `drain()`; calling `drain()` from an
 active callback rejects to prevent that callback from waiting on itself. `close()`
 removes the configured signal listener after the drain settles, including a failed
 drain. Keep the
-status endpoint available until `vitehub-drain` observes the terminal `drained`
+status endpoint available until `vitehub drain` observes the terminal `drained`
 status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
 ViteHub packages register their stop work with `onShutdown(nitroApp, name, drain)`

@@ -936,15 +936,17 @@ describe("ViteHub Nuxt integration", () => {
           setup(pluginBuild) {
             pluginBuild.onResolve({ filter: /^#vitehub\/(browser|realtime)\/availability$/ }, async (args) => {
               for (const plugin of plugins) {
-                if (typeof plugin.resolveId !== "function") continue
-                const id = await Reflect.apply(plugin.resolveId, {}, [args.path, undefined, { ssr: true, isEntry: false }])
+                const resolveId = typeof plugin.resolveId === "function" ? plugin.resolveId : plugin.resolveId?.handler
+                if (!resolveId) continue
+                const id = await Reflect.apply(resolveId, {}, [args.path, undefined, { ssr: true, isEntry: false }])
                 if (typeof id === "string") return { path: id, namespace: "availability" }
               }
             })
             pluginBuild.onLoad({ filter: /.*/, namespace: "availability" }, async (args) => {
               for (const plugin of plugins) {
-                if (typeof plugin.load !== "function") continue
-                const contents = await Reflect.apply(plugin.load, {}, [args.path])
+                const load = typeof plugin.load === "function" ? plugin.load : plugin.load?.handler
+                if (!load) continue
+                const contents = await Reflect.apply(load, {}, [args.path])
                 if (typeof contents === "string") return { contents, loader: "js" }
               }
             })
