@@ -51,8 +51,14 @@ pnpm add @formisch/vue
 The form posts to its route also before the app loads, or without JavaScript. The server sends the browser back with `?form=sent` or `?form=error`. Pass that query as `result`, so a server-rendered page shows the result before JavaScript runs. Without `result`, `AutoForm` reads the query when it mounts, which needs JavaScript:
 
 ```vue [app/pages/contact.vue] fragment
+<script setup lang="ts">
+const route = useRoute()
+// The query can be any text, so keep only the two results.
+const result = computed(() => route.query.form === 'sent' || route.query.form === 'error' ? route.query.form : undefined)
+</script>
+
 <template>
-  <AutoForm name="contact" :schema="ContactSchema" :result="$route.query.form" />
+  <AutoForm name="contact" :schema="ContactSchema" :result="result" />
 </template>
 ```
 
