@@ -1,6 +1,6 @@
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // Generated code imports these modules by path. They are not public API.
 const privateEntries = new Set([
@@ -20,7 +20,7 @@ const privateEntries = new Set([
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     copy: [
       { from: "src/drizzle-subpath.d.ts", rename: "drizzle-subpath.d.ts", to: "dist" },
       { from: "src/virtual-module.d.ts", rename: "virtual-module.d.ts", to: "dist" },
@@ -83,10 +83,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
 // The Node build of vega-canvas loads the optional `canvas` package with a top-level await, which Nitro's es2019 target rejects.
@@ -9,7 +9,7 @@ const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     alias: { "vega-canvas": vegaCanvasBrowser },
     copy: [{ from: "styles.css", to: "dist" }],
     deps: {
@@ -97,7 +97,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: "ci-only",
   },
 });
