@@ -48,10 +48,10 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace` | `boolean` or `WorkspaceModuleOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
+| `workspace` | `boolean` or `WorkspaceOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Project root that server-side discovery starts from. |
-| `assets` | `WorkspaceModuleOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
+| `assets` | `WorkspaceOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
 | `store` | `WorkspaceStoreOptions` | inferred from dev mode, host, and environment | Store for definitions that do not choose one. |
 
 ## Store providers
@@ -97,16 +97,16 @@ Workspace paths cannot use `.git` at any depth or `.vitehub` at the root, in any
 This Store keeps fixed versions of a folder on any host that [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts) support. Add its schema to a Database Definition, then generate and apply migrations with the Database integration.
 
 ```ts [server/databases/history/config.ts]
-import { defineDatabase } from '@vite-hub/database'
-import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
+import { defineDatabase } from 'vite-hub/database'
+import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
 ```ts [server/workspaces/drop.ts]
-import { blob } from '@vite-hub/blob'
-import { defineWorkspace } from '@vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
+import { blob } from 'vite-hub/blob'
+import { defineWorkspace } from 'vite-hub/workspace'
+import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
 import historyDatabase from '../databases/history/config'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
@@ -291,7 +291,7 @@ Bind a Source definition with `{ source, mount, materialize }`. You can reuse
 the same definition for direct reads or Content:
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
@@ -333,7 +333,7 @@ binding behavior.
 Use `createWorkspacePreparation()` when a process must copy in required Sources before it reports ready:
 
 ```ts
-import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+import { createWorkspacePreparation } from 'vite-hub/workspace/runtime'
 
 export const preparation = createWorkspacePreparation({
   retryDelayMs: 10_000,
@@ -384,7 +384,7 @@ Use `custom({ files })` when a Custom Source knows its paths before it loads con
 Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `fetch(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
 
 ```ts [server/workspaces/support.ts]
-import { custom, defineWorkspace } from '@vite-hub/workspace'
+import { custom, defineWorkspace } from 'vite-hub/workspace'
 
 const guideSlugs = ['getting-started', 'inventory-planning']
 

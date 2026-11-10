@@ -18,7 +18,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/ai.ts",
       "src/blob-database.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
@@ -28,8 +27,6 @@ export default defineConfig({
       "src/index.ts",
       "src/lineage.ts",
       "src/loader.ts",
-      "src/mountx.ts",
-      "src/nitro.ts",
       "src/operations.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
@@ -49,6 +46,8 @@ export default defineConfig({
       exclude: [
         "hosted",
         "hosted-vercel-blob",
+        // Generated code imports these modules by path. They are not public API.
+        "operations",
         "runtime/assets",
         "runtime/empty-assets-registry",
         "runtime/empty-registry",
@@ -61,8 +60,6 @@ export default defineConfig({
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
-        exports["./internal/runtime/registry"] = "./dist/runtime/registry.js";
-        exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
 
@@ -81,6 +78,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

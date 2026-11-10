@@ -68,6 +68,51 @@ describe("DocsMarkdown", () => {
     expect(load).not.toHaveBeenCalled()
   })
 
+  it.each(["content", "configured", "direct"])("uses a %s override for a parsed HTML-only block", async (source) => {
+    const document = await parseMarkdown('::diff{title="App title"}\n```ts\nconst before = 1\n```\n```ts\nconst after = 2\n```\n::\n')
+    const load = vi.fn(async () => ({ default: block("app") }))
+    const component = renderer({ diff: load }, source === "configured" ? { Diff: block("configured") } : {})
+    const components = source === "direct" ? { diff: block("direct") } : undefined
+    const html = await renderToString(vue.createSSRApp(component, { document, components }))
+
+    expect(html).toContain(`data-component="${source === "content" ? "app" : source}"`)
+    expect(html).toContain('title="App title"')
+    expect(html.replace(/<[^>]*>/g, "")).toContain("const before = 1")
+    expect(html.replace(/<[^>]*>/g, "")).toContain("const after = 2")
+    expect(load).toHaveBeenCalledTimes(source === "content" ? 1 : 0)
+  })
+
+  it.each([
+    ["suggestion", 'Run :suggestion[npm]{to="pnpm"} first.\n', 'mark="track"', "npm"],
+    ["question", "::question{#callback}\nWhich callback runs first?\n\n- [x] A promise\n- [ ] A timer\n::\n", 'id="callback"', "Which callback runs first?"],
+  ])("preserves the props and children of a %s override", async (tag, markdown, attribute, text) => {
+    const document = await parseMarkdown(markdown)
+    const original = JSON.stringify(document)
+    const html = await renderToString(vue.createSSRApp(renderer({}, { [tag]: block("custom") }), { document }))
+
+    expect(html).toContain('data-component="custom"')
+    expect(html).toContain(attribute)
+    expect(html).toContain(text)
+    expect(JSON.stringify(document)).toBe(original)
+  })
+
+  it("keeps nested HTML fallbacks and shared assets when a quiz is overridden", async () => {
+    const document = await parseMarkdown('::question{#callback}\nWhich :suggestion[callback]{to="function"} runs first?\n\n- [x] A promise\n- [ ] A timer\n::\n\n::poll{#pick}\nPick an option.\n\n- First\n- Second\n::\n')
+    const fallback = vue.defineComponent({
+      props: ["html", "block", "blockProps", "inline"],
+      setup: props => () => vue.h(props.inline ? "span" : "div", { "data-block": props.block, innerHTML: props.html }),
+    })
+    const html = await renderToString(vue.createSSRApp(renderer({}, { Question: block("custom"), ComarkHtml: fallback }), { document }))
+
+    expect(html).toContain('data-component="custom"')
+    expect(html).toContain('data-block="suggestion"')
+    expect(html).toContain('class="cr-sg')
+    expect(html).toContain('data-quiz-id="pick"')
+    expect(html.match(/<style data-comark-quiz>/g)).toHaveLength(1)
+    expect(html.match(/<style data-comark-comments>/g)).toHaveLength(1)
+    expect(html.match(/<script\b/g)).toHaveLength(1)
+  })
+
   it("lets a tutorial replace the built-in pre block by its Markdown tag", async () => {
     const document = await parseMarkdown("```ts [index.ts]\nexport const answer = 42\n```\n")
     const html = await renderToString(vue.createSSRApp(renderer(), { document, components: { pre: block("tutorial-code") } }))

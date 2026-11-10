@@ -32,7 +32,13 @@ describe("Workflow registry", () => {
       name: "__proto__",
       source: kind === "agent" ? "agent-workflow" : "server-workflows",
       ...(kind === "steps" ? { steps: [step] } : {}),
-    }]), "utf8")
+    }], {
+      agent: {
+        index: resolve(packageRoot, "../agent/dist/index.js"),
+        runtimeWorkflow: resolve(packageRoot, "../agent/dist/runtime/workflow.js"),
+        serverInternal: resolve(packageRoot, "../agent/dist/server/internal.js"),
+      },
+    }), "utf8")
 
     const generated = await import(pathToFileURL(registryFile).href)
     expect(Object.keys(generated.default)).toEqual(["__proto__"])
@@ -50,7 +56,7 @@ describe("Workflow registry", () => {
     await mkdir(dirname(registryFile), { recursive: true })
     await mkdir(workflowDirectory, { recursive: true })
     await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
-    await writeFile(handler, "export default { handler: async ({ payload, steps }) => await steps.add(payload), options: { owner: 'workflow' } }\n", "utf8")
+    await writeFile(handler, "export default { handler: async (payload, { steps }) => await steps.add(payload), options: { owner: 'workflow' } }\n", "utf8")
     await writeFile(step, "export default async function add(value) { return value + 1 }\n", "utf8")
 
     const contents = createWorkflowRegistryContents(registryFile, [{
@@ -76,9 +82,9 @@ describe("Workflow registry", () => {
       "    const entry = {",
       "      ...definition,",
       "      options: { ...definition.options, rootStep: false },",
-      "      handler: async (context) => {",
+      "      handler: async (payload, context) => {",
       "        const workflowSteps = createWorkflowSteps(context, steps)",
-      "        return await definition.handler({ ...context, steps: workflowSteps })",
+      "        return await definition.handler(payload, { ...context, steps: workflowSteps })",
       "      },",
       "    }",
       '    registryEntryCache.set("release", entry)',
@@ -94,11 +100,11 @@ describe("Workflow registry", () => {
     const generated = await import(`${pathToFileURL(registryFile).href}?test=workflow-owner`)
     // SAFETY: The generated fixture above exports this exact Workflow registry contract.
     const registry = generated.default as Record<string, () => Promise<{
-      handler: (context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
+      handler: (payload: number, context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
       options: { owner: string, rootStep: false }
     }>>
     const definition = await registry.release!()
-    await expect(definition.handler({ name: "release", payload: 1, provider: "openworkflow" })).resolves.toBe(2)
+    await expect(definition.handler(1, { name: "release", payload: 1, provider: "openworkflow" })).resolves.toBe(2)
     expect(definition.options).toEqual({ owner: "workflow", rootStep: false })
     await expect(registry.release!()).resolves.toBe(definition)
   })

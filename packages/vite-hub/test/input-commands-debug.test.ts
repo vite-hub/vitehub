@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
 import { inputCommands } from "../src/agent/capabilities.ts"
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 
@@ -72,7 +72,7 @@ describe("inputCommands({ debug })", () => {
         return runAgentWithContext(agent, context, { prompt })
       }
       const link = async (runId: string) =>
-        `https://chat.example/_vitehub/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`
+        `https://console.vitehub.dev/open?project=${encodeURIComponent("https://chat.example")}&path=${encodeURIComponent(`/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`)}`
 
       await run("thread-one", "hello", { threadId: "t1" })
       await run("thread-two", "hello", { threadId: "t2" })

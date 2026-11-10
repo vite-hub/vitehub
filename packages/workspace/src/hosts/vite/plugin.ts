@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
+import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
@@ -32,7 +33,7 @@ import type { CollectedWorkspaceContribution } from "../../build/contributions.t
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -47,6 +48,10 @@ const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
+// Skip unrelated ids while retaining native package loading in the Nitro dev environment.
+const WORKSPACE_ID_PATTERN = /^#vitehub(?:-workspace-(?:assets-)?registry$|\/workspaces(?:$|\/))/
+// The native loader decodes file: URLs before checking their package paths.
+const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/workspaces(?:$|\/))|^file:|[/\\]node_modules[/\\]@vite-hub[/\\](?:agent|connections|runtime|workspace)[/\\]dist[/\\].+\.js$)/
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
@@ -510,25 +515,36 @@ async function sourceModuleMayUseCloudflareArtifacts(
   resolveModule?: SourceModuleResolver,
   visited = new Set<string>(),
   exportedName = "default",
-): Promise<boolean> {
+): Promise<boolean | "unknown"> {
   const loaded = await readSourceModule(file)
-  if (!loaded) return false
+  if (!loaded) return "unknown"
   const visitKey = `${loaded.file}\0${exportedName}`
   if (visited.has(visitKey)) return false
   visited.add(visitKey)
   if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
+  let hasUnknownImport = false
   for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
     if (!importedName) return true
-    const resolvedModule = specifier.startsWith(".")
+    let resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
+    if (!resolvedModule) {
+      const resolved = loader.esmResolve(specifier, { parentURL: pathToFileURL(loaded.file).href, try: true })
+      resolvedModule = resolved?.startsWith("file:") ? fileURLToPath(resolved) : resolved
+    }
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
-    if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
+    if (!resolvedFile || !isAbsolute(resolvedFile)) {
+      hasUnknownImport = true
+      continue
+    }
+    if (extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
     const requestedName = selectedName ?? importedName
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)) return true
+    const usage = await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)
+    if (usage === true) return true
+    if (usage === "unknown") hasUnknownImport = true
   }
-  return false
+  return hasUnknownImport ? "unknown" : false
 }
 
 function sourceImportsFeedingWorkspaceStore(
@@ -1109,7 +1125,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   options: ResolvedWorkspaceModuleOptions,
   resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
-  inspection?: { artifactsOnly?: boolean, storeUsage?: WorkspaceDefinitionStoreUsage },
+  inspection?: { artifactsOnly?: boolean, storeUsage?: WorkspaceDefinitionStoreUsage, loadedDefinitions?: Set<string> },
   resolution?: { env?: Record<string, string | undefined>, hosting?: string },
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
@@ -1118,16 +1134,23 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
     const definitionFile = resolveWorkspaceDefinitionModule(loader, definition, rootDir)
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
+    const definitionKey = JSON.stringify([definitionFile, definition.export ?? "default"])
+    // Builds collect every Store provider. Definitions already loaded during config can also skip the source walk.
+    const loadFirst = inspection?.storeUsage !== undefined || inspection?.loadedDefinitions?.has(definitionKey)
+    let artifactsUsage = loadFirst ? undefined : await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)
+    if (artifactsUsage === false) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition, rootDir)
       const commonJsLoaded: WorkspaceDefinitionInput & { default?: WorkspaceDefinitionInput } = loaded
       loaded = commonJsLoaded.default ?? loaded
+      inspection?.loadedDefinitions?.add(definitionKey)
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) {
-        inspection.storeUsage?.add("unknown")
+      // Unknown imports can load at runtime; if config-time loading fails, keep the previous skip behavior.
+      artifactsUsage ??= await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)
+      if (artifactsUsage !== true) {
+        inspection?.storeUsage?.add("unknown")
         continue
       }
       const source = await readSourceModule(definitionFile)
@@ -1178,6 +1201,7 @@ async function resolveCloudflareArtifactsConfigs(
     resolveModule?: SourceModuleResolver
     definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>
     storeUsage?: WorkspaceDefinitionStoreUsage
+    loadedDefinitions?: Set<string>
   } = {},
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   return [
@@ -1188,7 +1212,7 @@ async function resolveCloudflareArtifactsConfigs(
       config,
       options.resolveModule,
       options.aliases,
-      { artifactsOnly: options.artifactsOnly, storeUsage: options.storeUsage },
+      { artifactsOnly: options.artifactsOnly, storeUsage: options.storeUsage, loadedDefinitions: options.loadedDefinitions },
       { env: options.env, hosting: options.hosting },
       options.definitionOverrides,
     ),
@@ -1204,9 +1228,10 @@ async function writeCloudflareArtifactsProviderOutput(
   write: ProviderDeploymentOutputWriter,
   resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
+  loadedDefinitions?: Set<string>,
 ): Promise<void> {
   const configs = config
-    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule })
+    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule, loadedDefinitions })
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
   const wranglerConfigOwnership = {
@@ -1272,7 +1297,7 @@ export interface WorkspaceNitroConfigOptions {
   plugins?: readonly unknown[]
   serverDirs?: string[]
   viteRoot?: string
-  workspace?: false | WorkspaceModuleOptions
+  workspace?: false | WorkspaceOptions
 }
 
 export type NitroConfig = {
@@ -1305,7 +1330,7 @@ function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
 }
 
-function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined): WorkspacePluginRoots {
+function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceOptions | undefined): WorkspacePluginRoots {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: workspaceOptions ? workspaceOptions.projectRoot : undefined,
@@ -1517,13 +1542,13 @@ function hasNitroConfig(config: UserConfig): boolean {
   return "nitro" in config || hasNitroPlugin(config.plugins)
 }
 
-function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
+function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceOptions | undefined): boolean {
   return Boolean(options && (options.root || options.store))
 }
 
 function shouldInstallNitroWorkspacePlugin(
   config: UserConfig,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   normalized: ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
 ): boolean {
@@ -1571,7 +1596,7 @@ function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   return specifier.startsWith(".") ? specifier : `./${specifier}`
 }
 
-function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
+function shouldConfigureRuntime(options: false | WorkspaceOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
   return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
 }
 
@@ -1595,7 +1620,7 @@ function renderRuntimeValue(value: unknown, depth = 0): string {
 
 function runtimeWorkspaceConfig(
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   cloudflareRuntime: boolean,
 ): false | ResolvedWorkspaceModuleOptions {
   if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
@@ -1626,9 +1651,9 @@ function runtimeWorkspaceConfig(
 }
 
 const hostedStoreInstallers: Record<HostedWorkspaceStoreProvider, { entry: string, name: string }> = {
-  "cloudflare-artifacts": { entry: "internal/runtime/hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
-  "github": { entry: "internal/runtime/hosted", name: "installHostedGitHubWorkspaceStore" },
-  "vercel-blob": { entry: "internal/runtime/hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
+  "cloudflare-artifacts": { entry: "hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
+  "github": { entry: "hosted", name: "installHostedGitHubWorkspaceStore" },
+  "vercel-blob": { entry: "hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
 }
 
 function renderNitroWorkspacePlugin(
@@ -1636,16 +1661,15 @@ function renderNitroWorkspacePlugin(
   registryImport: string,
   hostedStores: ReadonlySet<HostedWorkspaceStoreProvider>,
   cloudflareRuntime: boolean,
-  importBase = WORKSPACE_PACKAGE_NAME,
 ): string {
   // A light module: the Workspace core loads on the first Workspace call, not at server startup.
-  const runtimeImport = `${importBase}/internal/runtime/registry`
+  const runtimeImport = ownModule(import.meta.url, "runtime/registry")
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
   const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
   const configure = hostedConfig
     ? isVercelBlobStore
-      ? { entry: "internal/runtime/hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
-      : { entry: "internal/runtime/hosted", name: "configureHostedWorkspaceRuntime" }
+      ? { entry: "hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
+      : { entry: "hosted", name: "configureHostedWorkspaceRuntime" }
     : undefined
   // `configure*` installs the store of the runtime config itself.
   const installers = hostedWorkspaceStoreProviders
@@ -1656,13 +1680,13 @@ function renderNitroWorkspacePlugin(
     importsByEntry.set(entry, [...importsByEntry.get(entry) ?? [], name])
   }
   const runtimeImports = [
-    ...[...importsByEntry].map(([entry, names]) => `import { ${names.join(", ")} } from '${importBase}/${entry}'`),
-    `import { ${config && !hostedConfig ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
+    ...[...importsByEntry].map(([entry, names]) => `import { ${names.join(", ")} } from ${JSON.stringify(ownModule(import.meta.url, entry))}`),
+    `import { ${config && !hostedConfig ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from ${JSON.stringify(runtimeImport)}`,
   ]
   if (cloudflareRuntime) {
     runtimeImports.unshift(
       "import { env as vitehubEnv } from 'cloudflare:workers'",
-      `import { setActiveCloudflareEnv } from '${importBase}/internal/runtime/state'`,
+      `import { setActiveCloudflareEnv } from ${JSON.stringify(ownModule(import.meta.url, "runtime/state"))}`,
     )
   }
   const runtimeSetup = [
@@ -1688,10 +1712,9 @@ function renderNitroWorkspacePlugin(
 async function writeNitroWorkspacePlugin(
   root: string,
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
   cloudflareRuntime = false,
-  importBase = WORKSPACE_PACKAGE_NAME,
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
   storeUsage?: WorkspaceDefinitionStoreUsage,
 ): Promise<void> {
@@ -1706,7 +1729,6 @@ async function writeNitroWorkspacePlugin(
       moduleImportSpecifier(pluginFile, registryFile),
       resolveNitroHostedStoreProviders(runtimeConfig, definitions.length, storeUsage),
       cloudflareRuntime,
-      importBase,
     ),
   )
 }
@@ -1740,7 +1762,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides, storeUsage)
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, definitionOverrides, storeUsage)
   const nitro = mergeNitroWorkspaceConfig(options.nitro, options.command !== "build")
   if (options.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
@@ -1773,26 +1795,24 @@ export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: Workspac
   return true
 }
 
-interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
+interface InternalWorkspaceModuleOptions extends WorkspaceOptions {
   hosting?: WorkspacePluginHosting
-  importBase?: string
 }
 
-function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions | undefined): false | WorkspaceModuleOptions | undefined {
-  if (!options || (!Object.hasOwn(options, "hosting") && !Object.hasOwn(options, "importBase"))) return options
+function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undefined): false | WorkspaceOptions | undefined {
+  if (!options || !Object.hasOwn(options, "hosting")) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
   delete publicOptions.hosting
-  delete publicOptions.importBase
   return publicOptions
 }
 
-export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
-  let hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
-  const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
+export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
+  let hosting = (options ? options as InternalWorkspaceModuleOptions : undefined)?.hosting
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  const loadedDefinitions = new Set<string>()
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> | undefined
   let projectRoot: string | undefined
   let viteRoot: string | undefined
@@ -1836,10 +1856,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       getWorkspaces: () => manifest.workspaces,
     },
     async config(config, env) {
+      loadedDefinitions.clear()
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
       const resolvedHosting = resolveHostPreset({
         hosting: typeof hosting === "function" ? hosting() : hosting,
@@ -1874,10 +1893,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           hosting: resolvedHosting,
           definitionOverrides,
           storeUsage,
+          loadedDefinitions,
         })
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides, storeUsage)
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, definitionOverrides, storeUsage)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
         if (env?.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
@@ -1890,9 +1910,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
@@ -1942,7 +1960,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command)) return
       const workspaceOptions = resolvedOptions
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
@@ -1967,6 +1985,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
             write,
             resolved!.createResolver?.(),
             resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
+            loadedDefinitions,
           )
         },
       })
@@ -1978,7 +1997,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         providerOutputGenerations.ready(this)
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
@@ -2012,7 +2031,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     vitehub: {
       // The Console, `vitehub workspace history|refs|show`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: "@vite-hub/workspace/operations" }],
+      operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: ownModule(import.meta.url, "operations") }],
       cli: async () => {
         return createWorkspaceCliContributor()
       },
@@ -2055,28 +2074,30 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         viteRoot: viteRoot || resolve(resolved.root),
       }, ctx.file)
     },
-    resolveId(id) {
-      if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
-      if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
-      if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
-      if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+    resolveId: {
+      filter: { id: WORKSPACE_ID_PATTERN },
+      handler(id) {
+        if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
+        if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
+        if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
+        if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+      },
     },
-    load(id) {
-      if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
-      if (id === RESOLVED_WORKSPACES_ID) {
-        return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
-      }
-      if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
-        const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
-        const workspace = manifest.workspaces.find(item => item.name === name)
-        return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
-      }
+    load: {
+      filter: { id: WORKSPACE_LOAD_ID_PATTERN },
+      handler(id) {
+        if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
+        if (id === RESOLVED_WORKSPACES_ID) {
+          return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
+        }
+        if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
+          const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
+          const workspace = manifest.workspaces.find(item => item.name === name)
+          return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
+        }
+        // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
+        return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+      },
     },
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    workspace?: false | WorkspaceModuleOptions
   }
 }

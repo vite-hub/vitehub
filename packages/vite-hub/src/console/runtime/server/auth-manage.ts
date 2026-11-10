@@ -10,12 +10,14 @@ import {
   type ConsoleAccess,
   type ConsoleAccessRoute,
 } from "./access.ts";
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts";
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts";
 import {
   assertConsoleRequest,
   consoleRequestError,
   consoleRequestJSON,
+  consoleRoute,
   type ConsoleRequestEvent,
+  type ConsoleRoute,
 } from "./request.ts";
 import { getConsoleSections } from "./sections.ts";
 
@@ -109,7 +111,7 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
       site === "cross-site" ||
       site === "same-site" ||
       (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)) &&
-    !isConsoleCrossOriginBearerCall(request, access)
+    !isConsoleCrossOriginCall(request, access)
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
@@ -170,10 +172,11 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     );
   }
 }
-const guarded: ConsoleAccessRoute<typeof handler> = withConsoleCors(
-  withConsoleAccess(handler, {
-    section: "auth",
-    user: true,
-  }),
-);
-export default guarded;
+const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, {
+  section: "auth",
+  user: true,
+});
+
+/** `POST <base>/_vitehub/auth/manage` */
+const consoleAuthManageRoute: ConsoleRoute = consoleRoute(withConsoleCors(guarded));
+export default consoleAuthManageRoute;

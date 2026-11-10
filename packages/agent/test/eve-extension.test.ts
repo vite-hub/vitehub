@@ -15,7 +15,7 @@ import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { eveExtensionCapability } from "../src/eve.ts"
 import { createAgentChatApprovalCustody, withAgentChatApprovalGrant } from "../src/internal/chat-approvals.ts"
 import { agentToolJsonSchema } from "../src/tool-schema.ts"
-import { hubAgent, transformEveExtensionCapabilities } from "../src/vite.ts"
+import { agentRuntimeModule, hubAgent, transformEveExtensionCapabilities } from "../src/vite.ts"
 
 import type { AgentCapabilityContext, AgentToolDefinition } from "../src/types.ts"
 import type { ModelMessage } from "ai"
@@ -73,7 +73,7 @@ async function transformExtensionManifest(formatVersion: number, requires: Recor
     plugins: [],
     root,
   })
-  return (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+  return (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
     { parse: parseAst },
     [
       `import { defineAgent } from "@vite-hub/agent"`,
@@ -184,17 +184,17 @@ describe("Eve extension capabilities", () => {
       `export default defineAgent({ capabilities: [github({ preset: "code-review" })] })`,
     ].join("\n")
     const id = join(root, "server", "agents", "reviewer.ts")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       id,
     )
 
-    expect(transformed).toContain(`from "@vite-hub/agent/eve"`)
+    expect(transformed).toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`import github from`)
 
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "other.ts"),
@@ -207,29 +207,27 @@ describe("Eve extension capabilities", () => {
         moduleGraph: { idToModuleMap: new Map(), getModuleById: () => undefined },
       },
     })
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "other.ts"),
-    )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+    )).resolves.toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
 
     const watcher = new EventEmitter()
-    ;(plugin.config as unknown as (config: { agent: boolean }) => void)({ agent: false })
     await (plugin.configureServer as (server: unknown) => Promise<void>)({
-      config: { root, logger: { error: vi.fn() } },
+      config: { root, logger: { error: vi.fn() }, server: {} },
       middlewares: { use: () => {} },
       moduleGraph: { idToModuleMap: new Map(), invalidateModule: vi.fn() },
       watcher,
     })
-    ;(plugin.config as unknown as (config: { agent: Record<string, never> }) => void)({ agent: {} })
     const otherId = join(root, "server", "agents", "other.ts")
     watcher.emit("unlink", otherId)
     try {
-      await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
         { parse: parseAst },
         source,
         id,
-      )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+      )).resolves.toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
     }
     finally {
       await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
@@ -252,7 +250,7 @@ describe("Eve extension capabilities", () => {
       `const capabilities = [github({ preset: "code-review" })]`,
       `export default defineAgent({ capabilities })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -316,7 +314,7 @@ describe("Eve extension capabilities", () => {
       `const provider = { capabilities: [github()] }`,
       `export default defineAgent({ capabilities: [], metadata: { provider } })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -336,7 +334,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const parse = vi.fn(parseAst)
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse },
       [
         `import { defineAgent } from "@vite-hub/agent"`,
@@ -449,7 +447,7 @@ describe("Eve extension capabilities", () => {
     )).rejects.toThrow("cannot be imported separately as a runtime value")
   })
 
-  it("injects the configured Agent runtime import", async () => {
+  it("imports the Eve capability from the Agent file by path", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
         import { defineAgent } from "vite-hub/agent"
@@ -458,10 +456,9 @@ describe("Eve extension capabilities", () => {
       `,
       parseAst,
       async () => true,
-      "vite-hub/_internal/agent",
     )
 
-    expect(transformed).toContain(`from "vite-hub/_internal/agent/eve"`)
+    expect(transformed).toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
   })
 
   it("detects Eve extensions in factored Agent Definition options", async () => {
@@ -480,7 +477,7 @@ describe("Eve extension capabilities", () => {
       `const options = { capabilities: [github()] }`,
       `export default defineAgent(options)`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -523,7 +520,7 @@ describe("Eve extension capabilities", () => {
       `const base = { capabilities: [github()] }`,
       `export default defineAgent({ ...base, driver: { run: () => "ok" } })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -561,7 +558,7 @@ describe("Eve extension capabilities", () => {
       `import github from "@github-tools/eve-extension"`,
       `export default agent({ capabilities: [github()] })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -585,7 +582,7 @@ describe("Eve extension capabilities", () => {
       `import $github from "@github-tools/eve-extension"`,
       `export default defineAgent({ capabilities: [$github()] })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -607,7 +604,7 @@ describe("Eve extension capabilities", () => {
       plugins: [],
       root,
     })
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       [
         `import { defineAgent } from "@vite-hub/agent"`,
@@ -634,7 +631,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
 
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       [
         `import { defineAgent } from "@vite-hub/agent"`,
@@ -694,7 +691,7 @@ describe("Eve extension capabilities", () => {
       `const config = defineConfig({})`,
       `export default defineAgent({ capabilities: [github(config)] })`,
     ].join("\n")
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -717,7 +714,7 @@ describe("Eve extension capabilities", () => {
       `export const capabilities = [github()]`,
       `export default defineAgent({ capabilities })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -741,7 +738,7 @@ describe("Eve extension capabilities", () => {
       `const capabilities = [github()]`,
       `export { capabilities }`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "capabilities.ts"),
@@ -764,7 +761,7 @@ describe("Eve extension capabilities", () => {
       `import github from "@github-tools/eve-extension"`,
       `export const capabilities = [github()]`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "capabilities.ts"),
@@ -821,7 +818,7 @@ describe("Eve extension capabilities", () => {
       plugins: [],
       root,
     })
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       handler,
@@ -845,7 +842,7 @@ describe("Eve extension capabilities", () => {
       plugins: [],
       root,
     })
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       `
         import github from "@github-tools/eve-extension"
@@ -872,7 +869,7 @@ describe("Eve extension capabilities", () => {
       `import github from "@github-tools/eve-extension"`,
       `export default defineAgent({ capabilities: [github()], metadata: { github: true } })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -897,7 +894,7 @@ describe("Eve extension capabilities", () => {
       `const provider = integrations.github`,
       `export default defineAgent({ capabilities: [github()], metadata: { provider } })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -922,7 +919,7 @@ describe("Eve extension capabilities", () => {
       `function inspect(github) { return github }`,
       `export default defineAgent({ capabilities: [github()], metadata: { inspect } })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -1125,7 +1122,7 @@ describe("Eve extension capabilities", () => {
       `const base = [github({ preset: "code-review" })]`,
       `export default defineAgent({ capabilities: [...base] })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    const transformed = await (plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
@@ -1172,7 +1169,7 @@ describe("Eve extension capabilities", () => {
       visit(ast)
       return ast
     }
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: (code: string) => parseWithWrapper(code, "TSAsExpression", "property") },
       inline,
       join(root, "server", "agents", "inline.ts"),
@@ -1188,7 +1185,7 @@ describe("Eve extension capabilities", () => {
       `const capabilities = [github()]`,
       `export default defineAgent({ capabilities })`,
     ].join("\n")
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as { handler: (...args: unknown[]) => Promise<string | undefined> }).handler.call(
       { parse: (code: string) => parseWithWrapper(code, "TSSatisfiesExpression", "variable") },
       factored,
       join(root, "server", "agents", "factored.ts"),
