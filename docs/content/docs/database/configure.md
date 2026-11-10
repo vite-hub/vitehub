@@ -230,7 +230,7 @@ export default defineConfig({
 :::
 ::
 
-The build copies each migrations folder into a Nitro plugin, so the output needs no folder. Nitro loads the plugin before the server listens. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub db migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
+The build copies each migrations folder into a Nitro plugin, so the output needs no folder. Nitro loads the plugin before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub db migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
 When a migration fails, the database keeps none of the pending migrations of that start, and the server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. A migration that loses data, by the `vitehub db migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
 
@@ -241,6 +241,8 @@ Several Node instances can start together on one Postgres database. Each one tak
 ```txt
 [vitehub] Database "default": another process is applying migrations. Waiting for it to finish.
 ```
+
+After acquiring the advisory lock, the transaction sets a five-second `lock_timeout`. A statement waiting longer for a table lock fails with `DATABASE_MIGRATION_FAILED` and rolls back the pending migrations, so a queued DDL statement cannot block reads on existing instances indefinitely. The next start retries the migrations. Waiting for another migrator's advisory lock has no added timeout.
 
 To see who holds or waits for the lock, query `pg_locks` where `locktype = 'advisory'`. `drizzle-kit migrate` does not take this lock, so do not run it while instances start.
 

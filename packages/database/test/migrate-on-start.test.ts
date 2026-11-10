@@ -55,8 +55,8 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
   return dir
 }
 
-/** Runs the Nuxt module for a production Node build and bundles a server whose entry imports Nitro's plugins first. */
-async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = []) {
+/** Runs the Nuxt module and bundles a production or prerender entry that imports Nitro's plugins first. */
+async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = [], prerender = false) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
   await hubDb(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
@@ -70,14 +70,17 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
-    'import { useDatabase } from "@vite-hub/database/drizzle"',
-    'const { db, schema } = useDatabase("default")',
-    "console.log(JSON.stringify(await db.select().from(schema.users)))",
+    ...prerender ? ['console.log("prerendered")'] : [
+      'import { useDatabase } from "@vite-hub/database/drizzle"',
+      'const { db, schema } = useDatabase("default")',
+      "console.log(JSON.stringify(await db.select().from(schema.users)))",
+    ],
   ].join("\n"))
   const output = join(root, "server.output.mjs")
   await build({
     alias: { ...config.alias, "@vite-hub/database": join(packageRoot, "src/index.ts") },
     bundle: true,
+    define: { "import.meta.prerender": String(prerender) },
     entryPoints: [entry],
     format: "esm",
     outfile: output,
@@ -113,6 +116,33 @@ async function readLedger(url: string) {
 }
 
 describe("database.migrateOnStart", () => {
+  it.each([true, { allowDataLoss: true }] as const)("skips explicit startup migrations in Nuxt's prerender bundle (%j)", { timeout: 60_000 }, async (migrateOnStart) => {
+    const root = await createProject()
+    await writeMigrations(root, [init, seed, dropLegacy])
+    const url = `file:${join(root, "app.sqlite")}`
+    const options = { connection: { url }, migrateOnStart }
+    const prerender = await buildNodeServer(root, options, [], true)
+    expect((await prerender.start()).stdout).toBe("prerendered\n")
+    const client = createClient({ url })
+    try {
+      expect((await client.execute("SELECT name FROM sqlite_master WHERE type = 'table'")).rows).toEqual([])
+    }
+    finally {
+      client.close()
+    }
+    // The production bundle still migrates before it serves a database query.
+    await rm(join(root, "server/databases/migrations", dropLegacy.tag), { recursive: true })
+    expect((await (await buildNodeServer(root, options)).start()).stdout).toContain('[{"id":7,"name":"Ada"}]')
+
+    // A Postgres build does not need its runtime connection during prerendering either.
+    await writeFile(join(root, "server/databases/config.ts"), [
+      'import { defineDatabase } from "@vite-hub/database"',
+      'import { integer, pgTable } from "drizzle-orm/pg-core"',
+      'export default defineDatabase({ dialect: "postgresql", connection: { url: process.env.MIGRATE_PRERENDER_DATABASE_URL }, schema: { users: pgTable("users", { id: integer("id").primaryKey() }) } })',
+    ].join("\n"))
+    expect((await (await buildNodeServer(root, { migrateOnStart }, [], true)).start()).stdout).toBe("prerendered\n")
+  })
+
   it("applies pending migrations once before a Node server handles requests, in Drizzle Kit's ledger", { timeout: 60_000 }, async () => {
     const root = await createProject()
     const migrationsDir = await writeMigrations(root, [init, seed])
@@ -405,6 +435,7 @@ describe("database.migrateOnStart", () => {
     expect(await setup({ preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({})).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({ dev: true, preset: "node-server" })).toBeUndefined()
+    expect(await setup({ preset: "nitro-prerender" })).toBeUndefined()
     await expect(setup({ preset: "cloudflare-module" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
     for (const preset of ["bun", "static"]) {
       await expect(setup({ preset })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
@@ -578,6 +609,7 @@ describe("migratePostgres", () => {
     // One transaction holds the lock from the ledger read to the commit.
     expect(queries).toEqual([
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["set local lock_timeout = '5s'", undefined],
       ["set local client_min_messages = warning", undefined],
       ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
@@ -604,7 +636,7 @@ describe("migratePostgres", () => {
     // Drizzle Kit 0.x stored the journal `when` in milliseconds; Drizzle 1.0 matches the second.
     const { client, queries } = fakeClient({ ledger: [{ created_at: 1_700_000_000_417, hash: "hash-0x", id: 1 }] })
     await migratePostgres([{ client, database: { migrations: [migration("20231114221320_init", 1_700_000_000_000, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} })
-    expect(queries.slice(4, 8)).toEqual([
+    expect(queries.slice(5, 9)).toEqual([
       [`SELECT id, hash, created_at FROM ${ledgerTable} ORDER BY id ASC`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "name" text`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`, undefined],
@@ -624,6 +656,7 @@ describe("migratePostgres", () => {
     const log: string[] = []
     await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: message => log.push(message) })
     expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
+    expect(queries[2]).toEqual(["set local lock_timeout = '5s'", undefined])
     expect(log[0]).toBe('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.')
   })
 

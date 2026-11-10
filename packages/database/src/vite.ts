@@ -377,7 +377,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   function installNitroMigrateOnStart() {
     const database = resolvedOptions()
     const settings = resolveMigrateOnStart(database)
-    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || (database && "nuxtHostResource" in database)) return
+    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || nitroOptions.preset === "nitro-prerender" || (database && "nuxtHostResource" in database)) return
     const databases = selectMigrateOnStartDatabases(runtimeConfig, settings, resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }))
     const packageDir = computePackageDir(import.meta.url)
     const source = renderMigrateOnStartPlugin(runtimeConfig, {

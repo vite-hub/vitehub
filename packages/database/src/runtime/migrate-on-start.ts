@@ -327,6 +327,8 @@ async function withPostgresLock(group: PostgresTarget[], log: (message: string) 
       log(`[vitehub] Database "${group[0]!.database.name}": another process is applying migrations. Waiting for it to finish.`)
       await sql.unsafe("select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock])
     }
+    // Bound DDL lock waits so a queued ALTER cannot stall old instances' reads indefinitely. Advisory waits stay unbounded.
+    await sql.unsafe("set local lock_timeout = '5s'")
     // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
     await sql.unsafe("set local client_min_messages = warning")
     await run(sql)

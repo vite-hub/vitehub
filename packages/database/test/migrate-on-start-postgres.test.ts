@@ -202,6 +202,35 @@ function postgresDatabase(url: string, migrationsDir: string): ResolvedDrizzleDa
 }
 
 describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
+  it("times out blocked DDL, rolls back pending migrations and releases the read queue", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    const entry = (name: string, statements: string[]) => ({ dataLoss: [], hash: name, name, statements, when: 1_000 })
+    const initial = entry("init", ["CREATE TABLE users (id integer PRIMARY KEY, name text)", "INSERT INTO users VALUES (1, 'Ada')"])
+    await migratePostgres([{ client: sql, database: { migrations: [initial], name: "default" } }], { log: () => {} })
+    const pending = entry("add_email", ["CREATE TABLE pending (id integer)", "ALTER TABLE users ADD COLUMN email text"])
+    // Keep an old instance's transaction open while a new instance starts its migration.
+    const oldInstance = await sql.reserve()
+    await oldInstance`begin`
+    await oldInstance`select * from users`
+    const migrating = postgres(url, { connection: { statement_timeout: "15000" }, max: 1, onnotice: () => {} })
+    cleanups.push(() => migrating.end())
+    try {
+      await expect(migratePostgres([{ client: migrating, database: { migrations: [initial, pending], name: "default" } }], { log: () => {} }))
+        .rejects.toMatchObject({ cause: { code: "55P03" }, code: "DATABASE_MIGRATION_FAILED", why: expect.stringContaining("lock timeout") })
+      // This read can finish while the old transaction remains open: the queued ALTER is gone.
+      expect(await sql`select name from users where id = 1`).toEqual([{ name: "Ada" }])
+      expect(await sql`select to_regclass('pending')::text as name`).toEqual([{ name: null }])
+      expect((await readLedger(sql)).map(row => row.name)).toEqual(["init"])
+    }
+    finally {
+      await oldInstance`rollback`
+      oldInstance.release()
+    }
+    await expect(migratePostgres([{ client: migrating, database: { migrations: [initial, pending], name: "default" } }], { log: () => {} })).resolves.toEqual(["add_email"])
+    expect(await sql`select email from users`).toEqual([{ email: null }])
+  })
+
   it("applies each migration once when four servers start together, in Drizzle's ledger", { timeout: 120_000 }, async () => {
     const { migrationsDir, root } = await createProject([init, seed])
     const url = await createDatabase()
@@ -302,6 +331,8 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const holder = await holdLock(sql)
     const booting = server.startUntil(url, "Waiting for it to finish")
     await booting.seen
+    // The DDL timeout must not limit the advisory wait for another migrator.
+    await sql`select pg_sleep(5.5)`
     expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
     await holder.release()
     const { code, stdout } = await booting.exited
