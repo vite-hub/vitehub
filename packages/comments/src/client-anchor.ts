@@ -1,4 +1,4 @@
-import { commentsErrorDiagnostics } from "./client-errors.ts"
+import { commentsClientDiagnostics } from "./client-diagnostics.ts"
 import type { AreaAnchor, CommentAnchor, ElementAnchor, ImageAnchor, TextAnchor } from "./client-types.ts"
 
 /** A point in client (viewport) coordinates, such as `event.clientX` and `event.clientY`. */
@@ -199,10 +199,10 @@ function textAnchor(target: Range | Selection, options: CreateAnchorOptions): Te
   const range = rangeOf(target)
   const exact = range?.toString() ?? ""
   const container = range && elementOfNode(range.commonAncestorContainer)
-  if (!range || !container || exact === "") throw commentsErrorDiagnostics.COMMENTS_R0001({ target: "an empty selection" })
+  if (!range || !container || exact === "") throw commentsClientDiagnostics.COMMENTS_R0001({ target: "an empty selection" })
   const element = ignoreUp(container, options) ?? container
   if (options.root && (!options.root.contains(range.startContainer) || !options.root.contains(range.endContainer) || !options.root.contains(element))) {
-    throw commentsErrorDiagnostics.COMMENTS_R0001({ target: "a selection outside the configured root" })
+    throw commentsClientDiagnostics.COMMENTS_R0001({ target: "a selection outside the configured root" })
   }
   const start = textOffset(element, range.startContainer, range.startOffset)
   const text = textNodes(element).map(node => node.data).join("")
@@ -227,7 +227,7 @@ function isImage(element: Element): boolean {
 }
 
 function boxAnchor(element: Element, options: CreateAnchorOptions, point: AnchorPoint | undefined): ElementAnchor | AreaAnchor | ImageAnchor {
-  if (options.root && !options.root.contains(element)) throw commentsErrorDiagnostics.COMMENTS_R0001({ target: "an element outside the configured root" })
+  if (options.root && !options.root.contains(element)) throw commentsClientDiagnostics.COMMENTS_R0001({ target: "an element outside the configured root" })
   const box = boxOf(element)
   const selector = selectorFor(element, options.root ?? defaultRoot(element))
   const kind = isImage(element) ? "image" : undefined
@@ -259,7 +259,7 @@ export function createAnchor(target: AnchorTarget, options: CreateAnchorOptions 
   if ("nodeType" in target) return boxAnchor(target, options, options.point)
   if ("rangeCount" in target || "startContainer" in target) return textAnchor(target, options)
   const element = pointTarget(target, options)
-  if (!element) throw commentsErrorDiagnostics.COMMENTS_R0001({ target: `the point ${Math.round(target.x)}, ${Math.round(target.y)}` })
+  if (!element) throw commentsClientDiagnostics.COMMENTS_R0001({ target: `the point ${Math.round(target.x)}, ${Math.round(target.y)}` })
   return boxAnchor(element, options, target)
 }
 

@@ -124,8 +124,10 @@ vi.mock("../src/plugins.ts", async importOriginal => ({ ...await importOriginal<
 
 import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
+import { logsVitePlugin } from "../src/logs-vite.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
 import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
@@ -529,6 +531,17 @@ describe("ViteHub Nuxt integration", () => {
     expect(serverDirsHook).toHaveBeenCalledWith(expect.objectContaining({ [VITEHUB_SERVER_DIRS]: serverDirs }), expect.anything())
   })
 
+  it.each([false, true])("runs the production build checks of replayed Vite plugins only in a build (prepare: %s)", async (prepare) => {
+    mocks.vitehub.mockReturnValue([logsVitePlugin(true)])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { _prepare: prepare })
+    await viteHubNuxtModule({ console: false, env: false, logs: true, preset: "cloudflare" }, nuxt)
+
+    const result = runNitroConfigHook({})
+    if (prepare) await expect(result).resolves.toBeUndefined()
+    else await expect(result).rejects.toThrow("Production Logs needs an existing source")
+  })
+
   it.each([false, true])("reports missing facade owners through Nuxt Nitro resolution (dev: %s)", async (dev) => {
     mocks.vitehub.mockReturnValue([optionalOwnerImportsPlugin()])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
@@ -549,8 +562,9 @@ describe("ViteHub Nuxt integration", () => {
         setup(pluginBuild) {
           pluginBuild.onResolve({ filter: /^vite-hub\// }, async (args) => {
             for (const plugin of plugins) {
-              if (typeof plugin.resolveId !== "function") continue
-              await Reflect.apply(plugin.resolveId, {}, [args.path, args.importer, { ssr: true, isEntry: false }])
+              const resolveId = typeof plugin.resolveId === "function" ? plugin.resolveId : plugin.resolveId?.handler
+              if (!resolveId) continue
+              await Reflect.apply(resolveId, {}, [args.path, args.importer, { ssr: true, isEntry: false }])
             }
           })
         },
@@ -838,6 +852,34 @@ describe("ViteHub Nuxt integration", () => {
     expect(blobLoad).toHaveBeenCalledWith("\0#vitehub/blob/config", { ssr: true })
     expect(blobResolveId.mock.contexts[0]).toBe(context)
     expect(blobLoad.mock.contexts[0]).toBe(context)
+  })
+
+  it("keeps the hook filters of replayed Nitro resolvers", async () => {
+    const filter = { id: /^\0?#vitehub\/kv\/config$/ }
+    mocks.vitehub.mockReturnValue([{
+      load: { filter, handler: () => "export const kv = {}" },
+      name: "@vite-hub/kv/vite",
+      resolveId: { filter, handler: () => "\0#vitehub/kv/config" },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ kv: true }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+    expect(resolver?.resolveId).toEqual({ filter, handler: expect.any(Function) })
+    expect(resolver?.load).toEqual({ filter, handler: expect.any(Function) })
+  })
+
+  it("does not replay runtime resolvers when Nuxt builds Nitro in a Vite environment", async () => {
+    mocks.vitehub.mockReturnValue([{ load: () => undefined, name: "@vite-hub/kv/vite", resolveId: () => undefined }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: true } })
+    await viteHubNuxtModule({ kv: true }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+
+    expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
   })
 
   it.each([
@@ -1327,6 +1369,26 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", database: true }, application.nuxt)
 
     expect((application.nuxt.options as { content?: { database?: unknown } }).content?.database).toBeUndefined()
+    await application.runCloseHook()
+  })
+
+  it.each([false, true])("checks the Cloudflare Agent journal file URL only in a build (prepare: %s)", async (prepare) => {
+    await rm(agentJournalPlugin, { force: true })
+    const invocations = { databaseUrl: "file:./journal.sqlite" }
+    mocks.vitehub.mockReturnValue([agentInvocationsVitePlugin({ database: false, default: invocations, preset: "cloudflare" })])
+    const application = createNuxt(false)
+    Object.assign(application.nuxt.options, { _prepare: prepare })
+    const result = viteHubNuxtModule({ agent: { invocations }, console: false, env: false, preset: "cloudflare" }, application.nuxt)
+
+    if (prepare) {
+      await expect(result).resolves.toBeUndefined()
+      const generated = await generatedAgentJournal(application)
+      expect(generated).toContain('"databaseUrl":"file:./journal.sqlite"')
+      await expect(generatedAgentJournal(application, true)).resolves.toBe(generated)
+    }
+    else {
+      await expect(result).rejects.toThrow("agent.invocations.databaseUrl is a local file")
+    }
     await application.runCloseHook()
   })
 
@@ -5201,6 +5263,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
   it("exposes Nuxt module metadata for vitehub configuration", async () => {
     await expect(viteHubNuxtModule.getMeta()).resolves.toEqual({
+      compatibility: { server: "nitro3" },
       configKey: "vitehub",
       name: "vite-hub/nuxt",
     })
