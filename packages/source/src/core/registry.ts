@@ -20,7 +20,7 @@ export function registerSources<const TSources extends Record<string, Source>>(s
   return sources
 }
 
-export function getRegisteredSource<TName extends SourceName>(
+function getRegisteredSource<TName extends SourceName>(
   name: TName,
 ): RegisteredSource<TName> {
   const source = sourceRegistry.get(name)

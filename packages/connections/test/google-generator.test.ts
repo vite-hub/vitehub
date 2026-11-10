@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { expect, it } from "vitest"
 
-it("generates required document fields, nested fields, and method parameters from Discovery metadata", async () => {
+it("generates required document fields, nested fields, and method parameters of the typed Gmail resources", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-google-generator-"))
   try {
     await mkdir(join(root, "scripts"))
@@ -31,12 +31,15 @@ it("generates required document fields, nested fields, and method parameters fro
             nested: { type: "object", properties: { value: { required: true, type: "number" }, optional: { type: "boolean" } } },
           },
         },
+        ImapSettings: { id: "ImapSettings", type: "object", properties: { enabled: { type: "boolean" } } },
+        Unused: { id: "Unused", type: "object", properties: { value: { type: "string" } } },
       },
       methods: {
-        get: { httpMethod: "GET", id: "gmail.messages.get", path: "users/{userId}/messages/{id}" },
+        get: { httpMethod: "GET", id: "gmail.users.messages.get", path: "users/{userId}/messages/{id}" },
+        getImap: { httpMethod: "GET", id: "gmail.users.settings.getImap", path: "users/{userId}/settings/imap", response: { $ref: "ImapSettings" } },
         send: {
           httpMethod: "POST",
-          id: "gmail.messages.send",
+          id: "gmail.users.messages.send",
           path: "users/{userId}/messages",
           parameters: {
             userId: { location: "path", required: true, type: "string" },
@@ -62,8 +65,14 @@ it("generates required document fields, nested fields, and method parameters fro
     expect(output).toContain("trace?: string")
     expect(output).toContain("startHistoryId: string")
     expect(output).toContain("body: GmailRequest")
-    expect(output).toContain('"messages.get": {\n    method: "GET"')
-    expect(output).toContain('"messages.send": {\n    method: "POST"')
+    expect(output).toContain('"users.messages.get": {\n    method: "GET"')
+    expect(output).toContain('"users.messages.send": {\n    method: "POST"')
+    // Gmail types only the allowed resources and the schemas they reach. `fetch()` reaches the rest.
+    expect(output).not.toContain("users.settings.getImap")
+    expect(output).not.toContain("GmailImapSettings")
+    expect(output).not.toContain("GmailUnused")
+    // Discovery returns properties in any order. The output sorts them.
+    expect(output.indexOf("explicitOptional?: string")).toBeLessThan(output.indexOf("fieldId: string"))
   }
   finally {
     await rm(root, { recursive: true, force: true })
