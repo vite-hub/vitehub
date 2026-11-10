@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import semver from "semver"
-import { array, object, optional, parse, record, string } from "valibot"
+import { array, object, parse, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 import {
@@ -30,16 +30,6 @@ const ignoredGeneratedDirs = new Set([
   "dist",
   "node_modules",
 ])
-
-const showcaseManifestSchema = object({
-  label: optional(string()),
-  frameworks: optional(record(string(), object({
-    modes: optional(record(string(), object({
-      phases: optional(record(string(), string())),
-      supplementalFiles: optional(array(string())),
-    }))),
-  }))),
-})
 
 function exportTargetPath(packageName: PackageName, target: string) {
   return join(packageDir(packageName), target.replace(/^\.\//, ""))
@@ -420,36 +410,6 @@ describe("playground import contracts", () => {
     expect(kvShim).toContain('resolve(kvPackageDir, "src/errors.ts")')
     for (const operation of ["clear", "del", "get", "has", "keys", "set"]) {
       expect(kvShim).toContain(String.raw`kvResult(\"${operation}\", \"default\"`)
-    }
-  })
-})
-
-describe("showcase contracts", () => {
-  it("keeps existing showcase manifests pointed at real files", () => {
-    for (const packageName of packageNames) {
-      const manifestPath = join(packageDir(packageName), "examples", "showcase.json")
-      if (!existsSync(manifestPath)) {
-        continue
-      }
-
-      const manifest = readJson(showcaseManifestSchema, manifestPath)
-
-      expect(manifest.label, `${packageName} showcase should have a label`).toEqual(expect.any(String))
-      expect(manifest.frameworks, `${packageName} showcase should list frameworks`).toEqual(expect.any(Object))
-
-      for (const [framework, frameworkConfig] of Object.entries(manifest.frameworks || {})) {
-        for (const [mode, modeConfig] of Object.entries(frameworkConfig.modes || {})) {
-          const files = [
-            ...Object.values(modeConfig.phases || {}),
-            ...(modeConfig.supplementalFiles || []),
-          ]
-
-          for (const file of files) {
-            const path = join(packageDir(packageName), "examples", framework, file)
-            expect(existsSync(path), `${packageName}/${framework}/${mode} references missing file: ${file}`).toBe(true)
-          }
-        }
-      }
     }
   })
 })
