@@ -52,6 +52,15 @@ describe("discoverConnectionDefinitions", () => {
 });
 
 describe("hubConnections", () => {
+  it("filters resolveId and load to the Connections registry", () => {
+    const plugin = hubConnections();
+    const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id;
+    const loadFilter = (plugin.load as { filter: { id: RegExp } }).filter.id;
+
+    expect([CONNECTIONS_REGISTRY_ID, `${CONNECTIONS_REGISTRY_ID}.ts`, "@vite-hub/connections"].map(id => resolveFilter.test(id))).toEqual([true, false, false]);
+    expect([`\0${CONNECTIONS_REGISTRY_ID}`, CONNECTIONS_REGISTRY_ID].map(id => loadFilter.test(id))).toEqual([true, false]);
+  });
+
   it("asks @vite-hub/database for the default SQLite Database when it has a Database module", () => {
     expect(hubConnections({ database: "vite-hub/database/drizzle" }).vitehub.databases()).toEqual([
       { database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
