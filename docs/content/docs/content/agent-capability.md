@@ -8,7 +8,7 @@ icon: i-lucide-file-pen-line
 
 `content()` gives an Agent tools to list, read, draft, publish, and schedule documents in the [collections and singletons](/docs/content/configure#document-collections) of `server/content.ts`. Tool inputs follow each collection's fields, so the model sees typed data. Every tool calls `content.can()` with the Invocation's [Invoker](/docs/agents/trusted-invokers) and the Auth user it stands for, so `defineContent({ authorize })` decides what the Agent may do, document by document. Publishing and scheduling ask for approval by default and publish exactly the drafts the approver saw.
 
-The [Content server API](/docs/content/server-api) covers application code. This page covers the Agent tools.
+For application code, see the [Content server API](/docs/content/server-api).
 
 ## Add the Capability
 
@@ -49,10 +49,10 @@ ViteHub passes the `content` export of `server/content.ts` to the Capability as 
 
 | Tool | Operation | Access check | Default policy | Effect |
 | --- | --- | --- | --- | --- |
-| `content_list_collections` | `read` | none | `allow` | Lists collections and singletons with `kind`, `label`, `titleField`, `format`, `fields`, `path`, the singleton `id`, and which of `read`, `write`, and `publish` the user may do in each. |
-| `content_list_documents` | `read` | `read`, then `read` for each document | `allow` | Lists documents without bodies. Supports `ref`, `filter`, `search`, `sort`, `limit` (default 20, at most 100), and `cursor`. |
+| `content_list_collections` | `read` | none | `allow` | Lists collections and singletons with `kind`, `label`, `titleField`, `format`, `fields`, `path`, the singleton `id`, and which of `read`, `write`, and `publish` the user may do. |
+| `content_list_documents` | `read` | `read`, then `read` for each document | `allow` | Lists documents without bodies. Takes `ref`, `filter`, `search`, `sort`, `limit` (default 20, max 100), and `cursor`. |
 | `content_get_document` | `read` | `read` for the document | `allow` | Returns one document with `data`, `body`, `digest`, `updatedAt`, and the field `issues` of a draft. |
-| `content_status` | `read` | `read`, then `read` for each document | `allow` | Compares draft and published documents: `draft`, `published`, `changed`, or `deleted`, with each draft digest, the `issues` count, and the `schedule`. |
+| `content_status` | `read` | `read`, then `read` for each document | `allow` | Compares draft and published: `draft`, `published`, `changed`, or `deleted`, with each draft digest, `issues` count, and `schedule`. |
 | `content_list_schedules` | `read` | `read` for each document of a schedule | `allow` | Lists pending, overdue, and failed schedules. Filter by `collection`, `id`, and `status`. |
 | `content_list_translations` | `read` | `read`, then `read` for each document | `allow` | Lists the documents whose translation in a locale is `missing` or `stale`. Only when a collection in scope has [locales](/docs/content/configure#locales). |
 | `content_save_draft` | `write` | `write` for the document | `allow` | Saves one document to the `draft` ref. |
@@ -60,20 +60,20 @@ ViteHub passes the `content` export of `server/content.ts` to the Capability as 
 | `content_schedule` | `publish` | `publish` for each document | `require-approval` | Publishes the listed drafts at `at`, pinned to their digests. |
 | `content_unschedule` | `publish` | `publish` for each document of the schedule | `require-approval` | Cancels a pending schedule, or dismisses a failed one. |
 
-`content_save_draft` requires the full field values in `data` and `ifDigest`. Set `ifDigest` to the `digest` from `content_get_document` with `ref: 'draft'`, or `null` for a new document. The tool never overwrites a draft that changed since the Agent read it. A Markdown collection also requires the full `body`. A JSON or YAML collection has no body: omit `body` or send an empty string.
+`content_save_draft` needs all field values in `data`, and `ifDigest`. Set `ifDigest` to the `digest` from `content_get_document` with `ref: 'draft'`, or `null` for a new document. The tool never overwrites a draft that changed since the Agent read it. A Markdown collection also needs the full `body`. JSON and YAML collections have no body: omit `body` or send an empty string.
 
-A singleton has one document, so its tools take no `id`. The singleton's own `id` also works. Any other `id` returns `CONTENT_INVALID`. A collection always needs `id`.
+For a singleton, omit `id` or pass its own `id`. Any other `id` returns `CONTENT_INVALID`. Collections need `id`.
 
-`content_publish` takes `documents: [{ collection, id, digest }]`, with each `digest` the `draft` digest from `content_status`, or `null` to publish a deletion. Omit `id` for a singleton. These digests are part of the call, so the approver sees exactly which versions will go live. The tool publishes with [`content.publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed): if any listed draft changed after the call was made, nothing is published.
+`content_publish` takes `documents: [{ collection, id, digest }]`. Each `digest` is the `draft` digest from `content_status`, or `null` to publish a deletion. Omit `id` for a singleton. The digests are in the call, so the approver sees which versions go live. The tool uses [`content.publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed): if a listed draft changed after the call, nothing is published.
 
-`content_schedule` takes `{ at, documents, message? }`. `at` is an ISO timestamp with a time zone, such as `2026-10-20T09:00:00+02:00`, in the future. `documents` has the same form as for `content_publish`. The digests must match when the tool runs, and a [runner](/docs/content/scheduling#run-due-schedules) publishes exactly those versions at `at`. A draft saved after scheduling makes the run publish nothing, and the schedule becomes `failed`. `content_unschedule` takes `{ schedule }`, the schedule `id` from `content_list_schedules` or `content_status`.
+`content_schedule` takes `{ at, documents, message? }`. `at` is a future ISO timestamp with a time zone, such as `2026-10-20T09:00:00+02:00`. `documents` is as for `content_publish`. The digests must match when the tool runs. A [runner](/docs/content/scheduling#run-due-schedules) publishes exactly those versions at `at`. If a draft is saved after scheduling, the run publishes nothing and the schedule turns `failed`. `content_unschedule` takes `{ schedule }`, the id from `content_list_schedules` or `content_status`.
 
-The following Agent-visible definitions are resolved from the real Capability during the docs build, for one `posts` collection.
+These are the tool definitions the Agent sees for one `posts` collection, built from the real Capability.
 
 ::agent-capability-tools{name="content" variant="default"}
 ::
 
-With more than one collection, `data` lists each collection's fields as an alternative whose `title` is the collection name. The runtime validates `data` against the collection named in `collection`. The top level of each input schema stays a plain object, because some model providers reject a top-level `anyOf`. When a singleton is in scope, `id` is optional in the schema. When a JSON or YAML collection is in scope, `body` is optional. The tools then check both for the named collection.
+With several collections, `data` lists each one's fields as an alternative titled with its name, and the runtime validates against the named `collection`. Input schemas stay plain objects at the top level, because some model providers reject a top-level `anyOf`. A singleton in scope makes `id` optional, and a JSON or YAML collection makes `body` optional. The tools check both per collection.
 
 ## Translations
 
@@ -83,7 +83,7 @@ To translate, the Agent calls `content_list_translations` with `{ collection, lo
 
 ## Field issues
 
-Drafts accept fields that do not validate yet, so the Agent can save work in progress. `content_save_draft` then returns `ok: true` with the saved `document`, the `issues`, and a `hint` that the draft cannot be published until the issues are fixed. `content_status` counts them as `issues`. `content_publish` and `content_schedule` refuse such a draft with `CONTENT_INVALID`, and change nothing.
+Drafts accept invalid fields, so the Agent can save unfinished work. `content_save_draft` returns `ok: true` with the `document`, the `issues`, and a `hint` that the draft cannot publish until they are fixed. `content_status` counts `issues`. `content_publish` and `content_schedule` refuse the draft with `CONTENT_INVALID` and change nothing.
 
 ```json
 {
@@ -96,17 +96,17 @@ Drafts accept fields that do not validate yet, so the Agent can save work in pro
 
 ## Results the Agent can act on
 
-Digest conflicts, invalid drafts, held leases, and missing documents come back as tool results with `ok: false` and a `hint`, so the model can fix the input and call again:
+Digest conflicts, invalid drafts, held leases, and missing documents return `ok: false` and a `hint`, so the model can fix the input and retry:
 
 | `error.code` | Tools | What the result carries |
 | --- | --- | --- |
-| `CONTENT_INVALID` | `content_save_draft`, `content_get_document`, and any tool for an invalid input | `issues`: one `{ field?, path, message }` per problem, such as data that cannot be stored or a `body` for a JSON collection. From `content_get_document`, a published file that no longer validates also returns its stored `text` and `digest`, so the Agent can save a repaired version over it. |
-| `CONTENT_INVALID` | `content_publish`, `content_schedule` | `documents`: one `{ collection, id, path, issues }` per draft with field issues. Nothing was changed. |
-| `WORKSPACE_CONFLICT` | `content_save_draft` | `currentDigest`: the draft's digest now. Read the draft again, apply the change to that version, and save with its digest. |
-| `WORKSPACE_CONFLICT` | `content_publish`, `content_schedule` | `documents`: one `{ collection, id, expected, actual }` per draft that changed after the call. Nothing was changed. Review the changes and make the call again with the `actual` digests. |
-| `CONTENT_LEASE_HELD` | `content_save_draft` | `holder`: `{ name, kind, since, expiresAt }` of the person or live room that edits the document. Nothing was saved. Wait for the lease to end, or ask the person. |
-| `CONTENT_R0011` | `content_schedule` | The schedule options are not valid: `at` is in the past, the drafts are already published, or a document is in another schedule. |
-| `CONTENT_NOT_FOUND` | `content_get_document`, `content_unschedule` | The document does not exist on that ref, or the schedule already ran or was cancelled. |
+| `CONTENT_INVALID` | `content_save_draft`, `content_get_document`, and any tool for an invalid input | `issues`: one `{ field?, path, message }` per problem, such as data that cannot be stored or a `body` for a JSON collection. From `content_get_document`, an invalid published file also returns its `text` and `digest`, so the Agent can save a fixed version. |
+| `CONTENT_INVALID` | `content_publish`, `content_schedule` | `documents`: one `{ collection, id, path, issues }` per draft with field issues. Nothing changed. |
+| `WORKSPACE_CONFLICT` | `content_save_draft` | `currentDigest`: the draft's current digest. Read the draft again, apply the change, and save with its digest. |
+| `WORKSPACE_CONFLICT` | `content_publish`, `content_schedule` | `documents`: one `{ collection, id, expected, actual }` per draft that changed after the call. Nothing changed. Review the changes and call again with the `actual` digests. |
+| `CONTENT_LEASE_HELD` | `content_save_draft` | `holder`: `{ name, kind, since, expiresAt }` of the person or live room editing. Nothing was saved. Wait for the lease to end, or ask the person. |
+| `CONTENT_R0011` | `content_schedule` | Bad schedule options: `at` is past, the drafts are already published, or a document is in another schedule. |
+| `CONTENT_NOT_FOUND` | `content_get_document`, `content_unschedule` | The document is not on that ref, or the schedule ran or was cancelled. |
 | `CONTENT_R0009` | `content_publish`, `content_schedule` | The same document is listed twice. |
 
 ```json
@@ -121,11 +121,11 @@ Digest conflicts, invalid drafts, held leases, and missing documents come back a
 }
 ```
 
-A successful save returns `{ ok: true, document }` without the body. A publish returns `{ ok: true, revision, documents }`, where `revision` is null when nothing differed. A schedule returns `{ ok: true, schedule: { id, at, status, documents, createdAt, message? } }`. Other errors, such as an unknown collection, fail the tool call.
+A save returns `{ ok: true, document }` without the body. A publish returns `{ ok: true, revision, documents }`, with `revision` null when nothing differed. A schedule returns `{ ok: true, schedule: { id, at, status, documents, createdAt, message? } }`. Other errors, such as an unknown collection, fail the tool call.
 
 ## Edit leases
 
-A person who has a document open in the [Console](/docs/content/console) holds its [edit lease](/docs/content/editing-together#writes-and-leases). `content_save_draft` honors the lease: it returns `CONTENT_LEASE_HELD` and saves nothing. The model cannot override the lease from the tool input.
+A person with a document open in the [Console](/docs/content/console) holds its [edit lease](/docs/content/editing-together#writes-and-leases). `content_save_draft` then returns `CONTENT_LEASE_HELD` and saves nothing. The model cannot override the lease from tool input.
 
 To let the Agent save over a held lease, opt in on the Capability. The person's next save then fails with `WORKSPACE_CONFLICT`, because the Console saves with `ifDigest`:
 
@@ -133,15 +133,15 @@ To let the Agent save over a held lease, opt in on the Capability. The person's 
 content({ lease: 'override' })
 ```
 
-`content_publish` and `content_schedule` do not check leases. They publish the reviewed digests, and a save after review already fails them with `WORKSPACE_CONFLICT`.
+`content_publish` and `content_schedule` do not check leases. They publish the reviewed digests, so a save after review fails them with `WORKSPACE_CONFLICT`.
 
 ## Access and approval
 
 Each check calls `content.can({ user, actor, collection, action, id })`. `actor` is the Invocation's Invoker. `user` is the Auth user that Invoker stands for: [`authenticated()`](/docs/agents/trusted-invokers) from `vite-hub/auth/agent` records the user id as `invoker.meta.authUserId`, and the Capability reads that user from the Auth database through the `auth` primitive. It reads the user again when an approved call runs, so a role removed in the meantime takes effect. An anonymous Invoker, an Invoker without `authUserId`, an app without Auth, or a deleted user gives `user: null`. One `authorize` policy then covers the Console and the Agent, and it can check `actor` to give the Agent less than the user it acts for.
 
-Reads check `read` on both refs, also for published documents. Like the Console, the tools check `read` for each document: lists, search results, totals, statuses, and schedules never show a document that `authorize` hides, and `content_get_document` denies it. A schedule shows only when the user may read every document in it. To let an Agent read what the site serves, return `true` for `read` in `authorize`.
+Reads check `read` per document on both refs, also for published documents. Lists, search results, totals, statuses, and schedules never show a document that `authorize` hides, and `content_get_document` denies it. A schedule shows only if the user may read all its documents. To let an Agent read what the site serves, return `true` for `read`.
 
-Without `authorize`, `content.can()` returns `false`, so the Agent can do nothing. A denied call fails with `CAPABILITY_DENIED` and runs nothing.
+Without `authorize`, `content.can()` returns `false` and the Agent can do nothing. A denied call fails with `CAPABILITY_DENIED` and runs nothing.
 
 When your users live outside ViteHub Auth, map the Invoker yourself with `user`. It replaces the Auth lookup:
 
@@ -186,9 +186,11 @@ invoker: {
 },
 ```
 
-Do not grant `write` or `publish` from an unmapped chat identity.
+::warning
+Do not grant `write` or `publish` to an unmapped chat identity.
+::
 
-`content_publish`, `content_schedule`, and `content_unschedule` use `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request that shows the input, such as the listed documents and digests, and runs only after approval. `content_save_draft` runs without approval, because drafts are not served. Set `policy` to replace all four defaults. A function receives `{ name, input }`:
+`content_publish`, `content_schedule`, and `content_unschedule` use `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request that shows the input, such as documents and digests, and runs after approval. `content_save_draft` needs none, because drafts are not served. `policy` replaces all four defaults. A function gets `{ name, input }`:
 
 ```ts
 import { content } from 'vite-hub/agent/capabilities'
@@ -198,23 +200,23 @@ content({
 })
 ```
 
-The tools check `content.can()` before the policy, so a denied call fails at once instead of waiting for an approver. They check again when the approved call runs. Approval cannot grant an action that `authorize` denies.
+The tools check `content.can()` before the policy, so a denied call fails at once without waiting for an approver. They check again when the approved call runs. Approval cannot grant what `authorize` denies.
 
 Saves, publishes, schedules, and cancellations record `metadata.agent = { name, actor }` and, when `authorize` received a user, `metadata.author = { id, name, email }`, as Console saves do. [`content.revisions()`](/docs/content/server-api#revisions), [`content.schedules()`](/docs/content/scheduling#inspect-and-cancel), and the Console history then show the person, the Agent, and the Invoker of each change.
 
 ## Verify the tools
 
-1. Run `vitehub agent info --agent editor --json`. Confirm `tools` has an entry named `content` with the expected commands and `capabilities` has `{ id: "content" }`.
-2. Ask the Agent to draft a post. Confirm `content_save_draft` returns `ok: true` and `content.collection('posts').status('<id>')` reports `draft`.
+1. Run `vitehub agent info --agent editor --json`. Check that `tools` has a `content` entry with the expected commands, and `capabilities` has `{ id: "content" }`.
+2. Ask the Agent to draft a post. Check that `content_save_draft` returns `ok: true` and `content.collection('posts').status('<id>')` reports `draft`.
 3. Ask it to publish. Approve the request, then read the post from `/api/content/get/posts/<id>`.
-4. Ask it to schedule a change for tomorrow. Approve the request, then confirm `content.schedules()` lists it.
+4. Ask it to schedule a change for tomorrow. Approve the request, then check that `content.schedules()` lists it.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `collections` | `string[]` | every collection | Collections and singletons the Agent may use. An unknown name fails when the tools resolve. |
-| `operations` | `Array<"read" \| "write" \| "publish">` | `["read", "write", "publish"]` | Tool groups to expose. Without `read`, the Agent can only create new documents, because saving over a draft needs its digest. |
+| `operations` | `Array<"read" \| "write" \| "publish">` | `["read", "write", "publish"]` | Tool groups to expose. Without `read`, the Agent can only create documents, because saving over a draft needs its digest. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | save `allow`, publish, schedule, and unschedule `require-approval` | Replaces the policy of `content_save_draft`, `content_publish`, `content_schedule`, and `content_unschedule`. |
 | `user` | `(invoker) => user \| null \| Promise<user \| null>` | the Auth user from `invoker.meta.authUserId`, or `null` | Maps the Invoker to the `user` that `authorize` receives, instead of the Auth lookup. |
 | `lease` | `"override"` | honor leases | Lets `content_save_draft` save while a person holds the edit lease. |
@@ -224,16 +226,16 @@ The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its
 ## Limits
 
 - The Capability does not remove or restore documents. Call `remove()` and `restore()` from application code or a [Custom Capability](/docs/agents/capabilities/custom).
-- Approval covers the listed digests. A save between the call and its execution fails the publish or schedule with `WORKSPACE_CONFLICT` instead of publishing unreviewed content, and the Agent has to request a new approval.
+- Approval covers the listed digests. A save between the call and its run fails the publish or schedule with `WORKSPACE_CONFLICT`, so unreviewed content never goes live. The Agent must ask for a new approval.
 - A scheduled publish needs a runner that calls `content.publishDue()`. See [Scheduling](/docs/content/scheduling#run-due-schedules).
-- The per-document `read` check calls `authorize` once for each document of the collection on each list and status call.
+- Each list and status call runs `authorize` once per document in the collection.
 - Resolving the Auth user reads the Auth database once per Invocation.
-- Document bodies are untrusted data. The tool descriptions tell the model so, but an `authorize` policy is the actual boundary.
-- Content collections need a Workspace with retained history, which needs a Database. The Capability is not available in standalone Agent builds without a host runtime.
+- Document bodies are untrusted data. The tool descriptions tell the model so, but `authorize` is the real boundary.
+- Collections need a Workspace with retained history, which needs a Database. The Capability does not work in standalone Agent builds without a host runtime.
 
 ## Other operations
 
-`content()` has tools that are written for a model. To give an agent any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. It exposes each operation as a tool named after it (`content_publish`), checks `content.can()` with the same user and actor, and asks for approval for destructive operations (a dry run needs none). It also runs `console.authorize` for the user and drops the operations of sections that it does not allow. Without `console.authorize`, the `include` list is the only gate. `content.save`, `content.remove`, and `content.restore` accept `lease: 'override'` from an Agent or an MCP client only with `operations({ overrideLeases: true })`; `content()` keeps its own `lease: 'override'` option.
+`content()` tools are written for a model. For any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. Each operation becomes a tool named after it (`content_publish`). It checks `content.can()` with the same user and actor, and asks approval for destructive operations, except a dry run. It also runs `console.authorize` and drops operations of denied sections. Without `console.authorize`, `include` is the only gate. `content.save`, `content.remove`, and `content.restore` take `lease: 'override'` from an Agent or MCP client only with `operations({ overrideLeases: true })`. `content()` keeps its own `lease: 'override'` option.
 
 ## Related pages
 

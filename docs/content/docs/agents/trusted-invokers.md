@@ -9,7 +9,7 @@ navigation.kind: Guides
 
 An Agent Invoker is the trusted identity of the caller for one Invocation.
 Capabilities use it for access rules, rate limits, and state partitions. The
-CLI and the Console show it when you inspect an Invocation.
+CLI and the Console show it.
 
 Pass an Invoker when the Agent must know who is calling. Your application
 authenticates the request. The Invoker carries the result of that check into the
@@ -20,7 +20,7 @@ Configure Invokers with `defineAgent({ invoker })`, pass one through
 
 ## Pass a trusted Invoker
 
-Authenticate first. Then pass only validated identity facts:
+Authenticate first. Then pass only checked identity facts:
 
 ```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
@@ -53,9 +53,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-ViteHub trusts this server-owned value. Never copy unverified request fields
-into `context.invoker`. The `finally` block drains tracked background work
-when the host has no lifetime API. See
+ViteHub trusts this server value. Never copy unchecked request fields into
+`context.invoker`. The `finally` block finishes tracked background work when
+the host has no lifetime API. See
 [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
 
 Without an Invoker, ViteHub uses an anonymous Invoker with the id
@@ -68,9 +68,9 @@ Without an Invoker, ViteHub uses an anonymous Invoker with the id
 | --- | --- | --- |
 | `id` | Yes | Stable identity for access, limits, state, and inspection. ViteHub rejects an empty id. |
 | `kind` | No | Identity family, such as `customer`, `chat`, or `anonymous`. |
-| `label` | No | Human-readable value for logs and CLI inspection. |
+| `label` | No | Readable value for logs and the CLI. |
 | `email` | No | Normalized `{ address, domain }`. ViteHub omits an invalid value. |
-| `meta` | No | Trusted facts that your application owns. Validate them before the Invocation. |
+| `meta` | No | Trusted facts your app owns. Validate them before the Invocation. |
 
 ## Configure profiles
 
@@ -101,14 +101,14 @@ export default defineAgent({
 })
 ```
 
-Select a profile with `context.invokerProfileId` for a direct call, or with
+Pick a profile with `context.invokerProfileId` for a direct call, or with
 top-level `invokerProfileId` for `chat.message`. An unknown id fails the
 Invocation. ViteHub does not fall back to another Invoker.
 
 ## Normalize the Invoker
 
-Use `resolve` to normalize or reject the trusted input. ViteHub calls it
-before Capabilities and the Driver run:
+Use `resolve` to clean up or reject the trusted input. It runs before
+Capabilities and the Driver:
 
 ```ts [server/utils/support-invoker.ts]
 import { defineAgentInvoker } from 'vite-hub/agent'

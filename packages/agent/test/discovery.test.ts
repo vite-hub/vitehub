@@ -852,7 +852,7 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const reactionEffect = vi.fn()
@@ -875,7 +875,7 @@ describe("agent chat capability discovery", () => {
         }),
       ],
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           [channelDeliveryHandlers]: { reaction: reactionEffect },
           messages: false,
         }),
@@ -1374,13 +1374,13 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const triggerInputs: unknown[] = []
     const agent = defineAgent({
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           messages: false,
           triggers: {
             webhook: {
@@ -1446,14 +1446,14 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const triggerInputs: unknown[] = []
     const inheritedInput = Object.create({ "~standard": { vendor: "forged" } })
     const agent = defineAgent({
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
@@ -1496,7 +1496,7 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     class ClassSchema {
@@ -1513,7 +1513,7 @@ describe("agent chat capability discovery", () => {
     const triggerInputs: unknown[] = []
     const agent = defineAgent({
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
@@ -1552,13 +1552,13 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
     const v = await import("valibot")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const invoke = vi.fn((_context: unknown, input: { text: string, prompt: string }) => ({ input: { prompt: `${input.prompt}: ${input.text}` } }))
     const agent = defineAgent({
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
@@ -1783,7 +1783,7 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const reactionEffect = vi.fn()
@@ -1801,7 +1801,7 @@ describe("agent chat capability discovery", () => {
         }),
       ],
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           [channelDeliveryHandlers]: { reaction: reactionEffect, reply: replyEffect },
           messages: false,
           triggers: {

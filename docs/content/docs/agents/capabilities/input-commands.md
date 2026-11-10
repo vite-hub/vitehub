@@ -1,22 +1,21 @@
 ---
 title: Input commands
-description: Transform explicit user commands such as /docs before the Agent Driver runs.
+description: Let users type commands such as /docs that change their message before the Agent runs.
 navigation.title: Input commands
 navigation.order: 140
 navigation.group: Capabilities
 icon: i-lucide-terminal-square
 ---
 
-`inputCommands()` parses explicit user commands, such as `/docs`, in the latest user input before the Agent Driver runs.
-It adds no model-facing tool. Each command handler is server code that can replace text, update the Agent Run Input, add Invocation context, or answer the request directly.
-It uses no Server Primitive by itself. Handlers receive the host Runtime Capabilities that the application configures, and `vite-hub` adds Console helpers when the Console is enabled.
+`inputCommands()` lets users type commands such as `/docs`. Server code handles them before the Agent Driver runs. A handler can replace message text, update the Agent Run Input (the prompt or messages), add an Invocation context value (data one Agent run carries), or answer directly.
 
-Use it for commands that transform or enrich the user's prompt, not for host UI state or shell execution.
+It adds no model tool and uses no Server Primitive itself. Handlers get the host Runtime Capabilities you configure, such as `db` or `kv`, plus Console helpers when the Console is on.
+
+Use it for commands that change the prompt, not for host UI state or shell commands.
 
 ## Configure input commands
 
-Define lowercase command names. Add a description to include the command's purpose in CLI and inspection output.
-The default trigger is `/`.
+Give each command a lowercase name and an optional description for CLI and inspection. The default trigger character is `/`.
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -37,35 +36,40 @@ export default defineAgent({
 })
 ```
 
-With this definition, `/docs billing limits` becomes `Use documentation context for: billing limits` before the Agent Driver runs.
+Here, `/docs billing limits` becomes `Use documentation context for: billing limits` before the Driver runs.
 
 ## How input commands work
 
-`inputCommands()` runs in the input phase.
+In the input phase, `inputCommands()`:
 
-1. It reads the string `prompt` when there are no messages. Otherwise it reads the latest user message, or the string `prompt` when no user message exists.
-2. It finds configured commands that start at a word boundary, in textual order. `args` is the text after the command name, up to the next configured command or the end. Unknown commands stay unchanged.
-3. It calls the matching handler and applies the result.
-4. It continues to scan the updated text. It fails with `AGENT_R0103` when expansion does not end.
+1. Reads the latest user message, or the string `prompt` when there is none.
+2. Finds configured commands at word boundaries, in text order. `args` is the text after the name, up to the next command or the end. Unknown commands stay.
+3. Calls the handler and applies the result.
+4. Scans the text again. Endless expansion fails with `AGENT_R0103`.
 
 | Handler result | Effect |
 | --- | --- |
-| `string` | Replaces the command text and its `args`. An empty string removes them and the whitespace after them, or before them at the end of the text. It keeps the command when it is the only text. |
-| `Partial<AgentRunInput>` | Merges into the Agent Run Input. `context` keys merge. A returned `prompt` or `messages` value replaces the other input form. |
-| `Response` | Stops the invocation and returns this response. The Agent Driver does not run. |
-| `void`, or no `call` | Removes the command text. Command names and `args` are not passed through as prompts. |
+| `string` | Replaces the command and `args`. An empty string also removes the following whitespace, or the preceding at the end. A command that is the only text is kept. |
+| `Partial<AgentRunInput>` | Merges into the Agent Run Input. `context` keys merge. A returned `prompt` or `messages` replaces the other form. |
+| `Response` | Stops the run and returns it. The Driver does not run. |
+| `void`, or no `call` | Removes the command text. Names and `args` are not passed as prompts. |
 
-Command `agent:input` hooks run after the command updates the input and before the Agent Driver runs.
-Command `agent:finish` hooks run for completed and failed Agent Invocations. Both hooks receive `args`, `name`, `text`, and `message.reply()`, `message.update()`, and `message.react()` delivery helpers. Reactions are transient by default and are removed at finish; pass `{ transient: false }` to keep one.
+Commands can have hooks:
 
-The Capability records command names, descriptions, Channel allowlists, and the trigger in its metadata.
+- `agent:input` runs after the input update, before the Driver.
+- `agent:finish` runs for completed and failed runs.
+- Both get `args`, `name`, `text`, and `message.reply()`, `message.update()`, and `message.react()`. Reactions are removed at finish unless you pass `{ transient: false }`.
+
+Metadata records command names, descriptions, Channel allowlists, and the trigger.
 
 ### Handler context
 
-The handler receives `context`, which includes the Capability runtime context, the current Invocation as `context.invocation`, and `context.reply(body)`.
-Generated hosts add the stable Invocation `id` when one is available. `context.reply(body)` sends an immediate Channel reply and returns an empty `204` response. Return that response from the handler to stop the invocation before the Agent Driver runs.
+The handler's `context` has:
 
-The context also includes the resolved host Runtime Capabilities that the application configures, such as `db`, `kv`, `blob`, `email`, or `connections`.
+- the Capability runtime context
+- `context.invocation`, with the stable `id` when generated hosts have one
+- `context.reply(body)`, which sends a Channel reply at once and returns an empty `204`. Return it to stop before the Driver runs.
+- your host Runtime Capabilities, such as `db`, `kv`, `blob`, `email`, or `connections`
 
 ### Console helpers
 
@@ -101,11 +105,11 @@ const history = inputCommands({
 })
 ```
 
-The full `vite-hub` distribution types the Console helpers. The standalone `@vite-hub/agent` package remains host-neutral.
+Only `vite-hub` types these helpers. The host-free `@vite-hub/agent` does not.
 
 ### Link the previous invocation with `/debug`
 
-When a chat answer is wrong, the user can send `/debug` to get the Console link of the Invocation that produced it. Set `debug: true` to add this command. You do not need other commands.
+Set `debug: true` so a user can send `/debug` after a wrong answer. No other commands are needed.
 
 ```ts [server/agents/support.ts]
 import { inputCommands } from 'vite-hub/agent/capabilities'
@@ -113,62 +117,57 @@ import { inputCommands } from 'vite-hub/agent/capabilities'
 const commands = inputCommands({ debug: true })
 ```
 
-`/debug` replies with the Console URL of the latest earlier Invocation of the same Agent. When the current Invocation has a Channel thread, it uses only Invocations of the same Channel and thread. The reply stops the invocation, so the Agent Driver does not run.
+It replies with the Console URL of the latest earlier run of the same Agent, in the same Channel thread when there is one, and the Driver does not run.
 
-- With no earlier Invocation, it replies `No previous invocation was found in the ViteHub Console.`
-- Without `vitehub({ console })`, it replies `The ViteHub Console is not enabled for this Agent.`
-- The link follows the `invocationUrl()` rules above.
-
-A `debug` entry in `commands` replaces the built-in command.
+- With no earlier run: `No previous invocation was found in the ViteHub Console.`
+- Without `vitehub({ console })`: `The ViteHub Console is not enabled for this Agent.`
+- The link follows `invocationUrl()` rules. A `debug` entry in `commands` replaces it.
 
 ## Requirements
 
-- Command names must be lowercase stable identifiers: a letter first, then letters, digits, `_`, or `-`.
-- A command `description`, when set, must be a non-empty string.
-- `channels`, when set, must contain non-empty Channel IDs.
-- The trigger must be a non-empty string without whitespace.
+- Command names are lowercase: a letter, then letters, digits, `_`, or `-`.
+- `description` and `channels` entries, when set, must be non-empty.
+- The trigger is non-empty, with no whitespace.
 - Console helpers require the `vite-hub` import path and `vitehub({ console })`.
 - `debug`, when set, must be `true` or `false`. `commands` is required unless `debug` is `true`.
 
-Input Commands are Capability concerns.
-Host Commands that change chat, session, UI, or product state belong outside this Capability.
+Input Commands only change Agent input. Host Commands that change chat, session, UI, or product state do not belong here.
 
 ## Security and approval
 
-`inputCommands()` adds no model-facing tool, so the model cannot call a command. It has no `policy` option.
-Any user who can send input to the Agent can run every configured command. Use `channels` to limit a command to selected Channels. A command with `channels` does not run in invocations without a matching Channel ID, and its text stays in the input.
+The model cannot call commands. There is no `policy` option.
 
-Handlers run as server code with the host Runtime Capabilities in `context`, such as `db` and `context.console`. They do not pass through Capability approval. Check `context.invoker` in the handler before you read private data or change state.
+Anyone who can send input can run every command. `channels` limits a command to selected Channels. Elsewhere, it does not run and its text stays.
 
-Text that a handler returns becomes model input. Treat `args` as untrusted user input.
+> [!WARNING]
+> Handlers are server code with Runtime Capabilities such as `db` and `context.console`, and skip Capability approval. Check `context.invoker` before reading private data or changing state.
+
+Returned text becomes model input. Treat `args` as untrusted.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives the transformed prompt, messages, or context before model execution. |
-| Provider-backed | Receives the transformed Agent Run Input before provider execution. |
-| Custom-run-backed | Receives the transformed Agent Run Input; `driver.run` decides how to use context values. |
-
-A handler that returns a `Response` stops the invocation before any Agent Driver runs.
+| Model-backed | Gets the transformed prompt, messages, or context. |
+| Provider-backed | Gets the transformed Agent Run Input. |
+| Custom-run-backed | Gets the transformed input. `driver.run` uses context values as it decides. |
 
 ## Verify input commands
 
-1. Run `vitehub agent info --agent support --json` and confirm that the `inputCommands` Capability metadata lists each command, its description, and the trigger.
-2. Run an invocation with the configured command text.
-3. Inspect the final Agent Run Input and confirm that the command text was replaced or the expected context value was added before the Agent Driver ran.
-4. For a command that calls `context.reply()`, confirm a `204` response and that the Agent Driver did not run.
+1. `vitehub agent info --agent support --json` lists each command, description, and the trigger.
+2. Run with the command and check that the final Agent Run Input has the replaced text or context value.
+3. A `context.reply()` command returns `204`, and the Driver does not run.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `commands` | `Record<string, InputCommand>` | required unless `debug` is `true` | Command map keyed by lowercase stable command names. |
-| `commands.*.call` | `(input) => Partial<AgentRunInput> \| Response \| string \| void` | remove command text | Handler that rejects, transforms, enriches, or answers the request. Receives `args`, `command`, `context`, `input`, `message`, `name`, and `text`. |
-| `commands.*.channels` | `string[]` | all Channels | Configured Channel ID allowlist. |
-| `commands.*.description` | `string` | none | Command description for metadata and inspection. |
-| `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery helpers. |
-| `debug` | `boolean` | `false` | Add `/debug`, which replies with the Console link of the previous Invocation. Requires the `vite-hub` import path. |
+| `commands` | `Record<string, InputCommand>` | required unless `debug` is `true` | Commands by lowercase name. |
+| `commands.*.call` | `(input) => Partial<AgentRunInput> \| Response \| string \| void` | remove command text | Rejects, transforms, enriches, or answers. Gets `args`, `command`, `context`, `input`, `message`, `name`, and `text`. |
+| `commands.*.channels` | `string[]` | all Channels | Channel ID allowlist. |
+| `commands.*.description` | `string` | none | For metadata and inspection. |
+| `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Hooks with `ctx.message.reply/update/react`. |
+| `debug` | `boolean` | `false` | Add `/debug`. Needs the `vite-hub` import path. |
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 

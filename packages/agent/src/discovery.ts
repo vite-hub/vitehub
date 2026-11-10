@@ -265,8 +265,13 @@ function isWorkspaceAgentDefinition(source: string, file: string): boolean {
   return inspectAgentModule(source, file, new Set([file])).agentOwnsWorkspace()
 }
 
+/** Options of calls to the Agent factory, using the same binding rules as Workspace discovery. */
+export function discoverAgentOptionsStarts(source: string, file: string): Set<number> {
+  return inspectAgentModule(source, file, new Set([file])).agentOptionsStarts()
+}
+
 function inspectAgentModule(source: string, file: string, modules: Set<string>) {
-  const { tokens, lineBreaks } = tokenizeAgentSource(source, file)
+  const { tokens, lineBreaks, starts } = moduleTokens(scanModule(source, file))
   function declarationKeyword(index: number): boolean {
     if (["const", "let", "var"].includes(tokens[index])) return true
     // `using` is contextual; calls and properties with this name are not declarations.
@@ -289,6 +294,9 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   const importedCapabilityFactories = new Map<string, string>()
   const importedChannelBindings = new Set<string>()
   const importedChannelNamespaces = new Set<string>()
+  // `defineChannel()` from `vite-hub/channels`, which wraps an adapter.
+  const importedChannelDefinitionBindings = new Set<string>()
+  const importedChannelDefinitionNamespaces = new Set<string>()
   const importedChannelFactories = new Map<string, string>()
   // Static bindings from relative modules, keyed by local name.
   const moduleImports = new Map<string, { specifier: string, name: string }>()
@@ -350,6 +358,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
             const moduleName = moduleSpecifier(moduleToken)
             if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") importedNamespaces.add(tokens[j + 1])
             if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") importedChannelNamespaces.add(tokens[j + 1])
+            if (moduleName === "@vite-hub/channels" || moduleName === "vite-hub/channels") importedChannelDefinitionNamespaces.add(tokens[j + 1])
             if (moduleName === "@vite-hub/agent/capabilities" || moduleName === "vite-hub/agent/capabilities") importedCapabilityNamespaces.add(tokens[j + 1])
             continue
           }
@@ -375,10 +384,16 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
               if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") {
                 const bindings = tokens.slice(i + 1, j)
                 for (let b = 0; b < bindings.length; b++) {
-                  if (bindings[b] === "defineChannel") importedChannelBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
+                  if (bindings[b] === "channelAdapter") importedChannelBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
                   if (firstPartyChannelFactories.has(bindings[b]) && bindings[b - 1] !== "as") {
                     importedChannelFactories.set(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b], bindings[b])
                   }
+                }
+              }
+              if (moduleName === "@vite-hub/channels" || moduleName === "vite-hub/channels") {
+                const bindings = tokens.slice(i + 1, j)
+                for (let b = 0; b < bindings.length; b++) {
+                  if (bindings[b] === "defineChannel" && bindings[b - 1] !== "as") importedChannelDefinitionBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
                 }
               }
               if (moduleName.startsWith("./") || moduleName.startsWith("../")) {
@@ -1136,7 +1151,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   const trustedCalls = new Set<number>()
   const directEvalCalls = new Set<number>()
   const parameterLists = new Set([...functionScopes].map(scope => openingDelimiters.get(scope - 1)))
-  const factories = ["defineAgent", "defineChannel", "defineCapability", "channelHelper"] as const
+  const factories = ["defineAgent", "channelAdapter", "channelDefinition", "defineCapability", "channelHelper"] as const
   for (let index = 0; index < tokens.length; index++) {
     if ((tokens[index] === "(" || tokens[index]?.startsWith("`"))
       && ([")", "]"].includes(tokens[index - 1]) || tokens[index - 1]?.startsWith("`"))) opaqueCalls.add(index)
@@ -2562,7 +2577,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     return helper
   }
 
-  function factoryCall(index: number, name: "defineAgent" | "defineChannel" | "defineCapability" | "channelHelper" = "defineAgent", allowBare = false): number | undefined {
+  function factoryCall(index: number, name: "defineAgent" | "channelAdapter" | "channelDefinition" | "defineCapability" | "channelHelper" = "defineAgent", allowBare = false): number | undefined {
     const reference = resolveReference(index)
     const destructuredHelper = name === "channelHelper" ? destructuredChannelHelper(reference) : undefined
     if ((!destructuredHelper && visibleDeclaration(reference) !== undefined) || callbackParameters.some(scope =>
@@ -2595,10 +2610,11 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
         && firstPartyChannelFactories.has(memberAccess(reference)?.name ?? ""))) return undefined
     }
     else {
-      const bindings = name === "defineAgent" ? importedAgentBindings : name === "defineCapability" ? importedCapabilityBindings : importedChannelBindings
-      const namespaces = name === "defineChannel" ? importedChannelNamespaces : importedNamespaces
-      if (!(factory === name && !imported.has(factory)) && !bindings.has(factory) &&
-          !(namespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === name)) return undefined
+      const bindings = name === "defineAgent" ? importedAgentBindings : name === "defineCapability" ? importedCapabilityBindings : name === "channelDefinition" ? importedChannelDefinitionBindings : importedChannelBindings
+      const namespaces = name === "channelAdapter" ? importedChannelNamespaces : name === "channelDefinition" ? importedChannelDefinitionNamespaces : importedNamespaces
+      const exported = name === "channelDefinition" ? "defineChannel" : name
+      if (!(factory === name && name !== "channelDefinition" && !imported.has(factory)) && !bindings.has(factory) &&
+          !(namespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === exported)) return undefined
     }
     let call = index + 1
     while (true) {
@@ -2661,9 +2677,22 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     }
     const helper = channelHelper(channelOptions)
     if (helper !== undefined) return tokens[helper.call] === "(" && channelHelperOwnsWorkspace(helper.call, helper.helper)
-    const channelCall = factoryCall(channelOptions, "defineChannel")
+    const definitionCall = factoryCall(channelOptions, "channelDefinition")
+    if (definitionCall !== undefined) {
+      // defineChannel({ adapter, capabilities }) owns a Workspace through its capabilities or its adapter.
+      if (tokens[definitionCall + 1] === ")") return false
+      const definition = resolveReference(definitionCall + 1, new Set(), true)
+      let opaqueDefinition = false
+      const definitionProperties = properties(definition, true, false, () => { opaqueDefinition = true })
+      if (opaqueDefinition || tokens[definition] !== "{") throw opaqueChannelError()
+      const definitionCapabilities = definitionProperties.get("capabilities")
+      if (definitionCapabilities !== undefined && capabilityOwnsWorkspace(definitionCapabilities)) return true
+      const adapter = definitionProperties.get("adapter")
+      return adapter !== undefined && channelOwnsWorkspace(adapter, channelId)
+    }
+    const channelCall = factoryCall(channelOptions, "channelAdapter")
     if (channelCall !== undefined) {
-      // defineChannel(kind, options) contributes the options of this invocation.
+      // channelAdapter(kind, options) contributes the options of this invocation.
       let depth = 0
       let hasOptions = false
       for (let i = channelCall + 1; i < tokens.length; i++) {
@@ -2869,7 +2898,8 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     const capabilities = options.get("capabilities")
     if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
     const channels = options.get("channels")
-    if (channels !== undefined) {
+    // `channels: ['slack']` names Channels in server/channels. A named Channel cannot add a Workspace.
+    if (channels !== undefined && tokens[resolveReference(channels)] !== "[") {
       let opaque = false
       let owns = false
       const channelMap = resolveReference(channels)
@@ -3134,6 +3164,15 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   }
 
   return {
+    agentOptionsStarts(): Set<number> {
+      const options = new Set<number>()
+      for (let index = 0; index < tokens.length; index++) {
+        if (!isIdentifier(tokens[index]) || tokens[index - 1] === "." || isFunctionParameter(index)) continue
+        const call = factoryCall(index)
+        if (call !== undefined) options.add(starts[resolveReference(call + 1)])
+      }
+      return options
+    },
     agentOwnsWorkspace(): boolean {
       // The default export owns the folder; helper definitions do not.
       if (exported !== undefined) return ownsWorkspace(exported)

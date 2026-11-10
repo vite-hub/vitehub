@@ -538,13 +538,13 @@ describe("bearer webhook signature", () => {
   })
 
   it("verifies a Channel webhook route", async () => {
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const route = (secretToken: unknown) => {
       const run = vi.fn(() => "ok")
       const agent = defineAgent({
         channels: {
-          prefect: defineChannel("prefect", {
+          prefect: channelAdapter("prefect", {
             messages: false,
             triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "check" } }) }) },
             // SAFETY: Missing secret values are part of this test.

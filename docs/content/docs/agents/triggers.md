@@ -1,17 +1,17 @@
 ---
 title: Triggers
-description: Translate product events into Agent Invocations while the Driver continues to own execution.
+description: Turn product events into Agent Invocations. The Driver still runs the Agent.
 navigation.order: 43
 navigation.group: Channels
 icon: i-lucide-route
 navigation.kind: Guides
 ---
 
-A Trigger turns a product event into Agent Invocation input. Use it when a Capability owns the event's shape or policy. The Agent Driver still owns execution.
+A Trigger turns a product event, such as a new chat message or an opened ticket, into input for an Invocation (one run of the Agent). Use one when a Capability (tools and behavior that you add to an Agent) decides the event's shape or rules. The Driver, which runs the model, still runs the Invocation.
 
 ## Call an Agent directly
 
-An application route can call `runAgent()` when no Capability needs to prepare the event.
+When no Capability prepares the event, call `runAgent()` from a route.
 
 ```ts [server/api/support.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
@@ -34,11 +34,11 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Use this direct call for ordinary authenticated server routes and scheduled application code. Without a host lifetime API, drain tracked work before returning. The example reports background failures without replacing the Agent result or error.
+Use this in authenticated routes and scheduled code. Without a host lifetime API, finish tracked background work before you return, as the example does while it logs background failures.
 
 ## Use a Capability Trigger
 
-Use a Trigger when a Capability owns event preparation. The Chat Capability registers `chat.message` and can apply history, session, concurrency, and delivery behavior before the Driver runs.
+The Chat Capability, for example, registers the `chat.message` Trigger, which applies history, session, concurrency, and delivery behavior before the Driver runs.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -57,7 +57,7 @@ export default defineAgent({
 
 ### Consume a Capability Trigger
 
-Call the trigger from a server-owned route:
+Call the Trigger from a server route:
 
 ```ts [server/api/support-chat.post.ts] fragment
 import { streamAgentTrigger } from 'vite-hub/agent'
@@ -101,32 +101,37 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This streaming route requires a host lifetime API that stays active until the stream is consumed or cancelled. Calling `flushWaitUntil()` before returning the stream does not cover work scheduled later. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for host lifetime ownership.
+This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for who owns the lifetime.
 
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Invoker identity, session selection, or trusted metadata into the Trigger input.
 
-Direct Trigger consumers must authenticate first, reject threads the caller does not own, then load and supply the current thread's ordered messages, including the new message. `triggerHistory` limits that input; it does not backfill messages from `threadId` or a session id.
+> [!WARNING]
+> Authenticate the caller before you put Actor identity, session selection, or trusted metadata into the Trigger input.
+
+A route that calls a Trigger directly must, in order: authenticate the caller, reject threads the caller does not own, then load the thread's messages in order, add the new one, and pass them all. `triggerHistory` limits that input; it does not load missing messages from `threadId` or a session ID.
 
 ## Add an application-owned Trigger
 
-Use `defineChannel()` when an application-owned Channel Kind prepares its own event.
+Put a trigger in the `on` map of a Channel when your own system sends events. The Agent that lists the Channel runs the input that the trigger returns.
 
-```ts [server/agents/support.ts]
-import { defineAgent } from 'vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+```ts [server/channels/ticketing.ts]
+import { defineChannelTrigger } from 'vite-hub/agent/channels'
+import { defineChannel, webhook } from 'vite-hub/channels'
 import * as v from 'valibot'
 
 const ticketOpened = v.object({
-  ticketId: v.string(),
-  summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  payload: v.object({
+    ticketId: v.string(),
+    summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  }),
 })
 
-const ticketing = defineChannel('ticketing', {
-  messages: false,
-  triggers: {
-    'ticket.opened': defineChannelTrigger({
+export default defineChannel({
+  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: () => process.env.TICKETING_WEBHOOK_SECRET }),
+  on: {
+    webhook: defineChannelTrigger({
       input: ticketOpened,
-      invoke(context, event) {
+      invoke(context, { payload: event }) {
         return {
           input: {
             prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
@@ -141,41 +146,45 @@ const ticketing = defineChannel('ticketing', {
     }),
   },
 })
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  channels: { ticketing },
+  channels: ['ticketing'],
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-`defineChannelTrigger()` infers `event` from any [Standard Schema](https://standardschema.dev/) implementation. ViteHub validates and applies schema transforms before `invoke()`. Webhook authentication runs first, and invalid webhook input receives a generic `400 invalid_payload` response without exposing schema details.
+The trigger gets the verified webhook as `{ payload, body, request }`, where `payload` is the parsed JSON body. `defineChannelTrigger()` infers the `event` type from any [Standard Schema](https://standardschema.dev/) implementation. Webhook authentication runs first, then validation and schema transforms, then `invoke()`. Invalid webhook input gets a generic `400 invalid_payload` response without schema details.
 
-The Trigger translates the validated event and attaches trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
+The Trigger translates the validated event and adds trusted context. Keep model selection, tools, and execution behavior in the Agent Definition (what `defineAgent()` returns).
 
-When the Channel declares message methods, also return `message`: JSON data that identifies the provider message. Hooks use it through `event.message`. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
+When the Channel declares message methods, also return `message`: JSON that identifies the provider message, which hooks use through `event.message`. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
 
 ### Ignore a webhook
 
-Return `ignored(reason)` when the Channel receives an event that it does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry, and no Invocation starts.
+Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts.
 
 ```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
-  invoke(context, event) {
+  invoke(context, { payload: event }) {
     if (event.summary.startsWith('[bot]')) return ignored('bot_ticket')
     return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
   },
 })
 ```
 
-Two siblings answer the other cases. Both answer `{ accepted: false, ok: false, reason }`, and no Invocation starts.
+Two other helpers answer `{ accepted: false, ok: false, reason }` and start no Invocation.
 
 | Helper | Status | Use it when | Retry |
 | --- | --- | --- | --- |
 | `ignored(reason)` | 200 | The Channel does not handle the event. | No |
-| `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. When the webhook queue replays a queued delivery and the trigger returns it, the queue retries and its error names the reason. |
+| `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. For a queued delivery that the queue replays, the queue retries, and its error names the reason. |
 | `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
 
 ```ts fragment
@@ -193,7 +202,7 @@ defineChannelTrigger({
 
 ### Run deliveries one at a time per key
 
-Set `webhook.serialize: key` to queue a delivery and run it only when no other delivery with the same key runs.
+`webhook.serialize: key` queues a delivery until no other delivery with the same key runs.
 
 ```ts fragment
 defineChannelTrigger({
@@ -205,11 +214,11 @@ defineChannelTrigger({
 })
 ```
 
-`serialize: key` is the same as `concurrencyKey: key` with `concurrencyLimit: 1`, so it needs a state provider. The limit counts the deliveries of one `concurrencyGroup`, so deliveries with other keys in the same group also wait. Set `serialize` or `concurrencyKey` and `concurrencyLimit`, not both: ViteHub throws a `TypeError` when the result has `serialize` and either of the others.
+`serialize: key` equals `concurrencyKey: key` with `concurrencyLimit: 1`, so it needs a state provider (the storage for the queue). The limit counts deliveries of one `concurrencyGroup`, so other keys in the same group also wait. ViteHub throws a `TypeError` when a result sets `serialize` with either of the others.
 
 ### Identify a webhook delivery
 
-`webhook.deliveryId` identifies the delivery. ViteHub uses it to drop a retried delivery that it already accepted, and on a Channel Trigger the Invocation runs under it. When you omit it, the delivery ID is the SHA-256 (hex) of the raw request body, so a provider retry with an identical body is the same delivery.
+`webhook.deliveryId` identifies the delivery, so ViteHub drops a retry it already accepted. On a Channel Trigger, the Invocation runs under this ID. The default is the SHA-256 (hex) of the raw request body, so a retry with the same body is the same delivery.
 
 ```ts fragment
 defineChannelTrigger({
@@ -221,11 +230,11 @@ defineChannelTrigger({
 })
 ```
 
-Set `deliveryId` when the provider sends an event ID, or when two different events can have the same body. A body with a timestamp or a nonce that changes on each retry gives each retry a new delivery ID. The default applies only when a webhook route runs the Trigger. A Trigger that you call from code without a request gets no default.
+Set `deliveryId` when the provider sends an event ID, when two events can share a body, or when a timestamp or nonce changes on each retry. The default applies only when a webhook route runs the Trigger, not to calls from code without a request.
 
 ### Debounce webhook deliveries
 
-Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
+Some providers send several notifications for one change. `webhook.debounce: { key, delayMs }` runs only the last one: a queued delivery waits `delayMs`, and a later delivery with the same `key` replaces it before it starts and restarts the wait.
 
 ```ts fragment
 defineChannelTrigger({
@@ -241,11 +250,11 @@ defineChannelTrigger({
 })
 ```
 
-Debounce needs a queued delivery, so it needs a state provider and `concurrencyLimit`. A delivery that already runs is not stopped; the later delivery runs after it. A replaced delivery is complete in the queue and shows a `superseded` event in its Channel delivery record. `debounce` is not available with `busy: 'steer'`.
+Debounce needs a state provider and `concurrencyLimit`. A running delivery does not stop; the later one runs after it. A replaced delivery counts as complete, and its Channel delivery record shows a `superseded` event. `debounce` does not work with `busy: 'steer'`.
 
 ### Answer the provider
 
-After ViteHub admits a webhook delivery, it answers with a JSON receipt such as `{ "accepted": true, "ok": true, "queued": true }`. Some providers expect a specific answer. Set `webhook.response` to send that `Response` instead:
+An accepted delivery gets a JSON receipt such as `{ "accepted": true, "ok": true, "queued": true }`. For providers that expect a specific answer, set `webhook.response`:
 
 ```ts fragment
 defineChannelTrigger({
@@ -257,11 +266,11 @@ defineChannelTrigger({
 })
 ```
 
-ViteHub sends `webhook.response` for an accepted, queued, steered, or duplicate delivery, after the delivery is admitted. Busy and error answers keep their own status and body. The queue does not store `webhook.response`, so a restart or a retry never sends it again.
+It is sent after admission for an accepted, queued, steered, or duplicate delivery. Busy and error answers keep their own status and body. The queue does not store it, so a restart or retry never resends it.
 
 ### Prepare accepted work and run tasks
 
-Keep `invoke` fast: it decides whether to accept a delivery and returns JSON input. Put slow or side-effecting work in `prepare`, and name units of work in `tasks`. `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
+Keep `invoke` fast: it only accepts a delivery and returns JSON input. Put slow or side-effect work in `prepare`. Name units of work in `tasks`, and select one from `invoke` with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
 
 ```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
@@ -290,17 +299,28 @@ defineChannelTrigger({
 })
 ```
 
-With the webhook queue, ViteHub stores the task key, the name of the task's Agent and the accepted JSON input before `prepare` runs. The queue then runs `prepare` and the task on every attempt. After a restart, the queue reads the task from the current trigger definition and does not call `invoke` again. The input and `run` metadata must be JSON-serializable, and a task Agent needs a stable `name`. If a stored task no longer exists, or now runs another Agent, the attempt fails.
+With the webhook queue, ViteHub stores the task key, the task Agent's name, and the accepted JSON input before `prepare`, then runs `prepare` and the task on every attempt. After a restart, it reads the task from the current Trigger definition without calling `invoke` again. So the input and `run` metadata must be JSON-serializable, a task Agent needs a stable `name`, and an attempt fails when its stored task is gone or now runs another Agent.
 
-A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare` runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers settle the delivery without an Invocation, and a 5xx answer retries it. A task's `run` result settles the delivery the same way when it is a `Response`.
+A task's own `prepare` replaces the Trigger's, which runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers, including a `Response` from a task's `run`, settle the delivery without an Invocation. A 5xx answer retries it.
 
-`prepare` and a task's `run` receive `{ input, run, invocation }`. When the delivery has a run ID, `invocation: { id, consoleUrl? }` is the Invocation that the accepted input starts: the task Agent's Invocation for a task with `agent`, otherwise the Invocation of the Agent that owns the trigger. Use it to link the Invocation in a progress message before the Agent starts. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
+`prepare` and a task's `run` receive `{ input, run, invocation }`. With a run ID, `invocation: { id, consoleUrl? }` is the Invocation the input starts: the task Agent's for a task with `agent`, else the Trigger owner's. Use it to link the Invocation in a progress message before the Agent starts. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
 
-Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` on each attempt. A delivery that steers an active Invocation sends its accepted input directly and skips `prepare`. Put work needed for every delivery in `invoke`. Steering cannot select a named task. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
+Without the queue, `prepare` and the task run before ViteHub answers the webhook, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` also run them.
+
+With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` on each attempt. One that steers an active Invocation sends its input directly and skips `prepare`, so put work every delivery needs in `invoke`. Steering cannot select a named task.
+
+`replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 
 ### Run a task later from server code
 
-Use `enqueueChannelTask()` to queue a declared task from server code in the same persistent Node server as the Agent webhook host, such as an Agent hook, an in-process Schedule or an API route. On persistent Nitro hosts, enqueue and cancellation start the queue on demand, including before its background startup timer fires. Standalone serverless Schedule and API entries on Netlify or Vercel run in separate processes and cannot use these APIs. The task runs at `notBefore` or after `delayMs`, through the Channel's webhook queue. Its `prepare`, `failed`, retries, restart replay and Channel delivery record work as for a queued webhook delivery. `input` is the input that `invoke` would return for the task.
+`enqueueChannelTask()` skips the trigger's `invoke`. To run `invoke` too, with its delivery ID, `serialize`, `debounce`, and Channel State, use [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code) from `vite-hub/channels`, for example to reconcile a webhook that a provider lost.
+
+`enqueueChannelTask()` runs a declared task at `notBefore` or after `delayMs` through the Channel's webhook queue. `prepare`, `failed`, retries, restart replay, and the delivery record work as for a queued webhook delivery. `input` is what `invoke` would return for the task.
+
+Call it from server code in the same persistent Node server as the Agent webhook host, such as an Agent hook, an in-process Schedule, or an API route. On persistent Nitro hosts, enqueue and cancel start the queue when needed, even before its startup timer fires.
+
+> [!NOTE]
+> Standalone serverless Schedule and API entries on Netlify or Vercel run in separate processes. They cannot use these APIs.
 
 ```ts fragment
 import { cancelChannelTask, enqueueChannelTask } from 'vite-hub/agent/server'
@@ -316,7 +336,7 @@ const [cancelError, cancelled] = await cancelChannelTask('airtable', 'close-dupl
 if (cancelError) throw cancelError
 ```
 
-A later enqueue of the same trigger's task with the same `key` replaces a queued task that has not started. `cancelChannelTask()` drops that trigger's queued tasks with the `key` and returns how many it dropped. A task that has started keeps running. Use `prepare` to check live state when the task starts and return `ignored()` when the work is no longer needed.
+A later enqueue with the same `key` replaces a queued task of that Trigger that has not started. `cancelChannelTask()` drops queued tasks with the `key` and returns the count. Started tasks keep running, so check live state in `prepare` and return `ignored()` when work is no longer needed.
 
 Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return a `Result` from `vite-hub/runtime`: `[error, undefined]` or `[undefined, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time. `error.code` is one of these:
 
@@ -328,11 +348,13 @@ The queue or the Agent State store failed while it queued or cancelled the task.
 
 The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem.
 
-
-
 ### Report a failed webhook delivery
 
-When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. The Invocation runs under the delivery ID: an unset `run.runId` defaults to `deliveryId` and an unset `run.channelId` to the Channel, so every retry of one delivery is the same Invocation. When an attempt fails, the retry returns that Invocation from `failed` to `pending` and runs the Agent again. The record keeps the observations of the failed attempt, and its status, error, and `failedAt` come from the latest attempt. You can cancel a failed Invocation while it waits for another attempt; the record becomes `cancelled` and the retry does not dispatch the Agent. A `cancelled` or `completed` Invocation is not reopened. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
+When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the delivery and retries a failed run, with three execution attempts. Add `failed` to tell the provider when retries stop.
+
+- Unset `run.runId` defaults to `deliveryId` and unset `run.channelId` to the Channel, so every retry is the same Invocation.
+- A retry moves the Invocation from `failed` back to `pending` and runs the Agent again. The record keeps failed-attempt observations; status, error, and `failedAt` come from the latest attempt.
+- Cancelling a failed Invocation that waits for another attempt makes it `cancelled`, and the retry does not dispatch. `cancelled` or `completed` Invocations are never reopened.
 
 ```ts fragment
 defineChannelTrigger({
@@ -347,9 +369,9 @@ defineChannelTrigger({
 })
 ```
 
-ViteHub dispatches `failed` at most once per delivery: after the last failed attempt, after an execution timeout, or when the delivery used all its execution leases because the process stopped during each attempt. It does not call `failed` for an attempt that the queue retries, or for a cancelled Invocation. The event has `attempts`, `deliveryId`, `error`, `publicError`, and, when they are known, `input`, `run`, and `invocation: { id, consoleUrl? }`. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
+ViteHub calls `failed` at most once per delivery: after the last failed attempt, after an execution timeout, or when the process stopped during each attempt and used all execution leases. Not for retried attempts or cancelled Invocations. The event has `attempts`, `deliveryId`, `error`, and `publicError`, plus `input`, `run`, and `invocation: { id, consoleUrl? }` when known. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
 
-A task can declare its own `failed`. It replaces the trigger's `failed` for that task's deliveries and gets the same event. The trigger's `failed` stays the fallback for tasks without one. A row stored without a task key finds its task through `run.origin` when the origin names a declared task.
+A task's own `failed` replaces the Trigger's for that task and gets the same event. A row stored without a task key finds its task through `run.origin` when the origin names a declared task.
 
 ```ts fragment
 defineChannelTrigger({
@@ -368,9 +390,12 @@ defineChannelTrigger({
 })
 ```
 
-The delivery is already marked as failed when `failed` runs. ViteHub logs an error from `failed` and does not retry the delivery or change its outcome. Keep the callback short, because the queue worker waits for it.
+The delivery is already failed when `failed` runs. If it throws, ViteHub logs the error without retrying or changing the outcome. Keep it short, because the queue worker waits for it.
 
-With the built-in SQLite state providers, a pending notification survives a restart until a worker claims it. Its `failure.notificationStarted` dispatch marker is permanent, so another worker cannot repeat the callback after a lease expires. Queue ownership still expires: recovery completes the terminal delivery and records the channel failure without replaying `failed`, even if the original callback is paused or its process exited before recording completion. Queue completion therefore does not prove that the callback finished or that its external effects succeeded. Reconcile uncertain effects with the destination using `deliveryId`. `webhookDeliveries(scope)` exposes the dispatch marker until queue completion. Custom queue adapters without durable notification claims provide best-effort, at-most-once dispatch.
+With the built-in SQLite state providers, a pending notification survives a restart until a worker claims it. Its `failure.notificationStarted` dispatch marker is permanent, so no other worker reruns the callback after a lease expires. When queue ownership expires, recovery completes the terminal delivery and records the Channel failure without calling `failed` again, even when the first callback paused or its process exited before it recorded completion.
+
+> [!WARNING]
+> Queue completion does not prove that the callback finished or that its external effects succeeded. Use `deliveryId` to check uncertain effects with the destination. `webhookDeliveries(scope)` shows the dispatch marker until queue completion. Custom queue adapters without durable notification claims give best-effort, at-most-once dispatch.
 
 ## Choose how to call the Agent
 
@@ -381,4 +406,4 @@ With the built-in SQLite state providers, a pending notification survives a rest
 | A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
 | A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations) for the result |
 
-Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.
+Webhook adapters can keep ownership of the request until the delivery finishes. Configure timeout, concurrency, and durable delivery in the Channel, not the Driver.

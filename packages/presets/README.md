@@ -27,8 +27,9 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
   built-in Channel, and `channelMessageContextKey` reads the Channel message in `intercept`.
 - `@vite-hub/agent/server/github`: the GitHub host, pull request operations, dependency
   installation, and repair helpers.
-- `@vite-hub/agent/server/internal`: the Babysitter worker still reads Agent layer metadata
-  and the active provider Sandbox through this internal entry.
+- `@vite-hub/agent`: the Babysitter worker builds its Agent from the configured one with
+  `agentSettings()`, removes the host GitHub token with `withoutForgeAccess()`, and reaches the
+  provider Sandbox with `activeProviderSandbox()`.
 
 ## Labeller
 

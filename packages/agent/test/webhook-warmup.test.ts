@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { UserConfig } from "vite"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler, createAgentWebhookWarmup } from "../src/server/internal.ts"
@@ -28,7 +28,7 @@ function deferred() {
 function hookAgent(secretToken: () => string) {
   return defineAgent({
     channels: {
-      hook: defineChannel("hook", {
+      hook: channelAdapter("hook", {
         messages: false,
         triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
         webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secretToken, signature: "github-sha256" },

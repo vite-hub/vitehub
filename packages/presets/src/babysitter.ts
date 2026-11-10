@@ -12,7 +12,7 @@ import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
-import { defineChannel, defineChannelTrigger } from "@vite-hub/agent/channels";
+import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
@@ -214,7 +214,7 @@ function plainSecret(value: unknown): string | undefined {
   return hasRuntimeType(plain, "string") && plain.trim() ? plain.trim() : undefined;
 }
 
-const babysitterIntake = defineChannel("babysitter-github", {
+const babysitterIntake = channelAdapter("babysitter-github", {
   messages: false,
   triggers: {
     delivery: defineChannelTrigger({

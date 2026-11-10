@@ -191,6 +191,7 @@ export interface AgentCapabilityInvocationOptions<
   phases?: readonly AgentCapabilityRuntimePhase[]
   resolveCapabilityCli?: boolean
   resolveTools?: boolean
+  trackInputData?: boolean
   workspaceDefinition?: WorkspaceDefinition
 }
 
@@ -1482,9 +1483,10 @@ export async function resolveAgentCapabilities<
   const inputMessages = getRunMessages(currentInput)
   let messages = memoizeMessageAttachmentData(inputMessages)
   if (messages !== inputMessages) currentInput = withMessages(currentInput, messages)
+  const trackInputData = invocationOptions.trackInputData !== false
   let initialInputDataReference = currentInput.data
-  let initialInputData = snapshotCapabilityData(currentInput.data)
-  const inputDataChanged = () => currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData)
+  let initialInputData = trackInputData ? snapshotCapabilityData(currentInput.data) : undefined
+  const inputDataChanged = () => trackInputData && (currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData))
   let tools: AgentToolSet | undefined
   const driverContributions: AgentDriverContribution[] = []
   let capabilityScope: AgentCapabilityScope | undefined
@@ -1917,7 +1919,7 @@ export async function resolveAgentCapabilities<
       setInputDataBaseline(input) {
         currentInput = input
         initialInputDataReference = currentInput.data
-        initialInputData = snapshotCapabilityData(currentInput.data)
+        initialInputData = trackInputData ? snapshotCapabilityData(currentInput.data) : undefined
       },
       response,
       registries,

@@ -76,10 +76,10 @@ it("excludes a Workspace alias used only in returned Agent settings", async () =
 
 it.each(["@vite-hub/agent/channels", "vite-hub/agent/channels"])("inspects local Channel constructors from %s", async (module) => {
   for (const [imports, factory] of [
-    [`import { defineChannel } from "${module}"`, "defineChannel"],
-    [`import { defineChannel as channel } from "${module}"`, "channel"],
-    [`import * as channels from "${module}"`, "channels.defineChannel<Runtime>"],
-    [`import { defineChannel as channel } from "${module}"; const factory = channel`, "factory"],
+    [`import { channelAdapter } from "${module}"`, "channelAdapter"],
+    [`import { channelAdapter as channel } from "${module}"`, "channel"],
+    [`import * as channels from "${module}"`, "channels.channelAdapter<Runtime>"],
+    [`import { channelAdapter as channel } from "${module}"; const factory = channel`, "factory"],
   ]) {
     for (const inline of [true, false]) {
       const value = `${factory}("custom", { capabilities: [storage] })`
@@ -90,10 +90,10 @@ it.each(["@vite-hub/agent/channels", "vite-hub/agent/channels"])("inspects local
 })
 
 it.each([
-  'defineChannel => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } })',
-  '() => { const defineChannel = () => ({}); return defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) }',
+  'channelAdapter => defineAgent({ channels: { custom: channelAdapter("custom", { capabilities: [storage] }) } })',
+  '() => { const channelAdapter = () => ({}); return defineAgent({ channels: { custom: channelAdapter("custom", { capabilities: [storage] }) } }) }',
 ])("requires explicit ownership for shadowed Channel factories: %s", async (configure) => {
-  await expect(workspaceFor(`import { defineChannel } from "@vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: ${configure} })`)).rejects.toThrow("opaque Channel")
+  await expect(workspaceFor(`import { channelAdapter } from "@vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: ${configure} })`)).rejects.toThrow("opaque Channel")
 })
 
 it.each([
@@ -107,7 +107,7 @@ it.each([
 })
 
 it("does not trust another package's Channel constructor", async () => {
-  await expect(workspaceFor('import { defineChannel } from "other-package"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) })')).rejects.toThrow("opaque Channel")
+  await expect(workspaceFor('import { channelAdapter } from "other-package"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: channelAdapter("custom", { capabilities: [storage] }) } }) })')).rejects.toThrow("opaque Channel")
 })
 
 it.each([

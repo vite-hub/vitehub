@@ -102,6 +102,7 @@ import {
 } from "../internal/runtime-value.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
+import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
@@ -9365,6 +9366,40 @@ function createChannelTaskQueue(
       await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId })
       return { deliveryId, notBefore: options.notBefore, runId }
     }),
+    trigger: (channel, triggerName, input) => withContext(async (context) => {
+      // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
+      const triggers = await resolveAgentTriggers(agent as never, context as never)
+      const handlerEvent = !Object.hasOwn(triggers, `${channel}.${triggerName}`) && Object.hasOwn(triggers, `${channel}.${channelHandlerTriggerName}`)
+        && Object.hasOwn(triggers[`${channel}.${channelHandlerTriggerName}`]!.tasks ?? {}, triggerName)
+      const triggerId = `${channel}.${handlerEvent ? channelHandlerTriggerName : triggerName}`
+      const trigger = triggers[triggerId]
+      if (!trigger) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" has no trigger or \`on\` handler "${triggerName}".` })
+      const registrations = (await agentWebhookRegistrations(agent, context)).filter(match => match.registration.channelId === channel)
+      const match = registrations.find(candidate => candidate.trigger.id === triggerId) ?? registrations[0]
+      if (!match) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" declares no webhook, so it has no queue for trigger "${triggerName}".` })
+      const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+      if (!webhookState || !hasAgentWebhookQueue(webhookState.state)) {
+        throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot queue triggers. Use durable SQLite or libSQL Agent State.` })
+      }
+      const queueState = { keyPrefix: webhookState.keyPrefix, state: webhookState.state }
+      // The trigger gets the same State and queue as on its webhook route, so its dispatch(), pull(), and
+      // channelState.transaction() work, and its result is admitted like a webhook delivery.
+      const request = context.request!
+      const admit = createQueuedChannelDispatch(agent, request, match.registration, match.registration.id || match.registration.provider, queueState, handlerOptions, webhookQueue)
+      bindAgentChannelTriggerState(request, channel, { keyPrefix: `${webhookState.keyPrefix}channel-state:`, state: webhookState.state })
+      bindAgentChannelWebhookState(request, channel)
+      bindAgentChannelTriggerQueue(request, channel, admit)
+      // A trigger that receives webhooks reads the body as `payload`, as from its route.
+      const receivesWebhooks = trigger.webhooks === undefined || trigger.webhooks.length > 0
+      const body = JSON.stringify(input ?? null)
+      const triggerInput = handlerEvent || receivesWebhooks
+        ? { body, payload: input, request: { headers: {}, method: "POST", url: request.url }, ...(handlerEvent ? { event: triggerName } : {}) }
+        : input
+      const key = globalThis.crypto.randomUUID()
+      const result = await admit(createExecutionContext(context as never) as never, [{ input: triggerInput, key }], { queue: true, rawBody: new TextEncoder().encode(body), trigger: triggerId.slice(channel.length + 1) })
+      const item = result.items[0]
+      return { deliveryId: item?.status === "queued" ? item.id : item?.id ?? key, queued: item?.status === "queued" }
+    }),
     cancel: (channel, task, options) => withContext(async (context) => {
       const { trigger, webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
       if (!webhookState.state.cancelWebhookDeliveries) {
@@ -9438,7 +9473,7 @@ function createQueuedChannelDispatch(
           context as never,
           triggerId,
           item.input,
-          { channelStateCommit: commit, verifyWebhook: false },
+          { channelStateCommit: commit, rawBody: options?.rawBody, verifyWebhook: false },
         )
         if (isResolvedAgentTriggerHandledInvocation(invocation)) {
           await invocation.response.body?.cancel()

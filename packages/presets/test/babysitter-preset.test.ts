@@ -46,7 +46,7 @@ import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
 import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
-import { getAgentLayerOptions } from "../../agent/src/agent-layers.ts";
+import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
 import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
@@ -1913,7 +1913,7 @@ describe("Babysitter preset runtime", () => {
 
   it("preserves the Babysitter mention allowlist through Agent layer configuration", () => {
     const agent = defineAgent({ extends: babysitter, options: { mentionAllowlist: [" Stefina ", "other-user"] } });
-    expect(getAgentLayerOptions(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
+    expect(agentSettings(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
     expect(agent.options.mentionAllowlist).toEqual([" Stefina ", "other-user"]);
   });
 
@@ -2134,7 +2134,7 @@ describe("Babysitter preset runtime", () => {
 
   it("selects the Claude Code driver", () => {
     const agent = defineAgent({ extends: babysitter, options: { driver: "claude-code" } });
-    expect(getAgentLayerOptions(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
+    expect(agentSettings(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
     expect(agent.options.driver).toBe("claude-code");
   });
 

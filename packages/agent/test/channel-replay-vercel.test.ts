@@ -6,7 +6,7 @@ import { runAgentInline } from "../src/internal/agent-run.ts"
 import { createWorkflow } from "../../workflow/src/index.ts"
 import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../../workflow/src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader, type VercelRun, type VercelWorkflowRuntime } from "../../workflow/src/runtime/vercel.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 import { agentEnvAccess } from "@vite-hub/env/internal/agent"
 import { defineAgent, agentWorkflow } from "../src/index.ts"
@@ -38,7 +38,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {}, agentIdentity: { name } }
   const driver = vi.fn(() => "done")
   const identities: unknown[] = []
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
