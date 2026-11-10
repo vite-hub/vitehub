@@ -12,6 +12,7 @@ import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
+import { consoleOAuthDataRoutes } from "./runtime/console-route.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
@@ -122,7 +123,11 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
         'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "vite-hub/auth/runtime/server"',
         'import { resolveConsoleAppAuthIdentity as vitehubResolveConsoleAppAuthIdentity } from "vite-hub/console/sections"',
       )
-      afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)
+      // The MCP endpoint, and the data routes that a hosted Console calls with an access token.
+      const base = access.oauth.path.slice(0, -"/mcp".length)
+      for (const path of [access.oauth.path, ...consoleOAuthDataRoutes.map(route => `${base}${route}`)]) {
+        afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(path)}, vitehubResolveConsoleAppAuthIdentity)`)
+      }
     }
   }
   if (access.oauth && access.mode === "auth" && oauthAuth) {
