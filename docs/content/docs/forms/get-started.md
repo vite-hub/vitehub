@@ -47,8 +47,8 @@ export default defineForm({ schema: ContactSchema })
 The folder `server/forms/` turns the Database on when you did not set `database`. Forms adds its table to the default Database. Write and apply the migration:
 
 ```bash [commands/migrate]
-vitehub db generate
-vitehub db migrate
+vitehub database generate
+vitehub database migrate
 ```
 
 ::

@@ -34,7 +34,7 @@ A file of `server/forms/` has a name that is not lowercase letters, digits, and 
 
 ### FORMS_R0001
 
-The Database could not read or write a message. Most often the table is missing: run `vitehub db generate` and `vitehub db migrate`.
+The Database could not read or write a message. Most often the table is missing: run `vitehub database generate` and `vitehub database migrate`.
 
 ### FORMS_R0002
 

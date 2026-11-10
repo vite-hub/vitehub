@@ -48,6 +48,8 @@ pnpm add @formisch/vue
 | `honeypot` | `website` | The honeypot field of `defineForm()`. `false` leaves it out. |
 | `anchor` | | The selected sentence, sent as `_anchor`. |
 
+The Console shows the text of a message from the first of these fields: `message`, `feedback`, `details`, `description`, `comment`, `body`, `text`, `notes`, `note`, or `workflow`. Give the long field of a form one of these names. `vitehub forms get` shows every field.
+
 The form posts to its route also before the app loads, or without JavaScript. The server sends the browser back with `?form=sent` or `?form=error`. Pass that query as `result`, so a server-rendered page shows the result before JavaScript runs. Without `result`, `AutoForm` reads the query when it mounts, which needs JavaScript:
 
 ```vue [app/pages/contact.vue] fragment
@@ -68,6 +70,7 @@ It draws plain elements with `data-*` attributes, so the app owns the styles. Ke
 [data-vitehub-form] [data-field] { display: grid; gap: 0.25rem; }
 [data-vitehub-form] :is(input, select, textarea) { font-size: 1rem; }
 [data-vitehub-form] button { min-height: 2.75rem; }
+[data-vitehub-form] button[aria-busy] { opacity: 0.6; cursor: progress; }
 [data-vitehub-form] [data-error] { color: crimson; }
 ```
 
@@ -87,11 +90,13 @@ const { send, sent } = useFormSubmit('feedback', form)
 <template>
   <Form :of="form" @submit="() => send()">
     <Field v-slot="field" :of="form" :path="['message']">
-      <textarea v-model="field.input" v-bind="field.props" />
-      <p v-if="field.errors">{{ field.errors[0] }}</p>
+      <label for="feedback-message">Message</label>
+      <textarea id="feedback-message" v-model="field.input" v-bind="field.props" :aria-describedby="field.errors ? 'feedback-message-error' : undefined" />
+      <p v-if="field.errors" id="feedback-message-error">{{ field.errors[0] }}</p>
     </Field>
     <button>Send</button>
-    <p v-if="sent">Thanks.</p>
+    <!-- Always in the page, so screen readers announce the text when it appears -->
+    <p role="status">{{ sent ? 'Thanks.' : '' }}</p>
   </Form>
 </template>
 ```
