@@ -11,7 +11,7 @@ icon: i-lucide-send
   :::code-tree
   ```ts [server/channels/stripe.ts] fragment
   import { defineChannel, stripe } from 'vite-hub/channels'
-  import { runQueue } from 'vite-hub/queue'
+  import { sendQueue } from 'vite-hub/queue'
 
   // The file name makes this the "stripe" Channel.
   export default defineChannel({
@@ -21,7 +21,7 @@ icon: i-lucide-send
       // Runs once per Stripe event ID, after ViteHub stores it.
       // A failed Result retries the event.
       'checkout.session.completed': event =>
-        runQueue('fulfil', event.data),
+        sendQueue('fulfil', event.data),
     },
   })
   ```
