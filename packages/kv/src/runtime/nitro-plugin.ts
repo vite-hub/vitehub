@@ -20,8 +20,8 @@ async function logInferredStores(): Promise<void> {
 }
 
 /**
- * Nitro plugin of KV for stores that can use Redis. At boot it prints the driver of each inferred store, because the
- * choice depends on `REDIS_URL` in each process. On close it releases KV connections, so the process can exit.
+ * Nitro plugin of KV for Redis connections and inferred-store boot notices. On close it releases KV connections,
+ * so the process can exit.
  */
 export default function kvNitroPlugin(nitroApp: NitroAppLike): void {
   nitroApp.hooks.hook("close", disposeKVStores)

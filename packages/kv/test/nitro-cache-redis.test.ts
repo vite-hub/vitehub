@@ -10,11 +10,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 const redisUrl = process.env.VITEHUB_TEST_REDIS_URL
 const state = vi.hoisted(() => ({ base: "" }))
 
-// A Node build without a KV driver: the build inferred `fs-lite`, and the server picks Redis when `REDIS_URL` is set.
+// An explicit Redis store reads only its connection URL at runtime.
 vi.mock("#vitehub/kv/config", () => ({
   hosting: "node-server",
   get kv() {
-    return { store: { driver: "fs-lite", base: state.base, inferred: true } }
+    return { store: { driver: "redis", base: "vitehub:kv:default", url: "env:REDIS_URL" } }
   },
   loadDatabases: undefined,
 }))
@@ -22,7 +22,7 @@ vi.mock("#vitehub/kv/config", () => ({
 vi.mock("@vite-hub/kv", async () => await import("../src/index.ts"))
 vi.mock("@vite-hub/kv/runtime/redis-driver", async () => await import("../src/runtime/redis-driver.ts"))
 
-describe.runIf(redisUrl)("Nitro cache on an inferred store with REDIS_URL", () => {
+describe.runIf(redisUrl)("Nitro cache on an explicit Redis store with a runtime URL", () => {
   const prefix = `nitro-cache-${randomUUID()}`
   let redis: Redis
 
@@ -51,7 +51,7 @@ describe.runIf(redisUrl)("Nitro cache on an inferred store with REDIS_URL", () =
 
     expect(await storage.getItem("cache:nitro:functions:stars:repo.json")).toMatchObject({ value: 42 })
     expect(await storage.getKeys("cache")).toEqual(["cache:nitro:functions:stars:repo.json"])
-    // The inferred store keeps its keys under its own Redis prefix.
+    // The store keeps its keys under its own Redis prefix.
     const redisKey = `vitehub:kv:default:${prefix}:nitro:functions:stars:repo.json`
     expect(await redis.get(redisKey)).toContain("\"value\":42")
     const ttl = await redis.pttl(redisKey)
@@ -61,7 +61,7 @@ describe.runIf(redisUrl)("Nitro cache on an inferred store with REDIS_URL", () =
 
     // A second server process shares the entry through Redis.
     const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
-    const other = createHostedKVStorage({ store: { driver: "fs-lite", base: state.base, inferred: true } })
+    const other = createHostedKVStorage({ store: { driver: "redis", base: "vitehub:kv:default", url: "env:REDIS_URL" } })
     expect(await other.getItem(`${prefix}:nitro:functions:stars:repo.json`)).toMatchObject({ value: 42 })
     await other.dispose()
 

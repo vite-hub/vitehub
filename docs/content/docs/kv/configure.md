@@ -88,8 +88,8 @@ export default defineConfig({
 
 | Provider | Driver | Default resolution in a build |
 | --- | --- | --- |
-| Redis | `redis` | Used on Node when `REDIS_URL` is set on the server. |
-| Database | `database` | Used on Node when the app has a Postgres Default Database and `REDIS_URL` is not set. |
+| Redis | `redis` | Selected with `driver: 'redis'`; the server reads the URL at runtime. |
+| Database | `database` | Used on Node when the app has a Postgres Default Database. |
 | Local filesystem | `fs-lite` | Used on Node when neither applies. |
 | Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
 | Deno KV | `deno-kv` | Used on Deno hosting. |
@@ -99,11 +99,12 @@ export default defineConfig({
 
 Several Node processes share KV keys only through a shared store. Without a `driver`, a Node build picks the store in this order:
 
-1. `redis` when `REDIS_URL` is set. The server reads it when the store starts, so one build can run with or without Redis.
-2. `database` when the app has a Default Database on Postgres. The build reads the Database Definition for that, without running it.
-3. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
+1. `database` when the app has a Default Database on Postgres. The build reads the Database integration's resolved configuration, without running the Database.
+2. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
 
-`vitehub inspect definitions --kind kv` shows the build driver, for example `database, or redis when REDIS_URL is set at runtime`. Each server process prints the driver it picked when it starts, for example `[vitehub] KV store "default" uses Redis, because REDIS_URL is set.`, and `vitehub kv list` prints it too. Set the same `REDIS_URL` on every process: a process without it uses another store. An explicit `driver` turns the inference off, and so does `vitehub({ dataDir })`, which selects `fs-lite` in that directory. `vite dev` keeps the inferred store on `fs-lite`.
+The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver.
+
+`vitehub inspect definitions --kind kv` and `vitehub kv list` report the selected driver. `vitehub({ dataDir })` selects `fs-lite` in that directory. `vite dev` keeps the inferred store on `fs-lite`.
 
 The Nitro cache follows KV with `cache: { driver: 'kv' }`, so cached responses are shared too. See [Nitro cache in KV](#nitro-cache-in-kv).
 

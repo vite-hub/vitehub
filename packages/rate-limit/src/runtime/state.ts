@@ -56,13 +56,13 @@ async function resolveKVProvider(kv: RateLimitKVRuntime): Promise<RateLimitRunti
     console.info(`[vitehub] Rate Limit counts in the KV store "${kv.store}" (${driver}). Every server process that uses this store shares the counts.`)
     return "kv"
   }
-  console.warn(`[vitehub] Rate Limit counts in the memory of this process, because the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment. Each server process allows the full limit. Set REDIS_URL or use a Postgres Database to share the counts.`)
+  console.warn(`[vitehub] Rate Limit counts in the memory of this process, because the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.`)
   return "memory"
 }
 
 /**
- * The provider that counts in this process. For `kv`, KV picks its driver when the server starts, so the first call
- * asks KV and prints the choice: `kv` with a shared driver, else `memory`. The generated Nitro plugin calls it at boot.
+ * The provider that counts in this process. For `kv`, the first call asks KV for its configured driver
+ * and prints the choice: `kv` with a shared driver, else `memory`. The generated Nitro plugin calls it at boot.
  */
 export async function resolveRateLimitProvider(): Promise<RateLimitRuntimeConfig["provider"]> {
   const { provider } = getRateLimitRuntimeConfig()

@@ -31,6 +31,20 @@ function isStorage(value: unknown): value is RateLimitKVStorage {
     && typeof Reflect.get(value, "del") === "function"
 }
 
+/** Bound the request wait without hiding configuration errors thrown by KV. */
+async function withKVDeadline<T>(operation: Promise<KVOperationResult<T>>): Promise<KVOperationResult<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<KVOperationResult<T>>((resolve) => {
+    timer = setTimeout(() => resolve([new Error("[vitehub] Rate Limit KV operation timed out after 1000 milliseconds."), undefined]), 1_000)
+  })
+  try {
+    return await Promise.race([operation, deadline])
+  }
+  finally {
+    clearTimeout(timer)
+  }
+}
+
 interface FixedWindow {
   key: string
   resetAt: number
@@ -80,7 +94,7 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
       const timestamp = now()
       const window = fixedWindow(input, timestamp)
       // The key expires one window after the first request, so old windows do not stay in the store.
-      const [error, used] = await storage.increment(window.key, input.windowMs / 1_000)
+      const [error, used] = await withKVDeadline(storage.increment(window.key, input.windowMs / 1_000))
       if (error) return [error, undefined]
       if (used > input.limit) {
         return [null, {
@@ -96,13 +110,13 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
     name: "kv",
     async peek(input) {
       const window = fixedWindow(input, now())
-      const [error, value] = await storage.get(window.key)
+      const [error, value] = await withKVDeadline(storage.get(window.key))
       if (error) return [error, undefined]
       const used = typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0
       return [null, { resetAt: used ? window.resetAt : undefined, used }]
     },
     async reset(input) {
-      const [error] = await storage.del(fixedWindow(input, now()).key)
+      const [error] = await withKVDeadline(storage.del(fixedWindow(input, now()).key))
       return [error ?? null]
     },
   }

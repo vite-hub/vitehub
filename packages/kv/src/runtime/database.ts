@@ -117,7 +117,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   async function query(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]> {
     const client = await ready()
     const now = client.dialect === "postgresql"
-      ? "(extract(epoch from clock_timestamp()) * 1000)::bigint"
+      ? "(extract(epoch from statement_timestamp()) * 1000)::bigint"
       : "cast((julianday('now') - 2440587.5) * 86400000 as integer)"
     let index = 0
     const text = sql.replaceAll("{now}", now)
@@ -127,15 +127,19 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   const live = `(expires_at is null or expires_at > {now})`
 
   /**
-   * Deletes expired rows at most once a minute. The sweep only frees space: reads already skip expired rows. So a failed
-   * sweep, for example on a lock timeout, does not fail the write that runs it. It warns once and runs again a minute
+   * Deletes up to 1000 expired rows of this namespace at most once a minute, outside the write path. Reads already
+   * skip expired rows. A failed sweep, for example on a lock timeout, does not fail the write that runs it. It warns once and runs again a minute
    * later.
    */
   async function sweep(): Promise<void> {
     if (Date.now() - sweptAt < sweepIntervalMs) return
     sweptAt = Date.now()
     try {
-      await query(`delete from ${table} where expires_at <= {now}`, [])
+      const { dialect } = await ready()
+      const lock = dialect === "postgresql" ? " for update skip locked" : ""
+      await query(`delete from ${table} where (namespace, "key") in (
+        select namespace, "key" from ${table} where namespace = ? and expires_at <= {now} limit 1000${lock}
+      )`, [namespace])
     }
     catch (error) {
       if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
@@ -166,7 +170,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       return row ? String(row.value) : null
     },
     async setItem(key, value, setOptions?: { ttl?: unknown }) {
-      await sweep()
+      void sweep()
       const ttl = setOptions?.ttl
       // Like other unstorage drivers, no TTL or 0 keeps the key.
       if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
@@ -197,7 +201,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       return { keys: page, cursor: encodeURIComponent(JSON.stringify({ after: page.at(-1) })) }
     },
     async setIfAbsentItem(key, value, ttl) {
-      await sweep()
+      void sweep()
       const ms = ttl === undefined ? undefined : ttlMilliseconds(ttl)
       // One statement: a missing key inserts, an expired key is replaced, and a live key returns no row.
       const rows = await query(
@@ -220,7 +224,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     async incrementItem(key, ttl) {
       const ms = ttlMilliseconds(ttl)
       // Counters such as rate limit windows are often written only by `increment()`, so it deletes expired rows too.
-      await sweep()
+      void sweep()
       const { dialect } = await ready()
       const value = `${table}.value`
       // A canonical integer of at most 16 digits: no sign other than "-", no leading zero, and small enough that the

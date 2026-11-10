@@ -9,6 +9,7 @@ import type { RateLimitKVStorage } from "../src/drivers/kv.ts"
 
 afterEach(() => {
   setRateLimitRuntimeConfig({ provider: "memory" })
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -113,6 +114,61 @@ describe("kvRateLimitDriver", () => {
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), failure, limit: 1, window: "1m" })
 
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed, cause, reason: "unavailable" })
+  })
+
+  it.each([["deny", false], ["allow", true]] as const)("follows failure: %s after one second when KV stalls", async (failure, allowed) => {
+    vi.useFakeTimers()
+    const kv: RateLimitKVStorage = { ...fakeKV(), increment: () => new Promise(() => {}) }
+    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), failure, limit: 1, window: "1m" })
+    const result = vi.fn()
+    void limiter.consume({ key: "user" }).then(result)
+
+    await vi.advanceTimersByTimeAsync(999)
+    expect(result).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(result).toHaveBeenCalledWith(expect.objectContaining({ allowed, cause: expect.any(Error), reason: "unavailable" }))
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(["peek", "reset"] as const)("bounds a stalled KV %s operation", async (operation) => {
+    vi.useFakeTimers()
+    const kv: RateLimitKVStorage = { ...fakeKV(), del: () => new Promise(() => {}), get: () => new Promise(() => {}) }
+    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), limit: 1, window: "1m" })
+    const result = vi.fn()
+    void limiter[operation]({ key: "user" }).then(result)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(result).toHaveBeenCalledWith(expect.objectContaining({ cause: expect.any(Error), status: "unavailable" }))
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("clears deadlines after successful operations and preserves thrown errors", async () => {
+    vi.useFakeTimers()
+    const kv = fakeKV()
+    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), limit: 1, window: "1m" })
+    await limiter.consume({ key: "user" })
+    await limiter.peek({ key: "user" })
+    await limiter.reset({ key: "user" })
+    expect(vi.getTimerCount()).toBe(0)
+
+    const cause = new Error("invalid KV configuration")
+    kv.increment = async () => { throw cause }
+    await expect(limiter.consume({ key: "user" })).rejects.toBe(cause)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("handles a KV rejection after the deadline", async () => {
+    vi.useFakeTimers()
+    const cause = new Error("connection timed out")
+    const kv: RateLimitKVStorage = { ...fakeKV(), increment: () => new Promise((_, reject) => setTimeout(() => reject(cause), 2_000)) }
+    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), limit: 1, window: "1m" })
+    const result = vi.fn()
+    void limiter.consume({ key: "user" }).then(result)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(result).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ allowed: false, reason: "unavailable" }))
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(result).toHaveBeenCalledTimes(1)
   })
 
   it("requires a KV store with increment, get, and del", () => {

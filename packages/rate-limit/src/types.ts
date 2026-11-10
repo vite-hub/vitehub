@@ -172,7 +172,7 @@ export interface CreateRateLimiterOptions extends RateLimitPolicy {
  */
 export type RateLimitProvider = "auto" | "cloudflare" | "kv" | "memory"
 
-export interface RateLimitModuleOptions {
+export interface RateLimitOptions {
   namespace?: string
   provider?: RateLimitProvider
   projectRoot?: string

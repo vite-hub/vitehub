@@ -40,11 +40,10 @@ import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  kv: {
+  plugins: [hubKv({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
-  },
-  plugins: [hubKv()],
+  })],
 })
 ```
 
@@ -58,17 +57,16 @@ Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://deve
 
 Several Node processes share keys only through a shared store. Without a `driver`, a Node build picks:
 
-1. `redis` when `REDIS_URL` is set. The server reads it when the store starts, not at build time.
-2. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
-3. `fs-lite` in `.vitehub/data/kv` otherwise.
+1. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
+2. `fs-lite` in `.vitehub/data/kv` otherwise.
 
 `{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. A Redis listing cursor holds its whole state, so another server process can read the next page.
 
-`{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. It works on Postgres and libSQL, not on D1.
+`{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace once a minute; Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
 
-Each server process prints the driver that it picked for an inferred store when it starts, and the `kv.list` operation (`vitehub kv list`, the Console) reports the driver of the store. Set the same `REDIS_URL` on every process: a process without it uses another store.
+The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
 
-This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`, and of any Node server with `REDIS_URL` to `redis`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
+This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
@@ -84,7 +82,7 @@ An explicit `driver` is honored as before; an `upstash` store prints the same no
 
 ## Nitro cache
 
-`@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+`kvNitroCacheDriver` from `@vite-hub/kv/vite` is the file path of an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
 
 ## Listing keys
 
@@ -117,7 +115,7 @@ The mode limits this API, not the host. The KV binding or provider token keeps f
 
 Call `disposeKVStores()` from `@vite-hub/kv` (or `vite-hub/kv`) after stopping new application work. It disposes every initialized default and named store, waits for pending store initialization and cleanup, and reports cleanup failures with an `AggregateError`. Concurrent teardown calls share one promise. Later operations create fresh stores; old process-local cursors cannot resume.
 
-When a store can use Redis (a `redis` store, or an inferred Node store), `hubKv()` registers this cleanup on Nitro's `close` hook, so the Redis connection does not keep the process alive after a stop signal. For other stores, register the cleanup in a server plugin:
+For an explicit Redis store or an inferred Node store, `hubKv()` registers this cleanup on Nitro's `close` hook, so the Redis connection does not keep the process alive after a stop signal. For other stores, register the cleanup in a server plugin:
 
 ```ts fragment
 // server/plugins/kv-cleanup.ts
@@ -132,6 +130,6 @@ export default defineNitroPlugin((nitroApp) => {
 
 `hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
-Each command runs a `kv.*` operation of the app through the Console RPC (`@vite-hub/kv/operations`). On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
+Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

@@ -242,15 +242,17 @@ describe("getKVStoreDriver", () => {
       stores: {
         default: { base: join(tmpdir(), "vitehub-kv-unused"), driver: "fs-lite", inferred: true },
         limits: { database: "default", driver: "database", namespace: "limits" },
+        redis: { base: "limits", driver: "redis", url: "env:REDIS_URL" },
       },
     }
     vi.stubEnv("REDIS_URL", "")
     await expect(getKVStoreDriver()).resolves.toBe("fs-lite")
     await expect(getKVStoreDriver("limits")).resolves.toBe("database")
-    // An inferred store reads REDIS_URL when the server starts, not at build time.
+    // An unrelated URL cannot change the driver selected at build time.
     vi.stubEnv("REDIS_URL", "redis://127.0.0.1:6379")
-    await expect(getKVStoreDriver()).resolves.toBe("redis")
+    await expect(getKVStoreDriver()).resolves.toBe("fs-lite")
     await expect(getKVStoreDriver("limits")).resolves.toBe("database")
+    await expect(getKVStoreDriver("redis")).resolves.toBe("redis")
     await expect(getKVStoreDriver("missing")).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
     vi.unstubAllEnvs()
   })

@@ -2,7 +2,7 @@ import { normalizeKVOptions } from "./config.ts"
 import { resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import type { KVResolutionInput } from "./config.ts"
-import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
+import type { KVOptions, ResolvedKVModuleOptions } from "./types.ts"
 
 export const KV_VITE_PLUGIN_NAME = "@vite-hub/kv/vite"
 export const KV_VIRTUAL_CONFIG_ID = "#vitehub/kv/config"
@@ -13,7 +13,7 @@ export interface KVViteRuntimeConfig {
 }
 
 export function resolveKVViteConfig(
-  kv: KVModuleOptions | undefined,
+  kv: KVOptions | undefined,
   input: KVResolutionInput = {},
 ): KVViteRuntimeConfig {
   const env = input.env || process.env

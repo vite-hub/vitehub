@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import * as v from "valibot"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -7,7 +8,8 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
-import { resolveViteHubBundleDefines, bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
+import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
@@ -23,6 +25,9 @@ import { disposeEmailOutbox } from "./runtime/outbox.ts"
 import { emailCaptureKey } from "./runtime/capture.ts"
 
 import type { EmailTemplate } from "./templates.ts"
+
+// Generated code imports the operations by path, so they need no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
 
 export { emailConsoleSection } from "./console.ts"
 
@@ -63,7 +68,7 @@ export interface EmailOutboxOptions {
   limit?: number
 }
 
-export interface EmailVitePluginOptions {
+export interface EmailOptions {
   driver: EmailProvider
   options?: EnvRuntimeConfigOptions
   /**
@@ -189,7 +194,7 @@ function resolveRemote(value: unknown): boolean {
   return value
 }
 
-function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
+function configuredDefinition(options: EmailOptions): Omit<GeneratedEmailDefinition, "handler"> {
   const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
   validateEmailRuntimeOptions(runtimeOptions)
   return {
@@ -414,11 +419,11 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   await rm(backupRoot, { force: true, recursive: true })
 }
 
-export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
+export function hubEmail(options: EmailOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
-  const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
+  const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
   const driverImport = resolveDriverImport(configured.driver)
   const outbox = resolveOutboxOptions(options.outbox)
@@ -426,7 +431,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const outboxRuntimeId = randomUUID()
   let command: "build" | "serve" | undefined
   const runtimeEnvImport = internalOptions.runtimeEnvImport
-    ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
+    ?? resolvePackageImport("@vite-hub/env/internal/server")
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare-email"
@@ -502,8 +507,8 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     nitro: nitroModule,
     vitehub: {
-      // The Console, `vitehub email`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "emailOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).emailOperations, module: "@vite-hub/email/operations" }],
+      // The Console, `vitehub email`, and agents run these.
+      operations: [{ export: "emailOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).emailOperations, module: operationsModule }],
       cli: async () => {
         const { createEmailCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return createEmailCliContributor({ templateRoots: () => templatesRoots })
@@ -523,7 +528,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     async config(config, env) {
       // Nuxt replays this hook with the host command. Tests and older callers can omit `env`, which means build.
       command = env?.command
-      await installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/email/operations")
+      await installStandaloneOperationRpc(config, env?.command ?? "build", operationsModule)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const configRecord = config as Record<string, unknown>
       const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
@@ -531,9 +536,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       if (cloudflareEmail && !cloudflare) {
         throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
       }
-      vercel = hosting === "vercel"
-        || internalOptions.workflowProvider === "vercel"
-        || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
+      vercel = hosting === "vercel" || internalOptions.workflowProvider === "vercel"
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {

@@ -12,7 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `kv` from `@vite-hub/kv` | Read and write the default store or a named store. |
 | `disposeKVStores` from `@vite-hub/kv` | Close all cached stores in a shutdown hook. |
-| `getKVStoreDriver` from `@vite-hub/kv` | Name the driver that a store uses in this server process, for example `redis` when an inferred Node store finds `REDIS_URL`. Rate Limit reads it at boot. |
+| `getKVStoreDriver` from `@vite-hub/kv` | Name the configured driver that a store uses in this server process. Driver selection occurs at build time; Rate Limit reads it at boot without opening a store connection. App tests return `fs-lite`. |
 | `hubKv` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve the KV config by hand. |
 

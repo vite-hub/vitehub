@@ -1,13 +1,12 @@
-import { fileURLToPath } from "node:url"
-
+import { ownModule } from "@vite-hub/internal/build/paths"
 import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 
 type ResolvedKV = ReturnType<typeof resolveKVViteConfig>["kv"]
 
 export const upstashDriverSpecifier = "@vite-hub/kv/runtime/upstash-driver"
-export const disabledUpstashDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/disabled-upstash"))
+export const disabledUpstashDriver = ownModule(import.meta.url, "internal/disabled-upstash-driver")
 export const redisDriverSpecifier = "@vite-hub/kv/runtime/redis-driver"
-export const disabledRedisDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/disabled-redis"))
+export const disabledRedisDriver = ownModule(import.meta.url, "internal/disabled-redis-driver")
 
 /**
  * The `#vitehub/kv/config` module when KV is off, with the exports of the one `@vite-hub/kv/vite` generates. The Console
@@ -20,8 +19,8 @@ export function hasUpstashStore(kv: ResolvedKV): boolean {
   return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "upstash")
 }
 
-/** An explicit `redis` store, or an inferred Node store, which uses Redis when `REDIS_URL` is set at runtime. */
+/** Redis is selected explicitly at build time. */
 export function hasRedisStore(kv: ResolvedKV): boolean {
   if (!kv) return false
-  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "redis" || ("inferred" in store && store.inferred === true))
+  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "redis")
 }

@@ -111,6 +111,8 @@ Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and
 
 Use `createRateLimiter()` when the application selects the driver and handles the decision. A production driver must implement one atomic `consume()` operation for its backend. A generic KV `get()` followed by `set()` is not safe under concurrent requests. `kvRateLimitDriver({ storage })` uses an atomic `increment` instead, so it works with any KV store that has one, for example `kv.store("limits")` from `vite-hub/kv` on Redis or Postgres. Its counters also count rejected requests.
 
+The KV driver waits at most one second for each storage operation. A timed-out consume follows the `failure` policy; peek and reset return `unavailable`. The deadline does not cancel the storage operation, so a timed-out consume can still count. KV configuration errors still throw.
+
 Drivers return `[null, result]` after consuming the counter. They return `[error, undefined]` only for an expected operational outage. The limiter then returns `reason: "unavailable"` and sets `allowed` from the failure policy, which defaults to deny. ViteHub-owned configuration errors, malformed provider results, and implementation defects throw Nostics diagnostics with `RATE_LIMIT_B####` or `RATE_LIMIT_R####` codes. Application driver errors keep their identity. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 The limiter exposes its resolved `policy` and the driver's declared `capabilities`, including enforcement, counter scope, rejected-attempt behavior, and supported windows. Inspect them when deciding whether a driver fits a deployment.
@@ -137,7 +139,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |
 | `@vite-hub/rate-limit/vite`               | Source discovery, Nitro runtime setup, manifest generation, and Cloudflare bindings |
 
-`@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/operations`, and `@vite-hub/rate-limit/cli` are reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
+`@vite-hub/rate-limit/runtime` is reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
 
 ## Go deeper
 
