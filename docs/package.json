@@ -45,6 +45,7 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@better-auth/cimd": "1.7.15",
     "@chat-adapter/slack": "catalog:chat",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",

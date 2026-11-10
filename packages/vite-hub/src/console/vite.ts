@@ -66,8 +66,10 @@ export interface ConsoleOptions {
   /**
    * Browser origins that may call the Console data routes from another origin, such as a hosted or self-hosted Console.
    * Defaults to `["https://console.vitehub.dev"]`. `[]` turns cross-origin calls off. An entry is an `https://` origin,
-   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs `auth: "token"` and
-   * the token in `Authorization: Bearer`. Cookies never authorize a cross-origin call.
+   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a token in
+   * `Authorization: Bearer`: the Console token of `auth: "token"`, or with `auth: "app"`, an OAuth access token for the
+   * Console resource `<origin><base>/_vitehub`. A development server without sign-in needs none. Cookies never
+   * authorize a cross-origin call.
    */
   origins?: string[]
   /**
@@ -354,9 +356,10 @@ export function resolveConsoleAccessBuild(
   if ("local" in configured && configured.local === true) return { mode: "local", origins: resolveConsoleOrigins(configured.origins) }
   if (configured.auth === false || configured.auth === undefined) return withAccessOptions({ mode: "open", origins: resolveConsoleOrigins(configured.origins) })
   if (configured.auth === "token") return withAccessOptions({ mode: "token", origins: resolveConsoleOrigins(configured.origins) })
+  // App Auth accepts an OAuth access token for the Console resource from `console.origins`, never a cookie.
   if (configured.auth === "app") {
     return withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base) }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins: resolveConsoleOrigins(configured.origins) }
       : { mode: "auth" })
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })
