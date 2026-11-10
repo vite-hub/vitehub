@@ -28,10 +28,10 @@ afterAll(async () => {
 it("records valid sends and deferred sends without a provider or handler, and reset empties the list", async () => {
   const pending: Promise<unknown>[] = []
   setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
-  expect(await dynamicQueue.run("welcome", { userId: 1 }, { delaySeconds: 60, id: "job-1" })).toEqual([undefined, { messageId: "job-1", status: "queued" }])
+  expect(await dynamicQueue.send("welcome", { userId: 1 }, { delaySeconds: 60, id: "job-1" })).toEqual([undefined, { messageId: "job-1", status: "queued" }])
   dynamicQueue.defer("welcome", { userId: 2 })
   await Promise.all(pending)
-  const queue = await dynamicQueue.get("digest")
+  const queue = await dynamicQueue.use("digest")
   const [error, sent] = await queue.sendBatch([{ body: { day: 1 }, delaySeconds: undefined }], { delaySeconds: 5 })
 
   expect(error).toBeUndefined()
@@ -50,16 +50,16 @@ it("records valid sends and deferred sends without a provider or handler, and re
 
 it("rejects disabled Queues and unknown Definitions", async () => {
   setQueueRuntimeConfig(false)
-  await expect(dynamicQueue.get("welcome")).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
-  await expect(dynamicQueue.run("welcome", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+  await expect(dynamicQueue.use("welcome")).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+  await expect(dynamicQueue.send("welcome", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
   setQueueRuntimeConfig({ provider: "cloudflare" })
-  await expect(dynamicQueue.run("misspelled", {})).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+  await expect(dynamicQueue.send("misspelled", {})).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
   expect(mode.peek("queue")).toBeUndefined()
 })
 
 it.each<QueueProvider>(["local", "vercel"])("deduplicates %s sends and batches by Queue and idempotency key until reset", async (provider) => {
   setQueueRuntimeConfig({ provider })
-  const queue = await dynamicQueue.get("welcome")
+  const queue = await dynamicQueue.use("welcome")
   const [error, first] = await queue.send({ userId: 1 }, { id: "first", idempotencyKey: "signup" })
   expect(error).toBeUndefined()
   expect(await queue.send({ userId: 2 }, { id: "retry", idempotencyKey: "signup" })).toEqual([undefined, first])
@@ -72,7 +72,7 @@ it.each<QueueProvider>(["local", "vercel"])("deduplicates %s sends and batches b
   expect(batch?.[0]).toEqual(first)
   expect(batch?.[2]).toEqual(batch?.[1])
 
-  const otherQueue = await dynamicQueue.get("digest")
+  const otherQueue = await dynamicQueue.use("digest")
   await otherQueue.send({ userId: 6 }, { idempotencyKey: "signup" })
   await queue.send({ userId: 7 })
   await queue.send({ userId: 7 })
@@ -97,7 +97,7 @@ it.each<[QueueProvider, QueueEnqueueOptions]>([
   ["local", { region: "iad1" }],
 ])("preserves %s option validation in sends and batches (%j)", async (provider, options) => {
   setQueueRuntimeConfig({ provider })
-  const queue = await dynamicQueue.get("welcome")
+  const queue = await dynamicQueue.use("welcome")
   expect(await queue.send({}, options)).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   expect(await queue.sendBatch([{ body: {} }], options)).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   expect(mode.peek("queue")).toBeUndefined()
@@ -105,7 +105,7 @@ it.each<[QueueProvider, QueueEnqueueOptions]>([
 
 it("uses the configured local delivery rules", async () => {
   setQueueRuntimeConfig({ provider: "local", rules: "cloudflare" })
-  expect(await dynamicQueue.run("welcome", {}, { idempotencyKey: "key" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+  expect(await dynamicQueue.send("welcome", {}, { idempotencyKey: "key" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
 })
 
 it("reports a deferred validation failure through the host task and dispatch-error hook", async () => {
