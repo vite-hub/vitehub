@@ -15,7 +15,7 @@ it.each(["setItem", "setIfAbsentItem", "incrementItem"] as const)("does not bloc
   })
   const driver = createDatabaseKVDriver({ driver: "database", database: "default", namespace: "test" }, async () => ({ dialect: "sqlite", query }))
   try {
-    if (operation === "setItem") await driver.setItem!("key", "value")
+    if (operation === "setItem") await driver.setItem!("key", "value", {})
     else if (operation === "setIfAbsentItem") expect(await driver.setIfAbsentItem!("key", "value", 30)).toBe(true)
     else expect(await driver.incrementItem!("key", 30)).toBe(1)
     expect(sweep).toBeDefined()

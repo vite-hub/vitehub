@@ -258,6 +258,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
   ],
   "@vite-hub/kv": [
     ".",
+    "./runtime/redis-driver",
     "./runtime/upstash-driver",
     "./virtual",
     "./vite",
