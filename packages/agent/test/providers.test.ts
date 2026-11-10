@@ -9365,7 +9365,7 @@ describe("server helpers", () => {
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
       // The response must arrive while the Workflow is still waiting for releaseRun().
-      const response = await responsePromise
+      const response = await withDeadline(responsePromise, 3_000, "Workflow webhook response waited for deferred workflow completion.")
       const json = await response.json()
 
       expect(response.status).toBe(200)
@@ -9383,6 +9383,7 @@ describe("server helpers", () => {
         await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
+      releaseRun()
       resetWorkflowRuntime()
     }
   })

@@ -202,6 +202,21 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     }
   })
 
+  it("checks upload scopes before loading the optional media library", async () => {
+    install()
+    for (const [token, status] of [[tokens.readOnly, 403], [tokens.console, 404]] as const) {
+      const response = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__upload?section=content`, {
+        headers: { authorization: `Bearer ${token}`, origin: hosted, [consoleRpcHeader]: "1" },
+        method: "POST",
+      }))
+      expect(response.status, await response.clone().text()).toBe(status)
+      expect(response.headers.get("access-control-allow-origin")).toBe(hosted)
+      await expect(response.json()).resolves.toMatchObject(status === 403
+        ? { code: "CONSOLE_ACCESS_DENIED" }
+        : { message: "The media library needs Blob. Enable Blob in the ViteHub config." })
+    }
+  })
+
   it("lets read-only tokens reach built-in reads through nested section guards", async () => {
     install()
     for (const token of [tokens.console, tokens.readOnly]) {

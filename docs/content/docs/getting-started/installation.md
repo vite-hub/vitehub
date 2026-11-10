@@ -31,7 +31,7 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
 
 ```bash pm [commands/install-nuxt]
-pnpm add vite-hub h3@^2.0.8
+pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
 > [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
@@ -59,7 +59,7 @@ Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt 
 In your Nitro app, install ViteHub and its H3 version:
 
 ```bash pm [commands/install-nitro]
-pnpm add vite-hub h3@^2.0.8
+pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
 Add `vitehub()` to `vite.config.ts` before `nitro()`, so ViteHub uses your Nitro plugin. Keep your other plugins.
@@ -111,7 +111,7 @@ Install ViteHub with its Nitro and H3 versions, plus Vite and TypeScript.
 `3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
-pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8
+pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 

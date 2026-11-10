@@ -53,7 +53,7 @@ describe("the startup line of a development Console without sign-in", () => {
       await server.listen()
       const address = server.httpServer!.address()
       if (!address || typeof address === "string") throw new Error("Expected TCP listener")
-      const message = info.mock.calls.flat().find(message => message.includes("Open it in the Console:"))!
+      const message = info.mock.calls.map(([message]) => message).find(message => message.includes("Open it in the Console:"))!
       const link = new URL(message.match(/https:\/\/console\.vitehub\.dev\/open\?\S+/)![0])
       expect(link.searchParams.get("project")).toBe(`${https ? "https" : "http"}://localhost:${address.port}/portal`)
     }
