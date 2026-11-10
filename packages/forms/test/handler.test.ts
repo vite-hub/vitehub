@@ -207,6 +207,41 @@ describe("handleFormRequest", () => {
     expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
   })
 
+  it.each(["urlencoded", "multipart"])("decodes supported Valibot fields in a native %s post", async (encoding) => {
+    enum Size { Small = 1, Large = 2 }
+    const schema = v.object({
+      count: v.pipe(v.number(), v.minValue(1), v.transform(value => value + 1)),
+      size: v.enum(Size),
+      choice: v.optional(v.picklist([1, 2])),
+      extra: v.optional(v.number()),
+      newsletter: v.boolean(),
+      terms: v.optional(v.boolean()),
+    })
+    const form = defineForm({ schema })
+    const { store, all } = services()
+    const values = { count: "2", size: "2", choice: "1", extra: "", terms: "on" }
+    const body = encoding === "multipart" ? new FormData() : new URLSearchParams()
+    for (const [key, value] of Object.entries(values)) body.set(key, value)
+    const response = await handleFormRequest("contact", form, new Request(`${origin}/api/_vitehub/forms/contact`, {
+      method: "POST",
+      headers: { origin, referer: `${origin}/pricing?plan=pro`, accept: "text/html" },
+      body,
+    }), all)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/pricing?plan=pro&form=sent")
+    expect((await store.list()).map(row => row.data)).toStrictEqual([{ count: 3, size: 2, choice: 1, newsletter: false, terms: true }])
+  })
+
+  it("keeps JSON input strict and rejects invalid native values", async () => {
+    const form = defineForm({ schema: v.object({ count: v.number(), terms: v.boolean(), choice: v.optional(v.picklist([1, 2])) }) })
+    const { store, all } = services()
+    expect((await handleFormRequest("contact", form, post({ count: "2", terms: "on" }), all)).status).toBe(400)
+    for (const values of [{ count: "nope", terms: "on" }, { count: "", terms: "on" }, { count: "2", terms: "wrong" }, { count: "2", terms: "on", choice: "3" }]) {
+      expect((await handleFormRequest("contact", form, post(values, { type: "application/x-www-form-urlencoded" }), all)).status).toBe(400)
+    }
+    expect(await store.list()).toEqual([])
+  })
+
   it("trusts the origin of a TLS proxy, keeps redirects on the site, and rejects a broken multipart body", async () => {
     const { all } = services()
     // The proxy ends TLS, so the server sees `http:` and the browser sends its `https:` origin.
