@@ -1085,6 +1085,8 @@ Flags come from the input's JSON Schema:
 
 Without `--url`, a command calls its own project's dev server, found in `.vitehub/dev-server.json` (`{ url, root }`). The dev server writes this file when it listens and removes it when it closes. Without it, the command uses `VITEHUB_DEV_SERVER_URL`. With neither, it fails with `CLI_R0005`. It never guesses `localhost:5173`, because another project may use that port. The dev RPC names its project in a response header, and the command stops with `INTERNAL_R0025` when it is another project. A Nuxt dev server does not write the file, so pass `--url` or set `VITEHUB_DEV_SERVER_URL`.
 
+A command sends no credentials to the dev server that it finds. When that dev server asks for sign-in, as with [`auth: 'token'`](/docs/development/console#use-a-console-token), the command fails with `401`, and its fix names the `--url` to pass. With `--url`, the command sends its credentials to the dev server too.
+
 A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exits with `1`. A bad flag value fails with `CLI_R0003` and the usage line. Two operations with the same namespace and command fail the build and the CLI load with `INTERNAL_B0049`. A hand-written command with the same name as a generated one runs instead, as `vitehub content edit` does.
 
 ## Run a Schedule on demand

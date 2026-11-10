@@ -11,7 +11,7 @@ import AgentPlayground from "../landing/AgentPlayground.vue";
         <template #fallback>
           <div
             role="status"
-            class="grid h-full place-items-center rounded-(--vh-frame-radius) border border-default text-sm text-muted"
+            class="grid h-full place-items-center rounded-lg border border-default text-sm text-muted"
           >
             Loading Agent playground...
           </div>

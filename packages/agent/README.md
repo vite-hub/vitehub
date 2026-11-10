@@ -17,7 +17,7 @@ Keep the three pieces separate:
 ## Install
 
 ```sh
-pnpm add @vite-hub/agent @vite-hub/workspace ai
+pnpm add @vite-hub/agent @vite-hub/env @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
@@ -25,14 +25,6 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 `driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
 
 Add the AI SDK model provider you pass to `model`.
-
-Eve extensions are optional and require Node.js 24 or newer. Install the compatible pair before mounting one in a static Capability list:
-
-```sh
-pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
-```
-
-For the accepted manifest contracts, the bridge supports one `session.started`, `turn.started`, or `step.started` handler per dynamic tool during Invocation preparation. Reading an unavailable session sequence, `stepIndex`, step model, or `modelId` throws `AGENT_R0415`. It does not provide real per-step lifecycle hooks, Eve sandbox, token, auth, or dynamic-skill adapters. Approval definitions may use `{ request }`; response authorizers are rejected. See [Eve extension capabilities](https://vitehub.dev/docs/agents/capabilities#use-an-eve-extension).
 
 The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 provider runtime. Install only the provider packages an Agent uses:
 
@@ -155,6 +147,28 @@ Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, in
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
+The Agent reads the Codex `auth.json` from a Server Env secret:
+
+```ts
+// vite.config.ts
+import { hubAgent } from "@vite-hub/agent/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    hubEnv({
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+      },
+    }),
+    hubWorkspace(),
+    hubAgent(),
+  ],
+});
+```
+
 ```ts
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
@@ -270,17 +284,6 @@ Capability setup and close callbacks emit `agent.capability.<phase>` timing even
 `title()` accepts message input or a plain `prompt`. It selects the prepared user message matching `run.messageId`, or the latest prepared user message when no ID is available. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Each journaled invocation generates its own title even when Channel thread-title delivery has already succeeded. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
-
-```ts
-// vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
-});
-```
 
 ## CLI inspection
 

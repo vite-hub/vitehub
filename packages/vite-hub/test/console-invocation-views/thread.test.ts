@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { h, nextTick } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
@@ -111,7 +111,7 @@ describe("Agent Invocation session thread", () => {
       const prompt = wrapper.findAll(".vh-invocation-message").at(-1)!;
       expect(prompt.get(".vh-invocation-message__meta time").attributes("datetime")).toBe("2026-08-22T14:34:00.000Z");
       await prompt.get('button[aria-label="Copy message"]').trigger("click");
-      await nextTick();
+      await flushPromises();
       expect(writeText).toHaveBeenCalledWith("Check item 18807.\n\nInvocation ID: message-meta\nTrace ID: trace\nAgent: support-agent\nURL: https://github.com/vite-hub/vite-hub/issues/18807");
       expect(prompt.get('button[aria-label="Copied"]').text()).toBe("Copied");
     });
@@ -120,7 +120,7 @@ describe("Agent Invocation session thread", () => {
       clipboard(vi.fn().mockRejectedValue(new Error("Clipboard denied")));
       const wrapper = show(invocation([message("user", "Copy me", { "message.id": "prompt" })], { status: "running" }));
       await wrapper.get('button[aria-label="Copy message"]').trigger("click");
-      await nextTick();
+      await flushPromises();
       expect(wrapper.find('button[aria-label="Copied"]').exists()).toBe(false);
       expect(wrapper.get('button[aria-label="Copy failed"]').text()).toContain("Copy failed");
       expect(wrapper.get('[role="status"]').text()).toBe("Message could not be copied");
