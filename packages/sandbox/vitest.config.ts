@@ -13,7 +13,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    fileParallelism: false,
     globals: false,
     include: ["test/**/*.test.ts"],
     typecheck: {

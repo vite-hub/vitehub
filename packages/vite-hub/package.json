@@ -788,6 +788,26 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./forms": {
+      "types": "./dist/forms.d.ts",
+      "import": "./dist/forms.js",
+      "default": "./dist/forms.js"
+    },
+    "./forms/client": {
+      "types": "./dist/forms/client.d.ts",
+      "import": "./dist/forms/client.js",
+      "default": "./dist/forms/client.js"
+    },
+    "./forms/database": {
+      "types": "./dist/forms/database.d.ts",
+      "import": "./dist/forms/database.js",
+      "default": "./dist/forms/database.js"
+    },
+    "./forms/runtime": {
+      "types": "./dist/forms/runtime.d.ts",
+      "import": "./dist/forms/runtime.js",
+      "default": "./dist/forms/runtime.js"
+    },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
       "import": "./dist/gateways.js",
@@ -1321,9 +1341,9 @@
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
+    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
-    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
+    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
@@ -1402,6 +1422,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
@@ -1483,6 +1504,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -1602,6 +1624,9 @@
       "optional": true
     },
     "@vite-hub/email": {
+      "optional": true
+    },
+    "@vite-hub/forms": {
       "optional": true
     },
     "@vite-hub/gateways": {
