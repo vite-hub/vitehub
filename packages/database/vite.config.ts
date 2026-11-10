@@ -2,6 +2,22 @@ import { defineConfig } from "vite-plus";
 
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
+// Generated code imports these modules by path. They are not public API.
+const privateEntries = new Set([
+  "./runtime/agent",
+  "./runtime/chunk-parameters",
+  "./runtime/d1",
+  "./runtime/default-database",
+  "./runtime/default-database-postgresql",
+  "./runtime/hosted",
+  "./runtime/libsql",
+  "./runtime/libsql-disabled",
+  "./runtime/migrate-on-start",
+  "./runtime/postgres",
+  "./runtime/virtual-databases",
+  "./runtime/virtual-schema",
+]);
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -56,7 +72,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && !/^\.\/runtime\/libsql(?:-disabled)?$/.test(key) && key !== "./runtime/chunk-parameters"),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && !privateEntries.has(key)),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",

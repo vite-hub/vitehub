@@ -24,7 +24,7 @@ import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
-import { hubKv, resolveKVViteConfig } from "@vite-hub/kv/vite"
+import { hubKv, kvNitroCacheDriver, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
@@ -35,8 +35,8 @@ import { resolveConsoleSections } from "../src/console/internal.ts"
 // Nuxt's Nitro 2 receives this module after every other Nitro module.
 const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
-const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
-const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
+const kvCacheDriver = kvNitroCacheDriver
+const databaseRuntimeState = fileURLToPath(new URL("../dist/internal/database-runtime-state.js", import.meta.url))
 
 function fixtureDocument(id?: string) {
   return {
@@ -717,8 +717,9 @@ describe("ViteHub Nuxt integration", () => {
     expect(load).toHaveBeenCalledWith(String(resolved), { ssr: true })
     expect(load.mock.instances.at(-1)).toBe(hookContext)
     const generatedPlugin = "/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"
+    // The Email owner contributes its Console reader by file path.
     expect(await readFile(generatedPlugin, "utf8"))
-      .toContain("vite-hub/_internal/email/runtime/console")
+      .toMatch(/[\\/]email[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"/)
     const result = await build({
       bundle: true,
       entryPoints: [generatedPlugin],
@@ -1013,7 +1014,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect((nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]).toBeUndefined()
-    expect((nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]).toMatch(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/)
+    expect((nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]).toMatch(/[\\/]internal[\\/]disabled-upstash-driver\.(?:ts|js)$/)
   })
 
   it("keeps the Upstash driver for an Upstash KV store", async () => {
@@ -3791,7 +3792,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         "#vitehub/env/description": "/tmp/vitehub-nuxt/.vitehub/env/description.mjs",
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
         "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/[\\/]internal[\\/]disabled-upstash-driver\.(?:ts|js)$/),
       },
       cloudflare: {
         wrangler: {
