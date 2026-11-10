@@ -1,4 +1,5 @@
 import { executeHttpRequest } from "@vite-hub/internal/http-request"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { defineCapability } from "../capability-runtime.ts"
@@ -745,10 +746,6 @@ function normalizeToolInput(operation: OpenAPIOperationTool, input: OpenAPIToolI
     ...(path ? { path } : {}),
     ...(query ? { query } : {}),
   }
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function normalizeParameterInput(operationId: string, location: "path" | "query", parameters: OpenAPIParameter[], input: unknown): Record<string, unknown> | undefined {
