@@ -58,9 +58,10 @@ type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
  * the only one. It throws `DATABASE_NOT_FOUND` for a name without a Database Definition, and `DATABASE_NAME_REQUIRED`
  * without a name when the app has several Databases and none is named `default`.
  */
-export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry = DefaultDatabaseName>(
-  ...name: [DefaultDatabaseName] extends [never] ? [name: Name] : [name?: Name]
+export declare function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
+  ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
 ): RuntimeDatabaseRegistry[Name]
+export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
 
 export declare const db: DefaultDatabaseEntry["db"]
 

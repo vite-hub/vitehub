@@ -10,7 +10,7 @@ import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
 import type { DocsSectionFile } from "./schema.ts";
 import type { z } from "zod"
-import type { DocsManifest, DocsPage, DocsSection } from "./types.ts"
+import type { DocsAppPage, DocsManifest, DocsPage, DocsSection } from "./types.ts"
 
 export interface DocsSource {
   /** Content directory, absolute for createDocsManifest and relative to the app root for the Nuxt module. */
@@ -196,6 +196,44 @@ function idOf(file: string): string {
       .replace(/\.md$/, "")
       .replace(/(^|\/)index$/, "") || "index"
   );
+}
+
+/**
+ * The module that the app imports as `#docs/manifest`: each page with only its `DocsAppPage` fields, since every page
+ * of the site loads it. The page route returns the other fields of the current page. A `sourceTitle` equal to `title`
+ * is left out of the JSON and filled back when the module loads.
+ */
+export function docsAppManifestSource(manifest: DocsManifest): string {
+  const page = (full: DocsPage): Omit<DocsAppPage, "sourceTitle"> & { sourceTitle?: string } => ({
+    id: full.id,
+    path: full.path,
+    title: full.title,
+    sourceTitle: full.sourceTitle === full.title ? undefined : full.sourceTitle,
+    description: full.description,
+    icon: full.icon,
+    layout: full.layout,
+    tutorial: full.tutorial,
+    codePanel: full.codePanel,
+    sidebar: full.sidebar,
+    toc: full.toc,
+    kind: full.kind,
+    group: full.group,
+    navigation: full.navigation,
+    panel: full.panel,
+    order: full.order,
+  })
+  const app = {
+    ...manifest,
+    root: manifest.root && page(manifest.root),
+    sections: manifest.sections.map(section => ({ ...section, pages: section.pages.map(page) })),
+    pages: manifest.pages.map(page),
+  }
+  return [
+    `const manifest = JSON.parse(${JSON.stringify(JSON.stringify(app))})`,
+    "for (const page of [manifest.root, ...manifest.sections.flatMap(section => section.pages), ...manifest.pages]) if (page) page.sourceTitle ??= page.title",
+    "export default manifest",
+    "",
+  ].join("\n")
 }
 
 /** With the base `/`, the section `guide` is `/guide`, not `//guide`. */

@@ -53,11 +53,13 @@ type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
  * the only one. It throws `DATABASE_NOT_FOUND` for a name without a Database Definition, and `DATABASE_NAME_REQUIRED`
  * without a name when the app has several Databases and none is named `default`.
  */
-export function useDatabase<Name extends keyof RuntimeDatabaseRegistry = DefaultDatabaseName>(
-  ...name: [DefaultDatabaseName] extends [never] ? [name: Name] : [name?: Name]
-): RuntimeDatabaseRegistry[Name] {
+export function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
+  ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
+): RuntimeDatabaseRegistry[Name]
+export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
+export function useDatabase(name?: keyof RuntimeDatabaseRegistry): RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry] {
   // SAFETY: generated registry declarations type each runtime entry by its name.
-  return useRuntimeDatabase(...name) as RuntimeDatabaseRegistry[Name]
+  return useRuntimeDatabase(name) as RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry]
 }
 
 export const agentDb = createAgentDatabase(databases)

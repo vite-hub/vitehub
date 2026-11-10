@@ -57,6 +57,18 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
           : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
+    SETUP_FEATURE_IMPLIED: {
+      fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or pass --force to write \`${String(feature)}: false\`.`,
+      why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} stays on because ${String(by)} turns it on.`,
+    },
+    SETUP_FEATURE_IN_USE: {
+      fix: "Delete or move the files in `references`, then run the command again. Pass --force to turn the feature off and keep the files.",
+      why: ({ features, references }: { features?: unknown, references?: unknown }) => `The app still uses ${String(features)}:\n${String(references)}`,
+    },
+    SETUP_UNINSTALL_FAILED: {
+      fix: "Run the uninstall command by hand to see the error. ViteHub already changed the config and deleted the starter files.",
+      why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
     SETUP_STALE_PLAN: {
       fix: "Run the command again to plan from the current file.",
       why: ({ file }: { file?: unknown }) => `${String(file)} changed after ViteHub planned the change.`,

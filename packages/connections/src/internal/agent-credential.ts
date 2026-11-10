@@ -1,3 +1,4 @@
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
 import type { EnvAccessContext } from "@vite-hub/env/bridge"
 import type { ConnectionsRuntime } from "../runtime.ts"
 
@@ -23,6 +24,6 @@ export function registerChatGPTCredentialUse(runtime: ConnectionsRuntime, use: U
 
 export function useChatGPTCredential(runtime: ConnectionsRuntime): UseChatGPTCredential {
   const use = uses.get(runtime)
-  if (!use) throw new Error("The Connections runtime does not support ChatGPT plan usage.")
+  if (!use) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "chatgpt-runtime" })
   return use
 }
