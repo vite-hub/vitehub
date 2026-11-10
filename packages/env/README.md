@@ -33,12 +33,11 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     public: {
       appName: env({ default: "ViteHub App", mode: "build" }),
     },
-  },
+  })],
 });
 ```
 
@@ -63,15 +62,14 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     server: {
       airtableToken: env({
         secret: true,
         source: env.source("AIRTABLE_TOKEN"),
       }),
     },
-  },
+  })],
 });
 ```
 
@@ -162,8 +160,7 @@ import { envSchema, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: envSchema(new URL("./.env.example", import.meta.url)),
+  plugins: [hubEnv(envSchema(new URL("./.env.example", import.meta.url)))],
 });
 ```
 
@@ -220,8 +217,6 @@ import { env, hubEnv } from "@vite-hub/env/vite"
 export default {
   plugins: [hubEnv({
     providers: { credentials: "./server/env/credentials.ts" },
-  })],
-  env: {
     server: {
       gatewayKey: env({ secret: true }),
       githubToken: env({
@@ -229,7 +224,7 @@ export default {
         source: env.provider("credentials", "github/token"),
       }),
     },
-  },
+  })],
 }
 ```
 

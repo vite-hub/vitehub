@@ -28,7 +28,7 @@ import type { Plugin, ResolvedConfig } from "vite"
 import type { BrowserEngine } from "./types.ts"
 import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
-export interface BrowserModuleOptions {
+export interface BrowserOptions {
   binding?: string
   engine?: BrowserEngine
   remote?: boolean
@@ -36,7 +36,7 @@ export interface BrowserModuleOptions {
 
 export type BrowserVitePlugin = Plugin & {
   api: {
-    getConfig(): Required<BrowserModuleOptions>
+    getConfig(): Required<BrowserOptions>
   }
   vitehub: ViteHubInspectionPluginMetadata
 }
@@ -73,7 +73,7 @@ const browserWranglerConfigOwnership = {
   },
 }
 
-function resolveOptions(options: BrowserModuleOptions | false | undefined): Required<BrowserModuleOptions> {
+function resolveOptions(options: BrowserOptions | false | undefined): Required<BrowserOptions> {
   const binding = options && options.binding || "BROWSER"
   const engine = !options ? "kitesurf" : options.engine ?? "kitesurf"
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
@@ -85,7 +85,7 @@ function resolveOptions(options: BrowserModuleOptions | false | undefined): Requ
   return { binding, engine, remote: Boolean(options && options.remote) }
 }
 
-function browserBinding(options: Required<BrowserModuleOptions>) {
+function browserBinding(options: Required<BrowserOptions>) {
   return {
     binding: options.binding,
     ...(options.remote ? { remote: true } : {}),
@@ -106,7 +106,7 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
-function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOptions>, enabled: boolean): Record<string, unknown> {
+function configureNitroBrowser(value: unknown, options: Required<BrowserOptions>, enabled: boolean): Record<string, unknown> {
   const nitro = cloneRecord(value)
   const cloudflare = cloneRecord(nitro.cloudflare)
   const wrangler = cloneRecord(cloudflare.wrangler)
@@ -153,7 +153,7 @@ function renderBrowserRegistryTypes(definitions: ReturnType<typeof discoverBrows
   ].join("\n")
 }
 
-export function hubBrowser(options?: BrowserModuleOptions | false): BrowserVitePlugin {
+export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin {
   let enabled = options !== false
   let resolvedOptions = resolveOptions(options)
   let resolved: ResolvedConfig | undefined
@@ -214,10 +214,9 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     )
   }
 
-  const applyConfig = (config: { browser?: BrowserModuleOptions | false, nitro?: unknown, root?: string }) => {
-    const configured = config.browser ?? options
-    enabled = configured !== false
-    resolvedOptions = resolveOptions(configured)
+  const applyConfig = (config: { nitro?: unknown, root?: string }) => {
+    enabled = options !== false
+    resolvedOptions = resolveOptions(options)
     projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
     // SAFETY: ViteHub decorates resolved config with this symbol and only stores server-directory strings.
     serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
@@ -328,8 +327,3 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    browser?: BrowserModuleOptions | false
-  }
-}
