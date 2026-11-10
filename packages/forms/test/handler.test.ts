@@ -96,6 +96,12 @@ describe("handleFormRequest", () => {
     expect((await store.list())[0]?.anchor).toBeNull()
   })
 
+  it("does not keep the result of an earlier post in the page", async () => {
+    const { store, all } = services()
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/contact?plan=pro&form=error` } }), all)
+    expect((await store.list())[0]?.page).toBe("/contact?plan=pro")
+  })
+
   it("does not keep a page of another origin", async () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi", _page: "https://evil.test/x" }), all)

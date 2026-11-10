@@ -73,6 +73,7 @@ export interface AutoFormField {
   /** The values of a select, with their type: a picklist of numbers gives numbers. */
   options?: readonly (string | number)[]
   required: boolean
+  minLength?: number
   maxLength?: number
 }
 
@@ -97,8 +98,9 @@ export function describeFormFields(schema: unknown): AutoFormField[] {
     const action = (type: string) => actions.find(item => item.type === type)
     const label = action("title")?.title ?? humanize(key)
     const description = action("description")?.description
+    const min = action("min_length")?.requirement
     const max = action("max_length")?.requirement
-    const field: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(typeof max === "number" ? { maxLength: max } : {}) }
+    const field: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(typeof min === "number" ? { minLength: min } : {}), ...(typeof max === "number" ? { maxLength: max } : {}) }
     const base = node.type
     if (base === "boolean") return { ...field, control: "checkbox", required: false }
     if (base === "number") return { ...field, inputType: "number" }
@@ -155,6 +157,8 @@ const AutoFormControl = defineComponent({
           ...(tag === "input" ? { type: field.inputType ?? "text" } : { rows: 5 }),
           // The browser checks a number input before the app runs. Its default step of 1 would refuse 1.5.
           ...(field.inputType === "number" ? { step: "any" } : {}),
+          // The browser checks the lengths before the app runs, so a short message is not lost to a round trip.
+          ...(field.minLength ? { minlength: field.minLength } : {}),
           ...(field.maxLength ? { maxlength: field.maxLength } : {}),
           ...(field.inputType === "email" ? { autocomplete: "email", spellcheck: false } : {}),
           value: value ?? "",
@@ -227,7 +231,9 @@ export const AutoForm = defineComponent({
         if (result === "sent" || result === "error") returned.value = result
       }
       // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
-      if (returned.value) statusElement.value?.focus()
+      // Not when the visitor is already in a field: that would close the keyboard on a phone.
+      const active = globalThis.document?.activeElement
+      if (returned.value && (!active || active === document.body)) statusElement.value?.focus()
     })
     const status = () => {
       if (sent.value || returned.value === "sent") return slots.sent?.() ?? props.sentMessage
@@ -249,8 +255,9 @@ export const AutoForm = defineComponent({
       // first, so the field already points to its error when `handleSubmit()` focuses it. It also marks the form
       // submitted, so a corrected field validates again as the user types.
       checking = true
-      const result = await validate(form).finally(() => { checking = false })
-      if (!result.success) await nextTick()
+      // A schema check that throws is left to `handleSubmit()`, which shows it as the form error.
+      const result = await validate(form).catch(() => undefined).finally(() => { checking = false })
+      if (!result?.success) await nextTick()
       await submit(event)
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.

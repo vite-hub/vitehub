@@ -19,7 +19,7 @@ describe("describeFormFields", () => {
     expect(describeFormFields(ContactSchema)).toEqual([
       { key: "email", label: "Email", control: "input", inputType: "email", required: true },
       { key: "topic", label: "Topic", control: "select", options: ["bug", "idea"], required: true },
-      { key: "message", label: "Your message", description: "A few lines is plenty.", control: "textarea", required: true },
+      { key: "message", label: "Your message", description: "A few lines is plenty.", control: "textarea", required: true, minLength: 5 },
       { key: "newsletter", label: "Newsletter", control: "checkbox", required: false },
     ])
     expect(describeFormFields(v.object({ name: v.optional(v.pipe(v.string(), v.maxLength(80))), site: v.pipe(v.string(), v.url()), age: v.number(), notes: v.pipe(v.string(), v.maxLength(1000)) })).map(field => [field.key, field.control, field.inputType, field.required])).toEqual([
@@ -114,6 +114,8 @@ describe("AutoForm", () => {
     expect(html).not.toContain("novalidate")
     // A number input allows decimals, as `v.number()` does.
     expect(await renderToString(createSSRApp(AutoForm, { name: "contact", schema: v.object({ price: v.number() }) }))).toContain('step="any"')
+    // The browser checks lengths too, so a short message is not lost to a round trip.
+    expect(html).toContain('minlength="5"')
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
@@ -214,6 +216,30 @@ describe("AutoForm", () => {
     const { root } = await mount(schema, schema)
     expect(root.querySelector<HTMLOptionElement>("[data-field=size] option[value='']")?.disabled).toBe(false)
     expect(root.querySelector<HTMLOptionElement>("[data-field=topic] option[value='']")).toBeNull()
+  })
+
+  it("leaves focus in a field that the visitor chose before the app ran", async () => {
+    history.replaceState(null, "", "/contact?form=error")
+    const field = document.createElement("input")
+    document.body.append(field)
+    field.focus()
+    try {
+      const { root } = await mount()
+      expect(root.querySelector("[role=status]")?.textContent).toBe("The message was not sent. Check the form and try again.")
+      expect(document.activeElement).toBe(field)
+    }
+    finally {
+      field.remove()
+      history.replaceState(null, "", "/")
+    }
+  })
+
+  it("shows a schema check that throws as the form error", async () => {
+    const schema = v.objectAsync({ message: v.pipeAsync(v.string(), v.checkAsync(async () => { throw new Error("The check is down.") })) })
+    const { root, submit, type } = await mount(ContactSchema, schema as never)
+    await type("[data-field=message] textarea", "Hello there")
+    await submit()
+    expect(root.querySelector("form > [data-error]")?.textContent).toBeTruthy()
   })
 
   it("puts a server issue under its field", async () => {

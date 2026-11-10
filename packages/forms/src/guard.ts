@@ -88,6 +88,8 @@ function appPath(value: unknown, request: Request): string | null {
     const origin = forwardedRequestOrigin(request)
     const url = new URL(raw, origin)
     if (url.origin !== origin) return null
+    // The result of an earlier post without JavaScript is not part of the page.
+    url.searchParams.delete("form")
     // One leading slash: `//evil.test` would be a link to another site.
     return `${url.pathname.replace(/^\/+/, "/")}${url.search}`.slice(0, 2000)
   }
