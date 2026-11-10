@@ -128,7 +128,7 @@ export default defineConfig({
 :::
 ::
 
-The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
+The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. It reads the `store` of a definition when it loads the definition at build time. If the build cannot load a definition that names `cloudflare-artifacts`, it fails with `WORKSPACE_B0005`. Then set the store in the `workspace` config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
 
 `workspace.snapshot()` commits and pushes the current file tree. The snapshot id is the pushed Git commit SHA. File metadata lives in the repository with the tree, so Source write protection and media types survive a new Worker instance.
 

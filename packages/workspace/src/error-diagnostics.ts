@@ -24,6 +24,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_B0002: withFix("Use `defineWorkspace()` in `server/workspaces/<name>.ts`. Move the `defineAgent()` call to `server/agents/<name>/agent.ts`."),
     WORKSPACE_B0003: withFix("Rename or remove one of the definitions that the message lists. Each Workspace name has one definition."),
     WORKSPACE_B0004: withFix("Set `vitehub.workspaces` in the plugin to an array of `{ name, definition: { module, export? }, reason? }` entries, or to a function that returns one. Set `module` to an absolute path, a `file:` URL, or a package specifier."),
+    WORKSPACE_B0005: withFix("Set the Cloudflare Artifacts Store in the `workspace` config, for example `vitehub({ workspace: { store: { provider: \"cloudflare-artifacts\", binding: \"WORKSPACE_ARTIFACTS\", namespace: \"vitehub\" } } })`, and remove `store` from the Workspace Definition. Or remove the import that the build cannot load from the Definition file, so that the build can read its `store`."),
     WORKSPACE_R0004: withFix("Put a value after the option, for example `--timeout 30000` or `--url http://localhost:5173`."),
     WORKSPACE_R0005: withFix("Pass a whole number of milliseconds from 1 to 2147483647, for example `--timeout 30000`."),
     WORKSPACE_R0006: withFix("Pass a whole number of milliseconds from 1 to 2147483647, for example `--timeout 30000`."),
