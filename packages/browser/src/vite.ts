@@ -1,6 +1,5 @@
 import { normalize, resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import {
   contributeProviderDeploymentOutput,
@@ -265,15 +264,21 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
       const registryModule = context.server.moduleGraph.getModuleById(resolvedBrowserRegistryId)
       if (registryModule) context.server.moduleGraph.invalidateModule(registryModule)
     },
-    resolveId(id) {
-      if (id === browserRegistryId) return resolvedBrowserRegistryId
-      if (id === browserRuntimeId) return resolvedBrowserRuntimeId
-      if (id === browserAvailabilityId) return resolvedBrowserAvailabilityId
+    resolveId: {
+      filter: { id: /^#vitehub\/browser\/(?:registry|runtime|availability)$/ },
+      handler(id) {
+        if (id === browserRegistryId) return resolvedBrowserRegistryId
+        if (id === browserRuntimeId) return resolvedBrowserRuntimeId
+        if (id === browserAvailabilityId) return resolvedBrowserAvailabilityId
+      },
     },
-    load(id) {
-      if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
-      if (id === resolvedBrowserRuntimeId) return runtimeContents()
-      if (id === resolvedBrowserAvailabilityId) return availabilityContents()
+    load: {
+      filter: { id: /^\0#vitehub\/browser\/(?:registry|runtime|availability)$/ },
+      handler(id) {
+        if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
+        if (id === resolvedBrowserRuntimeId) return runtimeContents()
+        if (id === resolvedBrowserAvailabilityId) return availabilityContents()
+      },
     },
     buildStart() {
       providerOutputGenerations.capture(this, providerOutput)
@@ -283,7 +288,7 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
       const rootDir = resolved.root
       const clientOutDir = resolved.build.outDir
       const cloudflare = enabled
@@ -320,7 +325,7 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },

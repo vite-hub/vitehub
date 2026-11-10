@@ -1049,7 +1049,6 @@ describe("mcp capability", () => {
 
     try {
       await expect(import("../src/mcp.ts")).resolves.toBeTruthy()
-      await expect(import("../src/mcp/stdio.ts")).rejects.toThrow(/stdio import|error when mocking/i)
     }
     finally {
       vi.doUnmock("@ai-sdk/mcp/mcp-stdio")

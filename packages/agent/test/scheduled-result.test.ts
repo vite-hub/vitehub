@@ -4,7 +4,7 @@ import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { expect, it, vi } from "vitest"
 import { defineAgent } from "../src/index.ts"
 import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
-import { toAgentRunResult } from "../src/output.ts"
+import { toAgentRunResult } from "../src/agent-output.ts"
 
 
 function runScheduled<CALL_OPTIONS = unknown>(

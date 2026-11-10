@@ -72,7 +72,7 @@ export interface DatabaseIntegrationOptions {
   }
   /**
    * Applies pending migrations of local SQLite databases when a Node server build starts, before it handles requests.
-   * It uses the ledger and data loss check of `vitehub db migrate`. Run one server process per database file.
+   * It uses the ledger and data loss check of `vitehub database migrate`. Run one server process per database file.
    */
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */

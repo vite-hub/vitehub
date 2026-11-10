@@ -38,6 +38,8 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
+
+| `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
 
 ## `vitehub-options`
@@ -144,6 +146,24 @@ The codemod updates an app that imports `vite-hub/agent` or `@vite-hub/agent`, w
 - `context: { actor }` in an Invocation input, `context.actor`, and a destructured `actor` next to other Agent context fields in a `defineAgent()` or `defineCapability()` callback become `invoker`.
 
 The report lists what it leaves: `getAgent()` and the root helpers that are no longer public, the private `agent/invocations/default` entry, a dynamic `preset` name, and an `actor` read that could also be another field, such as a GitHub sender.
+
+## `one-entry-imports`
+
+The codemod moves each import of a subpath that ViteHub folded into one entry. It rewrites `import`, `export ... from`, `import()`, `import("...").Type`, `declare module`, and `vi.mock()` paths, and joins a moved import with an import of the new path in the same file.
+
+| Old path | New path |
+| --- | --- |
+| `vite-hub/source/{file,files,github,glob,markdown}` | `vite-hub/source` |
+| `vite-hub/env/{presets,provider,schema,secret,server}` | `vite-hub/env` |
+| `vite-hub/env/{auth,http}` | `vite-hub/env/bridge` |
+| `vite-hub/blob/{content-type,ensure,reference}` | `vite-hub/blob`, or `vite-hub/blob/client` for `content-type` in browser code |
+| `vite-hub/browser/actions` | `vite-hub/browser` |
+| `vite-hub/connections/http` | `vite-hub/connections` |
+| `vite-hub/task` | `nitro/task`, and `nitro/types` for the task types |
+
+The same moves apply to the `@vite-hub/*` paths. The report lists strings that name an old path, such as aliases and test stubs, and `env/server` names that the Env root does not export, such as `runWithCloudflareEnv`. When an app moves to `nitro/task` and lists neither `nitro` nor `nuxt` in `package.json`, the report asks to add `nitro`.
+
+For `blob/content-type`, only explicit server files use the Blob root. Browser, shared, and unclassified files use `blob/client`, which also works on the server. Env server barrel and namespace migrations report every omitted name for manual review of downstream uses.
 
 ## Check real apps
 

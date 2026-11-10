@@ -42,7 +42,6 @@ import {
 } from "./trace.ts"
 
 import type {
-  Agent,
   AssistantContent,
   GenerateTextResult,
   ModelMessage,
@@ -1794,18 +1793,4 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },
   })
-}
-
-export function fromAiSdkAgent(agent: Agent): AgentAdapter {
-  return {
-    async generate(context) {
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return await agent.generate(await getCallInput(context) as never)
-    },
-    name: "ai-sdk",
-    async stream(context) {
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return await agent.stream(await getCallInput(context) as never)
-    },
-  }
 }

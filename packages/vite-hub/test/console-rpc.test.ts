@@ -1,6 +1,4 @@
-import { Readable } from "node:stream"
 
-import { defineHandler } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
@@ -8,10 +6,9 @@ import { inspectServerEnv } from "@vite-hub/env"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
 
-import { requestConsole } from "../src/console/runtime/client/request.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
-import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 const callURL = "http://vitehub.local/_vitehub/rpc/__call"
@@ -56,50 +53,11 @@ describe("Console RPC", () => {
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
-    const response = await defineHandler(consoleRpcHandler).fetch(request)
+    const response = await consoleRpcHandler.fetch(request)
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
     expect(JSON.stringify(body)).not.toContain(binding)
-  })
-
-  it("serves consecutive calls from different handler instances", async () => {
-    installConsoleSections("/console-rpc-test", ["agents", "usage"])
-    installConsoleProjectName("/console-rpc-test", "Stateless Console")
-    vi.resetModules()
-    // A fresh module graph has no state from the first handler, like a second Worker isolate.
-    const { default: secondHandler } = await import("../src/console/runtime/server/rpc.ts")
-    expect(secondHandler).not.toBe(consoleRpcHandler)
-    const instances = [defineHandler(consoleRpcHandler), defineHandler(secondHandler)]
-    let next = 0
-    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      const request = input instanceof Request ? input : new Request(new URL(input, "http://vitehub.local"), init)
-      expect(request.headers.get(consoleRpcHeader)).toBe("1")
-      return instances[next++ % instances.length]!.fetch(request)
-    })
-
-    for (let attempt = 0; attempt < 4; attempt++) {
-      await expect(requestConsole("/_vitehub/api/sections"))
-        .resolves.toEqual({ projectName: "Stateless Console", sections: ["agents", "usage"] })
-    }
-    expect(next).toBe(4)
-    await expect(requestConsole("/_vitehub/api/definitions"))
-      .rejects.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("section"), name: "ConsoleRequestError", status: 400 })
-  })
-
-  it("reads the call from the H3 1 events of Nuxt 4, which carry Node's request", async () => {
-    installConsoleSections("/console-rpc-nuxt4", ["env"])
-    const req = Object.assign(Readable.from([JSON.stringify({ operation: "sections.list", input: {} })]), {
-      method: "POST",
-      url: "/_vitehub/rpc/__call",
-      headers: { host: "vitehub.local", "content-type": "application/json", [consoleRpcHeader]: "1" },
-    })
-    const event = { node: { req, res: { statusCode: 200, getHeader: () => undefined, getHeaders: () => ({}), setHeader() {}, removeHeader() {} } }, context: {}, method: "POST", headers: new Headers(req.headers) }
-    const response: unknown = await Reflect.apply(consoleRpcHandler, undefined, [event])
-    expect(response).toBeInstanceOf(Response)
-    if (!(response instanceof Response)) return
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ ok: true })
   })
 
   it("returns operation results and errors with no-store headers", async () => {

@@ -18,6 +18,7 @@ const PierreUnresolvedFile = defineAsyncComponent(() =>
 const diffProps = {
   lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
   options: { type: pierrePropTypes.fileDiffOptions },
+  scrollToSelectedLines: { default: false, type: Boolean },
   selectedLines: {
     default: undefined,
     type: pierrePropTypes.selectedLines,
@@ -68,6 +69,7 @@ export const FileView = defineComponent({
     file: { required: true, type: pierrePropTypes.fileContents },
     lineAnnotations: { type: pierrePropTypes.lineAnnotations },
     options: { type: pierrePropTypes.fileOptions },
+    scrollToSelectedLines: { default: false, type: Boolean },
     selectedLines: {
       default: undefined,
       type: pierrePropTypes.selectedLines,
@@ -85,6 +87,7 @@ export const UnresolvedFile = defineComponent({
     file: { required: true, type: pierrePropTypes.fileContents },
     lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
     options: { type: pierrePropTypes.unresolvedFileOptions },
+    scrollToSelectedLines: { default: false, type: Boolean },
     selectedLines: {
       default: undefined,
       type: pierrePropTypes.selectedLines,
@@ -106,6 +109,7 @@ export const CodeView = defineComponent({
   props: {
     items: { required: true, type: pierrePropTypes.codeViewItems },
     options: { type: pierrePropTypes.codeViewOptions },
+    scrollToSelectedLines: { default: false, type: Boolean },
     selectedLines: {
       default: undefined,
       type: pierrePropTypes.codeViewSelection,

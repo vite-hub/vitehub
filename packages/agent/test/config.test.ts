@@ -15,13 +15,7 @@ describe("agent config", () => {
     expect(normalizeAgentOptions(undefined)).toEqual({
       execution: "inline",
       imports: true,
-      integrations: {
-        sandbox: "auto",
-        workflow: "auto",
-      },
       providers: {
-        sandbox: { driver: "auto" },
-        scheduler: { driver: "auto" },
         state: { driver: "auto" },
       },
       routes: {
@@ -43,11 +37,9 @@ describe("agent config", () => {
 
   it("preserves provider options", () => {
     expect(normalizeAgentOptions({
-      integrations: { sandbox: false },
       providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       runtime: "cloudflare-agents",
     })).toMatchObject({
-      integrations: { sandbox: false, workflow: "auto" },
       providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
         discordGateway: false,

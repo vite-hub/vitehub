@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { defineWorkflow } from "../src/definition.ts"
+import { assertWorkflowDefinitionName, defineWorkflow } from "../src/definition.ts"
 import { discoverWorkflowDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
@@ -14,22 +14,31 @@ afterEach(async () => {
 })
 
 describe("workflow definitions", () => {
-  it("validates handlers", () => {
+  it("validates the name and the handler", () => {
     // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
-    expect(() => defineWorkflow(undefined as never)).toThrow(/requires a workflow handler/)
-    expect(defineWorkflow(async () => ({ ok: true })).handler).toEqual(expect.any(Function))
+    expect(() => defineWorkflow((async () => ({ ok: true })) as never, undefined as never)).toThrow(/requires the Workflow name/)
+    // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
+    expect(() => defineWorkflow("onboard", undefined as never)).toThrow(/requires a workflow handler/)
+    expect(defineWorkflow("onboard", async () => ({ ok: true }))).toEqual({ handler: expect.any(Function), name: "onboard", options: undefined })
   })
 
   it("registers optional native durable entries", () => {
     const handler = async () => ({ inline: true })
     const native = async () => ({ inline: false })
 
-    expect(defineWorkflow(handler, { native })).toEqual({
+    expect(defineWorkflow("onboard", handler, { native })).toEqual({
       handler,
+      name: "onboard",
       options: { native },
     })
     // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
-    expect(() => defineWorkflow(handler, { native: "invalid" as never })).toThrow(/native entry/)
+    expect(() => defineWorkflow("onboard", handler, { native: "invalid" as never })).toThrow(/native entry/)
+  })
+
+  it("rejects a name that differs from the discovered name", () => {
+    expect(() => assertWorkflowDefinitionName("onboard-user", defineWorkflow("onboard", async () => undefined))).toThrow(/Pass "onboard-user"/)
+    expect(() => assertWorkflowDefinitionName("onboard-user", defineWorkflow("onboard-user", async () => undefined))).not.toThrow()
+    expect(() => assertWorkflowDefinitionName("inline", {})).not.toThrow()
   })
 
   it("discovers Vite suffix and server workflow definitions", async () => {

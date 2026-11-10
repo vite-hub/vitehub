@@ -54,7 +54,7 @@ export const contract = {
     preset: "node",
   }),
   rateLimit: requireRateLimit,
-  workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),
+  workflow: defineWorkflow("contract", async (payload: { marker: string }) => payload.marker),
   workspace: defineWorkspace({ store: { provider: "memory" } }),
 }
 

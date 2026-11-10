@@ -61,8 +61,8 @@ const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
 const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
 const defaultRuntimeImports = {
-  secret: "@vite-hub/env/secret",
-  server: "@vite-hub/env/server",
+  secret: "@vite-hub/env",
+  server: "@vite-hub/env/internal/server",
 }
 let envVitePluginSequence = 0
 const developmentSecretLocks = new Map<string, Promise<{ secret: string, generated: boolean, envKey: string }>>()
@@ -139,6 +139,18 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
     [ENV_PUBLIC_ID]: [toTypeScriptPath(viteHubEnvPublicModulePath(root))],
     [ENV_SERVER_ID]: [toTypeScriptPath(viteHubEnvServerModulePath(root))],
   }
+}
+
+/**
+ * Returns the declarations that the Vite Integration writes to `.vitehub/types/env.d.ts` for an `env` config: the
+ * `PublicEnv` and `ServerEnv` types of `#vitehub/env/public` and `#vitehub/env/server`. A TypeScript host that does
+ * not run Vite, such as a test or a docs check, can write them itself.
+ */
+export function createEnvTypes(config: EnvDeclarations | undefined, options: Pick<EnvOptions, "prefix" | "runtimeImports" | "projectRoot"> = {}): string {
+  validateEnvConfigShape(config, "vite")
+  const root = resolve(options.projectRoot ?? process.cwd())
+  const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix, schemaModules: true })
+  return createViteTypes(createPublicTypeEntries(config?.public), registry, resolveRuntimeImports(options.runtimeImports), resolveSchemaModules(registry, root), viteHubEnvAmbientTypesPath(root))
 }
 
 export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
@@ -522,7 +534,7 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
         await new Promise(resolve => setTimeout(resolve, 5))
       }
     }
-    if (!lock) throw new Error(`Timed out waiting for generated secret lock: ${secretPath}`)
+    if (!lock) throw envErrorDiagnostics.ENV_B0007({ message: `[vitehub] Timed out waiting for the generated secret lock: ${secretPath}.lock` })
     const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
     try {
       secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
@@ -896,4 +908,3 @@ function literalType(value: unknown): string {
       return "unknown"
   }
 }
-

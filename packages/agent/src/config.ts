@@ -21,17 +21,7 @@ export function normalizeAgentOptions(options: AgentOptions | false | undefined)
     ...(options?.preparation ? { preparation: options.preparation } : {}),
     execution: options?.execution || "inline",
     imports: options?.imports !== false,
-    integrations: {
-      sandbox: options?.integrations?.sandbox ?? "auto",
-      workflow: options?.integrations?.workflow ?? "auto",
-    },
     providers: {
-      sandbox: {
-        driver: options?.providers?.sandbox?.driver || "auto",
-      },
-      scheduler: {
-        driver: options?.providers?.scheduler?.driver || "auto",
-      },
       state: {
         ...options?.providers?.state,
         driver: options?.providers?.state?.driver || "auto",
