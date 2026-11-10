@@ -4,6 +4,8 @@ export { parseSchema } from "./schema.ts"
 export { SecretEnv } from "./secret.ts"
 export { defineEnvProvider } from "./provider.ts"
 export { describeServerEnv, inspectServerEnv, isBlockingServerEnvEntry, loadServerEnv, resolveServerEnv } from "./server.ts"
+export { seal, unseal } from "./seal-value.ts"
+export type { SealOptions, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 export type { StandardSchemaV1 } from "./schema.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {

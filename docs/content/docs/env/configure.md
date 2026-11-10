@@ -102,6 +102,8 @@ Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.
 | `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
 | `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `EnvAccessContext` type. Also export `createServerEnvManagement` to get credential management, and `bindServerEnvSchemas` when declarations use `env.schemaFrom()`. |
 
+To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime facade, re-export `deriveSecret` and `createSealing` from `@vite-hub/env/server`. The generated module uses these to read the project's development secret. Also re-export `seal` and `unseal` for their public types in generated declarations. Existing Env resolution and inspection operations do not require these sealing exports.
+
 ## Env config sections
 
 | Section | Runtime | Public | Use |
@@ -234,12 +236,37 @@ export const tags = z.string().transform(value => value.split(','))
 export const token = z.string().min(20)
 ```
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     server: {
       apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -250,6 +277,28 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    server: {
+      apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+      retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+      tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+      token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+    },
+  },
+})
+```
+:::
+::
 
 `useServerEnv().retries` is a `number`, `tags` is a `string[]`, and `token` is a `SecretEnv<string>`. The generated types read the output type of each export, or use `unknown` when the schema has no type metadata.
 

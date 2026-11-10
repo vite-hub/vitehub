@@ -93,6 +93,33 @@ export async function sync(event: ViteHubContext) {
 
 `deriveSecret(purpose)` from `#vitehub/env/server` derives a 32-byte hex secret from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) with HKDF-SHA256, salt `vitehub`. Console Auth and CLI dispatch derive their secrets the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
 
+## Seal a value
+
+`seal(purpose, value, { ttl })` from `@vite-hub/env` encrypts and signs a JSON value with AES-GCM. It returns a URL-safe string, so you can put it in a link, a cookie, or a hidden field. `unseal(purpose, sealed)` reads it back. Use it for upload tickets, signed links, OAuth state, and other tokens that the client must carry but must not read or change.
+
+```ts
+// server/uploads.ts
+import { seal, unseal } from "@vite-hub/env";
+import * as v from "valibot";
+
+const Upload = v.object({ userId: v.string() });
+
+export async function uploadUrl(userId: string) {
+  const ticket = await seal("my-app:upload", { userId }, { ttl: 900 });
+  return `/api/uploads/${ticket}`;
+}
+
+export async function readTicket(ticket: string) {
+  const [error, upload] = await unseal("my-app:upload", ticket, { schema: Upload });
+  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, or ENV_SEAL_WRONG_PURPOSE
+  return upload;
+}
+```
+
+Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
+
+A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for short-lived tokens. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. See [App secret](https://vitehub.dev/docs/env/app-secret#seal-a-value).
+
 ## Typed server values
 
 Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
@@ -312,7 +339,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 
 `createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
 
-`@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `seal`, `unseal`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format.
+`@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `sealWithKey`, `unsealWithKey`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format. To seal an app value with a key derived from `VITEHUB_SECRET`, use [`seal()` and `unseal()`](#seal-a-value).
 
 A bridge implements the existing `read()` provider contract. Its `replace()` operation requires the last inspected revision (or `null` to create), preventing lost updates. Existing snapshots remain unchanged; the next load resolves the replacement. A custom store returns its own activation requirement: next resolution, restart, or deployment.
 
