@@ -126,8 +126,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
-  // Static Console files that Nitro serves. Generated server code never imports them.
-  "@vite-hub/console-client": false,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
@@ -246,6 +244,11 @@ function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImport
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
 const envServerRuntimeImport = fileURLToPath(import.meta.resolve("@vite-hub/env/internal/server"))
 
+/** A pattern that matches `specifier` and nothing under it. */
+function exactSpecifier(specifier: string): RegExp {
+  return new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+}
+
 function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
   return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
     const importTarget = packageExportImportTarget(target)
@@ -258,8 +261,7 @@ const frameworkProviderImportAliases = Object.fromEntries(
   frameworkExportAliases(importTarget => importTarget.endsWith(".js"))
     .sort(([left], [right]) => right.length - left.length),
 )
-// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
-// specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
+// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`.
 const frameworkAssetImportAliases = Object.fromEntries(frameworkExportAliases(importTarget => !importTarget.endsWith(".js")))
 
 function escapeRegExp(value: string): string {
@@ -320,11 +322,7 @@ function frameworkDependencyResolver(
     },
     enforce: "pre",
     config() {
-      // Longest specifiers first: Vite uses the first alias that matches.
-      const aliases = Object.fromEntries(
-        Object.entries({ ...frameworkProviderImportAliases, ...frameworkAssetImportAliases })
-          .sort(([left], [right]) => right.length - left.length),
-      )
+      const aliases: Record<string, string> = { ...frameworkProviderImportAliases, ...frameworkAssetImportAliases }
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
@@ -342,9 +340,12 @@ function frameworkDependencyResolver(
         const feature = ownerFacadeFeature(specifier)
         if (feature && !optionalFeaturePackages[feature].every(isInstalled)) delete aliases[specifier]
       }
+      // Each alias matches its specifier alone. A Vite alias given as a string also matches the subpaths under it, so
+      // a subpath the package doesn't export, such as `vite-hub/realtime/nope`, would load `dist/realtime.js/nope`
+      // instead of failing as not exported.
       return {
         resolve: {
-          alias: aliases,
+          alias: Object.entries(aliases).map(([specifier, replacement]) => ({ find: exactSpecifier(specifier), replacement })),
         },
       }
     },
@@ -450,7 +451,7 @@ export interface ViteHubOptions {
    * in the Database that `database` names, and enable `database` when it is unset.
    */
   connections?: boolean | ConnectionsOptions
-  /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
@@ -1301,6 +1302,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
+    i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email/server" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1467,8 +1469,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
-    // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
-    ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
     imports: {
       auth: "vite-hub/comments/runtime/auth",
       blob: "vite-hub/blob",
