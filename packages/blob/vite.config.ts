@@ -25,6 +25,9 @@ const bundledFilesSdkDrivers = new Set([
   "uploadthing",
 ]);
 
+// Generated code imports these modules by path. They are not public API.
+const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./storage"]);
+
 const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
 // `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
@@ -107,7 +110,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
           Object.entries(exports)
-            .filter(([key]) => key !== "./drivers/vercel-bundled" && key !== "./storage")
+            .filter(([key]) => !privateEntries.has(key))
             .map(([key, value]) => {
               const driver = key.match(/^\.\/drivers\/(.+)$/)?.[1];
               if (!driver || !bundledFilesSdkDrivers.has(driver) || typeof value !== "string") {
