@@ -53,11 +53,11 @@ afterEach(() => {
 })
 
 describe("database operations", () => {
-  it("puts the table commands under `vitehub db`", () => {
+  it("puts the table commands under `vitehub database`", () => {
     const paths = consoleOperations.filter(operation => operation.name.startsWith("databases.")).map(operation => ({ name: operation.name, ...operationCliPath(operation) }))
     expect(paths).toEqual([
-      { command: "rows", name: "databases.browse", namespace: "db" },
-      { command: "tables", name: "databases.tables", namespace: "db" },
+      { command: "rows", name: "databases.browse", namespace: "database" },
+      { command: "tables", name: "databases.tables", namespace: "database" },
     ])
   })
 
@@ -116,10 +116,10 @@ describe("database operations", () => {
 })
 
 describe("usage operation", () => {
-  it("reads the Usage section, and is `vitehub usage`", () => {
+  it("reads the Usage section, and is `vitehub agent usage`", () => {
     const usage = consoleOperations.find(operation => operation.name === "usage.get")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
-    expect(usage && operationCliPath(usage)).toEqual({ command: "get", namespace: "usage" })
-    expect(usage?.cli?.default).toBe(true)
+    expect(usage && operationCliPath(usage)).toEqual({ command: "usage", namespace: "agent" })
+    expect(usage?.cli?.default).toBeUndefined()
   })
 })

@@ -48,10 +48,10 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace` | `boolean` or `WorkspaceModuleOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
+| `workspace` | `boolean` or `WorkspaceOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Project root that server-side discovery starts from. |
-| `assets` | `WorkspaceModuleOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
+| `assets` | `WorkspaceOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
 | `store` | `WorkspaceStoreOptions` | inferred from dev mode, host, and environment | Store for definitions that do not choose one. |
 
 ## Store providers
@@ -291,7 +291,7 @@ Bind a Source definition with `{ source, mount, materialize }`. You can reuse
 the same definition for direct reads or Content:
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
@@ -317,6 +317,10 @@ For a definition used only in Workspace, the Workspace `file()`, `glob()`, and
 other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
+
+For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
+to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
+have it. See [Source configuration](/docs/source/configure) for the loader options.
 
 | Option | Type | Description |
 | --- | --- | --- |

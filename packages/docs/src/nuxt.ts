@@ -145,9 +145,9 @@ export interface DocsModuleOptions {
    */
   ogImage?: false | { component?: string }
   /**
-   * Path of a module, relative to the app root, whose default export is the parser options, such as
-   * `{ plugins: [tabs()] }`. Comark plugins are functions, so they reach the server through a file and not through
-   * this config. The page route, search, and Console drafts parse with it.
+   * Path of a module, relative to the app root, whose default export is the parser options: `{ comarkUi, examples,
+   * plugins }`. Comark plugins and `examples.play` are functions, so they reach the server through a file and not
+   * through this config. The page route, search, and Console drafts parse with it.
    */
   parser?: string
   /**
@@ -434,11 +434,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }).dst
 
     // The page route and search import the parser options. Without `parser` they parse with the built-in plugins only.
+    // `githubRepo` is the site's repository, where `#123` in a page links.
     const parserEntry = options.parser ? resolve(nuxt.options.rootDir, options.parser) : null
     const parserFile = addTemplate({
       filename: "docs/parser.mjs",
       write: true,
-      getContents: () => parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}\n` : "export default {}\n",
+      getContents: () => `${parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}` : "export default {}"}\nexport const githubRepo = ${JSON.stringify(options.github ? options.github.repo : null)}\n`,
     }).dst
 
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
@@ -568,6 +569,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
       }
     })
+    // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
+    // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
+    // the reader points at it or focuses it instead, unless the app chose when links prefetch.
+    if (!nuxt.options._layers.some(layer => layer.config.experimental?.defaults?.nuxtLink?.prefetchOn))
+      nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
