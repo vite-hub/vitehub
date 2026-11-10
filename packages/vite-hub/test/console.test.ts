@@ -650,10 +650,10 @@ describe("Agent invocation console", () => {
         console: { auth: false },
         preset: "node",
         runtimeCapabilityImports: {
-          blob: "vite-hub/_internal/blob",
+          blob: "vite-hub/blob",
           console: "vite-hub/console/server",
           db: "vite-hub/database/drizzle",
-          kv: "vite-hub/_internal/kv",
+          kv: "vite-hub/kv",
         },
         sections: ["agents"],
       })
@@ -666,7 +666,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       // The capabilities load with the first Console invocation, not when the server starts.
       expect(generated).not.toMatch(/^import .*vite-hub\/(?:_internal\/blob|database\/drizzle|_internal\/kv)/m)
-      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { console: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/_internal/blob"), import("vite-hub/console/server"), import("vite-hub/database/drizzle"), import("vite-hub/_internal/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv } }`)
+      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { console: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("vite-hub/database/drizzle"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv } }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1355,7 +1355,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
-      expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
+      expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
       expect(generated).not.toContain("() => import(")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Yes","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/dynamic.ts"},{"label":"Source","value":"server-schedules"}`)

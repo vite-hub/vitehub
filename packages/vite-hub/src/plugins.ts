@@ -447,7 +447,8 @@ export interface ViteHubOptions {
   /**
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
    * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
-   * code. `vitehub i18n extract` collects the messages into `locales/<locale>.po`. Needs Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   * code. Translations are records in `locales/<locale>/`, and `vitehub i18n status` shows what is missing. Needs
+   * Nitro 3: Nuxt 5, or Vite with Nitro 3.
    */
   i18n?: I18nOptions
   /**
@@ -943,7 +944,7 @@ function deploymentPlugins(
           if (options.cache) {
             // SAFETY: The KV integration reads this optional top-level Vite setting too.
             const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
-            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
+            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvNitroCacheDriver : undefined)
             const nitroVersion = (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 })[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
             nitro = applyCacheStorage(nitro, cacheStorage, nitroVersion)
           }
@@ -1270,13 +1271,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
-    blob: blobEnabled ? `${generatedImportBase}/blob` : false,
+    blob: blobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email/server" } : {},
-    ...kvVite ? { kv: `${generatedImportBase}/kv` } : {},
+    ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 
   plugins.push(operationsCheckPlugin())
@@ -1369,7 +1370,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       ...agentOptions,
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
-      kvImport: `${generatedImportBase}/kv`,
+      kvImport: "vite-hub/kv",
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports: {
@@ -1397,7 +1398,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())
   if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: "vite-hub/blob", presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1427,12 +1428,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
-    // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
-      importBase: `${generatedImportBase}/rate-limit`,
-    } as RateLimitModuleOptions)))
+    })))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
   // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
@@ -1482,9 +1481,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      importBase: `${generatedImportBase}/schedule`,
+      importBase: "vite-hub/schedule",
       providerImportAliases,
-      runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
   if (workflowEnabled) {
@@ -1493,7 +1491,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       {
       agentImportBase: `${generatedImportBase}/agent`,
       hosting: plan.nitroPreset,
-      importBase: `${generatedImportBase}/workflow`,
+      importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,

@@ -375,9 +375,9 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(shadow.querySelectorAll('[data-slot="comment-pin"][data-status="resolved"]')).toHaveLength(1))
   })
 
-  it("shows the Sign in with GitHub prompt to a person who may not read", async () => {
+  it("shows the Sign in with GitHub prompt to a person who may not read, once they open the tool", async () => {
     await serveComments({ identify: () => null, authorize: () => false })
-    const tools = pageTools()
+    const tools = pageTools({ open: true })
     const { shadow } = await startOverlay(tools)
     await vi.waitFor(() => expect(shadow.querySelector(".toast")).not.toBeNull())
     expect(tools.bar.hidden).toBe(true)
