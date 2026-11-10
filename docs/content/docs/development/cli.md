@@ -8,7 +8,7 @@ icon: i-lucide-terminal-square
 
 The `vitehub` CLI is one entry point for developers and agents. It loads your Vite config and collects the commands each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads each active plugin's commands and Provision Steps once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
 
-The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. The Console catch-all and an app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
+The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. An app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
 
 ## Install and open help
 
@@ -1226,15 +1226,15 @@ pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 ```
 
-Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it like a page request. Set the credentials the policy accepts:
+Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
 
 | Variable | Value |
 | --- | --- |
-| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. With Console Auth, copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, for example the Bearer token that a `console.authorize` function checks. |
+| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value with a session cookie of the app Auth or Console Auth. With Console Auth, sign in at `/_vitehub/sign-in` and copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, such as `Bearer <token>` for [`auth: 'token'`](/docs/development/console#use-a-console-token). |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `auth: { provider: 'cloudflare-access' }`. |
 
-A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as a Console page URL from the browser or `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
+A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 

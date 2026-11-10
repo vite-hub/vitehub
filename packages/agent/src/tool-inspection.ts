@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.ts"
 import type { AgentInspectionValue, AgentToolInspection } from "./types.ts"
 import type { AgentToolSchema } from "./types.ts"
@@ -10,8 +10,8 @@ const emptyToolInputSchema = {
 } as const
 
 function inspectionValue(value: unknown): AgentInspectionValue | undefined {
-  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
   if (!isRuntimeRecord(value)) return
   if (Array.isArray(value)) {
     const values: AgentInspectionValue[] = []
@@ -51,7 +51,7 @@ function toolJsonSchema(value: unknown, direction: "input" | "output"): AgentIns
 export function inspectMcpToolProvenance(value: unknown): AgentToolInspection["mcp"] {
   const tool = isRuntimeRecord(value) ? value : undefined
   const metadata = isRuntimeRecord(tool?.metadata) ? tool.metadata : undefined
-  if (hasRuntimeType(metadata?.mcpServer, "string") && hasRuntimeType(metadata?.originalName, "string")) {
+  if (typeof metadata?.mcpServer === "string" && typeof metadata?.originalName === "string") {
     return { server: metadata.mcpServer, name: metadata.originalName }
   }
 }
@@ -64,15 +64,15 @@ export function inspectAgentTools(tools: Record<string, unknown> | undefined): A
     .map(([key, value]) => {
       const tool = isRuntimeRecord(value) ? value : {}
       const providerDefined = tool.type === "provider" || tool.type === "provider-defined"
-      const description = hasRuntimeType(tool.description, "string")
+      const description = typeof tool.description === "string"
         ? tool.description
         : ""
       const inputSchema = toolJsonSchema(tool.inputSchema, "input")
         ?? (!providerDefined && tool.inputSchema === undefined ? emptyToolInputSchema : undefined)
       const outputSchema = toolJsonSchema(tool.outputSchema, "output")
       const mcp = inspectMcpToolProvenance(value)
-      const title = hasRuntimeType(tool.title, "string") ? tool.title.trim() : ""
-      const icon = hasRuntimeType(tool.icon, "string") ? tool.icon.trim() : ""
+      const title = typeof tool.title === "string" ? tool.title.trim() : ""
+      const icon = typeof tool.icon === "string" ? tool.icon.trim() : ""
       return {
         ...(description ? { description } : {}),
         ...(icon ? { icon } : {}),

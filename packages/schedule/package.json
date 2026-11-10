@@ -78,7 +78,6 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
-    "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
