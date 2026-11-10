@@ -14,6 +14,7 @@ import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 import { sendWebResponse } from "./node-response.ts"
 import { setRequestClientAddress } from "./client-address.ts"
+import { authTableNames } from "./table-names.ts"
 
 export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
   return basePath === "/" && status === 404
@@ -66,6 +67,8 @@ export interface AuthDatabaseContribution {
   database: string
   dialect: "postgresql" | "sqlite"
   definition: { module: string, export: "authPostgresSchema" | "authSqliteSchema" }
+  /** The schema keys and SQL names of the tables, so the Database lists them without loading the schema module. */
+  tables: Readonly<Record<string, string>>
   reason: string
 }
 
@@ -389,6 +392,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           database,
           dialect,
           definition: { module: `${importBase}/schema`, export: dialect === "postgresql" ? "authPostgresSchema" : "authSqliteSchema" },
+          tables: authTableNames,
           reason: "Stores the Better Auth users, sessions, accounts, and verifications, the admin() fields, and the Console MCP OAuth clients and tokens of authDatabase().",
         }]
       },
