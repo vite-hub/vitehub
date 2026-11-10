@@ -8,10 +8,10 @@ const dynamicError = {
 const withFix = (fix: string) => ({ ...dynamicError, fix })
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: WORKSPACE_R0030, WORKSPACE_R0062, and WORKSPACE_R0068.
 export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workspace/diagnostics",
   codes: {
-    WORKSPACE_R0068: dynamicError,
     WORKSPACE_R0069: withFix("Use a Store with retained history: `createBlobDatabaseWorkspaceStore()` or the `github` Store. Open the Workspace with a scope that grants the complete Workspace, not selected paths."),
     WORKSPACE_R0070: withFix("Pass a `limit` from 1 to 100, and pass a `cursor` only with the `ref` of the `history.list()` call that returned it."),
     WORKSPACE_R0071: withFix("Use a ref name with up to 128 letters, numbers, `_`, and `-`, joined by single `.` or `/`, for example `draft` or `team/review`. In a GitHub Store with `refs`, use `published` or `draft`, not the branch name."),
@@ -47,7 +47,6 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0027: withFix("Set another `binding` in the Workspace `store` options, or set `namespace` to the namespace that Wrangler config already has for that binding."),
     WORKSPACE_R0028: withFix("The client closed the Workspace Dev connection before the command finished. Run the command again and keep the connection open."),
     WORKSPACE_R0029: withFix("Give each Cloudflare Artifacts namespace its own `binding` in the Workspace `store` options."),
-    WORKSPACE_R0030: dynamicError,
     WORKSPACE_R0031: withFix("Rename the file so that no part of its path contains `:` or `?` or ends in `$`. MountX cannot project such names."),
     WORKSPACE_R0032: withFix("Replace the Git symlink with a normal file or folder, or read the Workspace without MountX. MountX cannot keep symlinks."),
     WORKSPACE_R0033: withFix("Run the operation again. If it fails again, check the Blob store of the project in the Vercel dashboard."),
@@ -84,8 +83,6 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0059: withFix("Send the request with the method, URL, query, and body that the Source declares. Read `.vitehub/sources/<source>.json` in the Workspace to get them."),
     WORKSPACE_R0060: withFix("Read this Source in an Agent Invocation. The Agent runs the resolver with the Invocation context before it reads the Source. Outside an Invocation, the Source has no files."),
     WORKSPACE_R0061: withFix("Return `repo` from the `github()` resolver, for example `{ repo: \"owner/name\" }`, or start the Agent Invocation with a `pullRequest` context value."),
-    // Retired: inferred MCP resource Sources no longer need a registered loader. Do not reuse this code.
-    WORKSPACE_R0062: dynamicError,
     WORKSPACE_R0063: withFix("Use the URL of exactly one Source that the Workspace scope can see. Read `.vitehub/sources/<source>.json` in the Workspace and send the URL, method, query, and body that it declares."),
     WORKSPACE_R0064: withFix("This is a ViteHub bug. Report it at https://github.com/vite-hub/vitehub/issues with the message and your Workspace Definition."),
     WORKSPACE_R0065: withFix("The Cloudflare Artifacts Store keeps its Git checkout in memory. A Git step used the path in the message in a way that the error code rejects, for example `ENOENT` for a missing file. Run the operation again. If it fails again, report it at https://github.com/vite-hub/vitehub/issues with the message."),

@@ -642,7 +642,7 @@ describe("ViteHub Doctor Extension", () => {
       extensions: [vitehubDoctorExtension],
       dependencies: { "vite-hub": "*" },
       files: {
-        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
+        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
         "server/api/a.ts": "import { kv } from \"vite-hub/_internal/kv\"\nexport default async () => (await kv.get(\"a\")).value\n",
       },
     })

@@ -234,10 +234,10 @@ hubConnections({ management: { actor: "./server/connections-auth.ts" } });
 
 ### Management routes
 
-`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. It returns a Fetchable, `{ fetch(request) }`. `actor` is required and gets the `Request`.
+`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections` serves these routes. It returns a Fetchable, `{ fetch(request) }`. `actor` is required and gets the `Request`.
 
 ```ts
-import { createConnectionsHandler } from "@vite-hub/connections/http";
+import { createConnectionsHandler } from "@vite-hub/connections";
 
 const handler = createConnectionsHandler({ actor: "development" });
 const response = await handler.fetch(new Request("http://localhost/_vitehub/connections/connect/google"));
