@@ -116,7 +116,7 @@ describe("installOpenWorkflow", () => {
     consoleWarn.mockRestore()
   })
 
-  it("drains the dev worker when the last discovered Workflow is removed", async () => {
+  it.each([{}, undefined])("drains the dev worker when the discovered registry becomes %s", async (registry) => {
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     const app = createApp()
@@ -125,7 +125,7 @@ describe("installOpenWorkflow", () => {
     let finish!: () => void
     worker!.stop.mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
 
-    setWorkflowRuntimeRegistry({})
+    setWorkflowRuntimeRegistry(registry)
     await expect(installOpenWorkflow(app)).resolves.toBe(false)
     expect(worker!.stop).toHaveBeenCalledOnce()
     expect(fake.state.workers).toHaveLength(1)

@@ -256,7 +256,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const modules = new Map<string, FeatureId>()
   for (const id of turnedOff) {
     modules.set(runtimeModule(id), id)
-    for (const name of packagesOf(id, valueOf(project.config, id), host)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
+    for (const name of packagesOf(id, valueOf(project.config, id))) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
   }
   const imported = new Set<string>()
   for (const file of listMatchingFiles(project.root, name => sourceFile.test(name))) {

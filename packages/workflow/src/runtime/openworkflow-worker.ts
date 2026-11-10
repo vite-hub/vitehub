@@ -349,7 +349,7 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
     }
     // Inline and Agent Workflows never enter OpenWorkflow storage. Drain an old dev worker above, but do not
     // resolve storage or start a replacement when the last discovered Workflow has been removed.
-    if (Object.keys(getWorkflowRuntimeRegistry()).length === 0) return false
+    if (Object.keys(getWorkflowRuntimeRegistry() ?? {}).length === 0) return false
     try {
       logDefaultStorage()
     }
