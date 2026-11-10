@@ -134,13 +134,22 @@ type ServerPluginTableFields<TSchema, TTable extends "session" | "user"> = TSche
   : {}
 
 /**
- * A type-only client plugin with the user and session fields of one server plugin, such as the `role` of `admin()`.
- * It keeps only these two tables, so every server plugin gives a valid client plugin.
+ * The endpoints of a server plugin that change the session response, such as the `getSession` of `customSession()`.
+ * Better Auth marks them with `CUSTOM_SESSION`. The client keeps no other plugin endpoint.
  */
-type ServerPluginFields<TPlugin> = TPlugin extends { id: infer Id extends string, schema?: infer Schema }
+type ServerPluginSessionEndpoints<TEndpoints> = {
+  [Key in keyof TEndpoints as TEndpoints[Key] extends { options: { metadata: { CUSTOM_SESSION: boolean } } } ? Key : never]: TEndpoints[Key]
+}
+
+/**
+ * A type-only client plugin with the user and session fields of one server plugin, such as the `role` of `admin()`,
+ * and the session response of `customSession()`. It keeps only these, so every server plugin gives a valid client plugin.
+ */
+type ServerPluginFields<TPlugin> = TPlugin extends { id: infer Id extends string, schema?: infer Schema, endpoints?: infer Endpoints }
   ? {
       id: Id
       $InferServerPlugin: {
+        endpoints: ServerPluginSessionEndpoints<Endpoints>
         schema: { session: { fields: ServerPluginTableFields<Schema, "session"> }, user: { fields: ServerPluginTableFields<Schema, "user"> } }
       }
     }

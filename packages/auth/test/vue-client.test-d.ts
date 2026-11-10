@@ -1,5 +1,5 @@
 import { inferAdditionalFields } from "better-auth/client/plugins"
-import { admin, bearer, organization } from "better-auth/plugins"
+import { admin, bearer, customSession, organization } from "better-auth/plugins"
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
@@ -46,6 +46,29 @@ describe("Vue Auth client types", () => {
     type Session = RegisteredAuthClient<{ definition: typeof definition }>["$Infer"]["Session"]
     expectTypeOf<Session["user"]["plan"]>().toEqualTypeOf<string>()
     expectTypeOf<Session["session"]["activeOrganizationId"]>().toEqualTypeOf<string | null | undefined>()
+  })
+
+  it("gives the client the user and session fields that customSession() returns", () => {
+    const definition = defineAuth({
+      plugins: [admin(), customSession(async ({ user, session }) => ({
+        user: { ...user, accessLevel: "manager" as const },
+        session: { ...session, tenantId: "tenant-1" },
+      }))],
+      user: { additionalFields: { plan: { type: "string", required: true } } },
+    })
+    type Client = RegisteredAuthClient<{ definition: typeof definition }>
+    const { user, session } = useUserSession({} as Client)
+    expectTypeOf(user.value!.accessLevel).toEqualTypeOf<"manager">()
+    expectTypeOf(session.value!.tenantId).toEqualTypeOf<string>()
+    // The fields of the Definition and its other plugins stay.
+    expectTypeOf(user.value!.plan).toEqualTypeOf<string>()
+    expectTypeOf(user.value!.role).toEqualTypeOf<string | null | undefined>()
+  })
+
+  it("keeps the plugin endpoints out of the default client", () => {
+    const definition = defineAuth({ plugins: [admin(), customSession(async session => session)] })
+    type Client = RegisteredAuthClient<{ definition: typeof definition }>
+    expectTypeOf<Client>().not.toHaveProperty("admin")
   })
 
   it("keeps the plain Better Auth fields when the Definition type is any", () => {

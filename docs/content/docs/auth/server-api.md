@@ -47,7 +47,7 @@ For a custom `basePath` or Better Auth client plugins, import `createAuthClient`
 
 ### Typed user fields
 
-The default client gets its types from the Auth Definition. When the Definition adds user or session fields, with `additionalFields` or with a plugin such as `admin()`, `useUserSession()` has these fields too.
+The default client gets its types from the Auth Definition. When the Definition adds user or session fields, with `additionalFields`, with a plugin such as `admin()`, or with the session that `customSession()` returns, `useUserSession()` has these fields too.
 
 ```ts [server/auth.ts]
 import { admin } from 'better-auth/plugins'
@@ -74,7 +74,7 @@ export const isAdmin = () => user.value?.role === 'admin'
 
 - ViteHub writes the type of the Definition to `.vitehub/types/auth.d.ts`. The client imports only this type, so no server code goes to the browser.
 - In Nuxt, the auto-imported `useUserSession()` has the same types.
-- A client from `createAuthClient()` does not get these fields. Add the Better Auth client plugins, such as `adminClient()`, and `inferAdditionalFields<RegisteredAuth>()` from `better-auth/client/plugins`. `RegisteredAuth` is a type from `vite-hub/auth`.
+- A client from `createAuthClient()` does not get these fields. Add the Better Auth client plugins, such as `adminClient()` and `customSessionClient<RegisteredAuth>()`, and `inferAdditionalFields<RegisteredAuth>()` from `better-auth/client/plugins`. `RegisteredAuth` is a type from `vite-hub/auth`.
 
 Better Auth loads on the first Auth request, or the first request an access route matches. Importing `vite-hub/auth/server` also loads it, so import it in routes, not in a Nitro plugin or global middleware. A cold start then does not compile it.
 
