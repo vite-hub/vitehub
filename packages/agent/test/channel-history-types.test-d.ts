@@ -3,7 +3,7 @@ import * as v from "valibot"
 import type { AgentChannelMessageContext } from "@vite-hub/agent"
 import type { AgentInvocationRecord } from "@vite-hub/agent"
 import { defineCollection } from "@vite-hub/source"
-import { defineChannel, discord, github, http, slack, teams, telegram, webChat } from "@vite-hub/agent/channels"
+import { channelAdapter, discord, github, http, slack, teams, telegram, webChat } from "@vite-hub/agent/channels"
 
 interface HistoryItem {
   id: string
@@ -17,7 +17,7 @@ const collection = defineCollection(async () => [{ id: "m1", subject: "Invoice" 
 
 describe("built-in Channel replay public types", () => {
   it("infers the legacy Invocation recovery hook item and record", () => {
-    defineChannel("mailbox", {
+    channelAdapter("mailbox", {
       history: { collection, key: item => item.id, async invocationItem(invocation) {
         expectTypeOf(invocation).toEqualTypeOf<AgentInvocationRecord>()
         return invocation.annotations?.legacyId ? { id: String(invocation.annotations.legacyId), subject: "Synthetic" } : undefined
@@ -25,11 +25,11 @@ describe("built-in Channel replay public types", () => {
       triggers: { received: { invoke: () => ({ input: { prompt: "Replay" } }) } },
     })
   })
-  it("preserves existing explicit defineChannel generic positions", () => {
+  it("preserves existing explicit channelAdapter generic positions", () => {
     interface RuntimeConfig { mailbox: { token: string } }
     interface Data { id: string }
     type Methods = { label: (context: AgentChannelMessageContext<RuntimeConfig, Data>, name: string) => string }
-    const channel = defineChannel<"mailbox", Methods, RuntimeConfig, Data>("mailbox", {
+    const channel = channelAdapter<"mailbox", Methods, RuntimeConfig, Data>("mailbox", {
       message: { data: v.object({ id: v.string() }), methods: { label(context, name) {
         expectTypeOf(context.message).toEqualTypeOf<Data>()
         expectTypeOf(context).toEqualTypeOf<AgentChannelMessageContext<RuntimeConfig, Data>>()
@@ -37,8 +37,8 @@ describe("built-in Channel replay public types", () => {
       } } },
     })
     expectTypeOf(channel.kind).toEqualTypeOf<"mailbox">()
-    defineChannel<"mailbox", Record<never, never>>("mailbox")
-    defineChannel<"mailbox", Methods, RuntimeConfig, Data, HistoryItem>("mailbox", {
+    channelAdapter<"mailbox", Record<never, never>>("mailbox")
+    channelAdapter<"mailbox", Methods, RuntimeConfig, Data, HistoryItem>("mailbox", {
       history: { collection, key: item => item.id },
       triggers: { received: { invoke: () => ({ input: { prompt: "Replay" } }) } },
     })

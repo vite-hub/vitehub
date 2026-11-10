@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join, resolve, sep } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
@@ -9,9 +9,10 @@ import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
+import { consoleRuntimeDigestFile, digestConsoleRuntime } from "./runtime-digest.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
-import { consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
+import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
@@ -32,28 +33,13 @@ export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills
 let consoleRuntimeDigest: string | undefined
 
 /**
- * A digest of the packaged Console runtime, client, and assets.
- * The package does not change while the process runs, so read its files once, not on each file change.
- * The Console client build puts a content hash in the name of each file in `public/console`, so the digest reads only
- * those names. A cold dev start does not read the 20 MB client.
+ * The digest of the packaged Console runtime. The package build writes it, so an installed package does not read the
+ * runtime files on each start. Source checkouts compute it once per process.
  */
 function readConsoleRuntimeDigest(): string {
   if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
-  const hash = createHash("sha256")
-  const files: string[] = []
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const file = join(directory, entry.name)
-      if (entry.isDirectory()) visit(file)
-      else if (entry.isFile()) files.push(file)
-    }
-  }
-  if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
-  for (const file of files.sort()) {
-    hash.update(file.slice(consoleRuntimeRoot.length)).update("\0")
-    if (!file.startsWith(consolePublicRoot + sep)) hash.update(readFileSync(file)).update("\0")
-  }
-  consoleRuntimeDigest = hash.digest("hex")
+  const file = join(consoleRuntimeRoot, consoleRuntimeDigestFile)
+  consoleRuntimeDigest = existsSync(file) ? readFileSync(file, "utf8").trim() : digestConsoleRuntime(consoleRuntimeRoot)
   return consoleRuntimeDigest
 }
 
@@ -162,7 +148,11 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
       afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)
     }
   }
-  if (access.oauth && access.mode === "auth" && oauthAuth) fields.push(`oauth: { ...${JSON.stringify(access.oauth)}, auth: ${oauthAuth}${oauthAuthorize ? `, authorize: ${oauthAuthorize}` : ""} }`)
+  if (access.oauth && access.mode === "auth" && oauthAuth) {
+    // Only an OAuth build imports the token check, so other builds ship without jose.
+    imports.push('import { verifyConsoleJwt as vitehubVerifyConsoleJwt } from "vite-hub/console/sections"')
+    fields.push(`oauth: { ...${JSON.stringify(access.oauth)}, auth: ${oauthAuth}${oauthAuthorize ? `, authorize: ${oauthAuthorize}` : ""}, verify: vitehubVerifyConsoleJwt }`)
+  }
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")
@@ -199,7 +189,7 @@ function renderConsoleNitroPlugin(
   pageTools = true,
 ): string {
   const accessCode = renderConsoleAccess(access)
-  const operations = (catalog.operations ?? []).map(contribution => ({ ...contribution, module: consoleRuntimeReaderModule(contribution.module) }))
+  const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -220,7 +210,12 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  // An override also adds a section that no owner registers, such as Forms.
+  const registered = new Map(describeConsoleContributedSections(sections).map(section => [section.id, section]))
+  const contributedSections = sections.flatMap((id) => {
+    const section = catalog.sectionOverrides?.[id] ?? registered.get(id)
+    return section ? [section] : []
+  })
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
@@ -248,7 +243,7 @@ function renderConsoleNitroPlugin(
     `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
+      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from ${JSON.stringify(requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("runtime/workflow"))}`]
       : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),

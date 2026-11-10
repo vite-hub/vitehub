@@ -1,13 +1,13 @@
 import { defineAgent as defineUpstreamAgent } from "@vite-hub/agent"
 
-import { agentInvocationsDisabledKey, resolveAgentInvocationsSetting, resolveDefaultAgentInvocations } from "./_internal/agent/invocations.ts"
+import { agentInvocationsDisabledKey, resolveAgentInvocationsSetting, resolveDefaultAgentInvocations } from "./internal/agent-invocations.ts"
 import { consoleInvocationsFallbackKey, resolveConsoleFixtureInvocations } from "./console/internal.ts"
 
 export * from "@vite-hub/agent"
-export type { AgentInvocationsSetting, AgentInvocationsStoreName, AgentInvocationsStoreOptions } from "./_internal/agent/invocations.ts"
+export type { AgentInvocationsSetting, AgentInvocationsStoreName, AgentInvocationsStoreOptions } from "./internal/agent-invocations.ts"
 
 import type { AgentInvocations, DefineAgent } from "@vite-hub/agent"
-import type { AgentInvocationsSetting } from "./_internal/agent/invocations.ts"
+import type { AgentInvocationsSetting } from "./internal/agent-invocations.ts"
 
 declare module "@vite-hub/agent" {
   interface AgentInvocationsHostSettings {
