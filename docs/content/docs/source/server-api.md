@@ -12,19 +12,19 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `createSource`, `combineSources`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, combine keyed readers, and split items into parts. |
-| `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
+| `defineSource`, `createSource`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, and split items into parts. |
+| `registerSource`, `registerSources`, `clearSources`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file`, `files`, `glob`, `markdown`, and `github` from `vite-hub/source`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each entry also exports the option types of its loaders. `mcpResources` has its own entry because it loads the MCP SDK. |
-| `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
-| `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
+| `defineCollection`, `array` from `vite-hub/source` | Turn an array or a custom loader into a typed, paginated HTTP read model. |
+| `table` from `vite-hub/source/drizzle` | Turn a Drizzle table into a Collection. It needs `drizzle-orm`. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
 | `hubSource` from `vite-hub/source/vite` | Finds Collections and Content and generates their routes. `vitehub()` and the Nuxt module add it. |
 | `useDatabase` from `vite-hub/database/drizzle` | Get a database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read registry, path, and loader failures by `SOURCE_*` code. |
 
-`vite-hub/source` exports the Source, reader, item, revision, cache, and error types. Libraries that install `@vite-hub/source` use the matching `@vite-hub/source/*` paths. `table()` and `cachedSource()` exist only in `vite-hub`. `@vite-hub/source` exports both forms of `defineCollection()` and `array()`.
+Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. Each `vite-hub/source/*` path re-exports the matching `@vite-hub/source/*` path unchanged.
 
 ## Source reader API
 
@@ -58,9 +58,9 @@ export default defineEventHandler(async () => {
 Register Sources only to look them up by name. `createSource()` calls do not need it.
 
 ```ts [server/sources.ts]
-import { defineSources, registerSources, file, github } from 'vite-hub/source'
+import { registerSources, file, github } from 'vite-hub/source'
 
-export const sources = defineSources({
+export const sources = {
   readme: file('README.md'),
   docs: github({
     repo: 'acme/docs',
@@ -68,7 +68,7 @@ export const sources = defineSources({
     root: 'docs',
     include: ['**/*.md'],
   }),
-})
+}
 
 registerSources(sources)
 
@@ -121,43 +121,20 @@ await reader.read('guide.md#Usage')
 
 Content, Workspaces, and `createSource()` accept a split Source. A part without `path` keeps the parent's. `get()` reads only that part's parent; `keys()` and `items()` read all parents. Part keys must be unique per parent and without `#`.
 
-## Combine keyed Source readers
-
-Use `combineSources()` when several readers can return the same key. The combined reader names each item with a `[source, key]` tuple, so the source alias stays in the value and its type.
-
-```ts [server/recaps.ts]
-import { combineSources } from 'vite-hub/source'
-
-function githubRecaps(rootDir: string) {
-  return {
-    async get(month: `${number}-${number}`) {
-      return { month, rootDir }
-    },
-    async items() {
-      return [{ key: '2026-07' as const }]
-    },
-  }
-}
-
-export const recaps = combineSources({
-  sources: { github: githubRecaps(process.cwd()) },
-})
-
-await recaps.get(['github', '2026-07'])
-await recaps.items()
-// [{ key: '2026-07', source: 'github', identity: ['github', '2026-07'] }]
-```
-
-Aliases must be strings. `get()` infers the key and result for each alias. `items()` exists only when every reader has it. Each listed item has `source` and `identity`.
+## Cache a Source reader
 
 Plain objects or functions work as readers. Use `defineSource()` when a loader needs the revision and `prepare()` steps.
-
-### Cache a reader
 
 ```ts fragment
 import { cachedSource } from 'vite-hub/source/server'
 
-const cachedRecaps = cachedSource(githubRecaps(process.cwd()), {
+const recaps = {
+  async get(month: `${number}-${number}`) {
+    return { month }
+  },
+}
+
+const cachedRecaps = cachedSource(recaps, {
   name: 'recaps',
   maxAge: 60,
 })
@@ -165,17 +142,18 @@ const cachedRecaps = cachedSource(githubRecaps(process.cwd()), {
 await cachedRecaps.get('2026-07')
 ```
 
-`cachedSource(reader, options)` takes a reader and Nitro cache options. Cache plain readers before you pass them to `combineSources()`.
+`cachedSource(reader, options)` takes a reader and Nitro cache options.
 
 ## Expose a typed Collection
 
 A Collection is the paged list that your app serves to clients. For a Drizzle database, let `table()` build the query:
 
-```ts [server/collections/articles.ts]
+```ts [server/collections/articles.ts] fragment
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
 import { useDatabase } from 'vite-hub/database/drizzle'
-import { defineCollection, table } from 'vite-hub/source'
+import { defineCollection } from 'vite-hub/source'
+import { table } from 'vite-hub/source/drizzle'
 
 const { db, schema } = useDatabase('default')
 
@@ -260,26 +238,6 @@ export const articles = defineCollection({
 | `defaultLimit`, `maxLimit` | Page size and the largest `limit`. `maxLimit` also caps the values per facet. |
 
 The loader runs per request and returns the array or `{ items, digest }`. Cursors are tied to the digest and query, so one from changed data or another filter returns `409`. Without `digest`, ViteHub hashes the items. Server code can filter any field: `articles.page({ query: { category: ['guide'] } })`.
-
-`workspaceFile()` does the same for a JSON array in a Workspace file:
-
-```ts [server/collections/articles.ts]
-import * as v from 'valibot'
-import { defineCollection } from 'vite-hub/source'
-import { workspaceFile } from 'vite-hub/workspace'
-
-export const articles = defineCollection({
-  source: workspaceFile({
-    workspace: 'content',
-    path: 'data/articles.json',
-    schema: v.object({ slug: v.string(), title: v.string(), category: v.optional(v.string()) }),
-    filters: ['category'],
-    search: ['title'],
-  }),
-})
-```
-
-Cursors are tied to the file's Workspace digest, so a write makes older cursors stale. Without `schema`, items are `Record<string, unknown>`.
 
 ```vue [app/pages/articles.vue]
 <script setup lang="ts">

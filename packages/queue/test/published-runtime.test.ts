@@ -12,8 +12,8 @@ describe("published Queue error runtime", () => {
     expect(queue).not.toHaveProperty("QueueError")
   })
 
-  it("keeps the Cloudflare worker helper on the public root", () => {
-    expect(queue.createQueueCloudflareWorker).toBeTypeOf("function")
+  it("keeps the Cloudflare worker helper off the public root", () => {
+    expect(queue).not.toHaveProperty("createQueueCloudflareWorker")
   })
 })
 
