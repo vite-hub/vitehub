@@ -248,6 +248,11 @@
       "import": "./dist/build/included-nitro.js",
       "default": "./dist/build/included-nitro.js"
     },
+    "./build/included-nitro-registry": {
+      "types": "./dist/build/included-nitro-registry.d.ts",
+      "import": "./dist/build/included-nitro-registry.js",
+      "default": "./dist/build/included-nitro-registry.js"
+    },
     "./build/nitro-cache-bypass": {
       "types": "./dist/build/nitro-cache-bypass.d.ts",
       "import": "./dist/build/nitro-cache-bypass.js",
@@ -287,6 +292,11 @@
       "types": "./dist/build/paths.d.ts",
       "import": "./dist/build/paths.js",
       "default": "./dist/build/paths.js"
+    },
+    "./build/bundle-options": {
+      "types": "./dist/build/bundle-options.d.ts",
+      "import": "./dist/build/bundle-options.js",
+      "default": "./dist/build/bundle-options.js"
     },
     "./build/esbuild": {
       "types": "./dist/build/esbuild.d.ts",
