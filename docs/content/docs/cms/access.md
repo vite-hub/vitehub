@@ -43,11 +43,14 @@ export default defineAuth({
 Call the Better Auth admin API from server code. Better Auth checks that the session in the headers is an `admin`:
 
 ```ts [server/routes/api/roles.post.ts]
-import { defineHandler } from 'h3'
+import { defineHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { auth } from 'vite-hub/auth/server'
 
+const roleChange = v.object({ userId: v.string(), role: v.picklist(['viewer', 'commenter', 'editor', 'publisher']) })
+
 export default defineHandler(async (event) => {
-  const { userId, role } = await event.req.json()
+  const { userId, role } = await readValidatedBody(event, body => v.parse(roleChange, body))
   return auth.api.setRole({ body: { userId, role }, headers: event.req.headers })
 })
 ```

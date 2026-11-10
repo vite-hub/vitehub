@@ -21,7 +21,7 @@ Use `gmail()` for a Gmail account your team owns, [`email()`](/docs/email/agent-
 
 Enable [Connections](/docs/connections/get-started#define-a-connection) and define a Connection with the `google()` preset. `gmail.readonly` covers search and read; `gmail.compose` covers drafts.
 
-```ts [server/connections/google.ts]
+```ts [server/connections/google.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'

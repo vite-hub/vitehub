@@ -8,7 +8,7 @@ icon: i-lucide-settings
 
 ## Access: `authorize`
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 export default defineComments({
   authorize: ({ user, actor, action, thread, subject }) => { /* … */ },
 })

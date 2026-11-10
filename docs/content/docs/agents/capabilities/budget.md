@@ -96,7 +96,7 @@ If the provider supports `maxOutputTokens`, AI SDK model calls also get the outp
 
 Read the result from a finish hook:
 
-```ts
+```ts fragment
 hooks: {
   'agent:finish'(event) {
     const budget = event.extensions.get('budget')

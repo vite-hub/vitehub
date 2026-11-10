@@ -45,7 +45,7 @@ icon: i-lucide-message-square-text
   export default defineEventHandler(async () => {
     const [error, threads] = await comments.list({ status: 'open' })
     if (error) throw error
-    return threads.map(thread => thread.page)
+    return threads.map(thread => thread.subject.id)
   })
   ```
   :::

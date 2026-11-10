@@ -273,6 +273,7 @@ Set `invocations` on an Agent Definition to record into another journal, such as
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  driver: { model: "openai/gpt-5.1-mini" },
   invocations: "database",
 })
 ```

@@ -54,7 +54,7 @@ Capabilities attach through the Agent Definition, so the Schedule extends the Ag
 
 `options` can be a function of the Capability context. It runs once per Invocation, before the Driver (the part that runs the model), and can return a promise. Use it when the Invocation input picks the recipient:
 
-```ts
+```ts fragment
 channelDelivery({
   channel: useChannel('teams'),
   options(context) {
@@ -73,7 +73,7 @@ channelDelivery({
 
 `onDelivered(message, receipt, context)` runs after each successful send, also in a dry run. `message` is the model's message. `receipt` is `{ deliveryId, dryRun, text }`, where `text` is the text after `format`. Use it to record what was sent:
 
-```ts
+```ts fragment
 channelDelivery({
   channel: useChannel('teams'),
   options: { recipient: 'user:7b0bff9d' },
@@ -106,7 +106,7 @@ The tool takes one field, `message`, a non-empty string. On success, it returns 
 
 Models sometimes end with the answer as final text and never call the tool. With `required: true`, set `reminder` to run the Driver again before the Invocation fails:
 
-```ts
+```ts fragment
 channelDelivery({
   channel: useChannel('teams'),
   options: { recipient: 'user:7b0bff9d' },

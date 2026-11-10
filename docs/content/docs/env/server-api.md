@@ -30,9 +30,9 @@ icon: i-lucide-code-2
 
 ## Use it at runtime
 
-Read Public Env in browser code. ViteHub generates the module behind this import.
+Read Public Env in browser code. ViteHub generates the module behind this import. These examples read the values from [Configure Env](/docs/env/configure#configure-env).
 
-```ts [src/config.ts]
+```ts [src/config.ts] fragment
 import { usePublicEnv } from '#vitehub/env/public'
 
 export const appName = usePublicEnv().appName
@@ -40,7 +40,7 @@ export const appName = usePublicEnv().appName
 
 Read Server Env in server code. A secret prints hidden. Call `unseal()` to get the string for an SDK or request.
 
-```ts [server/github.ts]
+```ts [server/github.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
 
 export async function listIssues() {

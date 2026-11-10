@@ -168,7 +168,7 @@ Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate
 
 Check the output from code:
 
-```ts
+```ts fragment
 await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
 content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
 ```

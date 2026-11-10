@@ -23,7 +23,8 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-```ts [server/api/preview.delete.ts]
+```ts [server/api/preview.delete.ts] fragment
+import { defineEventHandler } from 'h3'
 import { content } from '../content'
 
 export default defineEventHandler(event => content.preview.disable(event))

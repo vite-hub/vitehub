@@ -398,7 +398,7 @@ A journal keeps only metadata by default.
 
 `redact` rewrites or drops an observation before the store gets it. `redactError` rewrites a failed record's error:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 const invocations = defineAgentInvocations({
   store,
   redact(observation) {
@@ -573,7 +573,7 @@ On Vercel, Agents run through the inline Workflow adapter, because Vercel's dete
 
 Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load:
 
-```ts [server/invocations.ts]
+```ts [server/invocations.ts] fragment
 import { env } from 'cloudflare:workers'
 import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
 import { defineAgentInvocations } from 'vite-hub/agent/server'

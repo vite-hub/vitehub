@@ -155,7 +155,7 @@ Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, in
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
-```ts
+```ts fragment
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
 import { file } from "@vite-hub/workspace";
@@ -313,6 +313,12 @@ Pass `--json` for the structured inspection contract.
 ```ts
 import { openapi } from "@vite-hub/agent/capabilities";
 
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    billing: { tenantId: string; token: string };
+  }
+}
+
 openapi({
   spec: "https://api.example.com/openapi.json",
   cli: {
@@ -328,11 +334,11 @@ openapi({
       handler({ context, request }) {
         request.body = {
           ...(request.body as Record<string, unknown> | undefined),
-          tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+          tenantId: context.get("billing")?.tenantId,
         };
         request.headers.set(
           "authorization",
-          `Bearer ${context.get<{ token: string }>("billing")?.token}`,
+          `Bearer ${context.get("billing")?.token}`,
         );
       },
     },

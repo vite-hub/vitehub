@@ -310,7 +310,7 @@ export const historySchema = {
 
 A Nuxt module adds the same plugin to `nuxt.options.vite.plugins` during setup:
 
-```ts [my-module/module.ts]
+```ts [my-module/module.ts] fragment
 import { defineNuxtModule } from '@nuxt/kit'
 import { myPackage } from 'my-package/vite'
 

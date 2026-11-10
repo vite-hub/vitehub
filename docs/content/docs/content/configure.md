@@ -125,7 +125,7 @@ Adding a glob can change existing ids. Ids are relative to the folder all globs 
 
 `content.resolve(path)` finds the document a page shows, for example for an Edit button. It returns `{ collection, id }`, or `null`.
 
-```ts
+```ts fragment
 const route = await content.resolve('/blog/hello?utm=x')
 // { collection: 'posts', id: 'hello' }
 ```
@@ -251,7 +251,7 @@ ViteHub has no settings schema. These fields are an example. Define the ones you
 
 The id is the file name without extension: `settings.json` is `settings`. You rarely need it, because singleton methods work without an id.
 
-```ts
+```ts fragment
 const settings = content.collection('settings')
 
 await settings.get()                       // published settings, or null before the first publish

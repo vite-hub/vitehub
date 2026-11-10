@@ -28,7 +28,7 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
-```ts
+```ts fragment
 import knap from "comark-knap"
 
 export const content = defineContent({
@@ -170,7 +170,7 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 
 `content.preview.enable(event)` signs an HMAC token with `VITEHUB_CONTENT_KEY` (32 random bytes as base64 or hex) and sets it as an `HttpOnly`, `SameSite=Strict` cookie for one hour by default. A request with a valid cookie reads `draft` through `/api/content/**`, `content.get()`/`list()`/`navigation()`/`search()`, and collection `get()`/`list()`, and gets `Cache-Control: private, no-store`. The grant lives in `AsyncLocalStorage` for that request only.
 
-```ts
+```ts fragment
 if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
 await content.preview.enable(event, { maxAge: 900 })
 content.preview.disable(event)

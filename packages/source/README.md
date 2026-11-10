@@ -191,7 +191,7 @@ Use a different cache name for each origin and access scope.
 Define a Collection when a database or other origin should become a typed,
 paginated client read model:
 
-```ts
+```ts fragment
 // server/collections/articles.ts
 import { defineCollection } from "@vite-hub/source"
 import * as v from "valibot"
@@ -211,7 +211,7 @@ output types flow into the loader, so the loader needs no manual generic types.
 The Collection exposes `querySchema` so tools such as `vitehub channels replay`
 can describe the accepted query keys.
 
-```ts
+```ts fragment
 // app/composables/articles.ts
 import { useCollection } from "@vite-hub/source/client"
 

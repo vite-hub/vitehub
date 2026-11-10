@@ -5,7 +5,8 @@
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
 // must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
@@ -39,7 +40,7 @@ export function snippetSources() {
   return [...docs, ...readmes]
 }
 
-export function extractBlocks(markdown) {
+export function extractBlocks(markdown, languages = fenceLanguages) {
   const lines = markdown.replaceAll("\r\n", "\n").split("\n")
   const blocks = []
   for (let index = 0; index < lines.length; index++) {
@@ -53,7 +54,7 @@ export function extractBlocks(markdown) {
       body.push(lines[end].startsWith(indent) ? lines[end].slice(indent.length) : lines[end].trimStart())
       end++
     }
-    if (fenceLanguages.has(language)) {
+    if (languages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
       const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
@@ -80,7 +81,7 @@ const options = {
   types: ["node", "vite/client"],
 }
 
-/** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue shim of a Vite app. */
+/** The untyped `#vitehub/env` modules, for a check that gets no generated Env types. */
 const ambientFiles = [join(packagesRoot, "env/dist/virtual-module.d.ts")]
 const nuxtModules = {
   "@nuxt/ui": "ui",
@@ -142,13 +143,18 @@ export function collectSnippets(sources = snippetSources()) {
   for (const source of sources) {
     const page = relative(repoRoot, source.file)
     const used = new Set()
-    extractBlocks(readFileSync(source.file, "utf8")).forEach((block, index) => {
+    const markdown = readFileSync(source.file, "utf8")
+    // A config such as `envSchema(new URL('./.env.example', import.meta.url))` reads the `.env.example` of the page.
+    const envFiles = extractBlocks(markdown, new Set(["dotenv", "env", "ini", "sh"]))
+      .filter(block => /^\.env[\w.-]*$/.test(block.label ?? ""))
+      .map(({ code, label }) => ({ code, label }))
+    extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
       let name = block.label && /\.(?:[cm]?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, file: join(pageRoot, name), page, pageRoot })
+      snippets.push({ ...block, envFiles, file: join(pageRoot, name), page, pageRoot })
     })
   }
   return snippets
@@ -169,7 +175,7 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = await registryDeclarations(pageSnippets)
+  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -238,6 +244,12 @@ const registries = [
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
+    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts types `auth.api` with the plugins of `server/auth.ts`.
+    definitions: label => /^server\/auth(?:\/index)?\.[cm]?ts$/.test(label) ? ["definition"] : [],
+    render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
+    type: "auth",
+  },
+  {
     // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
     definitions: collectionNames,
     render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name.split("/").at(-1))}]`), "  }", "}", "export {}"],
@@ -283,6 +295,110 @@ async function registryDeclarations(pageSnippets) {
     declarations.push({ code: `${registry.render(entries).join("\n")}\n`, file })
   }
   return declarations
+}
+
+const configFile = /(?:^|\/)(?:vite|nuxt)\.config\.m?ts$/
+const envTypesFile = ".vitehub/types/env.d.ts"
+
+/** The Vite plugins of a config, flattened as Vite flattens them. */
+async function vitePlugins(plugins) {
+  const plugin = await plugins
+  if (!Array.isArray(plugin)) return plugin ? [plugin] : []
+  return (await Promise.all(plugin.map(vitePlugins))).flat()
+}
+
+function mergeEnv(target, declarations) {
+  for (const section of ["define", "public", "server"]) {
+    if (declarations?.[section]) target[section] = { ...target[section], ...declarations[section] }
+  }
+}
+
+/**
+ * The Env types that ViteHub writes to `.vitehub/types/env.d.ts` from the `env` options of the page's
+ * `vite.config.ts` and `nuxt.config.ts` blocks. Node runs each config from `packages/vite-hub`, so it imports what
+ * an app installs, and the Env plugin of `vitehub()` writes the types.
+ */
+async function envDeclarations(pageSnippets) {
+  const configs = pageSnippets.filter(snippet => !snippet.fragment && configFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
+  if (!configs.length) return []
+  const env = {}
+  const plugins = []
+  const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
+  globalThis.defineNuxtConfig ??= config => config
+  try {
+    for (const file of pageSnippets[0].envFiles ?? []) writeFileSync(join(directory, file.label), file.code)
+    for (const [index, snippet] of configs.entries()) {
+      const file = join(directory, `${index}.ts`)
+      writeFileSync(file, snippet.code)
+      let config
+      try {
+        config = (await import(pathToFileURL(file).href)).default
+      }
+      catch (error) {
+        throw new Error(`${snippet.page}:${snippet.line} The config does not load.`, { cause: error })
+      }
+      if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
+      // Nuxt passes `vitehub.env` to the same plugin.
+      mergeEnv(env, config.vitehub?.env)
+      for (const plugin of (await vitePlugins(config.plugins)).filter(entry => entry?.name === "@vite-hub/env/vite")) {
+        plugins.push(plugin)
+        mergeEnv(env, plugin.api.resolveDeclarations(config))
+      }
+    }
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+  try {
+    return await envTypes(pageSnippets[0].pageRoot, env, plugins)
+  }
+  catch (error) {
+    throw new Error(`${pageSnippets[0].page}: the Env options of the page do not generate types.`, { cause: error })
+  }
+}
+
+/** The Env types of an app without Env options, for the pages that show none. */
+export function defaultEnvDeclarations() {
+  return envTypes(join(docsRoot, ".snippets"), {}, [])
+}
+
+async function envTypes(pageRoot, env, plugins) {
+  if (!plugins.length) {
+    const { vitehub } = await import(pathToFileURL(join(packagesRoot, "vite-hub/dist/index.js")).href)
+    plugins.push((await vitePlugins(vitehub({ preset: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
+  }
+  const root = mkdtempSync(join(tmpdir(), "vitehub-snippet-env-"))
+  let code
+  try {
+    // Each config is one app. Only a config that sets `providers` accepts the provider values of the page.
+    for (const [index, plugin] of plugins.toReversed().entries()) {
+      try {
+        await plugin.api.prepareTypes(env, root)
+        break
+      }
+      catch (error) {
+        if (index === plugins.length - 1) throw error
+      }
+    }
+    code = readFileSync(join(root, envTypesFile), "utf8")
+  }
+  finally {
+    rmSync(root, { force: true, recursive: true })
+  }
+  // With Env on, Auth types the `env` of `defineAuth()` as the Server Env, in `.vitehub/types/auth.d.ts`.
+  const authEnv = [
+    `import type { ServerEnv } from "#vitehub/env/server"`,
+    "declare global {",
+    "  namespace ViteHub {",
+    "    interface AuthRuntimeEnv extends ServerEnv {}",
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+  return [
+    { code, file: join(pageRoot, envTypesFile) },
+    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth-env.d.ts") },
+  ]
 }
 
 /**
@@ -353,7 +469,8 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return resolved
   })
 
-  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
+  const typedEnv = declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`))
+  const program = ts.createProgram([...typedEnv ? [] : ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
   const failures = []
   for (const snippet of snippets) {
     if (snippet.fragment) continue
@@ -383,7 +500,7 @@ export function snippetId(snippet) {
 }
 
 /**
- * Blocks that failed when this check started. Each package fixes its own entries and removes them; the
+ * Blocks that are right but fail because a package type is wrong. The package fix removes its entry; the
  * check fails when a listed block passes or changes, so the list only shrinks.
  */
 export const baselinePath = join(docsRoot, "scripts/check-snippets.baseline.json")
@@ -429,10 +546,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (declarations.length) separate.push({ declarations, pageSnippets })
     else shared.push(...pageSnippets)
   }
-  const sharedCheck = checkSnippets(shared)
+  // A page without Env options gets the Env types of an app without them.
+  const defaultEnv = await defaultEnvDeclarations()
+  const withEnv = declarations => declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`)) ? declarations : [...declarations, ...defaultEnv]
+  const sharedCheck = checkSnippets(shared, defaultEnv)
   const failures = [
     ...sharedCheck.failures,
-    ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
+    ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, withEnv(declarations), sharedCheck.program).failures),
   ]
   const baseline = readBaseline()
   if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {

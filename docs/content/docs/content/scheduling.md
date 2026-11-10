@@ -8,7 +8,7 @@ icon: i-lucide-calendar-clock
 
 `content.schedule()` publishes reviewed drafts later. A Schedule Definition (a cron file) runs them with `content.publishDue()` on every host that runs [Schedule](/docs/schedule).
 
-```ts
+```ts fragment
 const posts = content.collection('posts')
 const { draft } = (await posts.status('launch'))!
 
@@ -107,7 +107,7 @@ Runs can overlap, for example from two replicas. Each publish checks the digests
 
 `status()` shows each document's pending, overdue, or else failed schedule as `schedule: { id, at, status, digest, failure? }`. `state` stays `draft`, `changed`, or `deleted` until it publishes. If `schedule.digest` differs from `draft`, the run will fail.
 
-```ts
+```ts fragment
 await content.collection('posts').status('launch')
 // { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
 ```

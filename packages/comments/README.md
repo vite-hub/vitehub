@@ -174,7 +174,7 @@ The Vue parts are in `@vite-hub/ui/comments`. Use `createRestTransport()` from `
 
 An anchor says where a comment sits, so the pin can find the spot again after the layout changes.
 
-```ts
+```ts fragment
 import { createAnchor, resolveAnchor } from "@vite-hub/comments/client";
 
 // From a click: the element under the point, plus where in its box the click landed.
@@ -205,7 +205,7 @@ Offsets are in thousandths of the element box: `500` is the middle. A pin follow
 
 ## Client
 
-```ts
+```ts fragment
 import { createCommentsClient } from "@vite-hub/comments/client";
 
 const client = createCommentsClient({

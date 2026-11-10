@@ -36,7 +36,7 @@ export default defineAgent({
 
 The default reporter logs to the console. Pass `reporter` for your own sink:
 
-```ts
+```ts fragment
 diagnostics({
   resources: nodeRuntimeResources(),
   reporter: event => operations.write(event),

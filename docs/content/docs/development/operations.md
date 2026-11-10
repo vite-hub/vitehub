@@ -156,9 +156,11 @@ Each input schema key becomes a flag. `url`, `timeout`, `json`, `yes`, and `inpu
 To let an agent call operations, add the capability:
 
 ```ts [server/agents/editor.ts]
+import { defineAgent } from 'vite-hub/agent'
 import { operations } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [operations({ include: ['reports.*'], approve: 'write' })],
 })
 ```

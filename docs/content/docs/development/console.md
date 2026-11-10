@@ -1688,7 +1688,7 @@ A finished session shows **Abort stale execution**. It sends an abort signal to 
 
 Nuxt needs no SEO module for the `X-Robots-Tag` default. If the app uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route rules so its robots and sitemap modules skip Console pages:
 
-```ts [nuxt.config.ts]
+```ts [nuxt.config.ts] fragment
 export default defineNuxtConfig({
   routeRules: {
     '/_vitehub': { robots: false },

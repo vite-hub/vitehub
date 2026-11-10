@@ -113,7 +113,7 @@ Decision callbacks get a limiter with `consume()`, `peek()`, and `reset()`. A li
 
 The Capability no longer owns `limit`, `window`, `action`, or `store`. Move the policy into a direct `RateLimiter`, then replace `store` with `limiter`.
 
-```ts [Before]
+```ts [Before] fragment
 rateLimit({
   limit: 20,
   store: 'memory',

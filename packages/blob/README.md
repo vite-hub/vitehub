@@ -103,7 +103,7 @@ For files shared by public link, add `serve.anonymous: true`. Then signed-out re
 
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
-```ts
+```ts fragment
 import { detectContentType } from "@vite-hub/blob"
 
 const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
@@ -207,7 +207,7 @@ The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Size
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
 
-```ts
+```ts fragment
 const [downloadError, download] = await blob.sign("private/audio.mp3", {
   method: "GET",
   expiresIn: 60 * 60,

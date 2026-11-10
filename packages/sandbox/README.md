@@ -15,7 +15,7 @@ pnpm add @vite-hub/sandbox
 
 ## Prepare a trusted-host Sandbox
 
-```ts
+```ts fragment
 import { resolveSandbox } from "@vite-hub/sandbox";
 import { useServerEnv } from "#vitehub/env/server";
 
@@ -101,7 +101,7 @@ console.log(await new Response(child.stdout).text(), await child.wait());
 
 Hosted runtimes use tagged values from the same root API:
 
-```ts
+```ts fragment
 const cloudflare = await resolveSandbox({
   runtime: { kind: "cloudflare", namespace: env.SANDBOX },
 }, {});

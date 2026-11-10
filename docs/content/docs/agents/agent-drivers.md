@@ -79,7 +79,7 @@ pnpm add @openai/codex@0.149.1
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { loadServerEnv } from '#vitehub/env/server'
 
@@ -435,7 +435,7 @@ answers.urgent // boolean
 
 No schema or parsing is needed. Jev reads the Invocation `data`, else the prompt, else the latest user message. To build questions per Invocation, pass a function. It gets the `driver.run` context:
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'

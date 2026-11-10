@@ -31,7 +31,7 @@ export default defineAgent({
 
 `openRouterTranscriptionModel()` returns a normal AI SDK model that handles OpenRouter authentication, audio encoding, request shape, and errors, so your Agent needs no multipart code.
 
-```ts [server/agents/voice.ts]
+```ts [server/agents/voice.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import {
   openRouterTranscriptionModel,

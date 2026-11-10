@@ -23,7 +23,8 @@ icon: i-lucide-code-2
 
 Call `useDatabase()` in server code with the database name, or `default` for the default database. It returns the Drizzle client as `db` and your tables as `schema`. For a name with no Definition it returns `undefined`, so destructuring fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
 
-```ts [server/api/notes.get.ts]
+```ts [server/api/notes.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
@@ -54,6 +55,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/events.get.ts]
+import { defineEventHandler } from 'h3'
 import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
@@ -66,7 +68,7 @@ export default defineEventHandler(() => {
 
 D1 binds at most 100 parameters per statement. A longer `inArray()` list or a multi-row insert rejects with [`DATABASE_D1_TOO_MANY_PARAMETERS`](/docs/database/limits-and-errors#database_d1_too_many_parameters) on D1, and in a Cloudflare dev server on local SQLite. `chunkParameters(values, options)` splits the values into arrays that each fit one statement:
 
-```ts [server/utils/files.ts]
+```ts [server/utils/files.ts] fragment
 import { and, eq, inArray } from 'drizzle-orm'
 import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
 

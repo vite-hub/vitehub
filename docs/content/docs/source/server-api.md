@@ -197,7 +197,7 @@ export const articles = defineCollection({
 
 Pass a loader function to `defineCollection` when the data is not one Drizzle table, such as a Source reader, SDK, HTTP API, or joined query. The loader then handles its own cursor.
 
-```ts [server/collections/articles.ts]
+```ts [server/collections/articles.ts] fragment
 import { defineCollection } from 'vite-hub/source'
 import * as v from 'valibot'
 
@@ -291,7 +291,7 @@ A Collection route is public unless it sets `authorize`.
 
 `authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
 
-```ts [server/collections/meals.ts]
+```ts [server/collections/meals.ts] fragment
 export const meals = defineCollection({
   source: table({ /* ... */ }),
   authorize: ({ user }) => user.role === 'owner',
@@ -304,7 +304,7 @@ The loader form takes it too: `defineCollection(load, { authorize, ... })`. Vite
 - No session returns JSON `401`. `false` returns `403`. A returned `Response` is sent as is.
 - The check reads the same-origin session cookie, so `useCollection()` needs no extra headers. It sets `error` to a `CollectionAccessError` with `status` `401` or `403`:
 
-```ts
+```ts fragment
 import { CollectionAccessError } from 'vite-hub/source/client'
 
 const { error } = useCollection('meals')

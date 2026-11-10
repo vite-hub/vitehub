@@ -45,7 +45,7 @@ Workspace working tree. To store documents elsewhere, pass an adapter object.
 Realtime calls it with plain snapshots. Your storage stays a copy synced from
 the room.
 
-```ts [server/realtime/pages.ts]
+```ts [server/realtime/pages.ts] fragment
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
@@ -57,9 +57,9 @@ export default defineRealtime({
       return { body: page.body, digest: page.version, fields: { title: page.title } }
     },
     async save({ documentId }, { body, fields }, { ifDigest, user }) {
-      const version = await db.pages.update(documentId, { body, title: fields.title, editedBy: user?.id }, { ifVersion: ifDigest })
+      const version = await db.pages.update(documentId, { body, title: fields?.title, editedBy: user?.id }, { ifVersion: ifDigest })
       if (!version) throw new RealtimeDocumentConflict()
-      return { digest: version, issues: fields.title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
+      return { digest: version, issues: fields?.title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
     },
   },
 })

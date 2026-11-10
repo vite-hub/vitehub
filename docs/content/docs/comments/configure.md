@@ -303,7 +303,7 @@ export const comments = defineComments({
 })
 ```
 
-```ts [server/api/docs/[id]/comments.post.ts]
+```ts [server/api/docs/[id]/comments.post.ts] fragment
 import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { comments } from '../../../comments'

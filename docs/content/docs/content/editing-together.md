@@ -33,12 +33,15 @@ Without the table, `content.sessions` throws `CONTENT_R0012` with this fix. Save
 
 A session is a token you make per tab or client, such as `crypto.randomUUID()`, not per user. Two tabs of one person are two sessions, so the second tab sees the first one's lease and does not overwrite it.
 
-```ts [server/api/editor/session.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+```ts [server/api/editor/session.post.ts] fragment
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { content } from '../../content'
 
+const report = v.object({ id: v.string(), session: v.string(), kind: v.picklist(['view', 'edit']), input: v.optional(v.boolean()) })
+
 export default defineEventHandler(async (event) => {
-  const { id, session, kind, input } = await readBody(event)
+  const { id, session, kind, input } = await readValidatedBody(event, body => v.parse(report, body))
   const user = { id: 'ana', name: 'Ana' } // the signed-in user
   return await content.sessions.report('posts', id, { session, user, kind, input })
 })
@@ -91,7 +94,7 @@ Report about every 15 seconds while the tab is visible, and every 60 seconds whi
 
 `save()`, `remove()`, and `restore()` read the lease once before they commit.
 
-```ts
+```ts fragment
 const posts = content.collection('posts')
 
 // The holder's own tab: its lease does not block it, and the save renews it.

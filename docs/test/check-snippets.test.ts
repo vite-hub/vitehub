@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, defaultEnvDeclarations, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -354,6 +354,51 @@ describe("documentation snippet check", () => {
       code: "export default { schema: {} }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "unsupported-default-database.md", pageRoot,
     }])).toEqual([])
   })
+
+  it.each([
+    ["vite.config.ts", "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nexport default defineConfig({ plugins: [vitehub({ preset: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } })] })"],
+    ["nuxt.config.ts", "import { env } from 'vite-hub/env'\nexport default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: { preset: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } } })"],
+  ])("types the Env values that the page's %s declares", async (label, config) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "env-page.md", pageRoot })
+    const snippets = [
+      snippet(label, config),
+      snippet("server/github.ts", "import { useServerEnv } from '#vitehub/env/server'\nexport const token: string = useServerEnv().github.token.unseal()"),
+      snippet("server/auth.ts", "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth(({ env }) => ({ socialProviders: { github: { clientId: 'id', clientSecret: env.github.token.unseal() } } }))"),
+      snippet("src/app.ts", "import { usePublicEnv } from '#vitehub/env/public'\nexport const name: string = usePublicEnv().appName"),
+      snippet("server/undeclared.ts", "import { useServerEnv } from '#vitehub/env/server'\nexport const token = useServerEnv().gitlab"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/undeclared.ts", [2339]],
+    ])
+  }, 60_000)
+
+  it("types Env for a page without Env options as an app without them", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/default-env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "default-env-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet("server/session.ts", "import { deriveSecret } from '#vitehub/env/server'\nexport const secret: Promise<string> = deriveSecret('my-app:session')"),
+      snippet("server/undeclared.ts", "import { useServerEnv } from '#vitehub/env/server'\nexport const token = useServerEnv().github"),
+    ], await defaultEnvDeclarations())
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/undeclared.ts", [2339]],
+    ])
+  }, 60_000)
+
+  it("types auth.api with the plugins of the page's Auth Definition", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/auth-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "auth-page.md", pageRoot })
+    const snippets = [
+      snippet("server/auth.ts", "import { admin } from 'better-auth/plugins'\nimport { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ plugins: [admin()] })"),
+      snippet("server/roles.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRole"),
+      snippet("server/typo.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRoles"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/typo.ts", [2551]],
+    ])
+  }, 60_000)
 
   it("checks the Workflow README steps against generated declarations", async () => {
     const root = join(repoRoot, "packages/workflow")

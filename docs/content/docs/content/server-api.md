@@ -45,7 +45,7 @@ Libraries can install `@vite-hub/content` and import from `@vite-hub/content` an
 | `content.getSource(name?)` | The Comark Source of one instance. Defaults to `default`. |
 | `content.handler(request)` | Answers a Web `Request`. The generated route calls it through `defineContentHandler()`. |
 
-```ts
+```ts fragment
 await content.get('/guide')
 await content.navigation(['docs'])
 await content.search(['docs'], 'runtime')
@@ -91,12 +91,15 @@ In development, Content lists a new or renamed Source file after a restart or `c
 
 `content.collection(name)` opens a collection from [`defineContent({ collections })`](/docs/content/configure#document-collections). These methods are trusted server API and skip `authorize`. When a route acts for a user, check [`content.can()`](#access) first.
 
-```ts [server/api/posts/[id].put.ts]
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+```ts [server/api/posts/[id].put.ts] fragment
+import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { content } from '../../content'
 
+const post = v.object({ data: v.record(v.string(), v.unknown()), body: v.string(), digest: v.nullable(v.string()) })
+
 export default defineEventHandler(async (event) => {
-  const { data, body, digest } = await readBody(event)
+  const { data, body, digest } = await readValidatedBody(event, input => v.parse(post, input))
   return await content.collection('posts').save(getRouterParam(event, 'id')!, { data, body }, { ifDigest: digest })
 })
 ```
@@ -150,7 +153,7 @@ A [`singleton()`](/docs/content/configure#singletons-and-data-files) has `kind: 
 
 Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton can omit `id`:
 
-```ts
+```ts fragment
 const settings = content.collection('settings')
 const { draft } = (await settings.status())!
 await content.publish({ expect: [{ collection: 'settings', digest: draft }] })
@@ -158,7 +161,7 @@ await content.publish({ expect: [{ collection: 'settings', digest: draft }] })
 
 ### List documents
 
-```ts
+```ts fragment
 const page = await content.collection('posts').list({
   filter: { tags: 'vue' },
   search: 'hydration',
@@ -184,7 +187,7 @@ Listing runs in memory over one revision's documents with the [`array()` Collect
 
 A draft with field issues lists and reads with `issues`, and `data` holds its stored values. On `published`, a document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning. `get()` throws `CONTENT_INVALID` for it, naming each failing field. A file that does not parse is left out on every ref. `raw()` still returns its text, so a tool can show it, diff it with another ref, and save a fix with its `digest` as `ifDigest`.
 
-```ts
+```ts fragment
 const posts = content.collection('posts')
 const [draft, published] = await Promise.all([posts.raw('hello', { ref: 'draft' }), posts.raw('hello')])
 ```
@@ -236,7 +239,7 @@ On the [GitHub store](/docs/cms/configure#github-store), `conflict: { base }` ma
 
 ### Publish
 
-```ts
+```ts fragment
 await content.publish({ collection: 'posts', ids: ['hello'], message: 'Publish hello' })
 await content.publish()
 ```
@@ -255,7 +258,7 @@ await content.publish()
 
 `collection` and `ids` publish whatever the draft holds when `publish()` runs. A draft saved after a confirmation or approval would go out unreviewed. Confirm and approve flows must use `expect`: capture the draft digests the person saw, and pass them back.
 
-```ts
+```ts fragment
 const reviewed = (await content.collection('posts').status())
   .filter(document => document.state !== 'published')
   .map(({ collection, id, draft }) => ({ collection, id, digest: draft }))
@@ -269,7 +272,7 @@ If any draft digest differs, `publish({ expect })` publishes nothing and throws 
 
 ### Revisions
 
-```ts
+```ts fragment
 const { revisions, cursor } = await content.revisions('posts', 'hello', { limit: 10 })
 const earlier = await content.collection('posts').get('hello', { revision: revisions[1].id })
 await content.collection('posts').restore('hello', revisions[1].id)
@@ -279,13 +282,13 @@ await content.collection('posts').restore('hello', revisions[1].id)
 
 Omit the document to list recent changes in all collections, for an activity feed. `metadata.content.documents` lists each revision's documents:
 
-```ts
+```ts fragment
 const { revisions } = await content.revisions({ ref: 'published', limit: 20 })
 ```
 
 ### Access
 
-```ts
+```ts fragment
 if (!await content.can({ user, collection: 'posts', action: 'publish' }))
   throw createError({ statusCode: 403 })
 await content.publish({ collection: 'posts' })

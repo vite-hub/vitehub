@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
 
 `handleUpload()` reads the `files` form field, stores each file under `folder`, and returns one record per file. If the store already has the same bytes, it returns that record and stores nothing. `media.put()` writes to your pathname unless you pass `dedupe: true`.
 
-```ts
+```ts fragment
 const [error, record] = await blob.media.put('posts/cover.jpg', file, {
   alt: 'A field at sunrise',
   focal: { x: 0.7, y: 0.4 },

@@ -71,7 +71,7 @@ Database instances expose Drizzle's `batch()` method on D1, D1 HTTP, and libSQL.
 The batch executes atomically. Use conditional statements in a batch when a
 change must compare and update shared state without an interactive transaction.
 
-```ts
+```ts fragment
 await db.batch([
   db.insert(schema.notes).values({ title: "First note" }),
   db.insert(schema.notes).values({ title: "Second note" }),

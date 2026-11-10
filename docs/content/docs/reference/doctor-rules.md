@@ -233,7 +233,8 @@ The rule reads secret paths from `.vitehub/env/description.mjs`, which ViteHub w
 
 It skips a secret passed to `console.*()` or a logger call such as `logger.info()`, where `<redacted>` is wanted. It still reports a secret that another call uses first, as in `logger.info(await fetch(url, { headers }))`.
 
-```ts [server/api/issues.get.ts]
+```ts [server/api/issues.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -245,7 +246,8 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-```ts [server/api/issues.get.ts]
+```ts [server/api/issues.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -349,7 +351,8 @@ A Server Env value with `source: env.provider(...)` comes from an Env provider, 
 
 The rule reads provider-backed paths from `.vitehub/env/description.mjs`, and does not run before that file exists. It reports property reads and destructuring of those paths from `useServerEnv()`.
 
-```ts [server/api/crm.get.ts]
+```ts [server/api/crm.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler((event) => {
@@ -359,7 +362,8 @@ export default defineEventHandler((event) => {
 })
 ```
 
-```ts [server/api/crm.get.ts]
+```ts [server/api/crm.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { loadServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -437,14 +441,14 @@ export default defineEventHandler(async () => await limiter.consume({ key: 'sear
 
 `defineAuth()` resolves `baseURL`, `secret`, and `secrets` at runtime. The build accepts them in the static options, then `defineAuth()` throws `AUTH_C0037` when the server loads the Auth Definition.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from 'vite-hub/auth'
 
 // Invalid
 export default defineAuth({ baseURL: 'https://example.com', emailAndPassword: { enabled: true } })
 ```
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from 'vite-hub/auth'
 
 // Valid
@@ -463,14 +467,16 @@ Read [Configure Auth](/docs/auth/configure).
 
 Only the Agent runtime can act as an Agent. `useConnection(name, { actor: 'agent:…' })` throws `CONNECTIONS_INVALID_ACTOR` on its first call.
 
-```ts [server/api/labels.get.ts]
+```ts [server/api/labels.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
 // Invalid
 export default defineEventHandler(() => useConnection('google', { actor: 'agent:labeller' }))
 ```
 
-```ts [server/api/labels.get.ts]
+```ts [server/api/labels.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
 // Valid
@@ -487,7 +493,7 @@ Give the Agent the Connection through its Connection Capability. Read [Connectio
 
 The rule reports them as entries of `object()`, `looseObject()`, `strictObject()`, and `objectWithRest()` from `valibot`. It skips Zod, because `z.object()` already throws.
 
-```ts [server/schemas.ts]
+```ts [server/schemas.ts] fragment
 import * as v from 'valibot'
 import { image } from 'vite-hub/blob'
 
@@ -599,14 +605,15 @@ The rule accepts a `payload` field with no option keys, because that is app data
 
 `sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, or `runBrowser()` runs at module scope, once, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so on Cloudflare and Vercel the call can fail or the job can be dropped.
 
-```ts [server/plugins/warmup.ts]
+```ts [server/plugins/warmup.ts] fragment
 import { sendQueue } from 'vite-hub/queue'
 
 // Invalid
 await sendQueue('warmup', {})
 ```
 
-```ts [server/api/warmup.post.ts]
+```ts [server/api/warmup.post.ts] fragment
+import { defineEventHandler } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 // Valid
@@ -940,13 +947,15 @@ An app that uses ViteHub still has NuxtHub parts:
 - Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
 - `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
-```ts [nuxt.config.ts]
+```ts [nuxt.config.ts] fragment
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   hub: { kv: true },
 })
+```
 
+```ts [nuxt.config.ts]
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],

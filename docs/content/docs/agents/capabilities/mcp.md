@@ -68,7 +68,7 @@ export default defineAgent({
 
 No `if` around the Capability list is needed. Declare optional credentials in Server Env, such as `analyticsToken: env({ optional: true, secret: true })`, and return the server only when they exist:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'

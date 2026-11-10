@@ -403,7 +403,11 @@ The conversation merges three sources, and no message appears twice:
 A transcript keeps messages after the provider forgets them. With durable Agent State (libSQL or a Cloudflare Durable Object), every chat message in and out goes to the transcript store, so your State holds conversation text for each author. Set `transcripts: false` on a Channel, or `messages: { transcripts: false }` for all, to keep none. Pass a config to set limits:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { telegram } from 'vite-hub/agent/channels'
+
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   channels: {
     support: telegram({ transcripts: { maxPerUser: 500, retention: '90d' } }),
     private: telegram({ transcripts: false }),

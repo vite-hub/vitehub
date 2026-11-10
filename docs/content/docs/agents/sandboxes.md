@@ -123,7 +123,7 @@ Boot fails when the project pins no Node.js version and no `fallbackNode` is set
 
 Keep secrets out of the repository. Load them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads credentials from the Sandbox Home, such as `.codex/auth.json`.
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 import { codexDriver, defineAgent } from '@vite-hub/agent'
 import { useServerEnv } from '#vitehub/env/server'
 

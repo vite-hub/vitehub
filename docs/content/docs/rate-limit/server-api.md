@@ -39,7 +39,7 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals,
 
 `checkRateLimit(event, id, options)` takes the same arguments and uses the same counters as `requireRateLimit()`, but returns the [decision](#understand-the-decision) instead of throwing. Use it to still answer a limited request, for example with a cached result.
 
-```ts
+```ts fragment
 const decision = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
 if (!decision.allowed) return genericCard()
 ```

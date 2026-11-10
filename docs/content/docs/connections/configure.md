@@ -101,8 +101,9 @@ ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, 
 
 `fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed:
 
-```ts [server/connections/github.ts]
+```ts [server/connections/github.ts] fragment
 import { useServerEnv } from '#vitehub/env/server'
+import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
   provider: apiKey({

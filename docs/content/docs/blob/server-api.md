@@ -29,12 +29,14 @@ Writes keep the metadata you give. `detectContentType()` checks the first bytes 
 Use `blob` in server code.
 
 ```ts [server/api/files.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const { path, text } = await readValidatedBody(event, body => v.parse(v.object({ path: v.string(), text: v.string() }), body))
 
-  const [error] = await blob.put(body.path, body.text, {
+  const [error] = await blob.put(path, text, {
     contentType: 'text/plain',
     customMetadata: { source: 'api' },
   })

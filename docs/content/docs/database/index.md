@@ -87,17 +87,18 @@ icon: i-lucide-database
   ```
 
   ```ts [server/api/notes.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { useDatabase } from 'vite-hub/database/drizzle'
 
   // Add a note and return the new row
   export default defineEventHandler(async (event) => {
-    const body = await readBody<{ title: string }>(event)
+    const { title } = await readValidatedBody(event, body => v.parse(v.object({ title: v.string() }), body))
     const { db, schema } = useDatabase('default')
 
     const [note] = await db
       .insert(schema.notes)
-      .values({ title: body.title })
+      .values({ title })
       .returning()
     return note
   })
