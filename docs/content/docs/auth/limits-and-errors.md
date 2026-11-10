@@ -47,9 +47,34 @@ console.log(error.toJSON())
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
 | `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
+| [`AUTH_B0004`](#auth_b0004) | A route rule caches or prerenders a Nuxt page that `definePageMeta({ auth })` guards. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, and invalid Auth Definitions, `authenticated()` config, or custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
+
+## AUTH_B0004
+
+A route rule caches or prerenders a Nuxt page that `definePageMeta({ auth })` guards. The build stops before Nitro bundles the server. With the Vite builder, it also stops before Nitro prerenders pages. The page guard runs when the server renders a page. A cached or prerendered page keeps the render or the redirect of one visitor and serves it to all visitors.
+
+A page is guarded when `definePageMeta()` sets `auth` to a value other than `false`. A child page without `auth` gets the `auth` of its parent page.
+
+`swr`, `cache`, `isr`, `prerender`, and `static` cache a page. The message names the route rule, the rule that caches, the request method, and the guarded page. The check compares route patterns, so a rule counts when it caches at least one guarded page. For example, `'/**': { prerender: true }` covers a guarded `/dashboard` page. A rule on `<page>/_payload.json` counts on the page, because the payload is a render of the page.
+
+A rule that turns the cache off must match every guarded page, or every page of the rule that caches. `'/dashboard': { cache: false }` does not turn off `'/dashboard/**': { swr: 60 }` for a guarded `/dashboard/report` page.
+
+Two cases do not stop the build:
+
+- `prerender` on a guest page, such as `auth: 'guest'` on the login page. Nuxt prerenders the page without a cookie, so the page renders for a signed-out visitor. In the browser, the page guard reads the session again and sends a signed-in user away. `swr`, `cache`, `isr`, and `static` still stop the build, because they keep the render of the first visitor, who can be signed in.
+- A page that Nuxt renders only in the browser: `ssr: false` in the Nuxt config, or an `ssr: false` route rule that matches every path of the page. The server then sends the same empty shell to every visitor.
+
+To fix the build, do one of these:
+
+- Remove the rule that caches from the route rule that the message names.
+- Add a route rule for the guarded pages that turns the cache off, for example `'/dashboard/**': { cache: false, prerender: false }`.
+- To keep the cache, add `ssr: false` to the route rule of the guarded pages. The page guard then runs only in the browser.
+- If the page is public, remove its page guard.
+
+The check reads `auth` only when `definePageMeta()` sets it to a literal value, such as `'user'` or `{ only: 'user' }`. It does not read a page that gets `auth` from a variable, or a page when `experimental.scanPageMeta` is `false`.
 
 ## AUTH_CONSOLE_INVALID_REQUEST
 

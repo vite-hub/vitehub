@@ -115,8 +115,9 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and components:extend for <Can>.
-    expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "components:extend"])
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can>, and
+    // pages:resolved and nitro:init for the check of cached guarded pages.
+    expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "components:extend", "pages:resolved", "nitro:init"])
   })
 
   it("registers <Can> from the Vue entry, unless the app has its own Can component", () => {
@@ -197,8 +198,9 @@ describe("Auth Nuxt integration", () => {
     authPlugin.config = authConfig
     await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and components:extend for <Can>.
-    expect(nuxt.hooks).toHaveLength(4)
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can>, and
+    // pages:resolved and nitro:init for the check of cached guarded pages.
+    expect(nuxt.hooks).toHaveLength(6)
   })
 
   it("resolves relative Env roots from the Vite root", () => {
