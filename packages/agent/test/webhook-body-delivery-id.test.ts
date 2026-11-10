@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, github } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, github } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -24,7 +24,7 @@ describe("webhook deliveryId default", () => {
   function agentWith(result: AgentTriggerRunInvokeResult) {
     return defineAgent({
       channels: {
-        tickets: defineChannel("tickets", {
+        tickets: channelAdapter("tickets", {
           messages: false,
           triggers: { opened: defineChannelTrigger({ invoke: () => result }) },
         }),

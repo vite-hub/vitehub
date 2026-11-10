@@ -2,10 +2,10 @@ export { docsLayouts, docsPageFields, docsPageSchema, docsSectionSchema, expandD
 export type { DocsLayout, DocsPageFile, DocsPageFrontmatter, DocsPageNavigation, DocsSectionFile } from "./schema.ts"
 export { docsCollection } from "./collection.ts"
 export type { DocsCollectionOptions } from "./collection.ts"
-export type { DocsManifest, DocsPage, DocsSearchSection, DocsSection, DocsTocLink } from "./types.ts"
+export type { DocsAppPage, DocsManifest, DocsPage, DocsSearchSection, DocsSection, DocsTocLink } from "./types.ts"
 export type { DocsDocument } from "./markdown.ts"
 export type { DocsPageLink, DocsPageResponse } from "./page.ts"
-export type { DocsModuleOptions, DocsPublicConfig, DocsSiteOptions, DocsStartOptions } from "./nuxt.ts"
+export type { DocsLogo, DocsModuleOptions, DocsPublicConfig, DocsSiteOptions, DocsStartOptions } from "./nuxt.ts"
 export {
   docsCatalog,
   docsManifestPages,

@@ -22,9 +22,7 @@ icon: i-lucide-code-2
 | `discoverScheduleDefinitions`, `discoverStartableScheduleDefinitions` from `@vite-hub/schedule/vite` | Discover Schedule Definitions in a build integration. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
-Schedule Definition, Schedule Run, and Schedule Store types are exported from `@vite-hub/schedule`.
-
-Execution, storage, and runtime state helpers live in `@vite-hub/schedule/runtime`. `discoverScheduleDefinitions` lives in `@vite-hub/schedule/vite`. Framework applications use `vite-hub/schedule/runtime` for runtime helpers. The main entry does not load file discovery or its build dependencies.
+`@vite-hub/schedule` exports the Definition, Run, and Store types. Framework apps import runtime helpers from `vite-hub/schedule/runtime`. The main entry does not load file discovery or its build dependencies.
 
 ## Start a Schedule from code
 
@@ -122,11 +120,15 @@ export default defineEventHandler(async () => {
 
 Pass `scheduledAt` to run the Definition as if its cron fired at that time: `runSchedule('daily-report', { scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset. The handler gets it as `scheduledAt`, and the run records it. It defaults to now.
 
-When the handler fails, `runSchedule()` resolves with the failed run. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name, with `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`, and with `SCHEDULE_INVALID_SCHEDULED_AT` when `scheduledAt` is not a valid date-time.
+When the handler fails, `runSchedule()` resolves with the failed run. It rejects with:
+
+- `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name.
+- `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
+- `SCHEDULE_INVALID_SCHEDULED_AT` when `scheduledAt` is not a valid date-time.
 
 ## Run Static Schedules in a custom Node process
 
-The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it yourself when a custom long-running host does not use the generated Nitro wiring:
+The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it yourself on a long-running host without generated Nitro code:
 
 ```ts [server/schedule-runtime.ts]
 import registry from '#vitehub/schedule/registry'
@@ -145,17 +147,21 @@ process.once('SIGTERM', () => void controller.close())
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `registry` | `ScheduleDefinitionRegistry` | Required | Static Schedule Definitions that this process runs. |
-| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. |
-| `onError` | `(error: unknown) => void` | None | Receives handler, store, and `waitUntil` failures. |
-| `intervalMs` | `number` | `60_000` | Milliseconds between two checks, from 1 to 60000. |
-| `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
-| `catchUpMs` | `number` | One hour | How far back the runtime runs minutes that no process checked. `0` disables catch-up. |
+| `registry` | `ScheduleDefinitionRegistry` | Required | Definitions that this process runs. |
+| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. After a restart, catch-up reads the newest cron run of each schedule from it. |
+| `onError` | `(error: unknown) => void` | None | Gets handler, store, and `waitUntil` failures. |
+| `intervalMs` | `number` | `60_000` | Milliseconds between checks, from 1 to 60000. |
+| `concurrency` | `number` | `1` | Maximum runs at the same time. |
+| `catchUpMs` | `number` | One hour | How far back to run minutes that no process checked. `0` turns off catch-up. |
 
-Call `controller.close()` during shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
+Call `controller.close()` on shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
 
 ## Read Schedule Runs
 
-`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, idPrefix, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. The optional `idPrefix` filters run IDs before applying `limit`, allowing the Process Runtime to read only the newest `srun_static_` run for catch-up. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
+`getScheduleRunStore()` returns the installed store.
 
-For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 additional recent records for a cron-triggered run. If none of those 100 records are cron-triggered, it checks the full `catchUpMs` window rather than using a simulated time as the cursor. Existing static run IDs prevent duplicate execution. Supporting `idPrefix` avoids this conservative fallback and keeps the cursor lookup to one record.
+- `listRuns({ scheduleId, idPrefix, limit })` lists runs, newest first. `idPrefix` filters run IDs before `limit`, so the Process Runtime reads only the newest `srun_static_` run for catch-up.
+- `listAttempts(runId)` lists the attempts of one run.
+- In development, `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store.
+
+For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 more recent records for a cron run. If none is one, it checks the whole `catchUpMs` window instead of guessing a time. Existing static run IDs stop duplicates. Support `idPrefix` to read only one record.

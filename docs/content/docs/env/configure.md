@@ -8,14 +8,44 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure Env
 
-Add `hubEnv()` and declare values in the Vite config. `env.public` becomes browser-safe Public Env, `env.define` becomes Vite replacements, and `env.server` becomes Server Env for server runtime code.
+Declare values in `env` in the Vite config, or in `vitehub.env` in Nuxt. `env.public` is browser-safe Public Env. `env.define` becomes Vite replacements. `env.server` is Server Env, for server code only.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      define: {
+        __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     public: {
       appName: env({ default: 'Acme', mode: 'build' }),
@@ -31,19 +61,48 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    define: {
+      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+::
 
 ## Integration options
 
-Pass Integration Options to `hubEnv()`.
+Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.env` in Nuxt.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `diagnostics` | `EnvDiagnostics` | Package default | Controls Env diagnostic output during Vite config/dev/build. Values: `off`, `summary`, `trace`. |
+| `diagnostics` | `EnvDiagnostics` | Package default | Diagnostic output in Vite config, dev, and build: `off`, `summary`, `trace`. |
 | `prefix` | `string \| false` | `'VITEHUB_'` | Prefix of [canonical variable names](#variable-names). `false` disables canonical names. |
-| `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
-| `providers` | `Record<string, string>` | None | Maps runtime provider names to application module specifiers. Relative specifiers resolve from the ViteHub project root. |
-| `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the type import used for `SecretEnv` in generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Export `createServerEnvManagement` to enable credential management; without it, the other Env operations still work. Framework integrations can point generated code at their runtime-owned entry point. |
+| `projectRoot` | `string` | ViteHub project root | Custom root for generated files and package import updates. |
+| `providers` | `Record<string, string>` | None | Maps runtime provider names to app modules. Relative paths start at the ViteHub project root. |
+| `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `EnvAccessContext` type. Also export `createServerEnvManagement` to get credential management. |
+
+To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime facade, re-export `deriveSecret` and `createSealing` from `@vite-hub/env/server`. The generated module uses these to read the project's development secret. Also re-export `seal` and `unseal` for their public types in generated declarations. Existing Env resolution and inspection operations do not require these sealing exports.
 
 ## Env config sections
 
@@ -59,25 +118,52 @@ Pass Integration Options to `hubEnv()`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `source` | `EnvSource` or `EnvSourceResolver` | Section key lookup | Selects where the value comes from. |
-| `default` | `unknown` | None | Value used when the source is absent. |
-| `required` | `boolean` | `true` unless `optional` is set | Throws when a runtime value is missing. Server Env checks every declared value together, so a missing required value also fails code that reads only another value. |
+| `source` | `EnvSource` or `EnvSourceResolver` | Section key lookup | Where the value comes from. |
+| `default` | `unknown` | None | Value to use when the source has none. |
+| `required` | `boolean` | `true` unless `optional` is set | Throws when the runtime value is missing. Server Env checks all values at once, so one missing value fails every read. |
 | `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
-| `mode` | `EnvMode` | `runtime` | Marks the value as Build Env or Runtime Env. Values: `build`, `runtime`. |
-| `schema` | Standard Schema-compatible parser | string parser | Validates and parses `env.public` and `env.define` values. `env.server` accepts only the built-in parsers below because the generated runtime must serialize them. |
+| `mode` | `EnvMode` | `runtime` | Build Env or Runtime Env: `build` or `runtime`. |
+| `schema` | Standard Schema-compatible parser | string parser | Parses `env.public` and `env.define` values. `env.server` takes only the built-in parsers below, because the runtime must serialize them. |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
-| `type` | `string` | Inferred | Overrides the generated type label for `env.public` and `env.define`. In `env.server`, it must match the parser. |
+| `type` | `string` | Inferred | Overrides the generated type label in `env.public` and `env.define`. In `env.server`, it must match the parser. |
 
 ## Typed values
 
-Host variables and provider values are strings. Use a typed declaration when server code needs another type. ViteHub parses the value when Server Env resolves, generates the exact TypeScript type, and rejects an invalid value with `ENV_RUNTIME_VALUE_INVALID`.
+Host and provider values are strings. A typed declaration gives you another type. ViteHub parses the value when Server Env resolves, generates the TypeScript type, and rejects a bad value with `ENV_RUNTIME_VALUE_INVALID`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        labeller: {
+          dryRun: env.boolean({ default: true }),
+          minConfidence: env.number({ default: 0.6 }),
+          mode: env.enum(['draft', 'send'], { default: 'draft' }),
+          apiKey: env({ secret: true }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     server: {
       labeller: {
@@ -90,6 +176,30 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    server: {
+      labeller: {
+        dryRun: env.boolean({ default: true }),
+        minConfidence: env.number({ default: 0.6 }),
+        mode: env.enum(['draft', 'send'], { default: 'draft' }),
+        apiKey: env({ secret: true }),
+      },
+    },
+  },
+})
+```
+:::
+::
 
 ```ts [server/labeller.ts]
 import { useServerEnv } from 'vite-hub/env'
@@ -103,29 +213,62 @@ if (!labeller.dryRun && labeller.mode === 'send') {
 | Declaration | Accepted input | Generated type |
 | --- | --- | --- |
 | `env()` | Any string | `string` |
-| `env.boolean()` | `true`, `false`, `1`, or `0`, ignoring case and surrounding spaces | `boolean` |
-| `env.number()` | A string that converts to a finite number | `number` |
+| `env.boolean()` | `true`, `false`, `1`, or `0`, any case, spaces trimmed | `boolean` |
+| `env.number()` | A finite number | `number` |
 | `env.enum(['a', 'b'])` | One of the listed strings | `"a" \| "b"` |
 
-The typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })`. With `secret: true`, the value is `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret: its allowed values appear in the generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers are accepted as they are.
+Typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })`. With `secret: true`, you get `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret, because its choices appear in generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers pass as they are.
 
-The error details contain the declaration path and source kind. The rejected value is never included. `inspectServerEnv()` reports a value that does not parse as `invalid`.
+Error details hold the declaration path and source kind, never the rejected value. `inspectServerEnv()` reports a value that does not parse as `invalid`.
 
 The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
 
 ## Import an environment schema
 
-Use `envSchema()` to make a committed `.env.example` the contract for both typed accessors and runtime checks. This is an explicit opt-in. Existing declarations remain available when a code-first schema fits better.
+Opt in with `envSchema()` to get typed accessors and runtime checks from a committed `.env.example`. Code declarations still work.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { envSchema } from '@vite-hub/env/vite'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: envSchema(new URL('./.env.example', import.meta.url)),
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { envSchema, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: envSchema(new URL('./.env.example', import.meta.url)),
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { envSchema } from '@vite-hub/env/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: envSchema(new URL('./.env.example', import.meta.url)),
+})
+```
+:::
+::
 
 ```dotenv [.env.example]
 # @public
@@ -141,33 +284,37 @@ VITEHUB_DRY_RUN=false
 VITEHUB_API_TOKEN=
 ```
 
-The example produces `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so a deployment-only secret is not required during prepare or build.
+This example gives `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so prepare and build do not need a deployment-only secret.
 
-The importer uses the restricted `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub owns its environment reader and serializable runtime parsers. The importer does not load developer `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
+It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
 
-Try the [runnable schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) for a browser bundle and Node production server built from one contract. It includes a production test for consumer types, startup failures, redaction, browser output, and server values that change across restarts of the same build. Public Env values are captured during the build.
+The [schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) builds a browser bundle and a Node server from one schema. Its production test checks types, startup failures, redaction, browser output, and server values that change between restarts. Public Env values are fixed at build.
 
 ### Review defaults before opting in
 
-A nonempty assignment supplies a real default. `KEY=` has no default, while `KEY=""` explicitly declares an empty string. Use `@example="sample"` for documentation without a runtime value. Unlike a conventional example file, placeholder assignments become defaults here.
+Unlike a usual example file, a placeholder here becomes a real default. `KEY=` has no default. `KEY=""` declares an empty string. `@example="sample"` documents a value without a default.
 
-All fields are required and sensitive unless a static annotation changes that. `@optional` is the inverse of `@required`; `@public` is the inverse of `@sensitive`. An unannotated type is always string. Numeric-looking strings keep their contents, including leading zeroes.
+Every field is required and sensitive unless an annotation changes that. `@optional` reverses `@required`, and `@public` reverses `@sensitive`. A field without a type is a string, and keeps leading zeroes.
 
 | Type annotation | Result |
 | --- | --- |
-| `@type=string(minLength=1, maxLength=80)` | String with inclusive length constraints. |
-| `@type=number(min=0, max=100, isInt=true)` | Finite decimal number with bounds and an optional safe-integer constraint. |
+| `@type=string(minLength=1, maxLength=80)` | String with inclusive length limits. |
+| `@type=number(min=0, max=100, isInt=true)` | Finite decimal number with bounds and an optional safe-integer check. |
 | `@type=boolean` | Boolean parsed from `true`, `false`, `1`, or `0`. |
-| `@type=enum(draft, send)` | String union. Mark the field non-sensitive because choices appear in metadata. |
+| `@type=enum(draft, send)` | String union. Mark it non-sensitive, because the choices appear in metadata. |
 | `@type=array(string)` | JSON array with typed items. |
 | `@type=object(enabled=boolean, retries=number)` | Exact JSON object shape with required properties. |
-| `@type=url` | Absolute URL validated with the platform `URL` constructor; output remains a string. |
+| `@type=url` | Absolute URL checked with the platform `URL` constructor. The output is a string. |
 
-Required empty inputs fail even when a default exists. Optional empty strings remain strings and obey length constraints. Optional empty inputs for other types count as missing, so a default applies when present. Invalid present values fail instead of falling back to a default. Defaults receive the same type and constraint checks.
+- A required empty input fails, even with a default.
+- An optional empty string stays a string and obeys length limits.
+- An optional empty input of another type is missing, so the default applies.
+- An invalid value fails. It does not fall back to the default.
+- Defaults get the same checks.
 
 ### Control names and exposure
 
-The default prefix is `VITEHUB_`. Only keys beginning with `VITEHUB_PUBLIC_` enter Public Env. They must be explicitly non-sensitive. Marking a private field `@public` clears sensitivity but keeps it on the server. This rule prevents a metadata annotation alone from moving a value into the browser.
+The default prefix is `VITEHUB_`. Only non-sensitive keys that start with `VITEHUB_PUBLIC_` go to Public Env. `@public` on another key clears sensitivity but keeps it on the server, so an annotation alone never moves a value to the browser.
 
 ```ts
 import { envSchema } from '@vite-hub/env/vite'
@@ -178,63 +325,118 @@ env: envSchema(new URL('./.env.example', import.meta.url), {
 })
 ```
 
-With `prefix: 'APP_'`, only `APP_PUBLIC_` names enter Public Env. With `prefix: ''`, `PUBLIC_` marks public names. Keys without the configured prefix stay private. Output names strip the prefix and use camel case. Groups are created only by explicit `paths` mappings. Public paths must be flat; unsafe, duplicate, or overlapping paths fail.
+With `prefix: 'APP_'`, only `APP_PUBLIC_` names go to Public Env. With `prefix: ''`, `PUBLIC_` marks public names. Keys without the prefix stay private. Output names drop the prefix and use camel case. Only `paths` mappings create groups. Public paths must be flat. Unsafe, duplicate, or overlapping paths fail.
 
-Each field reads its exact schema key with canonical lookup disabled. For example, mapping `DATABASE_URL` to `database.url` continues to read `DATABASE_URL`; `VITEHUB_DATABASE_URL` cannot override it. This differs from ordinary code-first declarations described below.
+Each field reads only its exact schema key, with no canonical name. If you map `DATABASE_URL` to `database.url`, it still reads `DATABASE_URL`, and `VITEHUB_DATABASE_URL` cannot override it. Code declarations work differently.
 
-The profile accepts only supported static annotations and type constraints. It rejects dynamic expansion, secret-provider functions, duplicate declarations and decorators, and unknown arguments. Generated types describe `usePublicEnv()` and `useServerEnv()` after validation. `process.env` remains raw string input.
+The profile accepts only supported static annotations and type limits. It rejects dynamic expansion, secret-provider functions, duplicate declarations or decorators, and unknown arguments. Generated types describe the validated `usePublicEnv()` and `useServerEnv()`. `process.env` stays raw strings.
 
 ## Variable names
 
-Every env-backed declaration reads two kinds of variable name, in this order:
+Each env-backed declaration reads two kinds of name, in this order:
 
 1. The canonical name: `VITEHUB_` and the declaration path in upper snake case. `env.server.cliproxy.apiKey` reads `VITEHUB_CLIPROXY_API_KEY`, and `env.public.appName` reads `VITEHUB_PUBLIC_APP_NAME`.
 2. The conventional names: the names in `env.source()`, or the path name without a prefix, such as `CLIPROXY_API_KEY`.
 
-```ts [vite.config.ts] fragment
-server: {
-  // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
-  github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
-  // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
-  logLevel: env({ default: 'info' }),
-}
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+        // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+        logLevel: env({ default: 'info' }),
+      },
+    },
+  },
+})
 ```
+:::
 
-Use the conventional name for values that a vendor documents, such as `OPENAI_API_KEY`. Use the canonical name when the conventional name is taken by something else, for example `GITHUB_TOKEN` in CI, or when you want to set any declared value without reading the config. The canonical name always wins.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
-Built-in Channels and gateway presets follow the same rule: their vendor names are the conventional names, so `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`.
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' }), nitro()],
+  env: {
+    server: {
+      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+      logLevel: env({ default: 'info' }),
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    server: {
+      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+      logLevel: env({ default: 'info' }),
+    },
+  },
+})
+```
+:::
+::
+
+Use the conventional name for values that a vendor documents, such as `OPENAI_API_KEY`. Use the canonical name when the conventional one is taken, such as `GITHUB_TOKEN` in CI, or to set any value without reading the config. The canonical name always wins.
+
+Built-in Channels and gateway presets use vendor names as conventional names. So `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`.
 
 - `env.provider()`, Git, `package.json`, and custom sources have no canonical name.
 - A key that is not a JavaScript identifier, such as `'api-key'` or `'nested.token'`, has no canonical name.
-- Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `hubEnv({ prefix: false })`.
-- `hubEnv({ prefix: 'APP_' })` changes the prefix. `hubEnv({ prefix: false })` reads only the conventional names.
+- Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `prefix: false` in the `env` option.
+- `prefix: 'APP_'` in the `env` option changes the prefix. `prefix: false` reads only the conventional names.
 
-Inspection reports `via: 'canonical'` or `via: 'conventional'` for each available value. It reports `conflict: true` when the canonical name and a conventional name hold different values; the canonical value is used. `describeServerEnv()` includes `canonicalName`. Conventional names stay out of inspection output.
+Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` includes `canonicalName`. Inspection output never shows conventional names.
 
-On Cloudflare, a required secret is listed in the Wrangler config only when it accepts one exact name. Canonical and conventional alternatives remain runtime-only because Wrangler cannot express fallback names. Use `hubEnv({ prefix: false })` or an explicit source equal to the canonical name when an exact Wrangler requirement is needed.
+On Cloudflare, the Wrangler config lists a required secret only when it has one exact name. Wrangler has no fallback names, so name pairs work at runtime only. For an exact Wrangler entry, set `prefix: false`, or a source equal to the canonical name.
 
 ## Env sources
 
 | Source helper | Description |
 | --- | --- |
-| `env.source('NAME')` | Reads one host env variable. |
-| `env.source(['PRIMARY', 'FALLBACK'])` | Reads the first available env variable from a list. |
-| `env.source(['PRIMARY', 'FALLBACK'], { skipEmpty: true })` | Reads the first defined, non-empty env variable from a list. |
-| `env.custom(label, resolver)` | Resolves from a custom callback. |
-| `env.gitBranch()` | Reads the current Git branch. |
-| `env.gitCommit({ short })` | Reads the current Git commit. |
-| `env.gitRef()` | Reads the current Git ref. |
-| `env.gitSha({ short })` | Reads the current Git SHA. |
-| `env.gitTag()` | Reads the current Git tag. |
-| `env.buildTimestamp()` | Reads the build timestamp. |
-| `env.packageJson(path)` | Reads a value from `package.json`. |
-| `env.provider(name, key)` | Reads one declared key from a configured runtime provider snapshot. Server Env only. |
+| `env.source('NAME')` | One host variable. |
+| `env.source(['PRIMARY', 'FALLBACK'])` | The first variable that exists. |
+| `env.source(['PRIMARY', 'FALLBACK'], { skipEmpty: true })` | The first variable that is not empty. |
+| `env.custom(label, resolver)` | Your own callback. |
+| `env.gitBranch()` | Current Git branch. |
+| `env.gitCommit({ short })` | Current Git commit. |
+| `env.gitRef()` | Current Git ref. |
+| `env.gitSha({ short })` | Current Git SHA. |
+| `env.gitTag()` | Current Git tag. |
+| `env.buildTimestamp()` | Build timestamp. |
+| `env.packageJson(path)` | A value from `package.json`. |
+| `env.provider(name, key)` | One key from a runtime provider snapshot. Server Env only. |
 
 ## Provider output
 
 `hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `useServerEnv()` and `usePublicEnv()` from `vite-hub/env` in server code and `#vitehub/env/public` in browser code, not generated file paths or integration virtual modules.
 
-Add the generated type directory to `tsconfig.json` when the app wants field-level types for generated Env access.
+Add the type directory to `tsconfig.json` to type each field.
 
 ```json [tsconfig.json]
 {
@@ -246,4 +448,4 @@ Add the generated type directory to `tsconfig.json` when the app wants field-lev
 }
 ```
 
-Array and object defaults are quoted JSON, such as `VITEHUB_TAGS='["one"]'`. Types can nest, for example `array(object(name=string))`. Bare `array` and `object` accept JSON without a fixed shape. JSON members are validated without coercion; exact object shapes reject unknown or missing properties. Sensitive declarations cannot contain nested enums because their choices appear in metadata. Dynamic expressions and transforms remain available through the existing code-first APIs where supported.
+Array and object defaults are quoted JSON, such as `VITEHUB_TAGS='["one"]'`. Types can nest, for example `array(object(name=string))`. Bare `array` and `object` accept JSON of any shape. JSON members are not coerced. Exact object shapes reject unknown or missing properties. Sensitive declarations cannot hold nested enums, because the choices appear in metadata. For dynamic expressions and transforms, use code declarations.

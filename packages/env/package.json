@@ -142,7 +142,8 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "drizzle-orm": "catalog:database",
-    "@libsql/client": "catalog:database"
+    "@libsql/client": "catalog:database",
+    "miniflare": "4.20260730.0"
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",

@@ -18,8 +18,9 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
 }
 
 // Connections and Decisions are optional peers. Their commands exist when the app installed the package.
+// The Connections commands load jose and valibot, so only `vitehub connections` imports them.
 const [connectionsCli, decisionsCli] = await Promise.all([
-  importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/cli")),
+  process.argv[2] === "connections" ? importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/cli")) : undefined,
   importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
 ])
 

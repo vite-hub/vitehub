@@ -1,20 +1,18 @@
 ---
 title: LLM route
-description: Choose one developer-defined route with a Decisions choice, answered by any model or TypeSafe Jev, before the Agent Driver runs.
+description: Let a model or TypeSafe Jev pick one of your routes before your Agent runs.
 navigation.title: LLM route
 navigation.order: 270
 navigation.group: Capabilities
 icon: i-lucide-route
 ---
 
-`llmRoute()` chooses one developer-defined route before the Agent Driver runs.
-It adds no model-facing tool. It records the chosen route as an Invocation context value and does not apply route effects by itself.
-The decision is one [Decisions](/docs/decisions) group with `infer: true`. The Agent model answers it, or the `model` you pass, or TypeSafe Jev when you set `gateway`. No Server Primitive is involved.
+`llmRoute()` picks one of your routes before the Agent Driver runs. It records the route in Invocation context (values kept for one Agent run). Later code decides what to do with it. It adds no model tool and uses no Server Primitive. The decision is one [Decisions](/docs/decisions) group with `infer: true`. The Agent model answers it, or your `model`, or TypeSafe Jev when you set `gateway`.
 
 ## Configure routing
 
 Define stable choice keys with short descriptions.
-Later code reads the recorded value and decides how to use the route.
+Later code reads the recorded value and acts on it.
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -37,21 +35,20 @@ The Agent model decides. Pass `model` to use a smaller one, or `gateway: vercel(
 
 ## How routing works
 
-`llmRoute()` runs in the input phase, before the Agent Driver.
+In the input phase, before the Driver:
 
-1. It reads the latest user text: the string `prompt`, or else the text of the latest user message.
+1. It reads the string `prompt`, else the latest user message text.
 2. It asks which choice fits the text best. See [Decisions](#decisions).
-3. It stores the decision as the Invocation context value `llm-route` (or your `id`) and provides it as a finish extension under the same id.
+3. It stores the decision as context value `llm-route`, or your `id`, and as a finish extension under the same id.
 
-A second writer for the same context value fails early.
-`history: true` includes the last 10 messages. A number includes that many messages.
+`history: true` includes the last 10 messages; a number includes that many.
 
 ## Decisions
 
-The choices become the options of one Decisions group with `multiple: false` and `infer: true`: the key is the label and the choice text is the description. The text does not have to name a choice. The model infers it.
+Each choice is an option in one Decisions group with `multiple: false` and `infer: true`. Its key is the label, and its text is the description. The model infers a choice even when the request does not name one.
 
 With a single choice, the Capability records it locally with confidence `1` and probability `1`, and sends no request.
-With 2 to 255 choices, it sends one request. The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. The decision reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, on a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input budget. If these alone cannot fit, use fewer or shorter choices, or set `model`.
+With 2 to 255 choices, it sends one request. The text is the run's `data` as JSON when set, else the latest user text with recent `history` before it. It reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, at a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input limit. If these alone cannot fit, use fewer or shorter choices, or set `model`.
 
 Who answers:
 
@@ -65,17 +62,18 @@ To route your own text outside an Agent, use [`defineChoices()`](/docs/decisions
 ## Requirements
 
 - At least one choice.
-- Choice keys must be stable identifiers: a letter first, then letters, digits, `-`, `_`, or `.`.
-- With two or more choices, a model or a gateway. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents do not expose an Agent model to Capabilities, so set `model` or `gateway`.
+- Choice keys: a letter, then letters, digits, `-`, `_`, or `.`.
+- With two or more choices, a model or a gateway. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents give Capabilities no model, so set `model` or `gateway`.
 - For Jev: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for `typesafe()`, `AI_GATEWAY_API_KEY` for `vercel()`).
 
 ## Security and approval
 
-`llmRoute()` adds no model-facing tool, so the Agent gets no new authority. It has no `policy` option.
-It does not attach, remove, or grant Capabilities. Code that acts on the route must read the decision and apply its own checks.
+There is no model tool, new authority, or `policy` option. It never attaches, removes, or grants Capabilities, so code acting on the route does its own checks.
 
-The end user controls the routed text, so the user can influence the choice. Do not use a route as access control.
-The Capability sends the latest user text, the choice descriptions, and the optional history to the configured model provider or to TypeSafe Jev.
+> [!WARNING]
+> Users write the routed text and can steer the choice. Never use a route as access control.
+
+It sends the user text, choice descriptions, and optional history to the model provider or TypeSafe Jev.
 
 ## Driver support
 

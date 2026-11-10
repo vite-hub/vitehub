@@ -10,7 +10,7 @@ type HandleKind = "kv" | "blob" | "media" | "email" | "channel" | "queueClient"
 /** Methods that return `[error, value]` for each Runtime Helper handle. */
 const tupleMethods: Record<HandleKind, Set<string>> = {
   kv: new Set(["clear", "del", "get", "getAndDelete", "has", "increment", "keys", "list", "set", "setIfAbsent"]),
-  blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "serve", "sign"]),
+  blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "sign"]),
   media: new Set(["createFolder", "get", "handleUpload", "list", "move", "moveFolder", "put", "remove", "removeFolder", "replaceCrop", "update", "variants"]),
   email: new Set(["send"]),
   channel: new Set(["send"]),
@@ -42,7 +42,7 @@ function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): Hand
   }
   if (isNodeType(target, "AwaitExpression")) {
     const called = r.callee(target.argument)
-    if (called?.module === "queue" && (called.name === "getQueue" && called.path.length === 0 || called.name === "dynamicQueue" && called.path.join(".") === "get")) return "queueClient"
+    if (called?.module === "queue" && (called.name === "useQueue" && called.path.length === 0 || called.name === "dynamicQueue" && called.path.join(".") === "use")) return "queueClient"
   }
   // Follow `const store = kv.store("cache")` to its initializer.
   const binding = r.binding(target)
@@ -60,8 +60,8 @@ function tupleCall(r: Resolver, call: AstNode): string | undefined {
   }
   const reference = r.callee(call)
   if (!reference) return
-  if (reference.module === "queue" && reference.name === "runQueue" && reference.path.length === 0) return "runQueue()"
-  if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "run") return "dynamicQueue.run()"
+  if (reference.module === "queue" && reference.name === "sendQueue" && reference.path.length === 0) return "sendQueue()"
+  if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "send") return "dynamicQueue.send()"
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
   if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
   if (reference.module === "agent" && ["runAgent", "streamAgent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`

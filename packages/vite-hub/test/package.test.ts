@@ -49,9 +49,9 @@ import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
 import * as frameworkRuntimeNode from "vite-hub/runtime/node";
-import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state";
 import * as ownerRuntimeNode from "@vite-hub/runtime/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
+import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/internal/database-runtime-state.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -119,10 +119,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/output",
   "@vite-hub/agent/observability/host",
   "@vite-hub/agent/observability/posthog",
-  "@vite-hub/agent/server/github",
   "@vite-hub/agent/server/workspace",
-  "@vite-hub/blob/config",
-  "@vite-hub/blob/errors",
   "@vite-hub/blob/served",
   "@vite-hub/comments/client",
   "@vite-hub/comments/testing",
@@ -132,7 +129,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
-  "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
@@ -161,55 +157,29 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
   "@vite-hub/auth/runtime/console",
-  "@vite-hub/blob/operations",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/comments/runtime/connect",
   "@vite-hub/comments/runtime/connect/node",
   "@vite-hub/comments/runtime/console",
   "@vite-hub/content/operations",
-  "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
-  "@vite-hub/database/runtime/d1",
-  "@vite-hub/database/runtime/default-database",
-  "@vite-hub/database/runtime/default-database-postgresql",
-  "@vite-hub/database/runtime/hosted",
-  "@vite-hub/database/runtime/migrate-on-start",
-  "@vite-hub/database/runtime/postgres",
+  "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/registry",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
-  "@vite-hub/database/runtime/virtual-databases",
-  "@vite-hub/database/runtime/virtual-schema",
   "@vite-hub/content/runtime/console",
-  "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
-  "@vite-hub/kv/runtime/cloudflare-kv",
-  "@vite-hub/kv/runtime/cloudflare-request-env",
-  "@vite-hub/kv/runtime/nitro-cache",
-  "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
-  "@vite-hub/queue/operations",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
-  "@vite-hub/rate-limit/operations",
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
-  "@vite-hub/schedule/operations",
-  "@vite-hub/schedule/runtime/console",
-  "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
-  "@vite-hub/workflow/operations",
   "@vite-hub/workspace/operations",
-  "@vite-hub/workflow/runtime/cloudflare-runner",
-  "@vite-hub/workflow/runtime/cloudflare-shared",
-  "@vite-hub/workflow/runtime/cloudflare-vite",
-  "@vite-hub/workflow/runtime/dev-runs",
-  "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
-  "@vite-hub/workflow/runtime/vercel-vite",
 ]);
 
 function sourceForwarderTargets(source: string): string[] | undefined {
@@ -332,7 +302,7 @@ describe("framework package contract", () => {
 
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
-      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+      .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
@@ -346,8 +316,6 @@ describe("framework package contract", () => {
     ).toEqual([
       ".",
       "./_internal/agent/invocations",
-      "./_internal/database/runtime/state",
-      "./_internal/kv/runtime/disabled-upstash",
       "./_internal/task/operations",
       "./agent",
       "./agent/capabilities",

@@ -6,13 +6,12 @@ navigation.order: 5
 icon: i-lucide-database
 ---
 
-`db()` gives an Agent the `db_query` tool for one read-only SQL statement and the `db_schema` tool for schema inspection. When `mode` or `schemaMode` is `"write"`, it also gives the `db_exec` tool for one mutation statement with a rationale.
-All tools call the configured [Database primitive](/docs/database).
-The [Database server API](/docs/database/server-api) covers application code. This page covers the Agent tools.
+`db()` is a Capability, a set of tools for an Agent. It gives `db_query` to run one read-only SQL statement and `db_schema` to read the schema. When `mode` or `schemaMode` is `"write"`, it adds `db_exec` to run one change with a rationale.
+All tools use your [Database](/docs/database) setup. For app code, read the [Database server API](/docs/database/server-api).
 
 ## Configure database access
 
-Attach the Database Capability in read mode until the Agent needs guarded mutations.
+Use read mode until the Agent must change data.
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -34,7 +33,7 @@ db({ mode: 'write', policy: 'require-approval' })
 
 ## Agent-visible tool contract
 
-These definitions are resolved from the real Capability during the docs build. They are the names, descriptions, and JSON Schemas supplied to the Agent model.
+The docs build reads these from the real Capability. They are the names, descriptions, and JSON Schemas that the Agent model sees.
 
 ### Read mode
 
@@ -48,53 +47,53 @@ These definitions are resolved from the real Capability during the docs build. T
 
 ## How database access works
 
-When the Agent Invocation resolves its tools, the Capability resolves the database handle. With `database`, it calls `database(name)` on the handle.
+The Capability finds the database handle when the Agent run loads its tools. With `database`, it calls `database(name)` on the handle.
 
 - `db_query` accepts one `SELECT`, one `WITH ... SELECT`, or one read-only introspection `PRAGMA` (`table_info`, `table_xinfo`, `table_list`, `index_list`, `index_info`, `index_xinfo`, `foreign_key_list`, `foreign_key_check`). It calls `query(statement)`.
 - `db_schema` takes no input. It returns `{ database, schema }`, where `schema` comes from the `schema` value or `schema()` function on the database handle.
-- `db_exec` requires a non-empty `rationale` and exactly one statement. It rejects read-only SQL. DDL (`ALTER`, `CREATE`, `DROP`, `REINDEX`, `VACUUM`) requires `schemaMode: 'write'`. Data mutations (`INSERT`, `UPDATE`, `DELETE`, `REPLACE`) require `mode: 'write'`. It rejects other statements. It calls `exec(statement)`.
+- `db_exec` requires a non-empty `rationale` and exactly one statement, and calls `exec(statement)`. DDL (`ALTER`, `CREATE`, `DROP`, `REINDEX`, `VACUUM`) requires `schemaMode: 'write'`. Data changes (`INSERT`, `UPDATE`, `DELETE`, `REPLACE`) require `mode: 'write'`. It rejects read-only SQL and all other statements.
 
-The guard rejects multi-statement input before the statement reaches the database handle. `WITH` statements are classified by their final statement keyword.
+The guard rejects input with several statements before it reaches the handle. A `WITH` statement is classified by its final keyword.
 
 ## Requirements
 
-- Configure the Database primitive. Generated Agent routes pass the Database handle to the Capability when the Database Vite integration (`hubDb()`) is active.
-- Without a `db` handle, the Capability loads the Database runtime of an installed `@vite-hub/database` package. If that import fails, tool resolution fails and the Agent Driver does not receive Database tools.
-- The database handle must expose raw string `query()` for `db_query` and `exec()` for `db_exec`.
-- A `database` value other than `"default"` requires a handle that exposes `database()`. Otherwise the tools fail with `Database "<name>" is not available.`
+- Configure Database. With `hubDb()` active, generated Agent routes pass `agentDb` from `@vite-hub/database/runtime/registry` to the Capability.
+- Without a `db` handle, the Capability imports `agentDb` from `@vite-hub/database/runtime/registry`. If that fails, the Agent Driver gets no Database tools.
+- The handle must have a raw string `query()` for `db_query` and `exec()` for `db_exec`.
+- A `database` other than `"default"` needs a handle with `database()`. Otherwise the tools fail with `Database "<name>" is not available.`
 
 ## Security and approval
 
-- `db_query` and `db_schema` have no policy gate. The Agent can read every table that the database handle can read.
-- `db_exec` is present only when `mode` or `schemaMode` is `"write"`. Each mode allows only its own kind of statement.
-- The guard classifies statements by their keywords. It is not a database permission system. Use database credentials with the smallest set of privileges that the Agent needs.
-- `policy` applies only to `db_exec`. The single-statement, rationale, and SQL-kind checks run also when `policy` allows the call.
-- `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
-- Without `policy`, an enabled `db_exec` call runs when the Agent calls it.
-- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The request input contains the statement and the rationale. See [Runtime policy, approvals, and traces](/docs/agents/runtime-policy).
+- `db_query` and `db_schema` have no policy gate. The Agent can read every table the handle can read.
+- `db_exec` exists only when `mode` or `schemaMode` is `"write"`. Each mode allows only its own kind of statement.
+- The guard sorts statements by keyword. It is not a permission system. Give the Agent database credentials with the fewest privileges it needs.
+- `policy` applies only to `db_exec`. The single-statement, rationale, and SQL-kind checks still run when `policy` allows the call.
+- `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that gets `{ name, input }` and returns one of them.
+- Without `policy`, `db_exec` runs when the Agent calls it.
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request that holds the statement and rationale. See [Runtime policy, approvals, and traces](/docs/agents/runtime-policy).
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives `db_query`, `db_schema`, and `db_exec` when a write mode is enabled. |
-| Provider-backed | Receives the same tools through the provider MCP bridge. |
-| Custom-run-backed | `driver.run` receives the tools in `context.tools` and decides whether to call them. |
+| Model-backed | Gets `db_query`, `db_schema`, and, in a write mode, `db_exec`. |
+| Provider-backed | Gets the same tools through the provider MCP bridge. |
+| Custom-run-backed | `driver.run` gets the tools in `context.tools` and decides whether to call them. |
 
 ## Verify database access
 
-1. Start the Vite development server.
-2. Run `vitehub agent info --agent support --json`. Confirm that `tools` contains an entry with `name: "db"`, and that `capabilities` contains `{ id: "db", metadata: { schemaMode: "read" } }`.
-3. Run `vitehub agent dev "How many users are there?" --agent support`. Confirm that the output shows a `[tool] db_query` call.
-4. Ask the Agent to run two statements in one `db_query` call. Confirm that the tool rejects the input before it reaches the database.
+1. Start the dev server.
+2. Run `vitehub agent info --agent support --json`. Check that `tools` has an entry with `name: "db"`, and `capabilities` has `{ id: "db", metadata: { schemaMode: "read" } }`.
+3. Run `vitehub agent dev "How many users are there?" --agent support`. Check for a `[tool] db_query` call.
+4. Ask the Agent to run two statements in one `db_query` call. Check that the tool rejects it before it reaches the database.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database` | `string` | `"default"` | Selects a named database through `database()` on the database handle. |
-| `mode` | `"read" \| "write"` | `"read"` | Allows data mutation through `db_exec` when set to `"write"`. |
-| `schemaMode` | `"read" \| "write"` | `"read"` | Allows DDL through `db_exec` when set to `"write"`. |
+| `database` | `string` | `"default"` | Named database, through `database()` on the handle. |
+| `mode` | `"read" \| "write"` | `"read"` | `"write"` allows data changes through `db_exec`. |
+| `schemaMode` | `"read" \| "write"` | `"read"` | `"write"` allows DDL through `db_exec`. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | none (calls run) | Policy for `db_exec`. |
 
 ## Related pages

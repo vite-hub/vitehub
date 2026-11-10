@@ -65,7 +65,9 @@ export default defineConfig({
         {
           path: "nuxt.config.ts",
           language: "typescript",
-          content: `export default defineNuxtConfig({
+          content: `// Use pnpm 11.5 or newer for the Nuxt 5 nightly alias.
+// Install: pnpm add vite-hub @vite-hub/schedule nuxt@npm:nuxt-nightly@5x
+export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
   vitehub: { preset: "cloudflare", schedule: true },
 })`,

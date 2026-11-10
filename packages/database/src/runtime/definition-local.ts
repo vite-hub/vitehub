@@ -1,10 +1,8 @@
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { localSqlite } from "#vitehub/database/libsql"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { localLibsql } from "./local-client.ts"
 import { runtimeConfig } from "./definition-config.ts"
-import { resolveLocalSqliteUrl } from "./local-url.ts"
-import { createTestDatabaseClient } from "./test-database.ts"
 
 import type { DatabaseDefinition, RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
@@ -22,10 +20,10 @@ export function createConfiguredDatabase<TSchema extends Record<string, unknown>
   migrationsDir?: string,
 ): RuntimeDrizzleDatabase<TSchema> {
   const database = createDrizzleSqliteAdapter(config, schema, {
-    libsql: localLibsql,
-    missingConnection: "a Cloudflare D1 binding or `connection.url`",
+    libsql: localSqlite,
+    missingConnection: localSqlite ? "a Cloudflare D1 binding or `connection.url`" : "a Cloudflare D1 binding or `cloudflare.http`",
     requireRemoteUrl: false,
-    resolveLocalUrl: resolveLocalSqliteUrl,
+    resolveLocalUrl: localSqlite?.resolveLocalUrl,
   })
   return withTestDatabase(config.name, schema, migrationsDir, database)
 }
@@ -39,12 +37,14 @@ function withTestDatabase<TSchema extends Record<string, unknown>>(
 ): RuntimeDrizzleDatabase<TSchema> {
   function current(): RuntimeDrizzleDatabase<TSchema> {
     const test = getViteHubTestMode()
-    if (!test) return database
+    // App tests never run a Cloudflare production build, the only build without local SQLite.
+    if (!test || !localSqlite) return database
+    const sqlite = localSqlite
     return test.backend(`database:${name}`, () => {
       const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
-      const client = createTestDatabaseClient(test.root, directory)
+      const client = sqlite.createTestClient(test.root, directory)
       // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
-      return localLibsql.drizzle(client, { schema }) as RuntimeDrizzleDatabase<TSchema>
+      return sqlite.drizzle(client, { schema }) as RuntimeDrizzleDatabase<TSchema>
     }, db => (Reflect.get(db, "$client") as { close: () => void }).close())
   }
   // SAFETY: Every read goes to the current database, so the proxy has the full database shape.

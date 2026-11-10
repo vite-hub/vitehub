@@ -63,11 +63,11 @@ describe("Console server startup graph", () => {
         () => true,
         false,
         { mode: "open" },
-        { blob: "vite-hub/_internal/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/_internal/kv" },
+        { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "@vite-hub/database/runtime/registry", kv: "vite-hub/kv" },
       )
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/_internal/agent/runtime/workflow", "vite-hub/console/sections", "vite-hub/console/server"])
-      for (const module of ["vite-hub/console/operations", "vite-hub/_internal/kv/console", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/_internal/kv"]) {
+      for (const module of ["vite-hub/console/operations", "vite-hub/_internal/kv/console", "vite-hub/console/mcp-client", "@vite-hub/database/runtime/registry", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 

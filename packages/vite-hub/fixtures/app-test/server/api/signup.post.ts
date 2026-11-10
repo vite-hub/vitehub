@@ -3,8 +3,8 @@ import { useServerEnv } from "vite-hub/env"
 import { useDatabase } from "vite-hub/database"
 import { email } from "vite-hub/email"
 import { kv } from "vite-hub/kv"
-import { runQueue } from "vite-hub/queue"
-import { runWorkflow } from "vite-hub/workflow"
+import { sendQueue } from "vite-hub/queue"
+import { startWorkflow } from "vite-hub/workflow"
 
 export default defineHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
@@ -22,10 +22,10 @@ export default defineHandler(async (event) => {
   const [sendError] = await email.send({ from: useServerEnv().mailFrom, subject: "Welcome", text: "Thanks for signing up.", to: user.email })
   if (sendError) throw sendError
 
-  const [queueError] = await runQueue("welcome", { userId: user.id }, { delaySeconds: 86_400 })
+  const [queueError] = await sendQueue("welcome", { userId: user.id }, { delaySeconds: 86_400 })
   if (queueError) throw queueError
 
-  await runWorkflow("onboarding", { userId: user.id })
+  await startWorkflow("onboarding", { userId: user.id })
 
   return user
 })
