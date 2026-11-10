@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile)
 it("runs Database request state through Nuxt's facade alias", async () => {
   const result = await build({
     alias: {
-      "@vite-hub/database/runtime/state": fileURLToPath(new URL("../src/_internal/database/runtime/state.ts", import.meta.url)),
+      "@vite-hub/database/runtime/state": fileURLToPath(new URL("../src/internal/database-runtime-state.ts", import.meta.url)),
     },
     bundle: true,
     format: "esm",

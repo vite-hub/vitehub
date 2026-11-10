@@ -18,7 +18,7 @@ const definition = defineChannel({
 })
 
 const payments = defineChannel({
-  adapter: stripe(),
+  adapter: stripe({ stateScope: "webhook:support:stripe:stripe:" }),
   on: {
     "checkout.session.completed": (event) => {
       const stripeEvent: StripeEvent = event.data
