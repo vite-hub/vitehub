@@ -4,6 +4,7 @@ import { oneEntryImports } from "./one-entry-imports/index.ts"
 import { queueWorkflowVerbs } from "./queue-workflow-verbs/index.ts"
 import { resend } from "./resend/index.ts"
 import { t3Env } from "./t3-env/index.ts"
+import { vitehubOptions } from "./vitehub-options/index.ts"
 
 import type { Codemod } from "./types.ts"
 
@@ -15,4 +16,5 @@ export const codemods: readonly Codemod[] = [
   queueWorkflowVerbs,
   nuxtCron,
   oneEntryImports,
+  vitehubOptions,
 ]

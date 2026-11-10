@@ -162,15 +162,16 @@ async function createStageFixture(): Promise<string> {
   await writeFile(join(root, "vite.config.mjs"), [
     "import { env, hubEnv } from \"@vite-hub/env/vite\"",
     "export default {",
-    "  plugins: [hubEnv({ diagnostics: \"off\", providers: { region: \"./server/region-provider.mjs\" } })],",
-    "  env: {",
+    "  plugins: [hubEnv({",
+    "    diagnostics: \"off\",",
+    "    providers: { region: \"./server/region-provider.mjs\" },",
     "    server: {",
     "      apiToken: env({ secret: true, source: env.source(\"ENV_CLI_API_TOKEN\") }),",
     "      label: env({ optional: true, source: env.source(\"ENV_CLI_LABEL\") }),",
     "      region: env({ source: env.source(\"ENV_CLI_REGION\") }),",
     "      regionToken: env({ secret: true, source: env.provider(\"region\", \"regionToken\") }),",
     "    },",
-    "  },",
+    "  })],",
     "}",
     "",
   ].join("\n"), "utf8")
@@ -196,7 +197,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       'export async function loadNuxt(options) {',
       `  if (options.cwd !== ${JSON.stringify(root)}) throw new Error("Incorrect application root")`,
       '  if (process.env.ENV_CLI_REGION !== "stage-region") throw new Error("Application env file not loaded")',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ projectRoot: "packages/config", diagnostics: "off" })], env: { server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ projectRoot: "packages/config", diagnostics: "off", server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     const { context, output } = captureContext(root, {})
@@ -216,7 +217,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await writeFile(join(kitRoot, "kit.mjs"), [
       'import { hubEnv, env } from "@vite-hub/env/vite"',
       'export async function loadNuxt() {',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off" })], env: { server: { [process.env.ENV_CLI_REGION]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off", server: { [process.env.ENV_CLI_REGION]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     const previous = process.env.ENV_CLI_REGION
@@ -243,7 +244,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       'import { hubEnv, env } from "@vite-hub/env/vite"',
       'export async function loadNuxt(options) {',
       '  if (!options.overrides.vitehubCliDiscovery || options.overrides.vite.mode !== options.envName) throw new Error("Incorrect Nuxt stage")',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off" })], env: { server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off", server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     for (const stage of ["development", "production"]) {
@@ -276,14 +277,13 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       '  return { close: async () => {}, options: { vite: {',
       '    environments: { ssr: { dev: { moduleRunnerTransform: false, createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } } },',
       `    resolve: { alias: { "#server": ${JSON.stringify(join(root, "server"))} } },`,
-      '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" } }), {',
+      '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" }, server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } }), {',
       '      name: "env-provider-transforms",',
       '      applyToEnvironment: environment => environment.name === "ssr",',
       '      resolveId: id => id === "virtual:env-stage" ? "\\0virtual:env-stage" : undefined,',
       '      load: id => id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined,',
       `      transform: (code, id) => id.endsWith("/utils/token.mjs") ? code.replace('"untransformed"', ${JSON.stringify(JSON.stringify(secretValue))}) : undefined,`,
       '    }],',
-      '    env: { server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } },',
       '  } } }',
       '}',
     ].join("\n"))
@@ -302,7 +302,7 @@ describe("env CLI with Vite stage files", () => {
     const root = await createStageFixture()
     await writeFile(join(root, "vite.config.mjs"), [
       'import { env, hubEnv } from "@vite-hub/env/vite"',
-      'export default ({ mode }) => ({ plugins: [hubEnv({ projectRoot: mode === "production" ? "prod" : "dev", diagnostics: "off" })], env: { server: { [mode]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } })',
+      'export default ({ mode }) => ({ plugins: [hubEnv({ projectRoot: mode === "production" ? "prod" : "dev", diagnostics: "off", server: { [mode]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] })',
     ].join("\n"))
     const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
     expect(await realFeature("inspect").run(["--stage", "production", "--json"], context)).toBe(0)

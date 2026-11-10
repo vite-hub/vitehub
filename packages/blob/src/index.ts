@@ -26,7 +26,7 @@ export type {
   BlobMediaListResult,
   BlobMediaPutOptions,
   BlobMediaUploadOptions,
-  BlobModuleOptions,
+  BlobOptions,
   BlobMultipartEvent,
   BlobMultipartHandlerOptions,
   BlobMultipartHandlerResult,

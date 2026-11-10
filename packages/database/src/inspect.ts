@@ -11,7 +11,7 @@ import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
-import type { DatabaseConfigValue, DBModulePublicOptions } from "./types.ts"
+import type { DatabaseConfigValue, DatabaseOptions } from "./types.ts"
 
 export interface DatabaseInspectionOptions {
   /** Whether the integration's `cloudflare.http` makes development queries remote. */
@@ -111,7 +111,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
 export interface DatabaseResourceInspectionOptions {
   contributions?: CollectedDatabaseContributions
   env?: Record<string, string | undefined>
-  options: DBModulePublicOptions | undefined
+  options: DatabaseOptions | undefined
   /** Root that holds `.vitehub/provision.json`. */
   provisionRoot: string
   rootDir: string

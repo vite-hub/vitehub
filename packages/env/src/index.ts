@@ -10,10 +10,10 @@ export { seal, unseal } from "./seal-value.ts"
 export type { SealOptions, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {
-  EnvConfigOptions,
+  EnvDeclarations,
   EnvDiagnosticEntry,
   EnvDiagnostics,
-  EnvIntegrationOptions,
+  EnvOptions,
   EnvProvider,
   EnvProviderContext,
   EnvProviders,
@@ -29,8 +29,6 @@ export type {
   EnvValueSchema,
   EnvVariableDeclaration,
   EnvVariableOptions,
-  EnvViteConfigOptions,
-  EnvViteUserConfig,
   LoadServerEnvOptions,
   DeepReadonly,
   PublicEnv,

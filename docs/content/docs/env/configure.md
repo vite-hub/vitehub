@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure Env
 
-Declare values in `env` in the Vite config, or in `vitehub.env` in Nuxt. `env.public` is browser-safe Public Env. `env.define` becomes Vite replacements. `env.server` is Server Env, for server code only.
+Declare values in `vitehub({ env })`, in `vitehub.env` in Nuxt, or in `hubEnv(options)` without `vite-hub`. `env.public` is browser-safe Public Env. `env.define` becomes Vite replacements. `env.server` is Server Env, for server code only.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -45,20 +45,22 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    define: {
-      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      define: {
+        __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -70,20 +72,22 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    define: {
-      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      define: {
+        __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
@@ -163,17 +167,19 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    server: {
-      labeller: {
-        dryRun: env.boolean({ default: true }),
-        minConfidence: env.number({ default: 0.6 }),
-        mode: env.enum(['draft', 'send'], { default: 'draft' }),
-        apiKey: env({ secret: true }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        labeller: {
+          dryRun: env.boolean({ default: true }),
+          minConfidence: env.number({ default: 0.6 }),
+          mode: env.enum(['draft', 'send'], { default: 'draft' }),
+          apiKey: env({ secret: true }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -185,17 +191,19 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    server: {
-      labeller: {
-        dryRun: env.boolean({ default: true }),
-        minConfidence: env.number({ default: 0.6 }),
-        mode: env.enum(['draft', 'send'], { default: 'draft' }),
-        apiKey: env({ secret: true }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        labeller: {
+          dryRun: env.boolean({ default: true }),
+          minConfidence: env.number({ default: 0.6 }),
+          mode: env.enum(['draft', 'send'], { default: 'draft' }),
+          apiKey: env({ secret: true }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
@@ -266,15 +274,17 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    server: {
-      apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
-      retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
-      tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
-      token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -286,15 +296,17 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    server: {
-      apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
-      retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
-      tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
-      token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
     },
-  },
+  })],
 })
 ```
 :::
@@ -336,8 +348,10 @@ import { vitehub } from 'vite-hub'
 import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: envSchema(new URL('./.env.example', import.meta.url)),
+  plugins: [vitehub({
+    preset: 'node',
+    env: envSchema(new URL('./.env.example', import.meta.url)),
+  }), nitro()],
 })
 ```
 :::
@@ -349,8 +363,10 @@ import { vitehub } from 'vite-hub'
 import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: envSchema(new URL('./.env.example', import.meta.url)),
+  plugins: [vitehub({
+    preset: 'node',
+    env: envSchema(new URL('./.env.example', import.meta.url)),
+  })],
 })
 ```
 :::
@@ -454,15 +470,17 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    server: {
-      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
-      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
-      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
-      logLevel: env({ default: 'info' }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+        // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+        logLevel: env({ default: 'info' }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -474,15 +492,17 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    server: {
-      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
-      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
-      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
-      logLevel: env({ default: 'info' }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+        // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+        logLevel: env({ default: 'info' }),
+      },
     },
-  },
+  })],
 })
 ```
 :::

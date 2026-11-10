@@ -109,23 +109,21 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
     nitro(),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::
@@ -144,22 +142,20 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::

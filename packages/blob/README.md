@@ -44,11 +44,10 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     base: ".vitehub/data/blob",
-  },
-  plugins: [hubBlob(), nitro()],
+  }), nitro()],
 })
 ```
 
@@ -85,8 +84,7 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: { remote: true },
-  plugins: [hubBlob(), nitro()],
+  plugins: [hubBlob({ remote: true }), nitro()],
 })
 ```
 
@@ -117,7 +115,7 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     serve: {
       route: "/assets",
@@ -126,8 +124,7 @@ export default defineConfig({
         "X-Content-Type-Options": "nosniff",
       },
     },
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -257,14 +254,13 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "s3",
     bucket: "app-assets",
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION,
     publicBaseUrl: "https://assets.example.com",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -284,10 +280,9 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "minio",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 

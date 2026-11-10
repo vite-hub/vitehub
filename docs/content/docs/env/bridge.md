@@ -107,16 +107,16 @@ export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
     console: { auth: false },
-    env: { providers: { credentials: './server/env/credentials.ts' } },
-  }), nitro()],
-  env: {
-    server: {
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 ::::
@@ -131,16 +131,16 @@ export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
     console: { auth: false },
-    env: { providers: { credentials: './server/env/credentials.ts' } },
-  })],
-  env: {
-    server: {
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
     },
-  },
+  })],
 })
 ```
 ::::
