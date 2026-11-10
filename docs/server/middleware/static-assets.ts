@@ -64,8 +64,10 @@ export function shouldServePrerenderedAsset(input: {
 // This keeps Markdown negotiation and avoids slow server rendering of pages
 // that Nitro already prerendered.
 export default defineEventHandler(async (event) => {
-  const page = findDocsPage(manifest, getRequestURL(event).pathname)?.page;
-  const collapses = !!page && docsSidebarCollapses(page);
+  const path = getRequestURL(event).pathname.replace(/\/+$/, "");
+  const page = findDocsPage(manifest, path)?.page;
+  // These app pages opt in through definePageMeta, so they are absent from the content manifest.
+  const collapses = path === "/playground" || /^\/learn\/[^/]+$/.test(path) || (!!page && docsSidebarCollapses(page));
   if (collapses) {
     // The browser must request the layout again after the navigation cookie changes.
     setResponseHeader(event, "Cache-Control", "private, no-store");

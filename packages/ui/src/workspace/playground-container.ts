@@ -183,9 +183,9 @@ const PlaygroundSession = defineComponent({
     const template = computed(() => props.templates.find(item => item.id === current.value.id) ?? current.value);
     const edited = computed(() => diff(template.value.files, workspace.files.value));
     const paths = computed(() => Object.keys(workspace.files.value).sort());
-    const selected = ref(props.selected ?? firstFile(booted, props.files));
+    const selected = ref(props.selected !== undefined && props.files[props.selected] !== undefined ? props.selected : firstFile(booted, props.files));
     watch(() => props.selected, (path) => { if (path !== undefined) selected.value = path; });
-    watch(selected, path => emit("update:selected", path));
+    watch(selected, path => emit("update:selected", path), { immediate: true });
     const previewPath = ref(booted.preview ?? "/");
     const tab = ref<WorkspaceTab>(props.layout === "tutorial" ? "preview" : "terminal");
     const booting = computed(() => workspace.status.value !== "ready" || !!workspace.failure.value || !workspace.previewUrl.value);
@@ -437,9 +437,11 @@ export const PlaygroundContainer = defineComponent({
     const first = () => props.templates.find(item => item.id === props.template) ?? props.templates[0]!;
 
     // `id` changes when the workspace must boot again, such as for a template with other dependencies.
-    const session = shallowRef<{ id: number, template: PlaygroundContainerTemplate, files: PlaygroundFiles }>();
+    // Only share links pin files. A deferred boot or download reads the current files of its template.
+    const session = shallowRef<{ id: number, template: PlaygroundContainerTemplate, files?: PlaygroundFiles }>();
+    const active = computed(() => props.templates.find(item => item.id === session.value?.template.id) ?? session.value?.template ?? first());
     const link = ref<"restored" | "invalid">();
-    function boot(template: PlaygroundContainerTemplate, files: PlaygroundFiles) {
+    function boot(template: PlaygroundContainerTemplate, files?: PlaygroundFiles) {
       session.value = { files, id: (session.value?.id ?? 0) + 1, template };
     }
 
@@ -453,7 +455,7 @@ export const PlaygroundContainer = defineComponent({
       const shared = decoded?.template === undefined ? undefined : props.templates.find(item => item.id === decoded.template);
       link.value = shared ? "restored" : code ? "invalid" : undefined;
       if (shared && decoded) return boot(shared, decoded.files);
-      boot(first(), first().files);
+      boot(first());
     }
     onMounted(() => {
       void restore();
@@ -475,8 +477,7 @@ export const PlaygroundContainer = defineComponent({
 
     const { copy: copyPage, copied } = useCopy({ duration: 1500 });
     function download() {
-      const current = session.value ?? { files: first().files, template: first() };
-      downloadZip(current.files, zipName(props.name, current.template));
+      downloadZip(session.value?.files ?? active.value.files, zipName(props.name, active.value));
     }
     const downloadButton = () => h(UButton, { color: "neutral", icon: "i-lucide-download", label: "Download files", size: "sm", variant: "outline", onClick: download });
 
@@ -535,7 +536,7 @@ export const PlaygroundContainer = defineComponent({
           ? h(PlaygroundSession, {
               key: current.id,
               connect: props.connect,
-              files: current.files,
+              files: current.files ?? active.value.files,
               label: props.label,
               layout: props.layout,
               name: props.name,
@@ -543,13 +544,13 @@ export const PlaygroundContainer = defineComponent({
               selected: props.selected,
               share: props.share,
               tabs: props.tabs,
-              template: current.template,
+              template: active.value,
               templates: props.templates,
               onChange: opened,
               onContext: (context: PlaygroundContext) => emit("context", context),
               onRemount: (template: PlaygroundContainerTemplate) => {
                 opened(template);
-                boot(template, template.files);
+                boot(template);
               },
               "onUpdate:selected": (path: string) => emit("update:selected", path),
             }, slots)

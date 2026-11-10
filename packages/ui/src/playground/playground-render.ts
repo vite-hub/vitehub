@@ -135,8 +135,16 @@ export const PlaygroundRender = defineComponent({
     let loads = 0;
     let writes = 0;
     let scrollTop = 0;
-    // The last code that this playground wrote to the hash. A hashchange to it needs no load.
+    // A code written for the current files. A hashchange to it needs no load.
     let written: string | undefined;
+
+    function invalidate() {
+      clearTimeout(timer);
+      runs++;
+      writes++;
+      loads++;
+      written = undefined;
+    }
 
     async function run() {
       const current = ++runs;
@@ -168,25 +176,26 @@ export const PlaygroundRender = defineComponent({
     }
 
     function setFile(path: string, contents: string) {
+      // Invalidate before the debounce: older work may finish while the reader is still typing.
+      invalidate();
       files.value = { ...files.value, [path]: contents };
       notice.value = undefined;
-      clearTimeout(timer);
       timer = setTimeout(async () => {
-        await writeHash();
-        await run();
+        await Promise.all([writeHash(), run()]);
       }, debounce);
     }
 
     function open(preset: PlaygroundPreset | undefined, nextFiles: PlaygroundFiles) {
-      clearTimeout(timer);
+      invalidate();
       template.value = preset?.id;
       files.value = nextFiles;
     }
 
     async function load() {
-      const current = ++loads;
       const code = readPlaygroundHash(location.hash);
       if (code && code === written) return;
+      invalidate();
+      const current = loads;
       const state = code ? await decodePlaygroundLink(code, props.presets) : undefined;
       if (current !== loads || stopped.signal.aborted) return;
       if (state) open(presetById(state.template), state.files);
@@ -196,12 +205,10 @@ export const PlaygroundRender = defineComponent({
     }
 
     async function pick(preset: PlaygroundPreset) {
-      loads++;
       notice.value = undefined;
       scrollTop = 0;
       open(preset, { ...preset.files });
-      await writeHash();
-      await run();
+      await Promise.all([writeHash(), run()]);
     }
 
     async function copyLink() {
