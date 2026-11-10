@@ -491,10 +491,8 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 
       await rm(evalFile)
-      await configResolved({
-        ...privateConfig,
-        agent: { providers: { state: { provider: "memory" } } },
-      })
+      const memoryPlugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
@@ -651,14 +649,6 @@ describe("agent Vite plugin", () => {
         plugins: [outputPlugin],
       },
     })
-  })
-
-  it("exposes hubAgent options through Vite config", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ routes: { discordGateway: true } })
-    const result = await resolveAgentViteConfig(plugin, {})
-
-    expect(result).toMatchObject({ agent: { routes: { discordGateway: true } } })
   })
 
   it("imports generated runtime Capabilities in hosted Agent routes", async () => {
@@ -1181,7 +1171,7 @@ describe("agent Vite plugin", () => {
       await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: platformPackage }))
       const plugin = hubAgent()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
       vi.mocked(resolveProviderRuntimePackages).mockReturnValueOnce([
         { name: "@openai/codex", resolveFrom: join(root, "package.json") },
@@ -2629,7 +2619,6 @@ describe("agent Vite plugin", () => {
     const result = await resolveAgentViteConfig(plugin, {})
 
     expect(result).toMatchObject({
-      agent: { runtime: "deno" },
       server: { watch: { ignored: ["**/.vitehub/**"] } },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2645,10 +2634,10 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
-      await configResolved({ agent: { runtime: "deno" }, command: "build", root })
+      await configResolved({ command: "build", root })
       await runProviderOutputHooks(plugin)
 
       expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
