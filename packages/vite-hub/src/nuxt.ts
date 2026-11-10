@@ -210,6 +210,9 @@ type NuxtLike = {
     buildDir: string
     database?: DatabaseNuxtIntegrationOptions
     dev?: boolean
+    experimental?: {
+      nitroViteEnvironment?: boolean
+    }
     devServerHandlers?: Array<{
       handler: (event: import("./console/runtime/server/request.ts").ConsoleRequestEvent) => void
       route?: string
@@ -441,32 +444,32 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig)
   }
 }
 
+/** Keep the hook's filter, so the bundler skips the replayed hook for ids that the plugin does not own. */
+function withHookFilter<Handler>(hook: unknown, handler: Handler): Handler | { filter: unknown, handler: Handler } {
+  return isRecord(hook) && hook.filter !== undefined ? { filter: hook.filter, handler } : handler
+}
+
 function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>): Plugin | undefined {
   if (!nitroRuntimeResolverNames.has(plugin.name)) return
   const resolveId = pluginResolveIdHandler(plugin)
   const load = pluginLoadHandler(plugin)
   if (!resolveId && !load) return
 
+  const replayResolveId: HookHandler<NonNullable<Plugin["resolveId"]>> | undefined = resolveId && function (id, importer, options) {
+    // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
+    if (id === "cloudflare:workers" && isRecord(config.alias) && typeof config.alias[id] === "string") return
+    // Nitro replays Vite hooks in a server build, but Rollup does not supply Vite's ssr flag.
+    return resolveId.call(this, id, importer, { ...options, ssr: true })
+  }
+  const replayLoad: HookHandler<NonNullable<Plugin["load"]>> | undefined = load && function (id, options) {
+    // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
+    return load.call(this, id, { ...options, ssr: true })
+  }
   return {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
-    ...(resolveId
-      ? {
-          resolveId(id, importer, options) {
-            // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
-            if (id === "cloudflare:workers" && isRecord(config.alias) && typeof config.alias[id] === "string") return
-            // Nitro replays Vite hooks in a server build, but Rollup does not supply Vite's ssr flag.
-            return resolveId.call(this, id, importer, { ...options, ssr: true })
-          },
-        }
-      : {}),
-    ...(load
-      ? {
-          load(id, options) {
-            // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
-            return load.call(this, id, { ...options, ssr: true })
-          },
-        }
-      : {}),
+    // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
+    ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
+    ...(replayLoad ? { load: withHookFilter(plugin.load, replayLoad) as Plugin["load"] } : {}),
   }
 }
 
@@ -1710,7 +1713,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       const inline = Array.isArray(externals.inline) ? externals.inline : []
       config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, ...owned])] }
     }
-    installNitroRuntimeResolvers(config, replayPlugins)
+    // When Nuxt builds Nitro in a Vite environment, the ViteHub Vite plugins already run in that environment.
+    if (!nuxt.options.experimental?.nitroViteEnvironment) installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare", consoleSections)
     if (nitroMajorVersion === 2) {
