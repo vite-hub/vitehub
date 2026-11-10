@@ -1,8 +1,6 @@
 import { dirname, relative, resolve } from "node:path"
-import { Readable } from "node:stream"
 
 import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { findViteHubNitroDevEnvironment } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -11,22 +9,13 @@ import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { resolveAuthViteConfig } from "./config.ts"
 import { discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
-import { isAuthRequestPath } from "./shared.ts"
-import { sendWebResponse } from "./node-response.ts"
-import { setRequestClientAddress } from "./client-address.ts"
 import { authTableNames } from "./table-names.ts"
-
-export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
-  return basePath === "/" && status === 404
-}
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type {
-  AuthDefinition,
   AuthOptions,
   ResolvedAuthViteConfig,
 } from "./types.ts"
@@ -94,14 +83,14 @@ async function readTargetDialect(context: AuthDatabaseContributionContext, datab
   return target ? readDatabaseDefinitionDialect(target.handler) : "sqlite"
 }
 
-export interface AuthInspectionOptions {
+interface AuthInspectionOptions {
   projectRoot: string
   rootDir: string
   serverDirs?: string[]
 }
 
 /** Lists the Auth Definition as a serializable inspection summary. */
-export function inspectAuthDefinitions(options: AuthInspectionOptions): ViteHubDefinitionSummary[] {
+function inspectAuthDefinitions(options: AuthInspectionOptions): ViteHubDefinitionSummary[] {
   return summarizeDefinitions(options.projectRoot, discoverAuthDefinitions(options.rootDir, { serverDirs: options.serverDirs }), "server-auth")
 }
 
@@ -125,10 +114,6 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
 
 interface InternalAuthModuleOptions {
   importBase?: string
-}
-
-interface RequestInitWithDuplex extends RequestInit {
-  duplex?: "half"
 }
 
 function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
@@ -300,44 +285,6 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   return kit.config as NitroConfig
 }
 
-function readForwardedProtocol(request: IncomingMessage): string {
-  const value = request.headers["x-forwarded-proto"]
-  const first = Array.isArray(value) ? value[0] : value
-  return first?.split(",", 1)[0]?.trim() || "http"
-}
-
-function createWebRequest(request: IncomingMessage): Request {
-  const host = request.headers.host ?? "localhost"
-  const url = new URL(request.url ?? "/", `${readForwardedProtocol(request)}://${host}`)
-  const headers = new Headers()
-
-  for (const [key, value] of Object.entries(request.headers)) {
-    if (typeof value === "undefined") continue
-    if (Array.isArray(value)) {
-      for (const item of value) headers.append(key, item)
-      continue
-    }
-    headers.set(key, value)
-  }
-
-  const init: RequestInitWithDuplex = {
-    headers,
-    method: request.method,
-  }
-
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = Readable.toWeb(request) as ReadableStream
-    init.duplex = "half"
-  }
-
-  return setRequestClientAddress(new Request(url, init), request.socket?.remoteAddress)
-}
-
-function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
-  const value = module as { default?: AuthDefinition; definition?: AuthDefinition }
-  return value.default ?? value.definition
-}
-
 export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
   const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
@@ -438,56 +385,6 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       return {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
-    },
-    configureServer(server) {
-      // `ssrLoadModule()` works only when the `ssr` environment runs modules in this process. Vite checks
-      // `instanceof RunnableDevEnvironment`. A `runner` check gives the same result with a second copy of Vite.
-      // Nuxt 5 does not run the `ssr` environment here. Its Nitro server serves the Auth route.
-      if (!("runner" in server.environments.ssr)) return
-      // With Nitro in this process, Nitro serves the Auth route that this plugin registers. A second Auth instance in
-      // the `ssr` environment would keep its own users and sessions, which the Console and server routes cannot see.
-      if (findViteHubNitroDevEnvironment(server)) return
-      server.middlewares.use(async (request, response, next) => {
-        try {
-          const config = runtimeConfig ?? refreshRuntimeConfig()
-          if (!config || config.route === false || !request.url) {
-            next()
-            return
-          }
-
-          const url = new URL(request.url, "http://vitehub.local")
-          if (!isAuthRequestPath(url.pathname, config.basePath)) {
-            next()
-            return
-          }
-
-          const module = await server.ssrLoadModule(AUTH_DEFINITION_ID)
-          const definition = loadAuthDefinitionModule(module)
-          if (!definition) {
-            next()
-            return
-          }
-
-          const webRequest = createWebRequest(request)
-          const hasRequestRuntime = typeof definition.options === "function"
-            || typeof definition.options.runtime === "function"
-          // Load Better Auth on the first Auth request, not when the Vite config imports this plugin.
-          const { getAuthForDefinition, handleAuthRequest } = await import("./server.ts")
-          const authResponse = hasRequestRuntime
-            ? await handleAuthRequest(definition, webRequest)
-            : await getAuthForDefinition(definition).handler(webRequest)
-          // Better Auth returns 404 for paths that are not Auth endpoints. Let Vite
-          // handle those requests so a root Auth base path does not swallow the app.
-          if (shouldPassThroughAuthResponse(config.basePath, authResponse.status)) {
-            next()
-            return
-          }
-          await sendWebResponse(authResponse, response)
-        }
-        catch (error) {
-          next(error)
-        }
-      })
     },
     handleHotUpdate(context) {
       const changed = context.file.replace(/\\/g, "/")

@@ -160,7 +160,7 @@ To check the Cloudflare output, build and inspect the found queues and the confi
 ```bash [Terminal]
 pnpm build
 pnpm vitehub inspect definitions --kind queue
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 The list must include `welcome-email`, and `.output/server/wrangler.json` must have `queues.producers` and `queues.consumers` entries. To run the built Worker and its batches on your machine, use Wrangler:

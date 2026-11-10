@@ -43,6 +43,8 @@ describe("published package types", () => {
     useDatabase("default")
     // @ts-expect-error Unknown database names must be rejected by the generated registry.
     useDatabase("missing")
+    // @ts-expect-error Several Databases without a `default` one need a name.
+    useDatabase()
   })
 
   it("returns a typed runtime database from defineDatabase", () => {

@@ -138,7 +138,7 @@ changes. To switch hosts:
    [support matrix](/docs/frameworks-hosts/support-matrix). A feature the new
    preset cannot provide fails the build.
 3. Set the credentials and bindings from the new host page.
-4. Run `pnpm build`, then `pnpm vitehub inspect provider-output` to list the
+4. Run `pnpm build`, then `pnpm vitehub inspect output` to list the
    host files.
 5. On Cloudflare or Vercel, preview the resources with
    `pnpm vitehub provision run --provider cloudflare --dry-run`, or with

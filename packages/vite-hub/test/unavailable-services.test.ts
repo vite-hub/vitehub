@@ -10,7 +10,7 @@ import { createProject } from "./support/content-cms.ts"
 
 // One server route imports Browser and Realtime, whether or not vitehub() enables them.
 const route = [
-  "import { isBrowserAvailable, runBrowserAction } from 'vite-hub/browser/actions'",
+  "import { isBrowserAvailable, runBrowserAction } from 'vite-hub/browser'",
   "import { isRealtimeAvailable, refreshRealtimeDocument } from 'vite-hub/realtime/server'",
   "",
   "export default async () => {",

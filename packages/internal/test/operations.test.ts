@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation } from "../src/operations.ts"
+import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation, table } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
 
@@ -276,11 +276,17 @@ it.each(["inspect", "provision"])("rejects %s as an operation namespace in the r
 })
 
 it("rejects an operation that claims a setup command name", () => {
-  for (const namespace of ["init", "add", "remove", "status", "catalog", "check", "plan", "apply", "host", "explain", "link", "unlink", "deploy", "deployments"]) {
+  for (const namespace of ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]) {
     const operation = defineOperation({
       name: `${namespace}.custom`, description: "Setup command name.", kind: "read", section: namespace,
       input: v.object({}), run: () => true,
     })
     expect(() => createOperationRegistry([{ operations: [operation] }])).toThrowError(/reserved/)
   }
+})
+
+describe("table", () => {
+  it("pads every column but the last", () => {
+    expect(table([["NAME", "STATUS"], ["queue-a", "ok "], ["b", "failed"]])).toBe("NAME     STATUS\nqueue-a  ok \nb        failed")
+  })
 })

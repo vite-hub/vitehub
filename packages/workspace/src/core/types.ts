@@ -1,7 +1,11 @@
-import type { Source as SourcePackageSource, SourceContext as SourcePackageSourceContext, SourceRevision } from "@vite-hub/source"
-import type { FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
-import type { GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
-import type { GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
+import type {
+  FileSourceOptions as SourcePackageFileSourceOptions,
+  GitHubSourceOptions as SourcePackageGitHubSourceOptions,
+  GlobSourceOptions as SourcePackageGlobSourceOptions,
+  Source as SourcePackageSource,
+  SourceContext as SourcePackageSourceContext,
+  SourceRevision,
+} from "@vite-hub/source"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/mcp"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
 

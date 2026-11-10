@@ -46,11 +46,6 @@
       "import": "./dist/client.js",
       "default": "./dist/client.js"
     },
-    "./content-type": {
-      "types": "./dist/content-type.d.ts",
-      "import": "./dist/content-type.js",
-      "default": "./dist/content-type.js"
-    },
     "./drivers/akamai": {
       "types": "./dist/drivers/akamai.d.ts",
       "default": "./dist/drivers/akamai.js"
@@ -131,11 +126,6 @@
       "import": "./dist/drivers/vercel.js",
       "default": "./dist/drivers/vercel.js"
     },
-    "./ensure": {
-      "types": "./dist/ensure.d.ts",
-      "import": "./dist/ensure.js",
-      "default": "./dist/ensure.js"
-    },
     "./internal/vercel-blob": {
       "types": "./dist/internal/vercel-blob.d.ts",
       "import": "./dist/internal/vercel-blob.js",
@@ -145,11 +135,6 @@
       "types": "./dist/media.d.ts",
       "import": "./dist/media.js",
       "default": "./dist/media.js"
-    },
-    "./reference": {
-      "types": "./dist/reference.d.ts",
-      "import": "./dist/reference.js",
-      "default": "./dist/reference.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
@@ -192,7 +177,6 @@
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
-    "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "valibot": "catalog:runtime"

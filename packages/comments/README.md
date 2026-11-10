@@ -41,7 +41,7 @@ export const comments = defineComments({
 
 Without the file, `vitehub({ comments: true })` turns Comments on with `defineComments()`, and so does an object such as `{ database: "team" }`. The Console does not turn it on. `comments: false` turns it off. Docs sites of `@vite-hub/docs` on `vite-hub/nuxt` set it by default; `docs: { comments: false }` turns it off.
 
-ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub database generate` and `vitehub database migrate`.
 
 A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
 
@@ -150,7 +150,7 @@ const response = await handler.fetch(new Request("https://site.test/api/_vitehub
 
 Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
 
-Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text opens its document in the Console window. Without the Console tool, **Open Content** links to the Content page. The Content write and publish rules do not change.
+Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text says to edit it in the Console at console.vitehub.dev. The Content write and publish rules do not change.
 
 ## One model
 
@@ -177,16 +177,18 @@ An anchor says where a comment sits, so the pin can find the spot again after th
 ```ts
 import { createAnchor, resolveAnchor } from "@vite-hub/comments/client";
 
-// From a click: the element under the point, plus where in its box the click landed.
-const anchor = createAnchor({ x: event.clientX, y: event.clientY });
-// { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
+document.addEventListener("click", (event) => {
+  // From a click: the element under the point, plus where in its box the click landed.
+  const anchor = createAnchor({ x: event.clientX, y: event.clientY });
+  // { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
 
-const position = resolveAnchor(anchor);
-if (position.detached) {
-  // The element is gone, hidden, or no longer holds the quote.
-} else {
-  position.x; // The pin position in client coordinates.
-}
+  const position = resolveAnchor(anchor);
+  if (position.detached) {
+    // The element is gone, hidden, or no longer holds the quote.
+  } else {
+    position.x; // The pin position in client coordinates.
+  }
+});
 ```
 
 | Kind | Made from | Keeps |
@@ -206,10 +208,10 @@ Offsets are in thousandths of the element box: `500` is the middle. A pin follow
 ## Client
 
 ```ts
-import { createCommentsClient } from "@vite-hub/comments/client";
+import { createAnchor, createCommentsClient, createRestTransport } from "@vite-hub/comments/client";
 
 const client = createCommentsClient({
-  transport, // see below
+  transport: createRestTransport(), // the Comments API; see Transport below
   user: { id: "ana", name: "Ana Ruiz" },
   query: { page: location.pathname },
 });
@@ -217,12 +219,14 @@ const client = createCommentsClient({
 const stop = client.start(); // Loads the threads, then keeps them fresh.
 await client.create({
   subject: { kind: "page", id: location.pathname },
-  anchor,
+  anchor: createAnchor(document.querySelector("#pricing button")!),
   body: "This button is too small.",
 });
 client.threads; // The cached threads, ordered by number.
-client.onChange(() => render(client.threads));
+client.onChange(() => console.log(`${client.threads.length} threads`));
 ```
+
+To retry a create safely, give it a `requestId`, such as `crypto.randomUUID()`, and keep it for that draft. A second create with the same `requestId` in the same scope returns the first thread and creates no new thread. Only the author of the first thread gets it back, for the same subject, and only when that author may still read it. Anything else fails: the Operations and `POST /threads` answer `409` with `COMMENTS_R0022`, and the server API `comments.create()` returns `COMMENTS_INVALID_INPUT` with the reason. Make a new `requestId` for each new comment.
 
 `start()` listens to the transport's `subscribe`, such as Realtime. Without `subscribe` it refreshes when the window gets focus. A list that comes back late never undoes a thread that was created, changed, or deleted while it was on its way, and an event that is older than the stored thread is ignored. A transport that lost its connection sends `{ type: "reconnected" }` when it has it again, and the client lists the threads once more.
 

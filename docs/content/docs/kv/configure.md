@@ -91,6 +91,25 @@ export default defineConfig({
 | Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
 
+`fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. The migration lock stays in that folder, so only `base` needs write access. Copies and backups must preserve hidden files and hard links; follow the procedure below before opening a copied store.
+
+### Move an fs-lite store
+
+Stop all processes that use the store before you move it. The hidden layout record and its workspace marker must remain hard links to the same file. This identity separates migration state from application keys. An ordinary `cp -R` breaks it and can make existing keys inaccessible.
+
+On Linux with GNU Coreutils, copy the whole folder with `cp -a`. The destination must be a new path. Verify the hard links before you open the copy:
+
+```sh
+copy=/path/to/kv-copy
+cp -a -- /path/to/kv "$copy" || exit 1
+for record in "$copy"/.unstorage-tmp-vitehub-layout-v1*; do
+  workspace=$(cat "$record") || exit 1
+  test "$record" -ef "$copy/$workspace/.unstorage-tmp-vitehub-record" || exit 1
+done
+```
+
+The loop also checks records with a numeric suffix. If any command fails, keep the original store and create a new copy with a tool that preserves hard links. Do not open the failed copy. On other systems, use a backup tool that preserves hidden files and hard links, and verify that the copied record and marker have the same file identity before opening the store.
+
 ## Development stays local
 
 In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel preset do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.

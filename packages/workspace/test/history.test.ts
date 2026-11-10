@@ -46,25 +46,37 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
     database = drizzleLibsql(client, { schema: workspaceHistorySchema })
   }
   else {
-    const worker = new Miniflare({ compatibilityDate: "2026-07-14", d1Databases: ["DB"], r2Buckets: ["HISTORY_R2"], modules: true, script: "export default { fetch() { return new Response('history') } }" })
+    const worker = new Miniflare({
+      compatibilityDate: "2026-07-14", d1Databases: ["DB"], r2Buckets: ["HISTORY_R2"], modules: true,
+      // Execute HTTP queries inside the worker instead of crossing Miniflare's Node binding proxy for each statement.
+      script: `export default {
+        async fetch(request, env) {
+          const payload = await request.json()
+          const queries = payload.batch ?? [payload]
+          try {
+            const results = await env.DB.batch(queries.map(query => env.DB.prepare(query.sql).bind(...query.params)))
+            return Response.json({ success: true, result: results.map(result => ({ success: true, results: { rows: result.results.map(row => Object.values(row)) } })) })
+          }
+          catch (error) {
+            return Response.json({ success: false, errors: [{ message: String(error) }] }, { status: 400 })
+          }
+        }
+      }`,
+    })
     cleanup.push(() => worker.dispose())
-    const binding = await worker.getD1Database("DB")
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
     blob = createBlobStorage(createR2Driver({ driver: "cloudflare", binding: "HISTORY_R2" }))
-    database = driver === "d1" ? drizzleD1(binding, { schema: workspaceHistorySchema }) : createCloudflareD1HttpResolver({
+    database = driver === "d1" ? drizzleD1(await worker.getD1Database("DB"), { schema: workspaceHistorySchema }) : createCloudflareD1HttpResolver({
       name: "history", drizzle: {}, cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
-    }, workspaceHistorySchema, async (_url, options) => {
-      // SAFETY: The test transport receives only this resolver's serialized query payload.
-      const payload = JSON.parse(String(options?.body)) as { sql: string, params: unknown[], batch?: Array<{ sql: string, params: unknown[] }> }
-      const queries = payload.batch ?? [payload]
-      try {
-        const results = await binding.batch<Record<string, unknown>>(queries.map(query => binding.prepare(query.sql).bind(...query.params)))
-        return Response.json({ success: true, result: results.map(result => ({ success: true, results: { rows: result.results.map(row => Object.values(row)) } })) })
-      }
-      catch (error) {
-        return Response.json({ success: false, errors: [{ message: String(error) }] }, { status: 400 })
-      }
+    }, workspaceHistorySchema, async (url, options) => {
+      const response = await worker.dispatchFetch(String(url), {
+        body: String(options?.body),
+        headers: Object.fromEntries(new Headers(options?.headers)),
+        method: options?.method,
+        signal: options?.signal,
+      })
+      return Response.json(await response.json(), { status: response.status })
     })()
   }
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))

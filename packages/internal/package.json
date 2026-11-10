@@ -83,11 +83,6 @@
       "import": "./dist/dev-peer.js",
       "default": "./dist/dev-peer.js"
     },
-    "./dev-token": {
-      "types": "./dist/dev-token.d.ts",
-      "import": "./dist/dev-token.js",
-      "default": "./dist/dev-token.js"
-    },
     "./hosting": {
       "types": "./dist/hosting.d.ts",
       "import": "./dist/hosting.js",
@@ -188,11 +183,6 @@
       "import": "./dist/inspect.js",
       "default": "./dist/inspect.js"
     },
-    "./source-scanner": {
-      "types": "./dist/source-scanner.d.ts",
-      "import": "./dist/source-scanner.js",
-      "default": "./dist/source-scanner.js"
-    },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
       "import": "./dist/runtime/random.js",
@@ -202,6 +192,11 @@
       "types": "./dist/runtime/cache-bypass.d.ts",
       "import": "./dist/runtime/cache-bypass.js",
       "default": "./dist/runtime/cache-bypass.js"
+    },
+    "./runtime/mcp-server": {
+      "types": "./dist/runtime/mcp-server.d.ts",
+      "import": "./dist/runtime/mcp-server.js",
+      "default": "./dist/runtime/mcp-server.js"
     },
     "./runtime/mcp-tools": {
       "types": "./dist/runtime/mcp-tools.d.ts",
@@ -277,11 +272,6 @@
       "types": "./dist/build/deno-runtime-packages.d.ts",
       "import": "./dist/build/deno-runtime-packages.js",
       "default": "./dist/build/deno-runtime-packages.js"
-    },
-    "./build/mode": {
-      "types": "./dist/build/mode.d.ts",
-      "import": "./dist/build/mode.js",
-      "default": "./dist/build/mode.js"
     },
     "./build/page-tools": {
       "types": "./dist/build/page-tools.d.ts",
@@ -396,7 +386,6 @@
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
-    "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",

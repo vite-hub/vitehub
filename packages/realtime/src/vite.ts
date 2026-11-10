@@ -6,6 +6,7 @@ import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, isProductionBuild, re
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
+import { cloneRecord as record } from "@vite-hub/internal/object"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 export { discoverRealtimeDefinitions } from "./discovery.ts"
@@ -76,10 +77,6 @@ interface NitroConfig extends Record<string, unknown> {
   features?: Record<string, unknown>
   handlers?: Array<Record<string, unknown>>
   preset?: string
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function configureCloudflareRealtime(nitro: NitroConfig, nitro2: boolean): void {
@@ -249,13 +246,19 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
     },
-    resolveId(id) {
-      if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+    resolveId: {
+      filter: { id: /^#vitehub\/realtime\/availability$/ },
+      handler(id) {
+        if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+      },
     },
-    load(id) {
-      if (id === resolvedRealtimeAvailabilityId) {
-        return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/realtime\/availability$/ },
+      handler(id) {
+        if (id === resolvedRealtimeAvailabilityId) {
+          return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+        }
+      },
     },
   }
 }

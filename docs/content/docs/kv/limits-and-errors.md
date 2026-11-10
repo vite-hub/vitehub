@@ -18,7 +18,7 @@ Each KV operation returns `[error, value]`. An error has these fields:
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get('settings')

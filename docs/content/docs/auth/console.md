@@ -6,9 +6,11 @@ navigation.order: 8
 icon: i-lucide-users-round
 ---
 
-The Auth section is at `/_vitehub/auth` on your app's origin. It appears when the app has a primary Auth Definition. To read stored data, it needs a Better Auth database adapter such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). With stateless Auth, it explains why the data is missing.
+The Auth section of the [Console](/docs/development/console) appears when the app has a primary Auth Definition. To read stored data, it needs a Better Auth database adapter such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). With stateless Auth, it explains why the data is missing.
 
 Turn on and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`, and it covers every Auth page and management request. Console access lets you look. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login gives no app admin rights.
+
+`console: { auth: false }` is for development. A production build with it fails. Use `auth: 'app'`, or `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`: create a token with `openssl rand -hex 32` and store `printf %s "$TOKEN" | sha256sum`. Open the app in the hosted Console at `https://console.vitehub.dev`.
 
 With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call.
 
@@ -30,6 +32,12 @@ Users and new users come from the user database. Active sessions count unexpired
 Without an event store, Overview and Activity show the setup steps. Overview still shows totals from the Auth database.
 
 Add `events.store` to `defineAuth()`. This example uses a SQLite Database Definition named `auth`. Keep your Better Auth adapter and options.
+
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
@@ -126,7 +134,7 @@ Ban, unban, remove, role changes, field edits, session revocation, and impersona
 
 The client never gets session tokens, account passwords, access or refresh tokens, or OAuth client secrets. Session revocation looks up the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
 
-Impersonation is off until the host turns it on. The Console uses `console.impersonation: true`. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it. It also needs `events.store`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target. See [Impersonate users](/docs/development/console#impersonate-users).
+Impersonation is off until the host turns it on. In ViteHub, `console.impersonation: true` turns it on. The **Impersonate** action needed the Console that the app served, which is removed. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it. It also needs `events.store`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target.
 
 With the admin plugin, Auth limits every impersonation session, whoever starts it:
 

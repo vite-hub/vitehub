@@ -60,15 +60,41 @@ The success value is an `AgentRunResult`:
 
 In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
-```ts [server/api/support.post.ts] fragment
-import { createError, defineEventHandler, readBody } from 'h3'
+The route reads the signed-in user with a helper of the app:
+
+```ts [server/utils/auth.ts]
+import { createError } from 'h3'
+import { auth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireAuthenticatedUser(event: H3Event) {
+  const session = await auth.api.getSession({ headers: event.req.headers })
+  if (!session) throw createError({ status: 401 })
+  return session.user
+}
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
+```ts [server/api/support.post.ts]
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.string() }), body))
   const user = await requireAuthenticatedUser(event)
 
   const [error, result] = await runAgent(support, {
@@ -99,16 +125,16 @@ Without `runtimeContext`, `runAgent()` creates a fresh memo cache and run ID, us
 Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer needs incremental output. It returns `[error, stream]`.
 
 ```ts [server/api/support-stream.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.pipe(v.string(), v.minLength(1)) }), body))
 
-  const [error, response] = await streamAgent(support, { prompt: body.prompt }, {
+  const [error, response] = await streamAgent(support, { prompt }, {
     output: 'ui-message-stream',
     runtimeContext: getRuntimeContext(event),
   })
@@ -139,13 +165,14 @@ A Trigger is a named event that a Capability defines and shapes, such as `chat.m
 
 ```ts [server/api/support-chat.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { text } = await readBody<{ text: string }>(event)
+  const { text } = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
   const runId = crypto.randomUUID()
 
   const output = await streamAgentTrigger(
@@ -324,7 +351,7 @@ Model and provider Drivers get an abort signal. A custom `run` Driver must stop 
 
 ## Inspect invocations in the console
 
-Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
+Open the app in the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
 
 The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 

@@ -241,20 +241,31 @@ describe("hubComments", () => {
     expect(await readMap()).not.toHaveProperty("CustomThing")
   })
 
-  it("reads the people from the Console access rules when the app has the Console", async () => {
+  it("signs people in with GitHub without Auth, and reads no Console access, also in an app with the Console", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
-    const plugin = hubComments({ auth: true, console: { module: "vite-hub/console/sections" } })
+    const plugin = hubComments()
     await configure(plugin, root)
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
-    expect(handler).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
-    expect(handler).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
-    expect(handler).not.toContain("commentsAuthSession")
-    const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(mcpPlugin).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
-    expect(mcpPlugin).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\"))")
+    expect(handler).toContain("  session: undefined,")
+    expect(handler).toContain("githubLogin: createCommentsGitHubLogin(")
+    const nitroPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(nitroPlugin).toContain("session: githubLogin.user, githubLogin,")
     const directory = join(root, ".vitehub/nitro/realtime")
     await plugin.api.contributeRealtime({ driver: "memory", directory, projectRoot: root })
-    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
+    const room = await readFile(join(directory, "comments.mjs"), "utf8")
+    expect(room).toContain("commentsRealtime(comments, { session: githubLogin.user })")
+    for (const source of [handler, nitroPlugin, room]) expect(source).not.toMatch(/consoleSession|consoleRealtimeAccess/)
+  })
+
+  it("reads the Auth session instead of GitHub sign-in when the app has Auth", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    await configure(hubComments({ auth: true }), root)
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(handler).toContain("  session: commentsAuthSession,")
+    expect(handler).not.toContain("githubLogin")
+    const nitroPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(nitroPlugin).toContain("session: commentsAuthSession")
+    expect(nitroPlugin).not.toContain("githubLogin")
   })
 
   it("uses custom identify without calling Auth in generated HTTP and Realtime handlers", async () => {
@@ -308,13 +319,13 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     { base: "/_nuxt/", __vitehubAppBaseURL: "/portal/" },
   ])("mounts Comments below the application base: %j", async (config) => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
-    const plugin = hubComments({ console: { module: "vite-hub/console/sections" } })
+    const plugin = hubComments()
     const nitro = await configure(plugin, root, "build", config)
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
     expect(nitro?.publicAssets).toEqual(expect.arrayContaining([expect.objectContaining({ baseURL: "/portal/api/_vitehub/comments/assets" })]))
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(mcpPlugin).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js?v=4", base: "/portal"')
-    expect(mcpPlugin).toContain('consoleSession: commentsConsoleSession(consoleRealtimeAccess("comments"))')
+    expect(mcpPlugin).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
     const hook = plugin.transformIndexHtml
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")

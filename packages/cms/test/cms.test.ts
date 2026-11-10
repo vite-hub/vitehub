@@ -173,7 +173,7 @@ describe("resolving the cms preset resources", () => {
       workspace: "vite-hub/workspace",
     })
     expect(module).toContain("import { useDatabase } from \"vite-hub/database/drizzle\"")
-    expect(module).toContain("const database = useDatabase(\"audit\")?.db ?? new Proxy({}, {")
+    expect(module).toContain("try { database = useDatabase(\"audit\").db }")
     expect(module).toContain("blob: blob.store(\"media\"),")
     expect(module).toContain("workspace: \"site\",")
     expect(module).toContain("export const contentWorkspace = defineWorkspace({")
@@ -433,7 +433,7 @@ describe("the cms preset on the GitHub store", () => {
   it("renders a lazy GitHub Workspace module that denies writes outside the collections at the repository root", () => {
     const plan = resolveCmsPresetPlan({ file, options: { store: "github", repo: "onmax/docs", draftBranch: "cms/drafts" } }, choices([]), "/app")
     const module = renderCmsWorkspaceModule(plan, imports)
-    expect(module).toContain("const database = useDatabase(\"default\")?.db\n")
+    expect(module).toContain("try { database = useDatabase(\"default\").db }")
     expect(module).toContain("driver: \"github\",")
     expect(module).toContain("repository: \"onmax/docs\",")
     expect(module).toContain("root: \"\",")

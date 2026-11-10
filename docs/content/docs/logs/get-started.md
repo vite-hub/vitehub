@@ -99,7 +99,7 @@ pnpm dev
 ```
 
 1. Open `http://localhost:3000/api/status` in your browser. It shows `{"ok":true}`.
-2. Open `http://localhost:3000/_vitehub/logs`, and find the row `Status checked`. A row shows the `message` of the event. An event without a `message` shows its path, such as `/_vitehub/logs`.
+2. Open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development). Select **Continue**, then **Logs**, and find the row `Status checked`. A row shows the `message` of the event. An event without a `message` shows its path, such as `/api/status`.
 3. Select the row. The **Event details** panel shows your `message` and `deployment` fields, and the `path` `/api/status`.
 4. Switch between the **Explorer** and **Stream** views.
 5. Select **Follow**. The Console checks for new events every 2 seconds. Open `/api/status` again to see a new row.
