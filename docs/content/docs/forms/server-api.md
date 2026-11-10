@@ -15,7 +15,7 @@ icon: i-lucide-code
 | `schema` | required | A Standard Schema of the fields. |
 | `authorize` | anyone | `({ request, user }) => boolean`. The user comes from [Auth](/docs/auth) when the app has it. |
 | `rateLimit` | `{ limit: 5, window: "1m" }` | A budget for each sender address. `false` turns it off. |
-| `honeypot` | `"website"` | A field that bots fill. A filled field gets `202` and is not stored. `false` turns it off. |
+| `honeypot` | `"website"` | A field that bots fill. A filled field gets a fake success and is not stored. `false` turns it off. |
 | `maxBytes` | 64 KB | The largest body. |
 | `origins` | the app's origin | Other origins that may post an HTML form. The route sends no CORS headers, so `fetch` works only from the app's origin. Behind a TLS proxy, the app's origin comes from `X-Forwarded-Proto` and `X-Forwarded-Host`. |
 | `store` | `true` | Keep messages in the Database. With `false`, set `notify` or `onSubmit`. |
@@ -39,12 +39,14 @@ The route takes JSON, URL-encoded, or multipart bodies. Two fields are not form 
 
 | Answer | When |
 | --- | --- |
-| `201 { id }` | The message is stored, or sent with `store: false`. |
-| `202` | The honeypot is filled. |
-| `303` | A browser form without JavaScript: back to the page with `?form=sent` or `?form=error`. |
-| `400 { message, issues }` | The body does not match the schema. Each issue has `message` and `path`. |
-| `401`, `403` | `authorize` refused, or another origin. |
-| `413`, `415`, `429` | Too large, not a form body, or over the rate limit. |
+| `201 { id }` | A JSON response: the message is stored, or sent with `store: false`. |
+| `202` | A JSON response: the honeypot is filled. |
+| `303` | A URL-encoded or multipart form that accepts HTML: back to the page with `?form=sent` after success or a filled honeypot, or `?form=error` after a size, access, rate-limit, parsing, or validation failure. |
+| `400 { message, issues }` | A JSON response: the body does not match the schema. Each issue has `message` and `path`. |
+| `401`, `403` | A JSON response: `authorize` refused. A rejected `Origin` always gets `403` JSON. Requests without `Origin` may pass. |
+| `413`, `415`, `429` | A JSON response: too large, not a form body, or over the rate limit. An unsupported content type always gets `415` JSON. |
+
+The method, content type, and origin checks run before HTML redirects are enabled. A response returned by `onSubmit` is sent as it is.
 
 The rate limit counts in each server process. On Cloudflare Workers, each isolate counts alone.
 

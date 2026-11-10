@@ -67,6 +67,22 @@ describe("handleFormRequest", () => {
     expect(await store.list()).toEqual([])
   })
 
+  it("redirects browser forms with non-JSON schema output before hooks or storage", async () => {
+    const onSubmit = vi.fn()
+    const form = defineForm({
+      schema: v.pipe(v.object({ message: v.string() }), v.transform(() => ({ value: new Date("2026-01-01") }))),
+      onSubmit,
+      notify: { email: { to: "owner@example.com" } },
+    })
+    const { store, email, all } = services()
+    const response = await handleFormRequest("contact", form, post({ message: "Hi", _page: "/contact" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/contact?form=error")
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(email).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+  })
+
   it("keeps the page and anchor fields out of the data", async () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Typo", _page: "/docs/intro", _anchor: { selector: "main p", exact: "teh word", prefix: "Fix ", suffix: " here", kind: "text" } }), all)
@@ -171,13 +187,37 @@ describe("handleFormRequest", () => {
     expect((await store.list()).map(row => row.data)).toEqual([{ target: "/d/ok" }])
   })
 
-  it("keeps a stored submission when the email fails", async () => {
+  it.each([
+    ["rejects", async () => { throw new Error("SMTP down") }],
+    ["throws", () => { throw new Error("SMTP down") }],
+  ])("keeps a stored submission when email %s", async (_, email) => {
     const log = vi.fn()
-    const { store, all } = services({ email: async () => { throw new Error("SMTP down") }, log })
+    const { store, all } = services({ email, log })
     const response = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }), all)
     expect(response.status).toBe(201)
     expect(await store.list()).toHaveLength(1)
     expect(log).toHaveBeenCalledWith("[vitehub] The contact form stored a submission but could not send its email.", expect.any(Error))
+  })
+
+  it("requires the store before running submission hooks or sending email", async () => {
+    const schema = v.object({ message: v.string() })
+    const request = () => post({ message: "Hi" })
+    const plain = defineForm({ schema })
+    expect((await handleFormRequest("contact", plain, request())).status).toBe(503)
+
+    const onSubmit = vi.fn()
+    const form = defineForm({ schema, onSubmit, notify: { email: { to: "owner@example.com" } } })
+    const { email, all } = services({ store: undefined })
+    expect((await handleFormRequest("contact", form, request(), all)).status).toBe(503)
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(email).not.toHaveBeenCalled()
+    const native = await handleFormRequest("contact", plain, post({ message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }))
+    expect(native.status).toBe(303)
+    expect(native.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+
+    const handled = defineForm({ schema, store: false, onSubmit })
+    expect((await handleFormRequest("contact", handled, request())).status).toBe(201)
+    expect(onSubmit).toHaveBeenCalledOnce()
   })
 
   it("passes the email to waitUntil when the host has it", async () => {
@@ -235,7 +275,7 @@ describe("handleFormRequest", () => {
     }), all)
     expect(response.status).toBe(303)
     expect(response.headers.get("location")).toBe("/pricing?plan=pro&form=sent")
-    expect((await store.list()).map(row => row.data)).toEqual([{ count: 3, size: 2, choice: 1, extra: undefined, newsletter: false, terms: true }])
+    expect((await store.list()).map(row => row.data)).toStrictEqual([{ count: 3, size: 2, choice: 1, newsletter: false, terms: true }])
   })
 
   it("keeps JSON input strict and rejects invalid native values", async () => {

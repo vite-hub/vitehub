@@ -166,6 +166,11 @@
       "import": "./dist/patch-diff.js",
       "default": "./dist/patch-diff.js"
     },
+    "./playground": {
+      "types": "./dist/playground.d.ts",
+      "import": "./dist/playground.js",
+      "default": "./dist/playground.js"
+    },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",
@@ -256,6 +261,7 @@
     "comark-chat": "catalog:",
     "@nuxt/kit": "4.6.2",
     "@shikijs/langs": "4.5.0",
+    "@shikijs/themes": "4.5.0",
     "@types/node": "catalog:tooling",
     "@vite-hub/comments": "workspace:*",
     "nostics": "catalog:runtime",

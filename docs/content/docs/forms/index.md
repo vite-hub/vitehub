@@ -8,7 +8,7 @@ icon: i-lucide-inbox
 ---
 
 ::product-hero{tagline="Write the schema of a form. ViteHub checks each message, stores it, emails you, and shows it in the Console." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
-  :::product-files
+  :::code-tree
   ```ts [server/forms/contact.ts] fragment
   import * as v from 'valibot'
   import { defineForm } from 'vite-hub/forms'
@@ -47,7 +47,7 @@ icon: i-lucide-inbox
 
 | Part | What it does |
 | --- | --- |
-| Guard | Accepts only `POST` from your origin, stops large bodies, answers a filled honeypot field with a fake success, and limits each address to 5 messages a minute. |
+| Guard | Accepts only `POST`, rejects a present `Origin` unless it is your origin or in `origins`, stops large bodies, answers a filled honeypot field with a fake success, and limits each address to 5 messages a minute. Requests without `Origin` may pass. |
 | Validation | Checks each message with your Standard Schema: Valibot, Zod, or ArkType. A bad message gets the error of each field. |
 | Inbox | Keeps each message in the `vitehub_form_submissions` table, with its page and the sentence the sender selected. The Console lists them. |
 | Notify | Emails you each message through [Email](/docs/email), with a reply that goes to the sender. |

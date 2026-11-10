@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -7,6 +8,7 @@ import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { BuiltContentSnapshot } from "./snapshots.ts"
 import type { ViteHubConsoleDocumentEditorSection, ViteHubConsoleDocumentSetup } from "@vite-hub/internal/console"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
@@ -24,24 +26,135 @@ type ContentPluginConfig = UserConfig & {
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
+export interface HubContentOptions {
+  /** The module that the app imports Content from, such as `vite-hub/content`. Defaults to `@vite-hub/content`. */
+  importBase?: string
+}
+
+/**
+ * Prefix of the modules that hold Content snapshots: `<prefix><instance>` is the index, `<prefix><instance>:<n>` a shard
+ * of parsed documents. `\0` keeps other plugins away.
+ */
+const SNAPSHOT_ID = "\0vitehub-content-snapshot:"
+const SNAPSHOT_ID_PATTERN = /^\0vitehub-content-snapshot:/
+
+type BuiltSnapshots = { file: string, snapshots: Record<string, BuiltContentSnapshot> }
+
+/**
+ * Load `server/content.ts` in Node and parse its read-only `glob()` and `files()` Sources once. Returns each snapshot by
+ * instance name, and a warning for each Source, or the whole file, that the build could not parse.
+ */
+export async function buildContentSnapshotModules(options: {
+  file: string
+  projectRoot: string
+  importBase?: string
+  alias?: NonNullable<UserConfig["resolve"]>["alias"]
+}): Promise<{ snapshots: Record<string, BuiltContentSnapshot>, warnings: string[] }> {
+  // A module id inside the project, so `importBase` resolves from the app as the generated Content routes do.
+  const entry = join(options.projectRoot, ".vitehub/content/snapshots.build.mjs")
+  const code = [
+    `import { content } from ${JSON.stringify(pathToFileURL(options.file).href)}`,
+    `import { buildContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}`,
+    // The parse runs while the module loads: the runner closes when runnerImport() returns.
+    "export default await buildContentSnapshots(content)",
+  ].join("\n")
+  const file = relativeDefinitionFile(options.projectRoot, options.file)
+  try {
+    // `vite` is an optional peer. The build runs inside Vite, so it is installed there.
+    const { runnerImport } = await import("vite")
+    const { module } = await runnerImport<{ default: { snapshots: Record<string, BuiltContentSnapshot>, skipped: Record<string, string> } }>(entry, {
+      configFile: false,
+      root: options.projectRoot,
+      resolve: { alias: options.alias },
+      logLevel: "silent",
+      plugins: [{
+        name: "vitehub:content-snapshots-entry",
+        resolveId: id => id === entry ? entry : undefined,
+        load: id => id === entry ? code : undefined,
+      }],
+    })
+    const { snapshots, skipped } = module.default
+    return {
+      snapshots,
+      warnings: Object.entries(skipped).map(([name, reason]) => `[vitehub] The build could not parse the Content Source ${JSON.stringify(name)}, so the server parses it on its first Content request: ${reason}`),
+    }
+  }
+  catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return { snapshots: {}, warnings: [`[vitehub] The build could not load ${file} to parse its Content Sources, so the server parses them on its first Content request: ${reason}`] }
+  }
+}
+
 /**
  * Content build integration. When the app defines `server/content.ts`, it adds the `vitehub content` commands, the
  * Content operations, and the Content Definition inspector. The `cms` preset and the infrastructure it needs come from
  * `@vite-hub/cms/vite`.
+ *
+ * A server build also parses the read-only `glob()` and `files()` Sources of `server/content.ts` once and ships the
+ * parsed documents, so a cold server does not parse Markdown on its first Content request. `vite dev` parses live.
  */
-export function hubContent(): ContentVitePlugin {
+export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
+  let alias: NonNullable<UserConfig["resolve"]>["alias"]
   const discover = () => findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
+  // One parse per build environment. A watch build parses again on each rebuild.
+  const snapshotsByEnvironment = new WeakMap<object, Promise<BuiltSnapshots | undefined>>()
 
   return {
     name: CONTENT_VITE_PLUGIN_NAME,
     enforce: "post",
+    buildStart() {
+      if (this.environment) snapshotsByEnvironment.delete(this.environment)
+    },
+    transform: {
+      filter: { id: { include: /\/content\.[cm]?[jt]s(?:\?.*)?$/, exclude: /\/node_modules\// } },
+      async handler(code, id) {
+        const environment = this.environment
+        if (!environment || environment.config.consumer !== "server" || environment.config.command !== "build") return
+        let built = snapshotsByEnvironment.get(environment)
+        if (!built) {
+          built = (async () => {
+            const file = await discover()
+            if (!file) return
+            const result = await buildContentSnapshotModules({ file, projectRoot: projectRoot ?? process.cwd(), importBase: options.importBase, alias })
+            for (const warning of result.warnings) this.warn(warning)
+            return { file, snapshots: result.snapshots }
+          })()
+          snapshotsByEnvironment.set(environment, built)
+        }
+        const snapshots = await built
+        if (!snapshots || resolve(id.replace(/\?.*$/, "")) !== snapshots.file) return
+        const names = Object.keys(snapshots.snapshots)
+        if (!names.length) return
+        const loaders = names.map(name => `${JSON.stringify(name)}: () => import(${JSON.stringify(SNAPSHOT_ID + name)}).then(module => module.default)`)
+        // One line before the module body, so `defineContent()` below receives the snapshots.
+        const registration = `import { registerContentSnapshots as __vitehubRegisterContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentSnapshots({ ${loaders.join(", ")} });\n`
+        return { code: registration + code, map: null }
+      },
+    },
+    resolveId: {
+      filter: { id: SNAPSHOT_ID_PATTERN },
+      handler: id => id,
+    },
+    load: {
+      filter: { id: SNAPSHOT_ID_PATTERN },
+      async handler(id) {
+        const built = this.environment ? await snapshotsByEnvironment.get(this.environment) : undefined
+        const [name = "", shard] = id.slice(SNAPSHOT_ID.length).split(":")
+        const snapshot = built?.snapshots[name]
+        if (!snapshot) return
+        // JSON text parses faster than the same data as a JavaScript object literal.
+        if (shard !== undefined) return `export default ${JSON.stringify(snapshot.shards[Number(shard)])}`
+        const shards = snapshot.shards.map((_, number) => `() => import(${JSON.stringify(`${SNAPSHOT_ID}${name}:${number}`)}).then(module => module.default)`)
+        return `export default { index: ${JSON.stringify(snapshot.index)}, shards: [${shards.join(", ")}] }`
+      },
+    },
     vitehub: {
       // The Console, `vitehub content`, and agents run these. The app imports them through `vite-hub`.
       // An app without server/content.ts has no Content to operate on, so it contributes nothing.
       operations: async () => await discover()
-        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: "@vite-hub/content/operations" }]
+        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: ownModule(import.meta.url, "operations") }]
         : [],
       cli: async () => {
         if (!await discover()) return
@@ -85,6 +198,7 @@ export function hubContent(): ContentVitePlugin {
       const viteConfig = config as typeof config & ContentPluginConfig
       projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice() ?? serverDirs
+      alias = config.resolve.alias
     },
   }
 }
@@ -185,7 +299,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
  * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
  */
 export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentConsoleOptions> = {
-  actions: { export: "createContentConsoleActions", module: "@vite-hub/content/runtime/console" },
+  actions: { export: "createContentConsoleActions", module: ownModule(import.meta.url, "runtime/console") },
   description: "Edit, publish, and restore Content documents.",
   entry: options => findContentCollectionsEntry(options),
   inspect: options => inspectContentSetup(options),

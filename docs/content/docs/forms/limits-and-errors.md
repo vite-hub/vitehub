@@ -1,6 +1,6 @@
 ---
 title: Forms limits and errors
-description: "Default limits of a form and the FORMS error codes with their fixes."
+description: "Default and fixed limits of a form, plus the FORMS error codes and how to fix them."
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Limits
 
-Change them in `defineForm()`.
+Set `maxBytes` and `rateLimit` in `defineForm()` to change the body and message limits. The page path and selected text caps are fixed. Set `limit` in each `forms.list` call to change its page size.
 
 | Limit | Default |
 | --- | --- |

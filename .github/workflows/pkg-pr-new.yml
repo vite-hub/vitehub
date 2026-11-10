@@ -27,6 +27,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
 
       # Published packages come from a fresh build, not from task cache
       # fingerprints. The root build task always enables the cache.

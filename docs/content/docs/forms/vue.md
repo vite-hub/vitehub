@@ -50,6 +50,7 @@ For your own markup, use Formisch and `useFormSubmit()`. It sends the input of t
 ```vue [app/components/FeedbackForm.vue] fragment
 <script setup lang="ts">
 import { Field, Form, useForm } from '@formisch/vue'
+import { useFormSubmit } from 'vite-hub/forms/vue'
 
 const form = useForm({ schema: FeedbackSchema })
 const { send, sent } = useFormSubmit('feedback', form)
