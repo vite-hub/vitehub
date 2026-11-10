@@ -994,7 +994,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\")." })
 }
 
-async function deferAgentWorkflowRecovery<TPayload, TResult>(
+async function startAgentWorkflowRecovery<TPayload, TResult>(
   handle: WorkflowHandle<TPayload, TResult>,
   payload: TPayload,
   options: { id?: string },
@@ -1002,7 +1002,7 @@ async function deferAgentWorkflowRecovery<TPayload, TResult>(
   let failure: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await handle.defer(payload, options)
+      await handle.start(payload, options)
       return
     }
     catch (error) {
@@ -1391,7 +1391,7 @@ async function runAgentAsWorkflow<
         hostDiscovered(context),
         true,
       )
-      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
+      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => startAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agentInvocationName(agent, context) ? { agentName: agentInvocationName(agent, context) } : {}),
           runId,
@@ -1430,7 +1430,7 @@ async function runAgentAsWorkflow<
     // journal signal at the last possible point before accepting the run.
     replayJournal?.abortSignal.throwIfAborted()
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
