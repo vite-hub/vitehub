@@ -186,6 +186,8 @@ function isMcpAvailabilityFailure(error: unknown, seen = new Set<unknown>()): bo
   if (!isRuntimeRecord(error) || seen.has(error)) return false
   seen.add(error)
   if (error.name === "AbortError") return false
+  // The SDK throws this after a 401 when OAuth requires user reauthorization, without a status.
+  if (error.name === "UnauthorizedError") return true
   if (error.name === "MCPClientError" && hasRuntimeType(error.message, "string")) {
     if (/\baborted\b/.test(error.message) || hasRuntimeType(error.code, "number")) return false
     // The SDK has no structured timeout code for these two bounded timers.
