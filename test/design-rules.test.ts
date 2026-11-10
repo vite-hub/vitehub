@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs"
 import { join, relative } from "node:path"
+import { createSourceFile, getLeadingCommentRanges, getTrailingCommentRanges, ScriptTarget } from "typescript"
 import { describe, expect, it } from "vitest"
 import { repoRoot, walkFiles } from "./utils/repo"
+import type { Node } from "typescript"
 
 /**
  * The rules of the ViteHub design system (docs/DESIGN.md) that code can check. The theme in @vite-hub/ui draws focus,
@@ -50,6 +52,39 @@ const rules: Array<{ rule: string, pattern: RegExp }> = [
   { rule: "hand-made tabs", pattern: /role=["']tab(?:list)?["']|role:\s*["']tab(?:list)?["']/ },
 ]
 
+function withoutComments(file: string, text: string): string {
+  if (!file.endsWith(".ts")) return text
+  const source = createSourceFile(file, text, ScriptTarget.Latest)
+  const ranges = new Map<number, number>()
+  function visit(node: Node) {
+    for (const range of [...getLeadingCommentRanges(text, node.pos) ?? [], ...getTrailingCommentRanges(text, node.end) ?? []]) {
+      ranges.set(range.pos, range.end)
+    }
+    for (const child of node.getChildren(source)) visit(child)
+  }
+  visit(source)
+  // Keep offsets and newlines so findings still point to the original source.
+  let result = text
+  for (const [start, end] of ranges) {
+    result = result.slice(0, start) + text.slice(start, end).replace(/[^\r\n]/g, " ") + result.slice(end)
+  }
+  return result
+}
+
+function scanSource(file: string, text: string): Finding[] {
+  const findings: Finding[] = []
+  const source = withoutComments(file, text)
+  // CSS rules can span lines, so the focus css rule reads the whole file and reports the line where the rule starts.
+  for (const { rule, pattern } of rules) {
+    const global = new RegExp(pattern.source, `${pattern.flags}g`)
+    for (const match of source.matchAll(global)) {
+      const line = source.slice(0, match.index).split("\n").length
+      findings.push({ file, line, rule, text: match[0].trim().slice(0, 80) })
+    }
+  }
+  return findings
+}
+
 function scan(): Finding[] {
   const findings: Finding[] = []
   for (const surface of surfaces) {
@@ -58,15 +93,7 @@ function scan(): Finding[] {
     for (const file of files) {
       const path = relative(repoRoot, file)
       if (allowed.some(prefix => path.startsWith(prefix)) || /\.test\.ts$/.test(path)) continue
-      const text = readFileSync(file, "utf8")
-      // CSS rules can span lines, so the focus css rule reads the whole file and reports the line where the rule starts.
-      for (const { rule, pattern } of rules) {
-        const global = new RegExp(pattern.source, `${pattern.flags}g`)
-        for (const match of text.matchAll(global)) {
-          const line = text.slice(0, match.index).split("\n").length
-          findings.push({ file: path, line, rule, text: match[0].trim().slice(0, 80) })
-        }
-      }
+      findings.push(...scanSource(path, readFileSync(file, "utf8")))
     }
   }
   return findings
@@ -81,4 +108,27 @@ describe("design rules", () => {
       expect(found, `${found.length} × ${rule}. See docs/DESIGN.md.\n${found.join("\n")}`).toEqual([])
     })
   }
+
+  it("ignores issue references in TypeScript comments", () => {
+    expect(scanSource("example.ts", [
+      "// `#123` links to an issue.",
+      "const value = 1 // See #abc.",
+      "/* A comment with #123. */",
+      "function empty() { /* #abc */ }",
+    ].join("\n"))).toEqual([])
+  })
+
+  it("reports color literals in TypeScript strings at their original lines", () => {
+    expect(scanSource("example.ts", [
+      "/* #123",
+      " * #abc */",
+      "const color = '#123' // #abc",
+      "const url = 'https://example.com/?color=#abc'",
+      "const template = `prefix ${color} #def`",
+    ].join("\n"))).toEqual([
+      { file: "example.ts", line: 3, rule: "color literal", text: "#123" },
+      { file: "example.ts", line: 4, rule: "color literal", text: "#abc" },
+      { file: "example.ts", line: 5, rule: "color literal", text: "#def" },
+    ])
+  })
 })
