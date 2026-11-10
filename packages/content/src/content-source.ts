@@ -45,8 +45,8 @@ export type ContentSourceInput =
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 const contentSourceUrlKey = Symbol("vitehub.contentSourceUrl")
-/** The `name` of the `@vite-hub/source` Source that each adapter reads, such as `glob` or `files`. */
-const contentSourceKinds = new WeakMap<ComarkContentSource, string>()
+/** The `@vite-hub/source` Source definition that each adapter reads. */
+const contentSourceDefinitions = new WeakMap<ComarkContentSource, Source<string, unknown, object>>()
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   Symbol.toStringTag,
@@ -252,7 +252,7 @@ function createContentSourceFactory(
       }
       if (options.prefix !== undefined) source.prefix = options.prefix
       if (options.schema !== undefined) source.schema = options.schema
-      if (isSourceDefinition(sourceInput)) contentSourceKinds.set(source, sourceInput.name)
+      if (isSourceDefinition(sourceInput)) contentSourceDefinitions.set(source, sourceInput)
       Object.defineProperty(source, contentSourceFactory, {
         value: {
           create: (overrides = {}) => factory.create(contentSourceOptions(options, overrides)),
@@ -269,10 +269,23 @@ export function contentSourceUrl(input: ContentSourceInput | undefined): Content
   return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
 }
 
+function contentSourceDefinition(input: ContentSourceInput): Source<string, unknown, object> | undefined {
+  if (isSourceDefinition(input)) return input
+  return isComarkContentSource(input) ? contentSourceDefinitions.get(input) : undefined
+}
+
 /** The `name` of the `@vite-hub/source` Source behind an input, such as `glob` or `files`, or undefined for other inputs. */
 export function contentSourceKind(input: ContentSourceInput): string | undefined {
-  if (isSourceDefinition(input)) return input.name
-  return isComarkContentSource(input) ? contentSourceKinds.get(input) : undefined
+  return contentSourceDefinition(input)?.name
+}
+
+/**
+ * The keys of the `@vite-hub/source` Source behind an input. Unlike the Comark Source's `keys()`, it reads no file
+ * content. Inputs without a Source definition have no keys.
+ */
+export async function contentSourceKeys(input: ContentSourceInput): Promise<string[]> {
+  const definition = contentSourceDefinition(input)
+  return definition ? await createSource(definition).keys() : []
 }
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
@@ -312,7 +325,8 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
     })),
   }
   const factory = getContentSourceFactory(source)
-  if (!factory) return comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(source, snapshot) : source })
+  const keys = () => contentSourceKeys(input)
+  if (!factory) return comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(source, snapshot, keys) : source })
 
   // Each async load retains its own Source reader, including parsers that outlive a failed load.
   const loads = new AsyncLocalStorage<ComarkContentSource>()
@@ -322,7 +336,7 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
     getItem: key => (loads.getStore() ?? source).getItem(key),
     getItemRaw: key => (loads.getStore() ?? source).getItemRaw(key),
   }
-  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot) : scopedSource })
+  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot, keys) : scopedSource })
   const init = instance.init.bind(instance)
   const refresh = instance.refresh.bind(instance)
   const get = instance.get.bind(instance)

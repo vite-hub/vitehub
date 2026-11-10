@@ -25,8 +25,31 @@ Install the Workspace package:
 pnpm add @vite-hub/workspace
 ```
 
-Add `workspace: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workspace: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -35,8 +58,9 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+::::
+:::
 
-Did you choose Nuxt in Installation? Then add `workspace: true` to the options of the `vite-hub/nuxt` module.
 
 ::
 

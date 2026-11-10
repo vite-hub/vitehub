@@ -153,3 +153,14 @@ describe("operation view", () => {
     expect(failure).toMatchObject({ code: "COMMENTS_R0006", fix: "Add authorize.", status: 403 })
   })
 })
+
+describe("the Forms section", () => {
+  it("links a page with its query and escapes as stored, and shows a feedback message", async () => {
+    const { formsConsoleSection } = await import("@vite-hub/forms/vite")
+    const view = formsConsoleSection.view
+    expect(operationLink({ page: "/pricing?plan=pro" }, view)).toBe("/pricing?plan=pro")
+    expect(operationLink({ page: "/docs/caf%C3%A9" }, view)).toBe("/docs/caf%C3%A9")
+    expect(operationLink({ page: "//evil.test/x" }, view)).toBeUndefined()
+    expect(operationCell({ data: { feedback: "Dark mode, please." } }, view.columns[2]!)).toBe("Dark mode, please.")
+  })
+})
