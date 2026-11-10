@@ -3115,6 +3115,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      ocache:
+        specifier: catalog:unjs
+        version: 0.3.1
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
@@ -3143,9 +3146,6 @@ importers:
       nitro:
         specifier: catalog:unjs
         version: 3.0.261102-rc
-      ocache:
-        specifier: catalog:unjs
-        version: 0.3.1
       picomatch:
         specifier: catalog:workspace
         version: 4.0.7
