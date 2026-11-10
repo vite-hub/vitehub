@@ -87,13 +87,13 @@ export default defineConnection({
 | `fallback` | None | Key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
-Set the key in the Console with **Set key**, or pipe it to the CLI:
+Pipe the key to the CLI:
 
 ```bash [Terminal]
 printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 ```
 
-The CLI reads the key only from stdin, so it stays out of shell history. The CLI and the Console send the key only over HTTPS or to a loopback host.
+The CLI reads the key only from stdin, so it stays out of shell history. It sends the key only over HTTPS or to a loopback host.
 
 ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth. A key has no scopes or refresh, so a `401` keeps the status. A redirect to another origin drops the key header. A revoke deletes the stored key. Revoke it at the provider too.
 
@@ -182,7 +182,7 @@ export default defineConnection({
 })
 ```
 
-The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from the Console or `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
+The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
 
 ## Keyed Connections
 
@@ -207,6 +207,41 @@ export default defineConnection({
 ```
 
 This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
+
+## Setup docs
+
+A Connection often needs a person to do something first: create an app at the provider, choose the right account, or approve a scope. Write those steps next to the definition, in a Markdown file with the same name:
+
+```md [server/connections/crm.md]
+Connect the **support@** account, not your own.
+
+1. In CRM, open **Settings → API** and turn on API access.
+2. Click **Connect** and approve `offline_access`.
+```
+
+The Console shows this Markdown on the Connection, before the **Connect** button. `vitehub connections inspect crm` prints it after the actions, and `inspect()` returns it as `docs`, so an Agent can read it too. A `.connection.ts` file uses a `.connection.md` file next to it.
+
+The `docs` option of a definition replaces the file. Use it when the steps depend on the instance of a [keyed Connection](#keyed-connections), which share the file otherwise:
+
+```ts [server/connections/crm.ts]
+import { defineConnection } from 'vite-hub/connections'
+
+export default defineConnection({
+  instances: ['acme', 'globex'],
+  definition: tenant => ({
+    provider: {
+      id: 'crm',
+      authorizationEndpoint: `https://${tenant}.crm.example.com/authorize`,
+      tokenEndpoint: `https://${tenant}.crm.example.com/token`,
+      clientId: `${tenant}-client-id`,
+    },
+    scopes: ['offline_access'],
+    docs: `Sign in to https://${tenant}.crm.example.com as the tenant's automation user.`,
+  }),
+})
+```
+
+The Markdown is part of your app. ViteHub does not read it from users or providers.
 
 ## MCP endpoint
 
