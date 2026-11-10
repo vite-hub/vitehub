@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
-import { createGitHubAppCredentials } from "../src/server/github-host.ts";
+import { createGitHubAppCredentials } from "../src/github/host.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 

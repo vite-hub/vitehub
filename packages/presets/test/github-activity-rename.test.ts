@@ -1,8 +1,8 @@
 import { afterEach, test, vi } from 'vitest'
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync } from 'node:crypto'
-import { publishAgentActivity } from '../src/index.ts'
-import { createGitHubAppCredentials, createGitHubHost } from '../src/server/github-host.ts'
+import { publishAgentActivity } from '@vite-hub/agent'
+import { createGitHubAppCredentials, createGitHubHost } from '../src/github/host.ts'
 
 vi.mock('#vitehub/agent/registry', () => ({ default: {} }))
 afterEach(() => vi.restoreAllMocks())

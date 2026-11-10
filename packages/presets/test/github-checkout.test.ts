@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createGitHubHost, prepareGitHubPullRequestWorkspace } from '../src/server/github.ts'
+import { createGitHubHost, prepareGitHubPullRequestWorkspace } from '../src/github/index.ts'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:fs/promises')>()

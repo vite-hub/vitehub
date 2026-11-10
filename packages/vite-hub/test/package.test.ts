@@ -119,7 +119,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/output",
   "@vite-hub/agent/observability/host",
   "@vite-hub/agent/observability/posthog",
-  "@vite-hub/agent/server/github",
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",

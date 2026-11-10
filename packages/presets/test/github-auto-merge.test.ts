@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/server/github-auto-merge.ts"
+import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
 
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 

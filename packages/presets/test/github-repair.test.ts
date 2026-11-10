@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
-import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/server/github-repair.ts";
-import { assertGitHubDependenciesCurrent } from "../src/server/github-install.ts";
-import { validateGitHubInstallInputs } from "../src/server/github-install-inputs.ts";
+import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
+import { assertGitHubDependenciesCurrent } from "../src/github/install.ts";
+import { validateGitHubInstallInputs } from "../src/github/install-inputs.ts";
 
 vi.mock("node:fs/promises", async importOriginal => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();

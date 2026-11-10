@@ -4,8 +4,8 @@ import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "com
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
-import type { GitHubHost } from "./github-host.ts"
-import type { GitHubRepairCommit } from "./github-repair.ts"
+import type { GitHubHost } from "./host.ts"
+import type { GitHubRepairCommit } from "./repair.ts"
 
 interface GitHubMentionToken {
   attrSet: (name: string, value: string) => void

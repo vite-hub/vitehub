@@ -1,12 +1,12 @@
 import { parse } from "yaml";
-import * as snapshots from "../src/server/github-install-snapshot.ts";
-import * as inputs from "../src/server/github-install-inputs.ts";
+import * as snapshots from "../src/github/install-snapshot.ts";
+import * as inputs from "../src/github/install-inputs.ts";
 import { chmod, symlink, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { validateGitHubInstallInputs } from "../src/server/github-install-inputs.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError } from "../src/server/github-install.ts";
+import { validateGitHubInstallInputs } from "../src/github/install-inputs.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError } from "../src/github/install.ts";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });

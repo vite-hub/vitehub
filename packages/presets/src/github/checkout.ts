@@ -3,7 +3,7 @@ import { appendFile, cp, lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
-import { recordPreparedProviderCheckout } from '../internal/prepared-provider-checkout.ts'
+import { recordProviderCheckout } from '@vite-hub/agent'
 
 const exec = promisify(execFile)
 
@@ -136,7 +136,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       || await git(destination, ['remote', 'get-url', '--all', '--push', 'origin']) !== push) {
       throw new Error('Provider checkout head or remote mismatch.')
     }
-    await recordPreparedProviderCheckout(destination, expected)
+    await recordProviderCheckout(destination, expected)
   }
   catch (error) {
     if (replacingMetadata) await rm(join(destination, '.git'), { recursive: true, force: true })

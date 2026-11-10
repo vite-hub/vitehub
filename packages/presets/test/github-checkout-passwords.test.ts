@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, expect, it, vi } from 'vitest'
-import { prepareGitHubPullRequestWorkspace } from '../src/server/github-checkout.ts'
+import { prepareGitHubPullRequestWorkspace } from '../src/github/checkout.ts'
 
 const exec = promisify(execFile)
 const roots: string[] = []

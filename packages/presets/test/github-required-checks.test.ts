@@ -4,7 +4,7 @@ import {
   createGitHubRequiredCheckPolicyReader,
   evaluateGitHubRequiredChecks,
   type GitHubRequiredCheckPolicy,
-} from "../src/server/github-required-checks.ts";
+} from "../src/github/required-checks.ts";
 
 const branch = { name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: ["CI"], checks: [{ context: "CI", app_id: 42 }] } } };
 /** Branch rules as `provider.repos.branchRules()` returns them from GitHub, with `raw` active rules. */

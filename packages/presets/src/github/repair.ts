@@ -4,7 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import * as v from "valibot";
-import { assertGitHubDependenciesCurrent } from "./github-install.ts";
+import { assertGitHubDependenciesCurrent } from "./install.ts";
 
 const exec = promisify(execFile);
 
