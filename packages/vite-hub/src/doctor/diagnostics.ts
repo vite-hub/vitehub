@@ -37,6 +37,7 @@ const entries = [
   { code: "VHUB0033", ruleId: "vitehub/no-removed-apis" },
   { code: "VHUB0034", ruleId: "vitehub/markdown-file-path" },
   { code: "VHUB0035", ruleId: "vitehub/comments-entry" },
+  { code: "VHUB0036", ruleId: "vitehub/prefer-vite-hub-imports" },
 ] as const
 
 type Entry = typeof entries[number]

@@ -6,7 +6,7 @@ const toast = useToast();
   <div class="flex w-full max-w-sm flex-col gap-8">
     <Marker as="a" href="#links-and-buttons">
       <MarkerIcon>
-        <UIcon name="i-ph-git-branch-light" />
+        <UIcon name="i-lucide-git-branch" />
       </MarkerIcon>
       <MarkerContent>View the pull request</MarkerContent>
     </Marker>
@@ -17,7 +17,7 @@ const toast = useToast();
       @click="toast.add({ title: 'Reverted the change' })"
     >
       <MarkerIcon>
-        <UIcon name="i-ph-arrow-counter-clockwise-light" />
+        <UIcon name="i-lucide-rotate-ccw" />
       </MarkerIcon>
       <MarkerContent>Revert this change</MarkerContent>
     </Marker>

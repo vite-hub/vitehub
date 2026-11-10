@@ -87,14 +87,14 @@ describe("@vite-hub/ui package contract", () => {
       "./agent-trace",
     ]));
     expect(packageJson.peerDependencies).toMatchObject({
-      "@iconify-json/ph": expect.any(String),
+      "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
       vite: expect.any(String),
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
-      "@iconify-json/ph": { optional: true },
+      "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
@@ -107,11 +107,11 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.8.1",
+      "@comark/vue": "0.9.0",
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",
       "vega-loader": "^5.1.3",
-      katex: "^0.18.7",
+      katex: "^0.19.1",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
       "@shikijs/themes": "4.5.0",
