@@ -43,6 +43,12 @@ export function isRuntimeObject(value: unknown): value is object {
   return value !== null && Object(value) === value
 }
 
+/** Whether a value is an object literal or a null-prototype record. A built-in object whose prototype code replaced reads as one. */
+function isPlainRecord(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
 /** The native Response class and its `status` getter, and the proxy check of Node.js. Read once, at import. */
 function captureResponseChecks() {
   const response: unknown = globalThis.Response
@@ -77,6 +83,10 @@ function replacedResponseStatus(): ((this: unknown) => unknown) | undefined {
  */
 export function isRuntimeResponse(value: unknown): value is Response {
   if (value === null || !hasRuntimeType(value, "object") || nativeResponseChecks.isProxy?.(value)) return false
+  // A failed brand check throws, and each TypeError captures a stack trace. An array, an object literal, or a
+  // null-prototype record skips both checks. Where `isProxy` is missing, this would run the getPrototypeOf trap of a
+  // proxy, so it runs only with `isProxy`.
+  if (nativeResponseChecks.isProxy !== undefined && (Array.isArray(value) || isPlainRecord(value))) return false
   for (const status of [nativeResponseChecks.status, replacedResponseStatus()]) {
     if (!status) continue
     try {

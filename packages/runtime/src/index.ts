@@ -496,7 +496,11 @@ function isWebAssemblyModule(value: unknown): boolean {
 
 // Exact native source signatures reject user functions, bound functions and proxies.
 // This boundary uses the host Function intrinsic rather than a payload-owned method.
-const intrinsicFunctionToString = Function.prototype.toString
+function captureFunctionToString() {
+  return Function.prototype.toString
+}
+
+const intrinsicFunctionToString = /* @__PURE__ */ captureFunctionToString()
 
 function checkNativeFunctionToString(): boolean {
   try {
