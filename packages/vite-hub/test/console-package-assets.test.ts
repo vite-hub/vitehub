@@ -13,7 +13,7 @@ describe("Console package assets", () => {
   })
 
   it("keeps lazy chunk URLs relative to the mounted bundle", () => {
-    const assets = fileURLToPath(new URL("../dist/console/runtime/public/console", import.meta.url))
+    const assets = fileURLToPath(new URL("../../console-client/dist/client", import.meta.url))
     const [entry] = globSync("console-*.js", { cwd: assets })
     expect(entry).toBeDefined()
     const source = readFileSync(resolve(assets, entry!), "utf8")

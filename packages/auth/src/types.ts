@@ -252,9 +252,9 @@ export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Om
 export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
   ? AuthFor<TDefinition>
   : ViteHubAuth
-export interface AuthModuleObjectOptions {
+export interface AuthObjectOptions {
   /** Where the Nuxt page guard of `definePageMeta({ auth })` sends visitors. Vite apps without Nuxt ignore it. */
   redirects?: AuthRedirects
 }
 
-export type AuthModuleOptions = false | AuthModuleObjectOptions
+export type AuthOptions = false | AuthObjectOptions

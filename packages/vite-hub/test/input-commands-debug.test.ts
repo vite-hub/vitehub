@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
 import { inputCommands } from "../src/agent/capabilities.ts"
-import { installAgentInvocations } from "../src/internal/agent-invocations.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 

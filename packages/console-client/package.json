@@ -1,0 +1,31 @@
+{
+  "name": "@vite-hub/console-client",
+  "version": "0.1.0",
+  "description": "The prebuilt ViteHub Console app that `vite-hub` serves at /_vitehub.",
+  "keywords": [
+    "console",
+    "vitehub"
+  ],
+  "homepage": "https://vitehub.dev/docs/development/console",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/console-client"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./manifest.json": "./dist/manifest.json",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}
