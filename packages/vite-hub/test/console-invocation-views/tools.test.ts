@@ -216,7 +216,7 @@ describe("Agent Invocation tool steps", () => {
       clipboard(writeText);
       await payload.get(".vh-invocation-payload__copy").trigger("click");
       expect(writeText).toHaveBeenCalledWith('{\n  "summary": "Private query omitted."\n}');
-      expect(payload.get(".vh-invocation-payload__copy").text()).toBe("Copied");
+      await vi.waitFor(() => expect(payload.get(".vh-invocation-payload__copy").text()).toBe("Copied"));
     });
 
     it("lists timed steps in the inspector and selects one in the thread", async () => {

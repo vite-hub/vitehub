@@ -139,15 +139,15 @@ watchEffect(() => {
       </div>
     </div>
 
-    <button
+    <UButton
       v-if="animated"
-      type="button"
       class="vh-cms-toggle"
+      variant="ghost"
+      size="xs"
+      :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"
       :aria-label="paused ? 'Play the animation' : 'Pause the animation'"
       @click="paused = !paused"
-    >
-      <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3.5" />
-    </button>
+    />
   </figure>
 </template>
 
@@ -162,47 +162,23 @@ watchEffect(() => {
  * The window keeps one ratio, and every part that changes keeps its space, so typing and publishing never move the
  * page. Motion uses two curves: a strong ease-out for things that appear, and an ease-in-out for the pointer, which
  * moves across the screen.
- * The status colors are the Console ones: emerald, amber, and sky.
+ * The colors are the theme tokens, so the demo switches with the color mode like the Console.
  */
 .vh-cms-window {
   --vh-cms-out: cubic-bezier(0.23, 1, 0.32, 1);
   --vh-cms-move: cubic-bezier(0.645, 0.045, 0.355, 1);
-  --vh-cms-success: oklch(0.696 0.17 162.48);
-  --vh-cms-success-text: oklch(0.596 0.145 163.225);
-  --vh-cms-warning: oklch(0.769 0.188 70.08);
-  --vh-cms-info-text: oklch(0.588 0.158 241.966);
-  --vh-cms-paper: oklch(0.99 0.004 85);
-  --vh-cms-ink: oklch(0.25 0.01 60);
-  --vh-cms-ink-muted: oklch(0.52 0.012 60);
-  --vh-cms-rule: oklch(0.25 0.01 60 / 0.1);
 
   display: grid;
   grid-template-columns: 2.75rem minmax(0, 1.1fr) minmax(0, 1fr);
   aspect-ratio: 16 / 10;
   overflow: hidden;
+  border: 1px solid var(--ui-border);
   border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg);
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.07),
-    0 1px 3px rgb(0 0 0 / 0.05),
-    0 12px 32px -12px rgb(0 0 0 / 0.12);
   color: var(--ui-text);
   font-size: 0.75rem;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
-}
-
-:root.dark .vh-cms-window {
-  --vh-cms-success: oklch(0.765 0.177 163.223);
-  --vh-cms-success-text: oklch(0.765 0.177 163.223);
-  --vh-cms-warning: oklch(0.828 0.189 84.429);
-  --vh-cms-info-text: oklch(0.746 0.16 232.661);
-  --vh-cms-paper: oklch(0.19 0.006 70);
-  --vh-cms-ink: oklch(0.92 0.008 80);
-  --vh-cms-ink-muted: oklch(0.68 0.01 70);
-  --vh-cms-rule: oklch(0.92 0.008 80 / 0.1);
-
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.09);
 }
 
 .vh-cms-rail {
@@ -230,7 +206,7 @@ watchEffect(() => {
   height: 1.75rem;
   align-items: center;
   justify-content: center;
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 1.5);
   font-size: 0.9375rem;
 }
 
@@ -307,12 +283,12 @@ watchEffect(() => {
 }
 
 .vh-cms-status[data-tone="success"] .vh-cms-dot {
-  background: var(--vh-cms-success);
+  background: var(--ui-success);
   box-shadow: none;
 }
 
 .vh-cms-status[data-tone="warning"] .vh-cms-dot {
-  background: var(--vh-cms-warning);
+  background: var(--ui-warning);
   box-shadow: none;
 }
 
@@ -450,7 +426,7 @@ watchEffect(() => {
 }
 
 .vh-cms-tag {
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 1.5);
   background: var(--ui-bg-elevated);
   padding: 0.0625rem 0.375rem;
   box-shadow: inset 0 0 0 1px var(--ui-border);
@@ -552,7 +528,7 @@ watchEffect(() => {
 }
 
 .vh-cms-view > * {
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 1.5);
   padding: 0.1875rem 0.3125rem;
   font-size: 0.5625rem;
   font-weight: 500;
@@ -560,13 +536,13 @@ watchEffect(() => {
 }
 
 .vh-cms-view .is-draft {
-  background: color-mix(in oklch, var(--vh-cms-info-text) 10%, transparent);
-  color: var(--vh-cms-info-text);
+  background: color-mix(in oklch, var(--vh-text-info) 10%, transparent);
+  color: var(--vh-text-info);
 }
 
 .vh-cms-view .is-published {
-  background: color-mix(in oklch, var(--vh-cms-success-text) 10%, transparent);
-  color: var(--vh-cms-success-text);
+  background: color-mix(in oklch, var(--vh-text-success) 10%, transparent);
+  color: var(--vh-text-success);
 }
 
 .vh-cms-address[data-view="draft"] .is-published,
@@ -575,16 +551,16 @@ watchEffect(() => {
 }
 
 /*
- * The site is the club's own page, not the Console: its own paper, ink, and a text serif. It fills the pane like the
+ * The site is the club's own page, not the Console, so it sets its text in a serif. It fills the pane like the
  * Console preview frame, and it runs off the bottom edge, so it reads as a page that goes on.
  */
 .vh-cms-site {
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  background: var(--vh-cms-paper);
+  background: var(--ui-bg);
   padding: 0 1.125rem;
-  color: var(--vh-cms-ink);
+  color: var(--ui-text);
 }
 
 .vh-cms-site-nav {
@@ -593,10 +569,11 @@ watchEffect(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.375rem;
-  border-bottom: 1px solid var(--vh-cms-rule);
+  border-bottom: 1px solid var(--ui-border);
 }
 
 .vh-cms-site-name {
+  color: var(--ui-text-highlighted);
   font-family: "Source Serif 4", Georgia, ui-serif, serif;
   font-size: 0.75rem;
   font-weight: 600;
@@ -605,19 +582,20 @@ watchEffect(() => {
 .vh-cms-site-links {
   display: inline-flex;
   gap: 0.75rem;
-  color: var(--vh-cms-ink-muted);
+  color: var(--ui-text-muted);
   font-size: 0.625rem;
 }
 
 .vh-cms-site-date {
   margin: 0 0 0.375rem;
-  color: var(--vh-cms-ink-muted);
+  color: var(--ui-text-muted);
   font-size: 0.625rem;
   font-variant-numeric: tabular-nums;
 }
 
 .vh-cms-site-title {
   margin: 0 0 0.75rem;
+  color: var(--ui-text-highlighted);
   font-family: "Source Serif 4", Georgia, ui-serif, serif;
   font-size: 1.25rem;
   font-weight: 600;
@@ -652,7 +630,7 @@ watchEffect(() => {
 .vh-cms-site-rides {
   max-width: 34em;
   margin: 0.25rem 0 0;
-  border-top: 1px solid var(--vh-cms-rule);
+  border-top: 1px solid var(--ui-border);
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
 }
@@ -661,12 +639,12 @@ watchEffect(() => {
   display: grid;
   grid-template-columns: 3.25rem minmax(0, 1fr) auto;
   gap: 0.5rem;
-  border-bottom: 1px solid var(--vh-cms-rule);
+  border-bottom: 1px solid var(--ui-border);
   padding: 0.3125rem 0;
 }
 
 .vh-cms-site-rides dt {
-  color: var(--vh-cms-ink-muted);
+  color: var(--ui-text-muted);
 }
 
 .vh-cms-site-rides dd {
@@ -678,7 +656,7 @@ watchEffect(() => {
 }
 
 .vh-cms-site-rides dd:last-child {
-  color: var(--vh-cms-ink-muted);
+  color: var(--ui-text-muted);
   text-align: right;
 }
 
@@ -687,25 +665,12 @@ watchEffect(() => {
   position: absolute;
   bottom: 0.5rem;
   left: 0.5rem;
-  display: inline-flex;
-  width: 1.75rem;
-  height: 1.75rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--ui-radius);
-  color: var(--ui-text-muted);
   opacity: 0;
-  transition: opacity 150ms ease, background-color 150ms ease, color 150ms ease;
 }
 
 .vh-cms-demo:hover .vh-cms-toggle,
 .vh-cms-toggle:focus-visible {
   opacity: 1;
-}
-
-.vh-cms-toggle:hover {
-  background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
 }
 
 @media (pointer: coarse) {

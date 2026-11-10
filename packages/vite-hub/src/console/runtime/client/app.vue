@@ -10,7 +10,7 @@
         <RouterView v-slot="{ Component }">
           <component :is="Component" v-if="Component" />
           <!-- The same panel and status as the server page, so the first paint does not change shape. -->
-          <UDashboardPanel v-else id="console-opening" :ui="{ body: 'p-0 sm:p-0' }">
+          <UDashboardPanel v-else id="console-opening">
             <template #header>
               <UDashboardNavbar :toggle="false" :ui="{ root: 'border-0' }" />
             </template>
@@ -43,17 +43,16 @@ const gate = useConsoleProjects().gate;
 // The Overview has no section, so the rail marks its home item.
 const active = computed(() => isConsoleSectionId(route.meta.consoleSection) ? route.meta.consoleSection : undefined);
 
-// Prefer the page's main landmark or first heading; the shared frame supplies a fallback after the rail.
+// The skip link moves focus to the first control of the page content: in the main landmark, or next to the first
+// heading. Focus never lands on a container, so the theme's focus ring never frames the whole page. A page without a
+// control gets the frame's hidden "Page content" target, which sits right after the rail.
+const tabbable = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
 function skipToContent(): void {
-  const target = document.querySelector<HTMLElement>("main")
-    ?? document.querySelector<HTMLElement>(".vitehub-console h1")
-    ?? document.getElementById("vitehub-console-content");
-  if (!target) return;
-  if (!target.matches("a[href], button, input, select, textarea, [tabindex]")) {
-    target.tabIndex = -1;
-    target.dataset.skipTarget = "";
-  }
-  target.focus();
+  const content = document.querySelector<HTMLElement>("main")
+    ?? document.querySelector<HTMLElement>(".vitehub-console h1")?.parentElement;
+  const target = content?.querySelector<HTMLElement>(tabbable) ?? document.getElementById("vitehub-console-content");
+  target?.focus();
 }
 </script>
 
@@ -61,7 +60,7 @@ function skipToContent(): void {
 .vitehub-console__skip-link {
   background: var(--ui-bg);
   border-radius: 0.375rem;
-  box-shadow: 0 0 0 1px var(--ui-border-accented);
+  box-shadow: var(--vh-shadow-floating);
   color: var(--ui-text-highlighted);
   font-size: 0.875rem;
   font-weight: 500;
@@ -75,10 +74,5 @@ function skipToContent(): void {
 
 .vitehub-console__skip-link:focus-visible {
   transform: none;
-}
-
-/* Non-interactive skip targets do not draw a focus ring. */
-[data-skip-target]:focus {
-  outline: none;
 }
 </style>

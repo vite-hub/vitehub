@@ -41,7 +41,6 @@ try {
     ],
     deps: {
       alwaysBundle: [
-        /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "fdir",
         "picomatch",
