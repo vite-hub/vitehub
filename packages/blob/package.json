@@ -146,6 +146,11 @@
       "import": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
+    "./internal/vercel-blob": {
+      "types": "./dist/internal/vercel-blob.d.ts",
+      "import": "./dist/internal/vercel-blob.js",
+      "default": "./dist/internal/vercel-blob.js"
+    },
     "./media": {
       "types": "./dist/media.d.ts",
       "import": "./dist/media.js",
