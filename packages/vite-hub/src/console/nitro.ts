@@ -3,6 +3,7 @@ import { addViteHubPageToolRoutes, viteHubPageToolsBase } from "@vite-hub/intern
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { resolveConsoleClient } from "./client.ts"
 
 import type { NitroModule } from "nitro/types"
 
@@ -41,7 +42,7 @@ export function addConsolePageHandlers(
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
-  const assets = join(consoleRuntimeRoot, "public/console")
+  const assets = resolveConsoleClient().dir
   const skills = join(consoleRuntimeRoot, "public/skills")
   const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
   if (signInPage) {

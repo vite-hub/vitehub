@@ -1,33 +1,13 @@
 import ui from "@vite-hub/ui/vite";
 import vue from "@vitejs/plugin-vue";
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 import { consoleAppConfig } from "./src/console/app.config";
 import { consoleContributedSectionIcons } from "./src/console/contributions";
 
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
-const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
-const skillsOutDir = resolve(import.meta.dirname, ".vitehub/skills");
-// The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
-const consoleSkills = ["vitehub"];
-
-/** Copy the skills and write the well-known index that `npx skills add <app>/_vitehub` reads. */
-function writeConsoleSkills(): void {
-  rmSync(skillsOutDir, { force: true, recursive: true });
-  mkdirSync(skillsOutDir, { recursive: true });
-  const skills = consoleSkills.map((name) => {
-    const root = resolve(skillsSource, name);
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(root, "SKILL.md"), "utf8"))?.[1] ?? "";
-    const field = (key: string) => new RegExp(`^${key}: (.+)$`, "m").exec(frontmatter)?.[1];
-    const description = field("description");
-    if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
-    cpSync(root, resolve(skillsOutDir, name), { recursive: true });
-    return { name, description, files: readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort() };
-  });
-  writeFileSync(resolve(skillsOutDir, "index.json"), `${JSON.stringify({ skills }, null, 2)}\n`);
-}
+const consoleClientOutDir = resolve(import.meta.dirname, "../console-client/dist/client");
 
 const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
@@ -56,7 +36,6 @@ export default defineConfig({
         }
       },
     },
-    { name: "vitehub-console-skills", closeBundle: writeConsoleSkills },
     vue(),
     ...ui({
       comark: false,
@@ -85,7 +64,8 @@ export default defineConfig({
     // Keep font assets portable in pnpm patches and self-contained Console bundles.
     assetsInlineLimit: filePath => /\.(?:woff2?|ttf|otf)$/.test(filePath) ? true : undefined,
     emptyOutDir: true,
-    outDir: resolve(import.meta.dirname, ".vitehub/console"),
+    // The Console app ships in its own package, @vite-hub/console-client. An app installs it only to serve the Console.
+    outDir: consoleClientOutDir,
     rolldownOptions: {
       // The `console` page tool is built after this, by page-tool.vite.config.ts, so it shares no chunks with the app.
       input: { main: resolve(clientRoot, "main.js") },

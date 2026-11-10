@@ -8,8 +8,8 @@ import { resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { consoleContributedSectionIcons, consoleContributedSections } from "../src/console/contributions.ts"
 import { consolePrimitives } from "../src/console/runtime/sections.ts"
 
-// The package `test` script builds first. This directory holds the prebuilt Console that applications serve.
-const consoleAssetRoot = resolve(import.meta.dirname, "../dist/console/runtime/public/console")
+// The package `test` script builds first. The build writes the prebuilt Console that applications serve to @vite-hub/console-client.
+const consoleAssetRoot = resolve(import.meta.dirname, "../../console-client/dist/client")
 
 interface BundledIconCollection {
   aliases?: Record<string, unknown>
