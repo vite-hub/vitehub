@@ -240,6 +240,11 @@ export interface CommentCreateInput {
   metadata?: CommentMetadata
   /** The version of the subject, such as a document version. A whole number from 0. */
   revision?: number
+  /**
+   * A retry key, such as `crypto.randomUUID()`, kept for one draft. A second create with the same key in the same
+   * scope returns the first thread and creates nothing.
+   */
+  requestId?: string
 }
 
 export interface CommentReplyInput {
