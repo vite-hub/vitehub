@@ -353,8 +353,10 @@ jobs:
 
       - name: Require Node.js 22.18
         run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
-      # The targets share most of their dependency builds. With --cache, each package builds once in this job, and the
-      # package builds of the docs postinstall are reused.
+      # Install-time builds ran on Node 24. Rebuild once on Node 22.18 before
+      # allowing the six targets to reuse each other's dependency builds.
+      - name: Clear install-time build cache
+        run: vp cache clean
       - name: Build tested packages
         run: |
           for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
@@ -488,8 +490,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
-      # The Console client imports the built packages, such as vite-hub/console/sections. --cache reuses the package
-      # builds of the docs postinstall.
+      # The Console client imports built packages, such as vite-hub/console/sections.
+      # Setup and this build both use Node 24, so reuse the docs postinstall builds.
       - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vite-hub build:console-hosted
       - name: Identify hosted Console build
