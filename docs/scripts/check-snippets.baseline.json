@@ -320,7 +320,7 @@
     "error": "TS2304 Cannot find name 'createError'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/development/cli.md#b4928631677f",
+    "id": "docs/content/docs/development/cli.md#3ccfdcfd62b1",
     "label": "server/tasks/db/seed.ts",
     "error": "TS2339 Property 'insert' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
@@ -590,7 +590,7 @@
     "error": "TS18048 'body' is possibly 'undefined'.\nTS18048 'body' is possibly 'undefined'.\nTS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "packages/blob/README.md#0f443e92375d",
+    "id": "packages/blob/README.md#45378057acd1",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
   },
@@ -640,7 +640,7 @@
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
   },
   {
-    "id": "packages/env/README.md#a9239e812708",
+    "id": "packages/env/README.md#a071f6c066c6",
     "label": null,
     "error": "TS18046 'airtableToken' is of type 'unknown'."
   },
@@ -685,7 +685,7 @@
     "error": "TS2345 Argument of type '\"articles\"' is not assignable to parameter of type 'never'."
   },
   {
-    "id": "packages/vite-hub/README.md#2d1bacb37b87",
+    "id": "packages/vite-hub/README.md#58e57431b26b",
     "label": null,
     "error": "TS2339 Property 'insert' does not exist on type 'never'.\nTS2339 Property 'notes' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },

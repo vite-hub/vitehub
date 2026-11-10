@@ -144,7 +144,7 @@ export function consoleAuthMiddlewareFile(root: string): string {
 async function writeCloudflareAccessMiddleware(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL: string): Promise<CloudflareAccessConsoleAuthHandlers> {
   const middleware = consoleAuthMiddlewareFile(root)
   await writeFileIfChanged(middleware, [
-    'import { resolveServerEnv } from "vite-hub/env/server"',
+    'import { resolveServerEnv } from "vite-hub/env"',
     'import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access"',
     `const settings = JSON.parse(${JSON.stringify(JSON.stringify(config.settings))})`,
     "export default function viteHubConsoleAuthMiddleware(event) {",
@@ -306,8 +306,9 @@ export async function writeConsoleConnectionsActor(root: string, sessionActorMod
   await writeFileIfChanged(file, [
     'import { consoleConnectionsActor } from "vite-hub/console/sections"',
     ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
-    "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
+    // The Request carries the Standard Context of the event, so the Console access policy reads it like an event.
+    "export default function viteHubConsoleConnectionsActor(request) {",
+    `  return consoleConnectionsActor(request${sessionActorModule ? ', async () => { const user = await readConsoleUser(request); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))

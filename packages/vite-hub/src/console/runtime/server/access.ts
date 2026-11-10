@@ -189,7 +189,7 @@ async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAcces
  * The Fetch request passed to Console authorization and runtime contexts: the request in the event's Standard Context.
  * For the Request of a Console route, it is the same Request.
  */
-export function consoleRequest(event: ConsoleRequestEvent): Request {
+export function consoleRequest(event: ConsoleRequestEvent | Request): Request {
   return getStandardContext(event).req
 }
 
@@ -377,10 +377,11 @@ export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | 
 }
 
 export async function consoleConnectionsActor(
-  event: ConsoleRequestEvent,
+  event: ConsoleRequestEvent | Request,
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
-  const access = await checkConsoleAccess(event, { user: true })
+  const context = event instanceof Request ? { "~standard": getStandardContext(event) } : event
+  const access = await checkConsoleAccess(context, { user: true })
   if (isRuntimeResponse(access)) return access
   if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
