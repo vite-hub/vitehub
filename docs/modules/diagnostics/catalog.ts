@@ -32,18 +32,21 @@ export interface DiagnosticSite {
 
 const catalogCalls = new Set(["defineErrors", "defineDiagnostics", "defineProdDiagnostics"])
 const codePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
+const declaresCatalog = /define(?:Errors|Diagnostics|ProdDiagnostics)\(/
 const mayHoldDiagnostics = /define(?:Errors|Diagnostics|ProdDiagnostics)\(|[.["'][A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+["\]]?\s*\(/
 
 /** Every code of every catalog under `packages/*\/src`, with its call sites. */
 export function readDiagnosticCodes(root: string): DiagnosticCode[] {
   const files = packageSources(root)
-  const packages = new Set(readdirSync(join(root, "packages"), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name))
   const codes = new Map<string, DiagnosticCode>()
   // Most files neither define a catalog nor raise a code. Parse only those that can.
-  const sources = files
+  const texts = files
     .map(file => ({ file, text: readFileSync(file, "utf8") }))
     .filter(({ text }) => mayHoldDiagnostics.test(text))
-    .map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
+  // A code prefix names its owner only when that package declares a catalog, so a package such as the Console app
+  // does not take the `CONSOLE_*` codes of vite-hub.
+  const packages = new Set(texts.filter(({ text }) => declaresCatalog.test(text)).map(({ file }) => relative(join(root, "packages"), file).split(/[\\/]/)[0]!))
+  const sources = texts.map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
   for (const { file, source } of sources) {
     for (const code of catalogCodes(root, file, source, packages)) {
       const existing = codes.get(code.code)

@@ -12,10 +12,10 @@ const props = defineProps<{
   collapsible?: boolean
 }>()
 
-const { groups, site } = useDocsConfig()
+const { groups, site, start } = useDocsConfig()
 const manifest = useDocsManifest()
 const section = useDocsSection()
-const docsHome = docsHomePath(manifest)
+const docsHome = docsHomePath(manifest, start)
 // The group of the current section, or the section itself.
 const heading = computed(() => {
   if (!props.title || !section.value) return null

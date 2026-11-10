@@ -2,7 +2,7 @@ import { H3, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 import { kv } from "@vite-hub/kv"
-import { deferQueue, runQueue } from "@vite-hub/queue"
+import { deferQueue, sendQueue } from "@vite-hub/queue"
 import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
 import { scheduleMarkerKey } from "./schedule-marker"
 
@@ -26,7 +26,7 @@ app.post("/api/queues/welcome", async (event) => {
   const body = await readValidatedBody(event, queueBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
-  const [error, result] = await runQueue(queueName, {
+  const [error, result] = await sendQueue(queueName, {
     email: body?.email || "ava@example.com",
     callbackUrl,
     marker,
@@ -46,7 +46,7 @@ app.post("/api/queues/welcome-defer", async (event) => {
   }
 
   if (!runInBackground(event, async () => {
-    const [error] = await runQueue(queueName, payload)
+    const [error] = await sendQueue(queueName, payload)
     if (error) throw error
   })) {
     deferQueue(queueName, payload)

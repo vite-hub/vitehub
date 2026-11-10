@@ -372,7 +372,7 @@ When your own middleware checks access before the serve route, use `private, no-
 - `no-cache`: the browser keeps its copy and asks again on each use. Your check runs on every request, and an unchanged file answers `304` with no body.
 - `no-store`: the browser keeps nothing and downloads the full file on every visit.
 
-The generated Nitro route maps `${route}/**` to the selected Blob Store. It is a Fetchable route, `{ fetch(request) }`. Nitro supplies the raw pathname after `${route}`, also when the app has a `baseURL`, and the route delegates streaming to `blob.store(storeName).serve(request, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
+The generated Nitro route maps `${route}/**` to the selected Blob Store. It is a Fetchable route, `{ fetch(request) }`. Nitro supplies the raw pathname after `${route}`, also when the app has a `baseURL`, and the route returns the `Response` of `blob.store(storeName).serve(request, pathname)` as it is. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
 
 The `304` needs an `ETag` from the driver. A file without one downloads in full each time.
 
