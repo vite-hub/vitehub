@@ -62,6 +62,7 @@ export const AttachmentTrigger = defineComponent({
   setup(props, { slots }) {
     // A `type` attribute from the caller still overrides this default.
     return () =>
-      h(props.as, { "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined }, slots.default?.());
+      // The trigger covers the attachment, and an attachment group scrolls sideways and clips a ring outside the card.
+      h(props.as, { "data-focus-inset": "", "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined }, slots.default?.());
   },
 });

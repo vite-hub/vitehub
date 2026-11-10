@@ -53,13 +53,13 @@ function loadEarlier() {
         </MessageScrollerContent>
       </MessageScrollerViewport>
       <MessageScrollerButton>
-        <UIcon name="i-ph-arrow-down-light" />
+        <UIcon name="i-lucide-arrow-down" />
       </MessageScrollerButton>
     </MessageScroller>
     <UButton
       :label="hasEarlier ? 'Load earlier messages' : 'No earlier messages'"
       :disabled="!hasEarlier"
-      icon="i-ph-clock-counter-clockwise-light"
+      icon="i-lucide-history"
       color="neutral"
       variant="outline"
       class="self-start"

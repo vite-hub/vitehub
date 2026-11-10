@@ -16,15 +16,12 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { applyAuthPreset } from "./preset-options.ts"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
 const accessRouteKeys = new Set(["authorize", "method", "route"])
 const databaseReferenceKeys = new Set(["dedicated", "name"])
 const secondaryStorageReferenceKeys = new Set(["store"])
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function validateNamedString(value: unknown, label: string): void {
   if (typeof value !== "string" || value.trim().length === 0 || value !== value.trim()) {

@@ -1,7 +1,7 @@
 import { Worker } from "node:worker_threads"
 
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
-import { isPlainObject } from "@vite-hub/internal/object"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { describeDatabaseContribution } from "../contributions.ts"
 import { isImplicitDefaultDatabase, readStaticDatabaseSchema } from "../config.ts"
@@ -56,10 +56,6 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
       sqlNames.set(sqlName, part.owner)
     }
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return isPlainObject(value)
 }
 
 function errorMessage(error: unknown) {
