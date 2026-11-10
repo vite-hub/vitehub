@@ -1186,7 +1186,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
-  if (plan.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  // `@cloudflare/workers-types` is an optional peer. `cloudflare-types.d.ts` references it, so add that file only when the app installs it.
+  if (plan.preset === "cloudflare" && isPackageInstalled("@cloudflare/workers-types")) generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")

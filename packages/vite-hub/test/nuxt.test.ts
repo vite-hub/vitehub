@@ -118,6 +118,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("../src/plugins.ts", async importOriginal => ({ ...await importOriginal<typeof import("../src/plugins.ts")>(), viteHubPlugins: mocks.vitehub }))
+vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
+  const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
+  return { ...original, isPackageInstalled: vi.fn(original.isPackageInstalled) }
+})
 
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
@@ -126,6 +130,7 @@ import viteHubNuxtModule from "../src/nuxt.ts"
 import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
 import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { isPackageInstalled } from "../src/internal/optional-owners.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
@@ -3656,6 +3661,22 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         },
       },
     })
+  })
+
+  it("adds no Cloudflare types when the app does not install @cloudflare/workers-types", async () => {
+    const installed = vi.mocked(isPackageInstalled).getMockImplementation()!
+    vi.mocked(isPackageInstalled).mockImplementation(name => name !== "@cloudflare/workers-types" && installed(name))
+    try {
+      const { nuxt } = createNuxt()
+
+      await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+      const typescript = { tsConfig: { include: ["../.vitehub/types.d.ts"] } }
+      expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript: { ...typescript, sharedTsConfig: typescript.tsConfig } })
+    }
+    finally {
+      vi.mocked(isPackageInstalled).mockImplementation(installed)
+    }
   })
 
   it.each([
