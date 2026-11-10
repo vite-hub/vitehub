@@ -201,8 +201,17 @@ Pass a loader function to `defineCollection` when the data is not one Drizzle ta
 import { defineCollection } from 'vite-hub/source'
 import * as v from 'valibot'
 
+interface Article { id: string, title: string, createdAt: number }
+
 export const articles = defineCollection(async ({ cursor, limit, query }) => {
-  return db.listArticles({ after: cursor, author: query.author, limit })
+  // A CMS API that pages by the last (createdAt, id) it returned
+  const url = new URL('https://cms.example.com/api/articles')
+  url.searchParams.set('limit', String(limit))
+  if (cursor) url.searchParams.set('after', cursor.join(','))
+  if (query.author) url.searchParams.set('author', query.author)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
+  return await response.json() as Article[]
 }, {
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
@@ -291,11 +300,21 @@ A Collection route is public unless it sets `authorize`.
 
 `authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
 
-```ts [server/collections/meals.ts]
-export const meals = defineCollection({
-  source: table({ /* ... */ }),
-  authorize: ({ user }) => user.role === 'owner',
-  transform: meal => ({ id: meal.id, calories: meal.calories }),
+```ts [server/collections/drafts.ts]
+import { useDatabase } from 'vite-hub/database'
+import { defineCollection } from 'vite-hub/source'
+import { table } from 'vite-hub/source/drizzle'
+
+const { db, schema } = useDatabase('default')
+
+export const drafts = defineCollection({
+  source: table({
+    db,
+    table: schema.articles,
+    orderBy: { column: schema.articles.createdAt, direction: 'desc', tieBreaker: schema.articles.id },
+  }),
+  authorize: ({ user }) => user?.role === 'owner',
+  transform: article => ({ id: article.id, title: article.title }),
 })
 ```
 
@@ -304,11 +323,14 @@ The loader form takes it too: `defineCollection(load, { authorize, ... })`. Vite
 - No session returns JSON `401`. `false` returns `403`. A returned `Response` is sent as is.
 - The check reads the same-origin session cookie, so `useCollection()` needs no extra headers. It sets `error` to a `CollectionAccessError` with `status` `401` or `403`:
 
-```ts
-import { CollectionAccessError } from 'vite-hub/source/client'
+```ts [app/composables/drafts.ts]
+import { computed } from 'vue'
+import { CollectionAccessError, useCollection } from 'vite-hub/source/client'
 
-const { error } = useCollection('meals')
-const signedOut = computed(() => error.value instanceof CollectionAccessError && error.value.status === 401)
+export function useDraftsSignedOut() {
+  const { error } = useCollection('drafts')
+  return computed(() => error.value instanceof CollectionAccessError && error.value.status === 401)
+}
 ```
 
 Enable Auth and add `server/auth.ts` before you use `authorize`. Without Auth, the route cannot read a session and denies every request with `SOURCE_R0025`.

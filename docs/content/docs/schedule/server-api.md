@@ -10,19 +10,19 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineSchedule` from `@vite-hub/schedule` | Declare a Static Schedule Definition, or a Definition without `cron` that code starts. |
-| `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule` from `@vite-hub/schedule` | Start a Definition without `cron` once or on a cron, and read or cancel what you started. |
-| `runSchedule` from `@vite-hub/schedule` | Run a Definition that sets `manual: true` now. |
-| `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
-| `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
-| `setScheduleRunStore` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
-| `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process` | Run Static Schedule Definitions on their cron inside a long-running process. |
-| `createScheduleKVStorage` from `@vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
-| `installStartedSchedules`, `runStartedSchedules`, `createKVStartedScheduleStore`, `createMemoryStartedScheduleStore` from `@vite-hub/schedule/runtime` | Wire the store and the tick of started Schedules yourself. The generated Nitro plugin does it for you. |
+| `defineSchedule` from `vite-hub/schedule` | Declare a Static Schedule Definition, or a Definition without `cron` that code starts. |
+| `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule` from `vite-hub/schedule` | Start a Definition without `cron` once or on a cron, and read or cancel what you started. |
+| `runSchedule` from `vite-hub/schedule` | Run a Definition that sets `manual: true` now. |
+| `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
+| `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `vite-hub/schedule/runtime` | Configure Schedule Run storage. |
+| `setScheduleRunStore` from `vite-hub/schedule/runtime` | Wire custom runtime state. |
+| `installProcessScheduleRuntime` from `vite-hub/schedule/runtime/process` | Run Static Schedule Definitions on their cron inside a long-running process. |
+| `createScheduleKVStorage` from `vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
+| `installStartedSchedules`, `runStartedSchedules`, `createKVStartedScheduleStore`, `createMemoryStartedScheduleStore` from `vite-hub/schedule/runtime` | Wire the store and the tick of started Schedules yourself. The generated Nitro plugin does it for you. |
 | `discoverScheduleDefinitions`, `discoverStartableScheduleDefinitions` from `@vite-hub/schedule/vite` | Discover Schedule Definitions in a build integration. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
-`@vite-hub/schedule` exports the Definition, Run, and Store types. Framework apps import runtime helpers from `vite-hub/schedule/runtime`. The main entry does not load file discovery or its build dependencies.
+`vite-hub/schedule` exports the Definition, Run, and Store types. Framework apps import runtime helpers from `vite-hub/schedule/runtime`. The main entry does not load file discovery or its build dependencies.
 
 ## Start a Schedule from code
 
@@ -110,7 +110,7 @@ KV failed. `error.cause` has the KV error.
 
 ```ts [server/api/reports/run.post.ts]
 import { defineEventHandler } from 'h3'
-import { runSchedule } from '@vite-hub/schedule'
+import { runSchedule } from 'vite-hub/schedule'
 
 export default defineEventHandler(async () => {
   const run = await runSchedule('daily-report')
@@ -132,9 +132,9 @@ The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it y
 
 ```ts [server/schedule-runtime.ts]
 import registry from '#vitehub/schedule/registry'
-import { createKVScheduleRunStore } from '@vite-hub/schedule/runtime'
-import { scheduleKVStorage } from '@vite-hub/schedule/runtime/kv'
-import { installProcessScheduleRuntime } from '@vite-hub/schedule/runtime/process'
+import { createKVScheduleRunStore } from 'vite-hub/schedule/runtime'
+import { scheduleKVStorage } from 'vite-hub/schedule/runtime/kv'
+import { installProcessScheduleRuntime } from 'vite-hub/schedule/runtime/process'
 
 const controller = await installProcessScheduleRuntime({
   onError: error => console.error(error),

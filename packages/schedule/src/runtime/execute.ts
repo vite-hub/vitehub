@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
@@ -216,10 +217,6 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     target: options.name,
     waitUntil: options.waitUntil,
   })
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {

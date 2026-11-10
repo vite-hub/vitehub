@@ -78,7 +78,7 @@ describe("Email development outbox output", () => {
     const root = await createTempProject()
     const plugin = hubEmail({ driver: "resend" })
     const { definition } = await configure(plugin, root, "serve")
-    const load = plugin.load
+    const load: unknown = Reflect.get(Object(plugin.load), "handler")
     if (!(load instanceof Function)) throw new Error("Expected the Email load hook")
     const virtual: unknown = await Reflect.apply(load, undefined, ["\0#vitehub/email/definition"])
     if (typeof virtual !== "string") throw new Error("Expected the virtual definition source")

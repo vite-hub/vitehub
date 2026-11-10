@@ -133,7 +133,7 @@ export default defineAgent({
 
 ### Connect the account
 
-In the Console, open **Connections** and select **Connect** for `google`, or run `vitehub connections connect google`.
+Run `vitehub connections connect google`.
 
 ::
 
@@ -209,7 +209,7 @@ Every Google request, including reads and denied calls, is recorded as activity 
 | `gmail()` | `gmail()` |
 | `gmail({ mode: 'draft' })` | `gmail({ operations: ['search', 'read', 'draft'] })` and a Connection write rule for `gmail.users.drafts.create` |
 | `gog` OAuth client, keyring, and `GOG_KEYRING_PASSWORD` | A Google OAuth client in Server Env and a Connection in `server/connections/` |
-| `gmail_auth` tool | Connect the account in the Console or with `vitehub connections connect` |
+| `gmail_auth` tool | Connect the account with `vitehub connections connect` |
 | `workspace: { mode: 'write' }` for Gmail | Not required |
 
 Remove the `gog` installation and its state directories afterwards.

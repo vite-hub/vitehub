@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import stripAnsi from "strip-ansi"
 import * as v from "valibot"
 
@@ -24,11 +24,6 @@ function defineFormsOperation<Input, Output>(definition: Omit<OperationDefinitio
 }
 
 const status = v.picklist(["open", "done", "spam"])
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 /** The first text value of a submission on one line, such as its message. */
 function preview(data: unknown): string {

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import { createMemoryScheduleRunStore } from "./store.ts"
+import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
 
@@ -29,10 +30,6 @@ const loadingRegistryEntries = new Map<string, {
   version: number
 }>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
 
 function isScheduleDefinition(value: unknown): value is ScheduleRegistryDefinition {
   return isObjectRecord(value)

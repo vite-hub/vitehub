@@ -8,7 +8,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
@@ -822,16 +822,6 @@ function installNitroCloudflareD1BindingCollapse(config: Record<string, unknown>
     nitro.hooks.hook("compiled", () => collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir))
   })
   config.modules = modules
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {

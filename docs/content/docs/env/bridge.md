@@ -148,7 +148,7 @@ export default defineConfig({
 
 ### Start using it
 
-An admin stores the first value and grants `use` to the service, from trusted server code or the Console.
+An admin stores the first value and grants `use` to the service, from trusted server code.
 
 ```ts fragment
 // owner is the administrator context that authenticate(request) returns.
@@ -245,7 +245,7 @@ A grant covers one actor kind (`user`, `agent`, or `service`), one actor ID, and
 - A revoke applies from the next permission check. It cannot take back a secret that an operation already read.
 - Never accept actor IDs, admin flags, or token scopes from a request body.
 
-In the Console, select **Manage credential** in the provider details. Preview works alone. Replace also needs `inspect`, because the Console needs the revision. Provider management auth adds to Console access protection.
+Env management in the Console (**Manage credential**, Access, and Activity) needed the Console that the app served, which is removed. Preview works alone. Replace also needs `inspect`, because a replace needs the revision.
 
 ## Distinguish retrieval from actual use
 

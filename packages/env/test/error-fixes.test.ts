@@ -14,7 +14,7 @@ const unused = new Set(["ENV_R0007", "ENV_R0024"])
 it("gives each raised Env code a fix and its own docs page", () => {
   for (const [code, create] of Object.entries(envErrorDiagnostics)) {
     if (unused.has(code)) continue
-    const error = create({ message: "message" })
+    const error = create({ accessor: "useServerEnv", message: "message" })
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/env/diagnostics/${code.toLowerCase()}`)
   }
