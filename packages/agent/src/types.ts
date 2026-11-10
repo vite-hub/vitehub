@@ -7,7 +7,6 @@ import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvoca
 import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
-import type { AgentRetentionPolicy } from "./retention.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -1945,13 +1944,6 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /**
-   * Limits for the Codex home: rollouts, logs, thread history, and temporary files that Codex keeps.
-   * The oldest data goes first until every limit holds. `maxAge` and `maxSize` count all of it; `maxRecords` counts sessions.
-   * Retention needs a persistent home: a credential profile, `providerSettings.homePath`, or `CODEX_HOME`.
-   * It runs in the background on the first invocation, then at most every 10 minutes.
-   */
-  retention?: AgentRetentionPolicy
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -2011,7 +2003,6 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2042,7 +2033,6 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -2106,7 +2096,6 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -3058,8 +3047,6 @@ export interface AgentInspectionProviderMetadata {
   requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /** Codex home retention. maxAge is milliseconds; maxSize is bytes or a percent such as "45%". Only set limits appear. */
-  retention?: { maxAge?: number, maxRecords?: number, maxSize?: number | string }
   sessionStore?: "sqlite"
   toolchain?: SandboxToolchain
 }

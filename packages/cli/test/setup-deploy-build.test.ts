@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
-import { readFile, symlink, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { delimiter, join, resolve } from "node:path"
 import process from "node:process"
 
@@ -23,17 +23,29 @@ const realSpawn: ViteHubCliSpawn = (command, args, options = {}) => new Promise(
   child.on("close", (exitCode, signal) => resolveResult({ exitCode, signal }))
 })
 
-it("builds a `vitehub init` Cloudflare app for real and uploads it with a fake Wrangler", async () => {
-  // The fake must be the Wrangler that deploy finds. A real one in the workspace would reach Cloudflare.
-  expect(existsSync(join(repoRoot, "node_modules/.bin/wrangler"))).toBe(false)
+/** Links the workspace `node_modules` into `app` entry by entry, with a `.bin` folder that has no `wrangler`. */
+async function linkWorkspaceInstall(app: string): Promise<void> {
+  const root = join(repoRoot, "node_modules")
+  const local = join(app, "node_modules")
+  await mkdir(join(local, ".bin"), { recursive: true })
+  for (const entry of await readdir(root)) {
+    if (entry !== ".bin") await symlink(join(root, entry), join(local, entry))
+  }
+  for (const bin of await readdir(join(root, ".bin"))) {
+    if (bin !== "wrangler" && !bin.startsWith("wrangler.")) await symlink(join(root, ".bin", bin), join(local, ".bin", bin))
+  }
+}
 
+it("builds a `vitehub init` Cloudflare app for real and uploads it with a fake Wrangler", async () => {
   const parent = await createProject()
   const init = await runSetup(["init", "app", "--host", "cloudflare", "--features", "kv", "--pm", "pnpm", "--console", `${PENDING_ID}:sha256:${HASH}`, "--no-install", "--yes", "--json"], parent)
   expect(init.exitCode, init.stdout + init.stderr).toBe(0)
   const app = join(parent, "app")
   // The workspace packages stand in for the install, like the docs host fixture builds. The workspace has `vp`, the
-  // Vite+ CLI, and no `vite` executable, so the build script calls `vp build`.
-  await symlink(join(repoRoot, "node_modules"), join(app, "node_modules"), "dir")
+  // Vite+ CLI, and no `vite` executable, so the build script calls `vp build`. The app gets every workspace package and
+  // executable except Wrangler: deploy prefers a local executable, and the real one would reach Cloudflare.
+  await linkWorkspaceInstall(app)
+  expect(existsSync(join(app, "node_modules/.bin/wrangler"))).toBe(false)
   const manifest = JSON.parse(await readFile(join(app, "package.json"), "utf8")) as { scripts: Record<string, string> }
   expect(manifest.scripts.build).toBe("vite build")
   manifest.scripts.build = "vp build"
