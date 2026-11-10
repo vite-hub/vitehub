@@ -276,7 +276,7 @@ it.each(["inspect", "provision"])("rejects %s as an operation namespace in the r
 })
 
 it("rejects an operation that claims a setup command name", () => {
-  for (const namespace of ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments"]) {
+  for (const namespace of ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]) {
     const operation = defineOperation({
       name: `${namespace}.custom`, description: "Setup command name.", kind: "read", section: namespace,
       input: v.object({}), run: () => true,

@@ -49,6 +49,8 @@ import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/i
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+// The vite-hub build writes the prebuilt Console app to @vite-hub/console-client.
+const packagesRoot = fileURLToPath(new URL("../..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const execFileAsync = promisify(execFile);
 
@@ -101,6 +103,8 @@ const consolidatedOwnerExports = new Set([
 ]);
 
 const lowLevelOwnerExports = new Set([
+  // The Console reads the hashed entry names of the prebuilt Console app.
+  "@vite-hub/console-client/manifest.json",
   "@vite-hub/comments/testing",
   // Comments imports the guard of public writes; apps use defineForm().
   "@vite-hub/forms/guard",
@@ -364,10 +368,9 @@ describe("framework package contract", () => {
     expect(unclassified.sort()).toEqual([]);
   });
 
-  it("ships every declared export and both CLI names", () => {
+  it("ships every declared export and the one vitehub bin", () => {
     expect(manifest.exports).not.toHaveProperty("./bin");
     expect(manifest.bin).toEqual({
-      "vite-hub": "./dist/bin.js",
       vitehub: "./dist/bin.js",
     });
 
@@ -745,20 +748,20 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );
-    const consoleClientFiles = globSync("dist/console/runtime/public/console/console-*.js", {
-      cwd: packageRoot,
+    const consoleClientFiles = globSync("console-client/dist/client/console-*.js", {
+      cwd: packagesRoot,
     });
     expect(consoleClientFiles).toHaveLength(1);
     const [consoleClientFile] = consoleClientFiles;
     if (!consoleClientFile) throw new TypeError("Expected one hashed Console client asset.");
-    const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
+    const consoleClient = readFileSync(`${packagesRoot}/${consoleClientFile}`, "utf8");
     expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
     // Shared appearance and route code may move out of the entry when route chunks change.
     const consoleClientModules = [
       consoleClient,
-      ...globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot })
-        .map(file => readFileSync(`${packageRoot}/${file}`, "utf8")),
+      ...globSync("console-client/dist/client/chunks/*.js", { cwd: packagesRoot })
+        .map(file => readFileSync(`${packagesRoot}/${file}`, "utf8")),
     ];
     const consoleAppearance = consoleClientModules.find(source => source.includes("vitehub-console:appearance"));
     expect(consoleAppearance).toContain("prefers-color-scheme: dark");
@@ -776,13 +779,13 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain(".addRoute(");
     expect(consoleClient).toContain(".hasRoute(");
     expect(consoleClient).toContain("currentRoute.value");
-    const consoleCssFiles = globSync("dist/console/runtime/public/console/console-*.css", {
-      cwd: packageRoot,
+    const consoleCssFiles = globSync("console-client/dist/client/console-*.css", {
+      cwd: packagesRoot,
     });
     expect(consoleCssFiles).toHaveLength(1);
     const [consoleCssFile] = consoleCssFiles;
     if (!consoleCssFile) throw new TypeError("Expected one hashed Console stylesheet asset.");
-    const consoleCss = readFileSync(`${packageRoot}/${consoleCssFile}`, "utf8");
+    const consoleCss = readFileSync(`${packagesRoot}/${consoleCssFile}`, "utf8");
     expect(consoleCss).toContain("vitehub-console");
     expect(consoleCss).toContain("--ui-bg:oklch(100% 0 0)");
     expect(consoleCss).toContain("--ui-text:oklch(37.1% 0 0)");
@@ -791,25 +794,30 @@ describe("framework package contract", () => {
     // The stylesheet inlines only the Latin and Latin Extended faces of Geist and Geist Mono.
     expect(consoleCss.match(/@font-face/g)).toHaveLength(4);
     expect(consoleCss).not.toContain("KaTeX_");
-    const consoleMathCssFiles = globSync("dist/console/runtime/public/console/assets/katex-*.css", { cwd: packageRoot });
+    const consoleMathCssFiles = globSync("console-client/dist/client/assets/katex-*.css", { cwd: packagesRoot });
     expect(consoleMathCssFiles).toHaveLength(1);
-    const consoleMathCss = readFileSync(`${packageRoot}/${consoleMathCssFiles[0]}`, "utf8");
+    const consoleMathCss = readFileSync(`${packagesRoot}/${consoleMathCssFiles[0]}`, "utf8");
     expect(consoleMathCss).toContain("data:font/woff2;base64,");
     expect(consoleMathCss).not.toMatch(/data:font\/(?:woff|ttf);/);
     expect(
-      globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
+      globSync("console-client/dist/client/chunks/*.js", { cwd: packagesRoot }).length,
     ).toBeGreaterThan(0);
     const consolePageSource = readFileSync(
       `${packageRoot}/dist/console/runtime/server/page.get.js`,
       "utf8",
     );
+    expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
     const consoleRpcSource = readFileSync(
       `${packageRoot}/dist/console/runtime/server/rpc.js`,
       "utf8",
     );
-    expect(consolePageSource).toContain(`/_vitehub/assets/${consoleClientFile.split("/").at(-1)}`);
-    expect(consolePageSource).toContain(`/_vitehub/assets/${consoleCssFile.split("/").at(-1)}`);
-    expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
+    // The page reads the hashed entry names from @vite-hub/console-client, which `vite-hub` does not ship.
+    expect(JSON.parse(readFileSync(`${packagesRoot}/console-client/dist/manifest.json`, "utf8"))).toEqual({
+      pageTool: expect.stringMatching(/^page-tool-[\w-]+\.js$/),
+      script: consoleClientFile.split("/").at(-1),
+      style: consoleCssFile.split("/").at(-1),
+    });
+    expect(existsSync(`${packageRoot}/dist/console/runtime/public/console`)).toBe(false);
     expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
@@ -875,7 +883,7 @@ describe("framework package contract", () => {
       const [publicAssetDir, skillsDir] = publicAssets.map((asset) => Reflect.get(Object(asset), "dir"));
       if (String(publicAssetDir) !== publicAssetDir || String(skillsDir) !== skillsDir)
         throw new TypeError("Expected Console public asset paths.");
-      expect(publicAssetDir).toContain("/dist/console/runtime/public/console");
+      expect(publicAssetDir).toContain("/console-client/dist/client");
       expect(existsSync(publicAssetDir), publicAssetDir).toBe(true);
       // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
       const skillsIndex: { skills: Array<{ name: string, files: string[] }> } = JSON.parse(readFileSync(`${skillsDir}/index.json`, "utf8"));
@@ -891,7 +899,7 @@ describe("framework package contract", () => {
     }
   });
 
-  it("runs both distributed CLI entrypoints with clean help streams", async () => {
+  it("runs the distributed CLI entrypoint with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"));
     try {
       const keepAlive = join(root, "keep-alive.mjs");
@@ -909,11 +917,7 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
         ),
         writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
       ]);
-      const entrypoints = [
-        `${packageRoot}/${manifest.bin.vitehub}`,
-        `${repoRoot}/packages/cli/dist/index.js`,
-      ];
-      for (const entrypoint of entrypoints) {
+      for (const entrypoint of [`${packageRoot}/${manifest.bin.vitehub}`]) {
         const { stderr, stdout } = await execFileAsync(process.execPath, [entrypoint, "--help"], {
           cwd: root,
           env: {
@@ -944,7 +948,7 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
       ]);
 
       await expect(
-        execFileAsync(process.execPath, [`${repoRoot}/packages/cli/dist/index.js`], {
+        execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`], {
           cwd: root,
           env: {
             ...process.env,
@@ -961,7 +965,6 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
 
   it("derives deduplicated binary entries from the package manifest", () => {
     expect(distributionBinEntries).toEqual({
-      "vite-hub": "src/bin.ts",
       vitehub: "src/bin.ts",
     });
     expect(distributionEntriesFromManifest(manifest.bin)).toEqual(["src/bin.ts"]);

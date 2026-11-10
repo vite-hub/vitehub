@@ -693,8 +693,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["exec", "vite", "build"], appDir)
       expect(existsSync(join(appDir, ".output/server/index.mjs"))).toBe(true)
 
+      // The Console app is an optional peer too, so the Console asks for it.
       await writeFile(join(appDir, "vite.config.ts"), config(", console: { auth: false }, comments: false"), "utf8")
-      await run("pnpm", ["exec", "vite", "build"], appDir)
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/console-client")
 
       await writeFile(join(appDir, "vite.config.ts"), config(", agent: true"), "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/agent")
@@ -1118,6 +1119,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
+            "@vite-hub/console-client": specs["@vite-hub/console-client"],
             "@vite-hub/kv": specs["@vite-hub/kv"],
             nuxt: "4.6.2",
             unplugin: "3.3.0",
@@ -1469,10 +1471,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(nodeEmailOutput).toContain("api.resend.com")
       expect(nodeEmailOutput).not.toContain(emailSecretSentinel)
 
-      for (const alias of ["vitehub", "vite-hub"]) {
-        const help = await run("pnpm", ["exec", alias, "--help"], appDir)
-        expect(help.stdout).toContain("Usage: vitehub")
-      }
+      const help = await run("pnpm", ["exec", "vitehub", "--help"], appDir)
+      expect(help.stdout).toContain("Usage: vitehub")
     }
     finally {
       await rm(root, { force: true, recursive: true })

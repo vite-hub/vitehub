@@ -88,7 +88,15 @@ Each Console build has an id, which changes only when the Console catalog or cli
 
 ## Enable the Console
 
-Set `console` in the ViteHub options. `console.auth` chooses who can open it, and every environment must set it:
+The Console app is its own package, `@vite-hub/console-client`, so an app without the Console does not install it. Add it before you turn the Console on:
+
+```bash [commands/install-console]
+pnpm add @vite-hub/console-client
+```
+
+`vitehub add console` adds it for you. If it is missing, the build stops and prints the same install command.
+
+Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:
 
 | `auth` | Who can open the Console |
 | --- | --- |
@@ -97,7 +105,7 @@ Set `console` in the ViteHub options. `console.auth` chooses who can open it, an
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
-The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub db generate` and `vitehub db migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
+The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub database generate` and `vitehub database migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
 For local development, use `auth: false`:
 
@@ -159,7 +167,7 @@ export default defineConfig({
 :::
 ::
 
-A standalone Nitro 3 app adds Nitro after ViteHub. The Console and its UI ship inside `vite-hub`, so you install no other package.
+A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies are prebuilt inside `@vite-hub/console-client`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
