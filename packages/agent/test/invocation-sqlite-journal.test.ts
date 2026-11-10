@@ -62,6 +62,12 @@ function recordingClient(client: Client, protocol = client.protocol) {
           return await target.execute(statement)
         }
       }
+      if (property === "executeMultiple") {
+        return async (sql: string) => {
+          record(sql)
+          return await target.executeMultiple(sql)
+        }
+      }
       if (property === "batch") {
         return async (batch: InStatement[], mode?: TransactionMode) => {
           batch.forEach(record)
@@ -170,14 +176,64 @@ describe("SQLite invocation journal", () => {
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
-    // The schema of a new file commits once per statement, so it already runs with NORMAL.
-    expect(sql.indexOf("PRAGMA synchronous = NORMAL")).toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
-    expect(sql.indexOf("PRAGMA synchronous = NORMAL")).toBeLessThan(sql.findIndex(statement => statement.startsWith("CREATE TABLE")))
+    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nCREATE TABLE")))
+      .toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
     // synchronous is per connection, so every write sets it on the connection it borrows.
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
     expect(recording.statements.map(statementSql)[0]).toBe("PRAGMA synchronous = NORMAL")
     expect((await client.execute("PRAGMA synchronous")).rows[0]?.synchronous).toBe(1)
+  })
+
+  it.each([false, true])("uses NORMAL on each borrowed schema connection (legacy: %s)", async (legacy) => {
+    await client.execute("CREATE TABLE schema_modes (mode INTEGER NOT NULL)")
+    if (legacy) {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, record TEXT NOT NULL
+      )`)
+      await client.execute(`CREATE TABLE vitehub_agent_invocations_claims (
+        id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, expires_at INTEGER NOT NULL
+      )`)
+    }
+    const recordMode = "INSERT INTO schema_modes SELECT synchronous FROM pragma_synchronous"
+    const onBorrowedConnection = async <T>(operation: () => Promise<T>) => {
+      // Hold the idle connection so schema creation must borrow another one. Reset that connection to its default.
+      const held = await client.transaction("read")
+      try {
+        await client.execute("PRAGMA synchronous = FULL")
+        return await operation()
+      }
+      finally {
+        await held.rollback()
+      }
+    }
+    const pooled = new Proxy(client, {
+      get(target, property) {
+        if (property === "execute") {
+          return async (statement: InStatement) => {
+            if (!/^\s*(CREATE|ALTER|DROP)\b/.test(statementSql(statement))) return await target.execute(statement)
+            return await onBorrowedConnection(async () => {
+              await target.execute(recordMode)
+              return await target.execute(statement)
+            })
+          }
+        }
+        if (property === "executeMultiple") {
+          return async (sql: string) => await onBorrowedConnection(async () => {
+            // Read the effective setting in the same call and on the same connection as the schema statement.
+            await target.executeMultiple(`${sql}; ${recordMode}`)
+          })
+        }
+        const value = Reflect.get(target, property)
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
+      },
+    })
+    const store = createLibsqlAgentInvocationStore({ client: pooled, maxAge: false, maxRecords: false })
+    await store.create(invocation("run"))
+    const modes = (await client.execute("SELECT mode FROM schema_modes")).rows.map(row => row.mode)
+    expect(modes.length).toBeGreaterThan(20)
+    expect(modes).toEqual(modes.map(() => 1))
+    expect((await store.get("run"))?.id).toBe("run")
   })
 
   it.each(["http", "https", "ws", "wss"])("does not set journal pragmas for remote %s databases", async (protocol) => {
