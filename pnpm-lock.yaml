@@ -1920,9 +1920,6 @@ importers:
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -1951,6 +1948,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      esbuild:
+        specifier: catalog:tooling
+        version: 0.28.2
       postgres:
         specifier: catalog:database
         version: 3.4.9
@@ -2777,9 +2777,6 @@ importers:
       defu:
         specifier: catalog:unjs
         version: 6.1.7
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
