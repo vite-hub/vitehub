@@ -861,7 +861,7 @@ describe("hubDb", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
   })
 
-  it("warns during config resolution but fails db generate when a Definition cannot load", async () => {
+  it("warns during config resolution but fails database generate when a Definition cannot load", async () => {
     const rootDir = await createTempProject()
     const definition = await writeDefinition(rootDir, "server/databases/config.ts")
     await writeFile(definition, `import "./missing.ts"\n${await readFile(definition, "utf8")}`)

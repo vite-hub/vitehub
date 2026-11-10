@@ -307,6 +307,7 @@ describe("Cloudflare Access Console Auth", () => {
       expect(handlers).toEqual({ auth: "cloudflare-access", clientSources: [], middleware: handlers.middleware })
       const middleware = await readFile(handlers.middleware, "utf8")
       expect(middleware).toContain('from "vite-hub/console/auth/cloudflare-access"')
+      expect(middleware).toContain('import { resolveServerEnv } from "vite-hub/env/server"')
       expect(middleware).toContain("resolveServerEnv(settings, event)")
       expect(middleware).not.toContain("#vitehub/auth/server")
 

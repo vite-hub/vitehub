@@ -17,8 +17,7 @@ pnpm add @vite-hub/source
 ## Open a Source
 
 ```ts
-import { createSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, glob } from "@vite-hub/source"
 
 export const docs = glob({ cwd: "docs", include: "**/*.md" })
 
@@ -91,7 +90,7 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 wildcard are `cwd`, so keys are the paths below them:
 
 ```ts
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 
 export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 ```
@@ -159,8 +158,7 @@ for Collections and Content does not generate `ViteHubSourceMap`.
 sections of a Markdown file. Each part key is `<parent key>#<part key>`:
 
 ```ts
-import { createSource, splitSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, splitSource, glob } from "@vite-hub/source"
 
 const sections = splitSource({
   source: glob({ cwd: "docs", include: "**/*.md" }),
@@ -302,8 +300,8 @@ hashes the items for pagination. Keyed lookups do not compute a digest.
 page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
-request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
-exports `table()` too.
+request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
+`vite-hub/source/drizzle`.
 
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.

@@ -12,11 +12,11 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
 | `db`, `schema` from `@vite-hub/database` | The Drizzle database and schema of the default Database. |
-| `useDatabase` from `@vite-hub/database` | Select a generated Drizzle database and its schema by name. |
-| `chunkParameters` from `@vite-hub/database` | Split values so each statement stays under the bound parameter limit of D1. |
-| `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
-| `@vite-hub/database/config` | Resolve database config values and discovery config. |
-| `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
+| `useDatabase` from `@vite-hub/database` | Get a Drizzle database and its schema by name. |
+| `chunkParameters` from `@vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
+| `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
+| `@vite-hub/database/config` | Resolve config values and discovery config. |
+| `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 
 `@vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
 

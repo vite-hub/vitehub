@@ -24,7 +24,7 @@ let client: ReturnType<typeof createClient>
 beforeAll(async () => {
   directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "vitehub-auth-database-"))
   client = createClient({ url: `file:${join(directory, "auth.db")}` })
-  // The migration that `vitehub db generate` writes for the contributed tables.
+  // The migration that `vitehub database generate` writes for the contributed tables.
   const statements = await generateSQLiteMigration(await generateSQLiteDrizzleJson({}), await generateSQLiteDrizzleJson({ ...authSqliteSchema }))
   for (const statement of statements) await client.execute(statement)
   state.databases.default = { db: drizzle(client, { schema: authSqliteSchema }), schema: { ...authSqliteSchema } }

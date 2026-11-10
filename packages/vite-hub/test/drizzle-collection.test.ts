@@ -53,7 +53,7 @@ async function createTestDatabase() {
 describe("table Collection source", () => {
   it("owns stable keyset pagination and applies filters before fetching pages", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineCollection, table } = await import("../src/source.ts")
+    const [{ defineCollection }, { table }] = await Promise.all([import("../src/source.ts"), import("../src/source/drizzle.ts")])
     await db.run(sql`
       create table meals (
         id text primary key,
@@ -147,7 +147,7 @@ describe("table Collection source", () => {
 
   it("forwards authorize from a table Collection to its route", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineCollection, table } = await import("../src/source.ts")
+    const [{ defineCollection }, { table }] = await Promise.all([import("../src/source.ts"), import("../src/source/drizzle.ts")])
     const { defineCollectionHandler } = await import("../src/source/server.ts")
     const { H3 } = await import("h3")
     const authorize = vi.fn(() => false)
@@ -176,7 +176,7 @@ describe("table Collection source", () => {
 
   it("rejects an unstable tie-breaker", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineCollection, table } = await import("../src/source.ts")
+    const [{ defineCollection }, { table }] = await Promise.all([import("../src/source.ts"), import("../src/source/drizzle.ts")])
 
     expect(() =>
       defineCollection({

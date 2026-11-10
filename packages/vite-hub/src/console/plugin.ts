@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
+import { resolveConsoleClient } from "./client.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { consoleRuntimeDigestFile, digestConsoleRuntime } from "./runtime-digest.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
@@ -27,7 +28,6 @@ function resolveConsoleRuntimeRoot(): string {
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
-export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
 /** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
 export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 let consoleRuntimeDigest: string | undefined
@@ -249,13 +249,16 @@ function renderConsoleNitroPlugin(
       ? [`installConsoleAgentDefinitions([${definitions}], ${fixture ? `{ invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }` : `{ projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }`})`]
       : []),
   ]
+  // The page loads the prebuilt app of @vite-hub/console-client. A Console that serves only the RPC needs no app.
+  const client = pageTools ? resolveConsoleClient() : undefined
   return [
-    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, ${client ? "installConsoleClient, " : ""}installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled && fixture ? [`import { installConsoleFixtureInvocations } from "vite-hub/console/server"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
+    ...(client ? [`installConsoleClient(${JSON.stringify({ script: client.script, style: client.style, pageTool: client.pageTool })})`] : []),
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.

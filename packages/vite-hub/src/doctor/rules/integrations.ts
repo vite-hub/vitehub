@@ -258,33 +258,6 @@ export const sandboxRuntimeOptions: DoctorRule = createRule({
 })
 
 
-export const defineAgentFromViteHub: DoctorRule = createRule({
-  meta: {
-    id: "vitehub/define-agent-from-vite-hub",
-    title: "Import defineAgent from vite-hub/agent",
-    category: "correctness",
-    severity: "warn",
-    requires: { script: true },
-  },
-  create(ctx) {
-    if (!dependsOn(ctx, "vite-hub")) return
-    return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "ImportDeclaration") || node.importKind === "type") return
-        if (!isNode(node.source) || node.source.value !== "@vite-hub/agent") return
-        const imports = (Array.isArray(node.specifiers) ? node.specifiers : []).some(specifier =>
-          isNode(specifier) && specifier.importKind !== "type" && isIdentifier(specifier.imported, "defineAgent"))
-        if (!imports) return
-        ctx.report(diagnostics.VHUB0028({
-          why: "This app uses `vite-hub`, but imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so Invocations of this Agent are not recorded. A string `invocations` setting such as `\"database\"` also fails when the module loads.",
-          fix: "Import `defineAgent` from `vite-hub/agent`.",
-        }), { range: ctx.range(node) })
-      },
-    }
-  },
-})
-
-
 export const rateLimitCapabilityLimiter: DoctorRule = createRule({
   meta: {
     id: "vitehub/rate-limit-capability-limiter",
@@ -506,7 +479,31 @@ const removedPaths = new Map([
   ["vite-hub/email/server", { replacement: "vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
   ["@vite-hub/email/server", { replacement: "@vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
   ["#vitehub/env/server", { replacement: "vite-hub/env", note: "`useServerEnv()` and the other Server Env helpers moved to the Env root. `vitehub migrate` rewrites the import." }],
+  ...oneEntryPerConcept(),
 ])
+
+/** Subpaths that moved into the root of their primitive, or into `env/bridge`. `npx @vite-hub/codemods one-entry-imports` moves them. */
+function oneEntryPerConcept(): [string, { replacement: string, note: string }][] {
+  const moves: [string, string][] = [
+    ...["file", "files", "github", "glob", "markdown"].map((name): [string, string] => [`source/${name}`, "source"]),
+    ...["presets", "provider", "schema", "secret"].map((name): [string, string] => [`env/${name}`, "env"]),
+    ["env/auth", "env/bridge"],
+    ["env/http", "env/bridge"],
+    ["blob/content-type", "blob"],
+    ["blob/ensure", "blob"],
+    ["blob/reference", "blob"],
+    ["browser/actions", "browser"],
+    ["connections/http", "connections"],
+  ]
+  const note = "Each concept has one entry. Run `npx @vite-hub/codemods one-entry-imports` to move the imports."
+  return [
+    ...moves.flatMap(([from, to]): [string, { replacement: string, note: string }][] => [
+      [`vite-hub/${from}`, { replacement: `vite-hub/${to}`, note }],
+      [`@vite-hub/${from}`, { replacement: `@vite-hub/${to}`, note }],
+    ]),
+    ["vite-hub/task", { replacement: "nitro/task", note: "`vite-hub/task` only re-exported Nitro's task API. Import `defineTask` and `runTask` from `nitro/task`, and the types from `nitro/types`." }],
+  ]
+}
 
 /** Exports that ViteHub renamed, by module name from `vitehubModule()`. */
 const renamedExports: { modules: (module: string) => boolean, renames: Map<string, string> }[] = [
@@ -704,7 +701,6 @@ export const rules: DoctorRule[] = [
   realtimePersistence,
   forgeErrorImports,
   sandboxRuntimeOptions,
-  defineAgentFromViteHub,
   rateLimitCapabilityLimiter,
   noViteHubPluginInNuxt,
   validViteHubOptions,

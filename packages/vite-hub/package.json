@@ -28,7 +28,6 @@
     "directory": "packages/vite-hub"
   },
   "bin": {
-    "vite-hub": "./dist/bin.js",
     "vitehub": "./dist/bin.js"
   },
   "files": [
@@ -82,6 +81,11 @@
       "types": "./dist/agent/invocations/database.d.ts",
       "import": "./dist/agent/invocations/database.js",
       "default": "./dist/agent/invocations/database.js"
+    },
+    "./agent/invocations/drizzle": {
+      "types": "./dist/agent/invocations/drizzle.d.ts",
+      "import": "./dist/agent/invocations/drizzle.js",
+      "default": "./dist/agent/invocations/drizzle.js"
     },
     "./agent/invocations/sqlite": {
       "types": "./dist/agent/invocations/sqlite.d.ts",
@@ -178,11 +182,6 @@
       "import": "./dist/blob/client.js",
       "default": "./dist/blob/client.js"
     },
-    "./blob/content-type": {
-      "types": "./dist/blob/content-type.d.ts",
-      "import": "./dist/blob/content-type.js",
-      "default": "./dist/blob/content-type.js"
-    },
     "./blob/media": {
       "types": "./dist/blob/media.d.ts",
       "import": "./dist/blob/media.js",
@@ -197,11 +196,6 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js",
       "default": "./dist/browser.js"
-    },
-    "./browser/actions": {
-      "types": "./dist/browser/actions.d.ts",
-      "import": "./dist/browser/actions.js",
-      "default": "./dist/browser/actions.js"
     },
     "./browser/controllers/cdp": {
       "types": "./dist/browser/controllers/cdp.d.ts",
@@ -303,11 +297,6 @@
       "import": "./dist/connections/google.js",
       "default": "./dist/connections/google.js"
     },
-    "./connections/http": {
-      "types": "./dist/connections/http.d.ts",
-      "import": "./dist/connections/http.js",
-      "default": "./dist/connections/http.js"
-    },
     "./connections/server": {
       "types": "./dist/connections/server.d.ts",
       "import": "./dist/connections/server.js",
@@ -357,6 +346,11 @@
       "types": "./dist/content/client.d.ts",
       "import": "./dist/content/client.js",
       "default": "./dist/content/client.js"
+    },
+    "./content/collections": {
+      "types": "./dist/content/collections.d.ts",
+      "import": "./dist/content/collections.js",
+      "default": "./dist/content/collections.js"
     },
     "./content/database": {
       "types": "./dist/content/database.d.ts",
@@ -428,11 +422,6 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
-    "./env/auth": {
-      "types": "./dist/env/auth.d.ts",
-      "import": "./dist/env/auth.js",
-      "default": "./dist/env/auth.js"
-    },
     "./env/bridge": {
       "types": "./dist/env/bridge.d.ts",
       "import": "./dist/env/bridge.js",
@@ -443,40 +432,15 @@
       "import": "./dist/env/database.js",
       "default": "./dist/env/database.js"
     },
-    "./env/http": {
-      "types": "./dist/env/http.d.ts",
-      "import": "./dist/env/http.js",
-      "default": "./dist/env/http.js"
-    },
-    "./env/presets": {
-      "types": "./dist/env/presets.d.ts",
-      "import": "./dist/env/presets.js",
-      "default": "./dist/env/presets.js"
-    },
-    "./env/provider": {
-      "types": "./dist/env/provider.d.ts",
-      "import": "./dist/env/provider.js",
-      "default": "./dist/env/provider.js"
-    },
-    "./env/schema": {
-      "types": "./dist/env/schema.d.ts",
-      "import": "./dist/env/schema.js",
-      "default": "./dist/env/schema.js"
+    "./env/server": {
+      "types": "./dist/env/server.d.ts",
+      "import": "./dist/env/server.js",
+      "default": "./dist/env/server.js"
     },
     "./env/seal": {
       "types": "./dist/env/seal.d.ts",
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
-    },
-    "./env/secret": {
-      "types": "./dist/env/secret.d.ts",
-      "import": "./dist/env/secret.js",
-      "default": "./dist/env/secret.js"
-    },
-    "./env/server": {
-      "types": "./dist/env/server.d.ts",
-      "import": "./dist/env/server.js",
-      "default": "./dist/env/server.js"
     },
     "./forms": {
       "types": "./dist/forms.d.ts",
@@ -643,11 +607,6 @@
       "import": "./dist/shell/workspace.js",
       "default": "./dist/shell/workspace.js"
     },
-    "./task": {
-      "types": "./dist/task.d.ts",
-      "import": "./dist/task.js",
-      "default": "./dist/task.js"
-    },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js",
@@ -668,25 +627,10 @@
       "import": "./dist/source/client.js",
       "default": "./dist/source/client.js"
     },
-    "./source/file": {
-      "types": "./dist/source/file.d.ts",
-      "import": "./dist/source/file.js",
-      "default": "./dist/source/file.js"
-    },
-    "./source/github": {
-      "types": "./dist/source/github.d.ts",
-      "import": "./dist/source/github.js",
-      "default": "./dist/source/github.js"
-    },
-    "./source/glob": {
-      "types": "./dist/source/glob.d.ts",
-      "import": "./dist/source/glob.js",
-      "default": "./dist/source/glob.js"
-    },
-    "./source/markdown": {
-      "types": "./dist/source/markdown.d.ts",
-      "import": "./dist/source/markdown.js",
-      "default": "./dist/source/markdown.js"
+    "./source/drizzle": {
+      "types": "./dist/source/drizzle.d.ts",
+      "import": "./dist/source/drizzle.js",
+      "default": "./dist/source/drizzle.js"
     },
     "./source/mcp": {
       "types": "./dist/source/mcp.d.ts",
@@ -1014,11 +958,6 @@
       "import": "./dist/sandbox/ssh.js",
       "default": "./dist/sandbox/ssh.js"
     },
-    "./source/files": {
-      "types": "./dist/source/files.d.ts",
-      "import": "./dist/source/files.js",
-      "default": "./dist/source/files.js"
-    },
     "./console/documents": {
       "types": "./dist/console/runtime/server/documents.d.ts",
       "import": "./dist/console/runtime/server/documents.js",
@@ -1132,6 +1071,7 @@
     "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
+    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1217,6 +1157,7 @@
     "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
+    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1332,6 +1273,9 @@
       "optional": true
     },
     "@vite-hub/connections": {
+      "optional": true
+    },
+    "@vite-hub/console-client": {
       "optional": true
     },
     "@vite-hub/content": {

@@ -62,7 +62,7 @@ const set = defineKVOperation<{ key: string, store?: string, ttl?: number, value
 })
 
 const del = defineKVOperation<{ key: string, store?: string }, KVDevDeleteResult>({
-  cli: { command: "del", positional: ["key"] },
+  cli: { command: "delete", positional: ["key"] },
   description: "Delete one key. There is no operation that clears a store.",
   input: v.object({ key, store }),
   kind: "destructive",
