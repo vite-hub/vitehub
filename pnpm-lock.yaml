@@ -1024,6 +1024,9 @@ importers:
       advocaat:
         specifier: catalog:ai
         version: 0.0.6
+      drizzle-orm:
+        specifier: catalog:database
+        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
       evalite:
         specifier: catalog:ai
         version: 1.0.0-beta.16(ai@7.0.130(zod@4.6.7))(better-sqlite3@12.9.0)

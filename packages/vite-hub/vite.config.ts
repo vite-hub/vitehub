@@ -58,7 +58,6 @@ const runtimeEntries = [
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
   // Generated code imports these modules by path. They are not package exports.
-  "src/internal/agent-invocations.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/task/operations.ts",
