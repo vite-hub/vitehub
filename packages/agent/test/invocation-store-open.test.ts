@@ -5,6 +5,16 @@ import { recoverInterruptedAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
 /** A store that loads its client on first use, as the Console journal loads libSQL. Every operation waits for that load. */
 function lazyStore(open: () => Promise<void>) {
   const backing = createMemoryAgentInvocationStore()
@@ -160,7 +170,7 @@ describe("Agent Invocation store open", () => {
 
   it.each(["resolve", "reject"] as const)("shares a timed-out open until it settles: %s", async (outcome) => {
     vi.useFakeTimers()
-    const pending = Promise.withResolvers<void>()
+    const pending = deferred<void>()
     const open = vi.fn<() => Promise<void>>()
       .mockReturnValueOnce(pending.promise)
       .mockResolvedValue(undefined)
