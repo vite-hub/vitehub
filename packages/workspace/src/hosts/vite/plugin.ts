@@ -5,7 +5,8 @@ import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenera
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
+import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
@@ -1626,9 +1627,9 @@ function runtimeWorkspaceConfig(
 }
 
 const hostedStoreInstallers: Record<HostedWorkspaceStoreProvider, { entry: string, name: string }> = {
-  "cloudflare-artifacts": { entry: "internal/runtime/hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
-  "github": { entry: "internal/runtime/hosted", name: "installHostedGitHubWorkspaceStore" },
-  "vercel-blob": { entry: "internal/runtime/hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
+  "cloudflare-artifacts": { entry: "hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
+  "github": { entry: "hosted", name: "installHostedGitHubWorkspaceStore" },
+  "vercel-blob": { entry: "hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
 }
 
 function renderNitroWorkspacePlugin(
@@ -1636,16 +1637,15 @@ function renderNitroWorkspacePlugin(
   registryImport: string,
   hostedStores: ReadonlySet<HostedWorkspaceStoreProvider>,
   cloudflareRuntime: boolean,
-  importBase = WORKSPACE_PACKAGE_NAME,
 ): string {
   // A light module: the Workspace core loads on the first Workspace call, not at server startup.
-  const runtimeImport = `${importBase}/internal/runtime/registry`
+  const runtimeImport = ownModule(import.meta.url, "runtime/registry")
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
   const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
   const configure = hostedConfig
     ? isVercelBlobStore
-      ? { entry: "internal/runtime/hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
-      : { entry: "internal/runtime/hosted", name: "configureHostedWorkspaceRuntime" }
+      ? { entry: "hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
+      : { entry: "hosted", name: "configureHostedWorkspaceRuntime" }
     : undefined
   // `configure*` installs the store of the runtime config itself.
   const installers = hostedWorkspaceStoreProviders
@@ -1656,13 +1656,13 @@ function renderNitroWorkspacePlugin(
     importsByEntry.set(entry, [...importsByEntry.get(entry) ?? [], name])
   }
   const runtimeImports = [
-    ...[...importsByEntry].map(([entry, names]) => `import { ${names.join(", ")} } from '${importBase}/${entry}'`),
-    `import { ${config && !hostedConfig ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
+    ...[...importsByEntry].map(([entry, names]) => `import { ${names.join(", ")} } from ${JSON.stringify(ownModule(import.meta.url, entry))}`),
+    `import { ${config && !hostedConfig ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from ${JSON.stringify(runtimeImport)}`,
   ]
   if (cloudflareRuntime) {
     runtimeImports.unshift(
       "import { env as vitehubEnv } from 'cloudflare:workers'",
-      `import { setActiveCloudflareEnv } from '${importBase}/internal/runtime/state'`,
+      `import { setActiveCloudflareEnv } from ${JSON.stringify(ownModule(import.meta.url, "runtime/state"))}`,
     )
   }
   const runtimeSetup = [
@@ -1691,7 +1691,6 @@ async function writeNitroWorkspacePlugin(
   options: false | WorkspaceModuleOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
   cloudflareRuntime = false,
-  importBase = WORKSPACE_PACKAGE_NAME,
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
   storeUsage?: WorkspaceDefinitionStoreUsage,
 ): Promise<void> {
@@ -1706,7 +1705,6 @@ async function writeNitroWorkspacePlugin(
       moduleImportSpecifier(pluginFile, registryFile),
       resolveNitroHostedStoreProviders(runtimeConfig, definitions.length, storeUsage),
       cloudflareRuntime,
-      importBase,
     ),
   )
 }
@@ -1740,7 +1738,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides, storeUsage)
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, definitionOverrides, storeUsage)
   const nitro = mergeNitroWorkspaceConfig(options.nitro, options.command !== "build")
   if (options.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
@@ -1775,20 +1773,17 @@ export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: Workspac
 
 interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
   hosting?: WorkspacePluginHosting
-  importBase?: string
 }
 
 function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions | undefined): false | WorkspaceModuleOptions | undefined {
-  if (!options || (!Object.hasOwn(options, "hosting") && !Object.hasOwn(options, "importBase"))) return options
+  if (!options || !Object.hasOwn(options, "hosting")) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
   delete publicOptions.hosting
-  delete publicOptions.importBase
   return publicOptions
 }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
-  const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -1877,7 +1872,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         })
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides, storeUsage)
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, definitionOverrides, storeUsage)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
         if (env?.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
@@ -2012,7 +2007,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     vitehub: {
       // The Console, `vitehub workspace history|refs|show`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: "@vite-hub/workspace/operations" }],
+      operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: ownModule(import.meta.url, "operations") }],
       cli: async () => {
         return createWorkspaceCliContributor()
       },
@@ -2071,6 +2066,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const workspace = manifest.workspaces.find(item => item.name === name)
         return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
       }
+      // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
+      return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
     },
   }
 }
