@@ -17,7 +17,6 @@ import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
 import * as ownerBlobClient from "@vite-hub/blob/client";
-import * as ownerBlobContentType from "@vite-hub/blob/content-type";
 import * as ownerBlobMedia from "@vite-hub/blob/media";
 import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
@@ -38,7 +37,6 @@ import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
-import * as frameworkBlobContentType from "vite-hub/blob/content-type";
 import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
@@ -96,8 +94,6 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 // `vite-hub/content` also forwards `documents()` and `optional()` from `@vite-hub/content/collections`,
 // which the owner root keeps out because they need the optional Workspace peer.
 const consolidatedOwnerExports = new Set([
-  "@vite-hub/blob/ensure",
-  "@vite-hub/blob/reference",
   "@vite-hub/content/collections",
   "@vite-hub/docs/navigation",
   "@vite-hub/source/drizzle",
@@ -106,6 +102,8 @@ const consolidatedOwnerExports = new Set([
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/comments/testing",
+  // Comments imports the guard of public writes; apps use defineForm().
+  "@vite-hub/forms/guard",
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",
@@ -249,7 +247,7 @@ describe("framework package contract", () => {
     expect(frameworkAuthHandler).toBe(ownerAuthHandler);
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
-    expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);
+    expect(frameworkBlobClient.detectContentType).toBe(ownerBlobClient.detectContentType);
     expect(frameworkBlobMedia.responsiveImage).toBe(ownerBlobMedia.responsiveImage);
     expect(frameworkBlobClient.createMultipartUploader).toBe(ownerBlobClient.createMultipartUploader);
     expect(frameworkBlobVue.useUpload).toBe(ownerBlobVue.useUpload);
@@ -323,7 +321,6 @@ describe("framework package contract", () => {
       "./operations",
       "./skills",
       "./source/vite",
-      "./task",
       "./test",
       "./ui/vite",
     ]);
