@@ -1562,7 +1562,13 @@ export default defineConfig({
 :::
 ::
 
-It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/docs/plugins/admin) and the [Auth event log](/docs/auth/events), which records each start and stop. Without app Auth, the build stops with `VITE_HUB_B0005`.
+It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/docs/plugins/admin) and the [Auth event log](/docs/auth/events), which records each start and stop. Without app Auth, the build stops with `VITE_HUB_B0005`. This example keeps users and events in a Database Definition named `auth`:
+
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
