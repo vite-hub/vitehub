@@ -187,7 +187,7 @@ describe("drizzle runtime", () => {
     const script = [
       'const { db, schema, useDatabase } = await import("@vite-hub/database")',
       'const { databases } = await import("@vite-hub/database/runtime/registry")',
-      'if (useDatabase("default") !== databases.default) throw new Error("expected the default entry")',
+      'try { useDatabase("default"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
       'try { useDatabase("missing"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
       'if (JSON.stringify(schema) !== "{}") throw new Error("expected empty schema fallback")',
       'if (JSON.stringify(databases.default.schema) !== "{}") throw new Error("expected empty default database schema")',
@@ -215,6 +215,46 @@ describe("drizzle runtime", () => {
     expect(() => databases.default.db.run).toThrow(expect.objectContaining({ code: "DATABASE_DISABLED" }))
   })
 
+  it("returns the only Database from useDatabase() without a name", async () => {
+    const { analytics } = createRuntimeDatabaseEntries()
+    runtimeDatabaseEntriesFactory = () => ({ analytics })
+    vi.resetModules()
+
+    const { databases, useDatabase } = await import("../src/runtime/registry.ts")
+
+    expect((useDatabase as (name?: string) => unknown)()).toBe(databases.analytics)
+    expect(() => (useDatabase as (name?: string) => unknown)("default")).toThrow(expect.objectContaining({
+      code: "DATABASE_NOT_FOUND",
+      why: "The database \"default\" is not configured. Database Definitions: \"analytics\".",
+    }))
+  })
+
+  it("asks for a name when several Databases have no default", async () => {
+    const { analytics } = createRuntimeDatabaseEntries()
+    runtimeDatabaseEntriesFactory = () => ({ reports: analytics, analytics })
+    vi.resetModules()
+
+    const { useDatabase } = await import("../src/runtime/registry.ts")
+
+    expect(() => (useDatabase as (name?: string) => unknown)()).toThrow(expect.objectContaining({
+      code: "DATABASE_NAME_REQUIRED",
+      fix: "Pass the database name, for example `useDatabase(\"analytics\")`.",
+      why: "`useDatabase()` without a name returns the default or only database, but the app has several and none is named \"default\": \"analytics\", \"reports\".",
+    }))
+  })
+
+  it("throws DATABASE_NOT_FOUND from useDatabase() when the app has no Database", async () => {
+    runtimeDatabaseEntriesFactory = () => ({})
+    vi.resetModules()
+
+    const { useDatabase } = await import("../src/runtime/registry.ts")
+
+    expect(() => (useDatabase as (name?: string) => unknown)()).toThrow(expect.objectContaining({
+      code: "DATABASE_NOT_FOUND",
+      why: "The database \"default\" is not configured. Database Definitions: none.",
+    }))
+  })
+
   it("keeps db as the default database alias and serves named schemas independently", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-runtime-"))
     runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
@@ -224,9 +264,12 @@ describe("drizzle runtime", () => {
 
     const { databases, useDatabase } = await import("../src/runtime/registry.ts")
 
-    expect((useDatabase as (name: string) => unknown)("analytics")).toBe(databases.analytics)
-    expect(() => (useDatabase as (name: string) => unknown)("toString")).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND" }))
-    expect(() => (useDatabase as (name: string) => unknown)("missing")).toThrow('The database "missing" is not configured.')
+    expect((useDatabase as (name?: string) => unknown)("analytics")).toBe(databases.analytics)
+    expect((useDatabase as (name?: string) => unknown)()).toBe(databases.default)
+    expect(() => (useDatabase as (name?: string) => unknown)("toString")).toThrow(expect.objectContaining({
+      code: "DATABASE_NOT_FOUND",
+      why: "The database \"toString\" is not configured. Database Definitions: \"analytics\", \"default\".",
+    }))
 
     await databases.default.db.run(sql`
       create table if not exists notes (

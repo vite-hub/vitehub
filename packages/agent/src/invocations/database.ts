@@ -143,10 +143,8 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
   return createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
-      // SAFETY: Generated registry types restrict database names; runtime lookup accepts any name and throws when absent.
-      const entry = (useDatabase as (database: string) => { db: RuntimeDatabase } | undefined)(name)
-      if (!entry) throw new TypeError(`[vitehub] Database "${name}" is not configured.`)
-      const runtime = entry.db
+      // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
+      const runtime = (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
       // Runtime proxies can change drivers between requests; validate each operation before any writes.
       for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
       const client = runtime.$client

@@ -73,15 +73,15 @@
       "import": "./dist/internal/server.js",
       "default": "./dist/internal/server.js"
     },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "default": "./dist/server.js"
-    },
     "./seal": {
       "types": "./dist/seal.d.ts",
       "import": "./dist/seal.js",
       "default": "./dist/seal.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",

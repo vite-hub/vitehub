@@ -11,8 +11,8 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `db`, `schema` from `@vite-hub/database` | The Drizzle database and schema of the default Database. |
-| `useDatabase` from `@vite-hub/database` | Get a Drizzle database and its schema by name. |
+| `db`, `schema` from `@vite-hub/database` | The Drizzle database and schema of the Default Database. |
+| `useDatabase` from `@vite-hub/database` | Select a generated Drizzle database and its schema, by name or the only one. |
 | `chunkParameters` from `@vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
 | `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
@@ -22,7 +22,16 @@ icon: i-lucide-code-2
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found). Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
+
+| Call | App Databases | Result |
+| --- | --- | --- |
+| `useDatabase()` | A Default Database, or one Named Database | That Database |
+| `useDatabase()` | Several Named Databases | Throws [`DATABASE_NAME_REQUIRED`](/docs/database/limits-and-errors#database_name_required) |
+| `useDatabase(name)` | A Definition with this name | That Database |
+| `useDatabase(name)` or `useDatabase()` | No Definition with this name, or no Database | Throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found) |
+
+Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database'

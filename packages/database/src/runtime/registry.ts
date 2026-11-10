@@ -1,8 +1,8 @@
 import virtualSchema from "#vitehub/database/schema"
 
-import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { createAgentDatabase } from "./agent.ts"
 import { getRuntimeDatabases } from "./drizzle-runtime.ts"
+import { createUseDatabase } from "./use-database.ts"
 
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "../types.ts"
 
@@ -77,14 +77,21 @@ export const db = deferred(() => getRuntimeDatabases().databases.default.db, tru
 // SAFETY: the generated registry gives the schema type of the default database.
 export const schema = deferred(() => virtualSchema) as DefaultDatabaseEntry["schema"]
 
-/** Returns the Drizzle database and schema of a Database Definition. An unknown name throws `DATABASE_NOT_FOUND`; `"default"` always resolves. */
-export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
+
+/** The Database that `useDatabase()` returns without a name: `default`, else the only one. */
+type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
+  ? "default"
+  : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
+
+/** Returns the default or only Database without a name; unknown or ambiguous names throw with the available choices. */
+export function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
+  ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
+): RuntimeDatabaseRegistry[Name]
+export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
+export function useDatabase(name?: string): RuntimeDatabaseEntry<Record<string, unknown>> {
   const runtime = getRuntimeDatabases()
-  const databaseName: string = name
-  // The default entry always exists. Its `db` throws when the app has no Default Database.
-  if (databaseName !== "default" && !runtime.configured.has(databaseName)) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: databaseName })
-  // SAFETY: the generated registry types each configured name with its schema and dialect.
-  return runtime.databases[name] as RuntimeDatabaseRegistry[Name]
+  return createUseDatabase(runtime.databases, [...runtime.configured])(name)
 }
 
 /** The Database Agent Capability handle. Generated Agent routes pass it to the Capability. */

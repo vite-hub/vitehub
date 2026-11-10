@@ -437,15 +437,15 @@
       "import": "./dist/env/database.js",
       "default": "./dist/env/database.js"
     },
-    "./env/server": {
-      "types": "./dist/env/server.d.ts",
-      "import": "./dist/env/server.js",
-      "default": "./dist/env/server.js"
-    },
     "./env/seal": {
       "types": "./dist/env/seal.d.ts",
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
+    },
+    "./env/server": {
+      "types": "./dist/env/server.d.ts",
+      "import": "./dist/env/server.js",
+      "default": "./dist/env/server.js"
     },
     "./forms": {
       "types": "./dist/forms.d.ts",

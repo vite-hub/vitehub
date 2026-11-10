@@ -5,6 +5,7 @@ interface RenderDatabaseRuntimeModuleOptions {
   imports: string[]
   /** Statements that read the Database Definitions. They run on the first Database access, not when the module loads. */
   setup?: string[]
+  useDatabaseImport: string
 }
 
 /**
@@ -14,7 +15,8 @@ interface RenderDatabaseRuntimeModuleOptions {
  */
 export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModuleOptions): string {
   return [
-    `import { createAgentDatabase, databaseNotFoundError, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
+    `import { createAgentDatabase, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
+    `import { createUseDatabase } from ${JSON.stringify(options.useDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
     ...options.imports,
     "",
@@ -57,8 +59,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "}",
     "export const databases = deferred(resolved)",
     "export function useDatabase(name) {",
-    "  if (name !== \"default\" && !Object.hasOwn(configured(), name)) throw databaseNotFoundError(String(name))",
-    "  return resolved()[name]",
+    "  return createUseDatabase(databases, Object.keys(configured()))(name)",
     "}",
     "export const agentDb = createAgentDatabase(databases)",
     "export const db = deferred(() => resolved().default.db, true)",

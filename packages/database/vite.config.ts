@@ -15,6 +15,7 @@ const privateEntries = new Set([
   "./runtime/libsql-disabled",
   "./runtime/migrate-on-start",
   "./runtime/postgres",
+  "./runtime/use-database",
   "./runtime/virtual-databases",
   "./runtime/virtual-schema",
 ]);
@@ -68,6 +69,7 @@ export default defineConfig({
       "src/runtime/registry.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
+      "src/runtime/use-database.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",
     ],

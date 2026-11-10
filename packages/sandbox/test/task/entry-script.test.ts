@@ -16,6 +16,7 @@ afterEach(async () => {
 })
 
 async function executePackageEntry(definitionSource: string, options: {
+  execution?: 'definition' | 'module'
   input?: unknown
   inputFiles?: Record<number, Uint8Array>
   inputJson?: string
@@ -29,7 +30,7 @@ async function executePackageEntry(definitionSource: string, options: {
   const outputPath = join(root, "output.json")
   await Promise.all([
     writeFile(definitionPath, definitionSource, "utf8"),
-    writeFile(entryPath, (options.prelude ?? "") + createEntrySource(definitionPath, "module"), "utf8"),
+    writeFile(entryPath, (options.prelude ?? "") + createEntrySource(definitionPath, options.execution ?? "module"), "utf8"),
     writeFile(inputPath, options.inputJson ?? JSON.stringify(options.input ?? { context: {}, payload: {} }), "utf8"),
   ])
   if (options.inputFiles) {
@@ -58,6 +59,27 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each(['definition', 'module'] as const)("defaults omitted context for a %s handler", async (execution) => {
+    const handler = "(payload, context) => ({ keys: Object.keys(context), omittedPayload: payload === undefined })"
+    const definition = execution === 'module' ? handler : `{ run: ${handler} }`
+    const result = await executePackageEntry(`export default ${definition}`, { execution, input: {} })
+
+    expect(result.code).toBe(0)
+    expect(result.output).toEqual({ ok: true, result: { keys: [], omittedPayload: true } })
+  })
+
+  it.each(['definition', 'module'] as const)("preserves supplied context for a %s handler", async (execution) => {
+    const handler = "(_payload, context) => context.requestId"
+    const definition = execution === 'module' ? handler : `{ run: ${handler} }`
+    const result = await executePackageEntry(`export default ${definition}`, {
+      execution,
+      input: { context: { requestId: 'request-42' } },
+    })
+
+    expect(result.code).toBe(0)
+    expect(result.output).toEqual({ ok: true, result: 'request-42' })
+  })
+
   it.each([
     ["binary", "new Response(new Uint8Array([0, 127, 255]), { status: 201 })", [0, 127, 255]],
     ["streaming", "new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array([0, 127])); controller.enqueue(new Uint8Array([255])); controller.close() } }), { status: 201 })", [0, 127, 255]],

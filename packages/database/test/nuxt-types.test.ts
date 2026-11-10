@@ -43,6 +43,9 @@ const tableChecks = [
   "export const noteId = (note: Note): number => note.id",
   "export const noteTitle = (note: Note): string => note.title",
   "export type RegisteredNote = ReturnType<typeof useDatabase<'default'>>['schema']['notes']['$inferSelect']",
+  "// Without a name, `useDatabase()` returns the only Database.",
+  "export const unnamedNotes = (use: typeof useDatabase) => use().schema.notes",
+  "export const unnamedNoteId = (note: ReturnType<typeof unnamedNotes>['$inferSelect']): number => note.id",
   "// @ts-expect-error The schema has no comments table.",
   "export type Comment = typeof schema.comments.$inferSelect",
 ]

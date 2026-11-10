@@ -5223,8 +5223,9 @@ describe("Agent Invocations", () => {
   it("shares an unfinished open after its wait times out", async () => {
     vi.useFakeTimers()
     try {
-      const pending = Promise.withResolvers<void>()
-      const open = vi.fn(() => pending.promise)
+      let resolveOpen!: () => void
+      const pending = new Promise<void>(resolve => { resolveOpen = resolve })
+      const open = vi.fn(() => pending)
       const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
       const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
       await vi.advanceTimersByTimeAsync(10_000)
@@ -5232,7 +5233,7 @@ describe("Agent Invocations", () => {
       const next = invocations.list()
       await vi.advanceTimersByTimeAsync(1)
       expect(open).toHaveBeenCalledOnce()
-      pending.resolve()
+      resolveOpen()
       await expect(next).resolves.toMatchObject({ invocations: [] })
       expect(open).toHaveBeenCalledOnce()
     }
