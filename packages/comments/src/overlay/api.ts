@@ -2,7 +2,7 @@ import { commentsApiRoute, commentsRoute } from "../page.ts"
 import { CommentsRestError, createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 
 import type { RestTransport } from "../rest-transport.ts"
-import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentUser } from "../types.ts"
+import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentUser | null
@@ -15,6 +15,10 @@ export interface CommentsSession {
   signOut?: string
   realtime: boolean
   content: boolean
+  /** The subject of the page, which `page` of `defineComments()` decides on the server. */
+  subject?: CommentSubject
+  /** The version of the subject that new threads start on. */
+  revision?: number
 }
 
 export interface CommentsField {
@@ -77,6 +81,8 @@ export const api = {
 export interface OverlayTransportOptions {
   /** The page context of a new thread, which the overlay read when the draft started. */
   contextOf: (input: CommentCreateInput) => CommentContext | undefined
+  /** The version of the subject that `/session` gave for the page. A new thread starts on it. */
+  revisionOf?: () => number | undefined
   /** The people that an answer named, so their mentions get names. */
   onPeople: (people: readonly CommentUser[]) => void
   /** After each change, so the other people on the page read the threads again. */
@@ -103,8 +109,9 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
     ...rest,
     create: changed((input: CommentCreateInput) => {
       const context = options.contextOf(input)
+      const revision = input.revision ?? options.revisionOf?.()
       // SAFETY: `POST /threads` takes the page context of the overlay next to the input of `comments.create`.
-      return rest.create((context ? { ...input, context } : input) as CommentCreateInput)
+      return rest.create({ ...input, ...(context ? { context } : {}), ...(revision === undefined ? {} : { revision }) } as CommentCreateInput)
     }),
     reply: changed(rest.reply),
     edit: changed(rest.edit),
