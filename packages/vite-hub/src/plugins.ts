@@ -48,7 +48,7 @@ import { observabilityVitePlugin, type ObservabilityOptions } from "./observabil
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
-import type { AgentInvocationsDefault } from "./internal/agent-invocations.ts"
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 import type { AuthOptions } from "@vite-hub/auth"
 import type { BlobOptions } from "@vite-hub/blob"
 import type { BrowserOptions } from "@vite-hub/browser/vite"
@@ -78,7 +78,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
-export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "./internal/agent-invocations.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
 export type { BlobOptions } from "@vite-hub/blob"
 export type { BrowserOptions } from "@vite-hub/browser/vite"
@@ -126,6 +126,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
+  // Static Console files that Nitro serves. Generated server code never imports them.
+  "@vite-hub/console-client": false,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,

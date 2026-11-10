@@ -19,6 +19,7 @@ import type {
 } from "../types.ts"
 import type { Message } from "../messages.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { debugInputCommand } from "./input-commands-debug.ts"
 
 export interface InputCommandDeliveryMessage {
   react: (content: string, options?: { transient?: boolean }) => Promise<void>
@@ -58,9 +59,15 @@ export interface InputCommand {
 
 export type InputCommandResult = Partial<AgentRunInput> | Response | string | void
 
-interface ViteHubInputCommandContext {}
+/** The ViteHub Console Runtime Capability, present in the command context when the app enables the Console. */
+export interface InputCommandConsole {
+  /** The Console URL of an Invocation. */
+  invocationUrl: (invocation: { agentName: string, id: string }) => string
+}
 
-interface InputCommandRuntimeContext extends AgentCapabilityRuntimeContext, ViteHubInputCommandContext {
+interface InputCommandRuntimeContext extends AgentCapabilityRuntimeContext {
+  /** Present when the app enables the ViteHub Console. */
+  console?: InputCommandConsole
   invocation: AgentCapabilityRuntimeContext["invocation"] & { id?: string }
   reply: (body: string) => Promise<Response>
 }
@@ -76,7 +83,13 @@ export interface InputCommandRunInput {
 }
 
 export interface InputCommandsOptions {
-  commands: Record<string, InputCommand>
+  /** Required unless `debug` is `true`. */
+  commands?: Record<string, InputCommand>
+  /**
+   * Add `/debug`. It replies with the Console URL of the previous Invocation of the same Agent,
+   * in the same chat thread when the Invocation has one. A `debug` entry in `commands` replaces it.
+   */
+  debug?: boolean
   id?: string
   trigger?: string
 }
@@ -481,7 +494,16 @@ const MAX_NUMERIC_EXPANSION_DEPTH = 1_000_000
 const MAX_NUMERIC_EXPANSION_WORK = 1_000_000
 
 export function inputCommands(options: InputCommandsOptions): AgentCapabilityDefinition {
-  const commands = normalizeInputCommands(options)
+  const debug: unknown = options?.debug
+  if (debug !== undefined && debug !== true && debug !== false) {
+    throw agentDiagnostics.AGENT_R1034({ message: "[vitehub] inputCommands({ debug }) must be true or false." })
+  }
+  const configured: unknown = options?.commands
+  // Leave an invalid command map unchanged so that normalizeInputCommands() reports it.
+  const mergeable = configured === undefined || (!Array.isArray(configured) && Object(configured) === configured)
+  const commands = normalizeInputCommands(debug && mergeable
+    ? { ...options, commands: { debug: debugInputCommand, ...options.commands } }
+    : options)
   const trigger = normalizeInputCommandTrigger(options.trigger)
   return defineCapability({
     id: options.id || "inputCommands",

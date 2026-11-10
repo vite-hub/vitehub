@@ -49,9 +49,9 @@ import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/con
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { createConsoleFixtureInvocations, installConsoleFixtureInvocations } from "../src/console/runtime/server/invocations-fixture.ts"
 import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/invocations/default"
-import { installAgentInvocations } from "../src/internal/agent-invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
-import type { AgentInvocationsDefault } from "../src/internal/agent-invocations.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 import { console as consoleRuntime } from "../src/console/server.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
@@ -63,7 +63,7 @@ import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandlerRoute from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
-import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleClient, installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
@@ -211,6 +211,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 describe("Agent invocation console", () => {
   it("loads versioned invocation fixtures into an in-memory journal", async () => {
@@ -747,7 +750,7 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/page/session",
       ])
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("public/console") }),
+        expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("console-client/dist/client") }),
         expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills") }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
         expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
@@ -4854,12 +4857,26 @@ describe("Agent invocation console", () => {
     ]))
   })
 
-  it("serves the standalone shell with build-replaceable assets and a restrictive non-cacheable policy", async () => {
+  it("asks for @vite-hub/console-client when generated output installed no Console app", async () => {
+    const key = Symbol.for("vitehub.console.client-assets")
+    const installed: unknown = Reflect.get(globalThis, key)
+    Reflect.deleteProperty(globalThis, key)
+    try {
+      const response = await consolePageHandler(event("127.0.0.1"))
+      expect(response.status).toBe(503)
+      expect(await response.text()).toContain("pnpm add @vite-hub/console-client")
+    }
+    finally {
+      Reflect.set(globalThis, key, installed)
+    }
+  })
+
+  it("serves the standalone shell with the installed Console app and a restrictive non-cacheable policy", async () => {
     const response = await consolePageHandler(event("127.0.0.1"))
     const page = await response.text()
 
-    expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
-    expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__")
+    expect(page).toContain('href="/_vitehub/assets/console-test.css"')
+    expect(page).toContain('src="/_vitehub/assets/console-test.js"')
     // Android Chrome shrinks the layout for the software keyboard, so the Agent composer stays above it as on iOS.
     expect(page).toContain('<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">')
     expect(response.headers.get("cache-control")).toBe("no-store")
@@ -4944,9 +4961,9 @@ describe("Agent invocation console", () => {
     request.node!.req!.url = "http://localhost/portal/_vitehub"
     const page = await (await consolePageHandler(request)).text()
 
-    expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
+    expect(page).toContain('href="/portal/_vitehub/assets/console-test.css"')
     expect(page).toContain('src="/portal/_vitehub/api/client.js"')
-    expect(page).toContain('src="/portal/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"')
+    expect(page).toContain('src="/portal/_vitehub/assets/console-test.js"')
     expect(page).not.toContain('href="/_vitehub/assets/')
     expect(page).not.toContain('src="/_vitehub/api/client.js"')
   })
