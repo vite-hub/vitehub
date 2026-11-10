@@ -17,7 +17,6 @@ import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
 import * as ownerBlobClient from "@vite-hub/blob/client";
-import * as ownerBlobContentType from "@vite-hub/blob/content-type";
 import * as ownerBlobMedia from "@vite-hub/blob/media";
 import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
@@ -38,7 +37,6 @@ import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
-import * as frameworkBlobContentType from "vite-hub/blob/content-type";
 import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
@@ -96,8 +94,6 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 // `vite-hub/content` also forwards `documents()` and `optional()` from `@vite-hub/content/collections`,
 // which the owner root keeps out because they need the optional Workspace peer.
 const consolidatedOwnerExports = new Set([
-  "@vite-hub/blob/ensure",
-  "@vite-hub/blob/reference",
   "@vite-hub/content/collections",
   "@vite-hub/docs/navigation",
   "@vite-hub/source/drizzle",
@@ -254,7 +250,7 @@ describe("framework package contract", () => {
     expect(frameworkAuthHandler).toBe(ownerAuthHandler);
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
-    expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);
+    expect(frameworkBlobClient.detectContentType).toBe(ownerBlobClient.detectContentType);
     expect(frameworkBlobMedia.responsiveImage).toBe(ownerBlobMedia.responsiveImage);
     expect(frameworkBlobClient.createMultipartUploader).toBe(ownerBlobClient.createMultipartUploader);
     expect(frameworkBlobVue.useUpload).toBe(ownerBlobVue.useUpload);
@@ -331,7 +327,6 @@ describe("framework package contract", () => {
       "./operations",
       "./skills",
       "./source/vite",
-      "./task",
       "./test",
       "./ui/vite",
     ]);
@@ -375,10 +370,9 @@ describe("framework package contract", () => {
     expect(unclassified.sort()).toEqual([]);
   });
 
-  it("ships every declared export and both CLI names", () => {
+  it("ships every declared export and the one vitehub bin", () => {
     expect(manifest.exports).not.toHaveProperty("./bin");
     expect(manifest.bin).toEqual({
-      "vite-hub": "./dist/bin.js",
       vitehub: "./dist/bin.js",
     });
 
@@ -902,7 +896,7 @@ describe("framework package contract", () => {
     }
   });
 
-  it("runs both distributed CLI entrypoints with clean help streams", async () => {
+  it("runs the distributed CLI entrypoint with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"));
     try {
       const keepAlive = join(root, "keep-alive.mjs");
@@ -920,11 +914,7 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
         ),
         writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
       ]);
-      const entrypoints = [
-        `${packageRoot}/${manifest.bin.vitehub}`,
-        `${repoRoot}/packages/cli/dist/index.js`,
-      ];
-      for (const entrypoint of entrypoints) {
+      for (const entrypoint of [`${packageRoot}/${manifest.bin.vitehub}`]) {
         const { stderr, stdout } = await execFileAsync(process.execPath, [entrypoint, "--help"], {
           cwd: root,
           env: {
@@ -955,7 +945,7 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
       ]);
 
       await expect(
-        execFileAsync(process.execPath, [`${repoRoot}/packages/cli/dist/index.js`], {
+        execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`], {
           cwd: root,
           env: {
             ...process.env,
@@ -972,7 +962,6 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
 
   it("derives deduplicated binary entries from the package manifest", () => {
     expect(distributionBinEntries).toEqual({
-      "vite-hub": "src/bin.ts",
       vitehub: "src/bin.ts",
     });
     expect(distributionEntriesFromManifest(manifest.bin)).toEqual(["src/bin.ts"]);

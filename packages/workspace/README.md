@@ -352,8 +352,7 @@ Bind a standalone Source definition when direct reads, Content, and Workspace
 need the same origin:
 
 ```ts
-import { createSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, glob } from "@vite-hub/source"
 import { defineWorkspace } from "@vite-hub/workspace"
 
 const docs = glob({ cwd: "docs", include: "**/*.md" })
@@ -501,14 +500,13 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
+  plugins: [hubWorkspace({
     store: {
       provider: "cloudflare-artifacts",
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
     },
-  },
+  })],
 })
 ```
 
