@@ -10,16 +10,13 @@ import { describe, expect, it } from "vitest";
 
 import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
-import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
-import * as ownerAuthConsole from "@vite-hub/auth/runtime/console";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
 import * as ownerBlobClient from "@vite-hub/blob/client";
-import * as ownerBlobContentType from "@vite-hub/blob/content-type";
 import * as ownerBlobMedia from "@vite-hub/blob/media";
 import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
@@ -29,7 +26,6 @@ import * as ownerWebContainer from "@vite-hub/web-container";
 import * as ownerWebContainerConnect from "@vite-hub/web-container/connect";
 import * as framework from "vite-hub";
 import * as frameworkAgent from "vite-hub/agent";
-import * as frameworkAgentEve from "vite-hub/_internal/agent/eve";
 import * as frameworkCapabilities from "vite-hub/agent/capabilities";
 import * as frameworkAgentMcp from "vite-hub/agent/mcp";
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
@@ -38,20 +34,18 @@ import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
-import * as frameworkAuthConsole from "vite-hub/_internal/auth/runtime/console";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
-import * as frameworkBlobContentType from "vite-hub/blob/content-type";
 import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
 import * as frameworkRuntimeNode from "vite-hub/runtime/node";
-import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state";
 import * as ownerRuntimeNode from "@vite-hub/runtime/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
+import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/internal/database-runtime-state.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -100,8 +94,6 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 // `vite-hub/content` also forwards `documents()` and `optional()` from `@vite-hub/content/collections`,
 // which the owner root keeps out because they need the optional Workspace peer.
 const consolidatedOwnerExports = new Set([
-  "@vite-hub/blob/ensure",
-  "@vite-hub/blob/reference",
   "@vite-hub/content/collections",
   "@vite-hub/docs/navigation",
   "@vite-hub/source/drizzle",
@@ -110,19 +102,16 @@ const consolidatedOwnerExports = new Set([
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/comments/testing",
+  // Comments imports the guard of public writes; apps use defineForm().
+  "@vite-hub/forms/guard",
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",
-  "@vite-hub/agent/eve",
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
   "@vite-hub/agent/observability/host",
   "@vite-hub/agent/observability/posthog",
-  "@vite-hub/agent/server/github",
-  "@vite-hub/agent/server/workspace",
-  "@vite-hub/blob/config",
-  "@vite-hub/blob/errors",
   "@vite-hub/blob/served",
   "@vite-hub/comments/client",
   "@vite-hub/comments/testing",
@@ -132,7 +121,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
-  "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
@@ -151,64 +139,29 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
-  "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
-  "@vite-hub/agent/runtime/registry",
-  "@vite-hub/agent/runtime/invocations-dev",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
   "@vite-hub/agent/invocations/default",
-  "@vite-hub/agent/operations",
-  "@vite-hub/agent/runtime/workflow",
-  "@vite-hub/agent/server/registry",
   "@vite-hub/auth/runtime/console",
-  "@vite-hub/blob/operations",
+  "@vite-hub/auth/runtime/console",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/comments/runtime/connect",
   "@vite-hub/comments/runtime/connect/node",
-  "@vite-hub/comments/runtime/console",
-  "@vite-hub/content/operations",
-  "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
-  "@vite-hub/database/runtime/d1",
-  "@vite-hub/database/runtime/default-database",
-  "@vite-hub/database/runtime/default-database-postgresql",
-  "@vite-hub/database/runtime/hosted",
-  "@vite-hub/database/runtime/migrate-on-start",
-  "@vite-hub/database/runtime/postgres",
+  "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
-  "@vite-hub/database/runtime/virtual-databases",
-  "@vite-hub/database/runtime/virtual-schema",
-  "@vite-hub/content/runtime/console",
-  "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
-  "@vite-hub/kv/runtime/cloudflare-kv",
-  "@vite-hub/kv/runtime/cloudflare-request-env",
-  "@vite-hub/kv/runtime/nitro-cache",
-  "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
-  "@vite-hub/queue/operations",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
-  "@vite-hub/rate-limit/operations",
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
-  "@vite-hub/schedule/operations",
-  "@vite-hub/schedule/runtime/console",
-  "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
-  "@vite-hub/workflow/operations",
-  "@vite-hub/workspace/operations",
-  "@vite-hub/workflow/runtime/cloudflare-runner",
-  "@vite-hub/workflow/runtime/cloudflare-shared",
-  "@vite-hub/workflow/runtime/cloudflare-vite",
-  "@vite-hub/workflow/runtime/dev-runs",
-  "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
-  "@vite-hub/workflow/runtime/vercel-vite",
 ]);
 
 function sourceForwarderTargets(source: string): string[] | undefined {
@@ -228,7 +181,7 @@ function sourceForwarderTargets(source: string): string[] | undefined {
 }
 
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
-  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
+  const [owner, ...rest] = subpath.replace(/^\.\//, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
 
@@ -276,7 +229,6 @@ describe("framework package contract", () => {
 
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent);
-    expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability);
     expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(
       ownerAgentProcessRuntime.createProcessAgentCapacity,
     );
@@ -293,12 +245,9 @@ describe("framework package contract", () => {
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent);
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat);
     expect(frameworkAuthHandler).toBe(ownerAuthHandler);
-    expect(frameworkAuthConsole.readAuthEventConsoleRecords).toBe(ownerAuthConsole.readAuthEventConsoleRecords);
-    expect(frameworkAuthConsole.listAuthEvents).toBe(ownerAuthConsole.listAuthEvents);
-    expect(frameworkAuthConsole.aggregateAuthEvents).toBe(ownerAuthConsole.aggregateAuthEvents);
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
-    expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);
+    expect(frameworkBlobClient.detectContentType).toBe(ownerBlobClient.detectContentType);
     expect(frameworkBlobMedia.responsiveImage).toBe(ownerBlobMedia.responsiveImage);
     expect(frameworkBlobClient.createMultipartUploader).toBe(ownerBlobClient.createMultipartUploader);
     expect(frameworkBlobVue.useUpload).toBe(ownerBlobVue.useUpload);
@@ -331,7 +280,7 @@ describe("framework package contract", () => {
 
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
-      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+      .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
@@ -344,10 +293,6 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
-      "./_internal/agent/invocations",
-      "./_internal/database/runtime/state",
-      "./_internal/kv/runtime/disabled-upstash",
-      "./_internal/task/operations",
       "./agent",
       "./agent/capabilities",
       "./agent/invocations/database",
@@ -376,7 +321,6 @@ describe("framework package contract", () => {
       "./operations",
       "./skills",
       "./source/vite",
-      "./task",
       "./test",
       "./ui/vite",
     ]);

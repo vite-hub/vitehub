@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createKVCloudflareProvisionStep } from "../src/provision.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
-import type { CloudflareKVStoreConfig, KVModuleOptions } from "../src/types.ts"
+import type { CloudflareKVStoreConfig, KVOptions } from "../src/types.ts"
 
 const credentials = { CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "token" }
 
@@ -210,7 +210,7 @@ describe("KV Cloudflare provision step", () => {
       { driver: "cloudflare-kv-binding" },
       namedStore("app-cache", { namespaceId: "configured-id" }),
       { driver: "upstash", token: "t", url: "https://example.upstash.io" },
-    ] satisfies Array<KVModuleOptions | undefined>) {
+    ] satisfies Array<KVOptions | undefined>) {
       await expect(createKVCloudflareProvisionStep(() => options).plan(context)).resolves.toEqual([])
     }
     expect(handler).not.toHaveBeenCalled()

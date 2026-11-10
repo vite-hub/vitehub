@@ -131,7 +131,7 @@ ViteHub does the rest:
 
 `login` gets a `fetch` that acts as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and does not follow redirects unless `init.redirect` asks for it. `redirectUri` defaults to `http://127.0.0.1/callback`; ViteHub never listens on it. An error that `login` throws becomes a `CONNECTION_PROVIDER` error without its message, because the message could contain the credentials.
 
-Tokens and the client registration stay in memory, so each process signs in again, and the Connections store is not needed. While `credentials` resolves to nothing, the Connection is `disconnected` and requests fail with `CONNECTION_REAUTH_REQUIRED`. Otherwise it is `connected`, and a failed sign-in fails only the request that needed it. The Connection has no connect flow and no key: `authorize()` and `setKey()` reject it, and `revoke()` drops the tokens, so the next request signs in again. Access rules, approvals, dry run, and activity work as for other Connections. The token goes only to `mcp`, the `origins`, and the root URLs of `apis`.
+Tokens and the client registration stay in memory, so each process signs in again, and the Connections store is not needed. While `credentials` resolves to nothing, the Connection is `disconnected` and requests fail with `CONNECTIONS_NOT_CONNECTED`. Otherwise it is `connected`, and a failed sign-in fails only the request that needed it. The Connection has no connect flow and no key: `authorize()` and `setKey()` reject it, and `revoke()` drops the tokens, so the next request signs in again. Access rules, approvals, dry run, and activity work as for other Connections. The token goes only to `mcp`, the `origins`, and the root URLs of `apis`.
 
 ## Define one Connection per instance
 
@@ -210,7 +210,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 The actor module default-exports one of these policies:
 
-- A function `(request, event) => string | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, or `undefined` to reject the request (`403`). Relative module paths resolve from the project root.
+- A function `(request) => string | Response | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request (`403`), or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the Standard Context of the event, so `getStandardContext(request)` and the Auth helpers accept it. Relative module paths resolve from the project root.
 - The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
@@ -234,7 +234,14 @@ hubConnections({ management: { actor: "./server/connections-auth.ts" } });
 
 ### Management routes
 
-`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. Its handler takes a Web `Request` or a request event, and reads the request of an event from `event["~standard"].req`. `actor` is required and gets `(request, event)`.
+`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections` serves these routes. It returns a Fetchable, `{ fetch(request) }`. `actor` is required and gets the `Request`.
+
+```ts
+import { createConnectionsHandler } from "@vite-hub/connections";
+
+const handler = createConnectionsHandler({ actor: "development" });
+const response = await handler.fetch(new Request("http://localhost/_vitehub/connections/connect/google"));
+```
 
 | Route | Use |
 | --- | --- |

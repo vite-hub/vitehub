@@ -62,6 +62,7 @@ import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import { namedAgentChannels } from "./internal/named-channels.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
@@ -497,7 +498,7 @@ export type {
   AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentChannelsOptions,
-  AgentModuleOptions,
+  AgentOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
   AgentOutputRenderer,
@@ -993,7 +994,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\")." })
 }
 
-async function deferAgentWorkflowRecovery<TPayload, TResult>(
+async function startAgentWorkflowRecovery<TPayload, TResult>(
   handle: WorkflowHandle<TPayload, TResult>,
   payload: TPayload,
   options: { id?: string },
@@ -1001,7 +1002,7 @@ async function deferAgentWorkflowRecovery<TPayload, TResult>(
   let failure: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await handle.defer(payload, options)
+      await handle.start(payload, options)
       return
     }
     catch (error) {
@@ -1390,7 +1391,7 @@ async function runAgentAsWorkflow<
         hostDiscovered(context),
         true,
       )
-      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
+      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => startAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agentInvocationName(agent, context) ? { agentName: agentInvocationName(agent, context) } : {}),
           runId,
@@ -1429,7 +1430,7 @@ async function runAgentAsWorkflow<
     // journal signal at the last possible point before accepting the run.
     replayJournal?.abortSignal.throwIfAborted()
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
@@ -2094,7 +2095,7 @@ export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runti
 export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
-export { activeProviderSandbox, agentSettings, withoutForgeAccess } from "./composition.ts"
+export { activeProviderSandbox, agentSettings, recordProviderCheckout, withoutForgeAccess } from "./composition.ts"
 export type { ProviderSandboxSession } from "./composition.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
@@ -2124,9 +2125,21 @@ function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli">
 }
 
 function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
-  inputs: AgentChannelInputs<TRuntimeConfig> | undefined,
+  inputs: AgentChannelInputs<TRuntimeConfig> | readonly string[] | undefined,
 ): AgentChannels<TRuntimeConfig> | undefined {
-  if (!inputs) return inputs
+  if (!inputs) return undefined
+  if (Array.isArray(inputs)) {
+    return namedAgentChannels<TRuntimeConfig>(inputs, (value, name) => {
+      const channel = normalizeAgentChannelInput<TRuntimeConfig>(value)
+      if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] server/channels/${name} must default-export defineChannel() from vite-hub/channels.` })
+      }
+      if (capabilitiesContributeWorkspace(channel.capabilities)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] The Channel "${name}" adds an Agent Workspace, which ViteHub must see in the Agent file. List it inline: channels: { ${name}: channel }.` })
+      }
+      return channel
+    })
+  }
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
@@ -3251,6 +3264,10 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
   const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
   if (configured) return configured
+  // Named lists follow the same per-key layering rules as inline Channel records.
+  if (isRuntimeRecord(options) && Array.isArray(options.channels)) {
+    options = { ...options, channels: normalizeAgentChannels(options.channels) }
+  }
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options, settings => {
     const channels = normalizeAgentChannels(settings.channels)

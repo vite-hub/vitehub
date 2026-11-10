@@ -1,20 +1,20 @@
 ---
 title: Web search
-description: Give an Agent model web search or normalized web search and read tools, with credentials, approval, and driver support.
+description: Let an Agent search the web and read pages, through the model provider or through a search provider that you choose.
 navigation.title: Web search
 navigation.order: 230
 navigation.group: Capabilities
 icon: i-lucide-search
 ---
 
-`webSearch()` gives the Agent web context through one explicit mode.
-Model mode adds the provider-native `web_search` tool, and the model provider runs the search.
-Tool mode adds `web_search` and `web_read` tools that ViteHub runs through one configured search provider and the `@agntn/web` package.
-It does not wrap a Server Primitive.
+`webSearch()` lets an Agent search the web in one of two modes. It wraps no Server Primitive.
+
+- **Model mode** adds the provider's own `web_search` tool, which the provider runs.
+- **Tool mode** adds `web_search` and `web_read`, run by ViteHub through `@agntn/web` and one search provider you configure.
 
 ## Configure web search
 
-Use model mode when the model provider supports provider-native web search.
+Use model mode when the provider supports native web search.
 
 ```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -48,19 +48,26 @@ export default defineAgent({
 
 ## How web search works
 
-Model mode adds the AI SDK provider-defined tool `openai.web_search` under the name `web_search`. The model provider runs the search and returns results to the model.
+Model mode adds the AI SDK tool `openai.web_search` as `web_search`; the provider runs it and gives results to the model.
 
-Tool mode loads `@agntn/web` on the first tool call.
-`web_search` sends the query to the configured provider and returns normalized results with `title`, `url`, and `snippet`.
-`web_read` reads one URL and returns its content as Markdown.
+Tool mode loads `@agntn/web` on the first call:
+
+- `web_search` queries the provider and returns `title`, `url`, and `snippet` results in one shape.
+- `web_read` returns one URL's content as Markdown.
 
 ## Credentials
 
-Tool mode resolves credentials in this order: `provider.apiKey`, `VITEHUB_<PROVIDER>_API_KEY`, then `<PROVIDER>_API_KEY`. ViteHub uppercases the provider name and replaces non-alphanumeric characters with underscores, so `my-search` uses `VITEHUB_MY_SEARCH_API_KEY` before `MY_SEARCH_API_KEY`.
+Tool mode reads the API key from:
+
+1. `provider.apiKey`
+2. `VITEHUB_<PROVIDER>_API_KEY`
+3. `<PROVIDER>_API_KEY`
+
+The provider name is uppercased with non-alphanumerics replaced by underscores, so `my-search` uses `VITEHUB_MY_SEARCH_API_KEY`, then `MY_SEARCH_API_KEY`.
 
 ## Tool inputs
 
-Tool mode rejects properties outside these public input contracts.
+Tool mode rejects input properties not listed here.
 
 ### `web_search`
 
@@ -80,40 +87,41 @@ Tool mode rejects properties outside these public input contracts.
 
 ## Requirements
 
-`webSearch()` requires `mode: 'model'` or `mode: 'tool'`.
-Model mode requires a model-backed Driver whose model provider supports the `openai.web_search` provider tool.
-Tool mode requires the application to install `@agntn/web` and to configure one provider with the credential that the provider requires.
+- `mode: 'model'` or `mode: 'tool'`.
+- Model mode: a model-backed Driver (the part that runs the model) whose provider supports the `openai.web_search` tool.
+- Tool mode: `@agntn/web` in the app and one provider with its credential.
 
 ## Security and approval
 
-Both modes let the Agent send queries to an external service. Tool mode also lets the Agent read any URL that it passes to `web_read`. There is no domain allowlist for `web_read`.
-The credential stays in server code. The Agent sees only tool inputs and results.
-`webSearch()` has no `policy` option, so calls run without an approval step. Use [`fetch()`](/docs/agents/capabilities/fetch) when the Agent should reach only specific endpoints.
+Both modes send queries to an external service. The credential stays in server code; the Agent sees only inputs and results.
+
+> [!WARNING]
+> In tool mode, `web_read` reads any URL, with no domain allowlist. There is no `policy` option, so calls need no approval.
+
+Use [`fetch()`](/docs/agents/capabilities/fetch) to limit the Agent to specific endpoints.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives the provider tool in model mode, or `web_search` and `web_read` in tool mode. |
-| Provider-backed | Receives `web_search` and `web_read` through the private MCP bridge in tool mode. Model mode fails because Provider Agent Drivers do not accept Provider Tool contributions. |
-| Custom-run-backed | Receives the tool-mode tools in the prepared run context; `driver.run` decides whether to call them. |
+| Model-backed | Provider tool in model mode, or `web_search` and `web_read` in tool mode. |
+| Provider-backed | Tool mode through the private MCP bridge. Model mode fails: Provider Drivers do not accept Provider Tool contributions. |
+| Custom-run-backed | Tool-mode tools in the run context. `driver.run` decides whether to call them. |
 
 ## Verify web search
 
-Run `vitehub agent info --agent <name> --json`.
-In tool mode, confirm that `tools` contains a `web-search` entry. Entries use the Capability id. Run one invocation and confirm that the trace shows `web_search` or `web_read` calls.
+Run `vitehub agent info --agent <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
 
-Call `web_search` in tool mode without `@agntn/web` installed during development.
-Confirm that the call fails with a message that asks you to install `@agntn/web` or to use model mode.
+To test the error path, call `web_search` in tool mode without `@agntn/web`. It must fail with a message to install `@agntn/web` or use model mode.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `mode` | `"model" \| "tool"` | required | Uses provider-native model web search or ViteHub-managed search and read tools. |
-| `provider` | `WebSearchProviderInput` | required in tool mode | Provider name or provider options for tool mode. |
+| `mode` | `"model" \| "tool"` | required | Provider-native search, or ViteHub search and read tools. |
+| `provider` | `WebSearchProviderInput` | required in tool mode | Provider name or options. |
 | `provider.name` | `"brave" \| "exa" \| "jina" \| "searxng" \| "serpapi" \| "serpbase" \| "tavily" \| string` | required | Tool-mode web search provider. |
-| `provider.apiKey` | `string \| { unseal() } \| function` | environment | Credential for providers that require one. |
+| `provider.apiKey` | `string \| { unseal() } \| function` | environment | Credential, when required. |
 | `provider.baseURL` | `string` | provider default | Override the provider endpoint. |
 
 ## Related pages

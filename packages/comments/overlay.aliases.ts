@@ -1,6 +1,7 @@
 import { resolve } from "node:path"
 
 export { standaloneUI } from "../ui/src/standalone/vite.ts"
+export { standaloneStyles } from "../ui/src/standalone/stylesheet.ts"
 
 const root = import.meta.dirname
 const ui = resolve(root, "../ui")

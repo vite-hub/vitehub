@@ -45,23 +45,25 @@ icon: i-lucide-key-round
   import { env } from 'vite-hub/env'
 
   export default defineConfig({
-    plugins: [vitehub({ preset: 'node' }), nitro()],
-    env: {
-      // Safe to show in the browser
-      public: {
-        appName: env({ default: 'Acme', mode: 'build' }),
-      },
-      // Only server code can read these
-      server: {
-        github: {
-          token: env({
-            secret: true,
-            source: env.source('GITHUB_TOKEN'),
-          }),
+    plugins: [vitehub({
+      preset: 'node',
+      env: {
+        // Safe to show in the browser
+        public: {
+          appName: env({ default: 'Acme', mode: 'build' }),
         },
-        dryRun: env.boolean({ default: true }),
+        // Only server code can read these
+        server: {
+          github: {
+            token: env({
+              secret: true,
+              source: env.source('GITHUB_TOKEN'),
+            }),
+          },
+          dryRun: env.boolean({ default: true }),
+        },
       },
-    },
+    }), nitro()],
   })
   ```
   ::::
@@ -72,23 +74,25 @@ icon: i-lucide-key-round
   import { env } from 'vite-hub/env'
 
   export default defineConfig({
-    plugins: [vitehub({ preset: 'node' })],
-    env: {
-      // Safe to show in the browser
-      public: {
-        appName: env({ default: 'Acme', mode: 'build' }),
-      },
-      // Only server code can read these
-      server: {
-        github: {
-          token: env({
-            secret: true,
-            source: env.source('GITHUB_TOKEN'),
-          }),
+    plugins: [vitehub({
+      preset: 'node',
+      env: {
+        // Safe to show in the browser
+        public: {
+          appName: env({ default: 'Acme', mode: 'build' }),
         },
-        dryRun: env.boolean({ default: true }),
+        // Only server code can read these
+        server: {
+          github: {
+            token: env({
+              secret: true,
+              source: env.source('GITHUB_TOKEN'),
+            }),
+          },
+          dryRun: env.boolean({ default: true }),
+        },
       },
-    },
+    })],
   })
   ```
   ::::
@@ -139,7 +143,7 @@ icon: i-lucide-key-round
   :::
 
   :::product-feature-item{title="Typed values" icon="i-lucide-sliders-horizontal" to="/docs/env/configure#typed-values"}
-  Turn text from the host into a boolean, a number, or one of a list of choices. A wrong value fails with a clear error.
+  Read host text as a boolean, a number, or one of a list of choices. A wrong value fails with a clear error.
   :::
 
   :::product-feature-item{title="Secrets stay hidden" icon="i-lucide-shield-check" to="/docs/env/server-api#use-it-at-runtime"}
@@ -151,11 +155,11 @@ icon: i-lucide-key-round
   :::
 
   :::product-feature-item{title="Load secrets from your own store" icon="i-lucide-database" to="/docs/env/server-api#read-external-env-storage"}
-  Read values from an outside secret store. Each `loadServerEnv()` call gets fresh values.
+  Read values from an outside secret store. Each `loadServerEnv()` call reads them again.
   :::
 
   :::product-feature-item{title="Change a secret without a redeploy" icon="i-lucide-key-round" to="/docs/env/bridge#replace-a-credential"}
-  Env Bridge lets an admin replace a stored value while the app runs.
+  An admin replaces a stored value while the app runs.
   :::
 ::
 
@@ -163,6 +167,8 @@ icon: i-lucide-key-round
 Use Env to declare public, build-time, server runtime, and secret values with typed accessors. Keep secret values out of source and client bundles.
 
 Use `#vitehub/env/public` in browser-safe code and `#vitehub/env/server` in server code. Provider-backed Env values are read through the declared provider and do not become public automatically.
+
+For a token that the client carries but must not read or change, such as an upload ticket, a signed link, or OAuth state, use `seal()` and `unseal()` from `vite-hub/env`. Do not write your own AES-GCM or HMAC code.
 
 Prove missing, valid, and invalid values in the same host mode you will deploy. Inspect declaration metadata, never secret contents.
 ::

@@ -1,18 +1,18 @@
 ---
 title: Blob media and images
-description: Keep alt text, focal points, and crops next to Blob objects, organize them in folders, and serve responsive image variants.
+description: Keep alt text, focal points, and crops next to Blob files, sort them in folders, and serve responsive image variants.
 navigation.title: Media and images
 navigation.order: 8
 icon: i-lucide-image
 ---
 
-`blob.media` adds media records to every Blob Store. A record holds what an image needs beyond its bytes: dimensions, a content hash, alt text, a caption, a focal point, a placeholder color, and named crops for art direction. The generated serve route turns `?w=640` into a resized variant, and `responsiveImage()` builds the `srcset`, `sizes`, and `<picture>` sources for you.
+`blob.media` adds a media record to each file in a Blob Store. A record holds dimensions, a content hash, alt text, a caption, a focal point, a placeholder color, and named crops. The serve route turns `?w=640` into a resized variant. `responsiveImage()` builds the `srcset`, `sizes`, and `<picture>` sources.
 
-Records are JSON objects in the same store, so they work on every driver, including Vercel Blob, which rejects custom metadata.
+Records are JSON files in the same store, so they work on every driver, even Vercel Blob, which rejects custom metadata.
 
 ## Store media
 
-`blob.media.put()` stores the object, reads its dimensions from the file header, hashes it, and writes its record.
+`blob.media.put()` stores the file, reads its dimensions from the header, hashes it, and writes its record.
 
 ```ts [server/api/media.post.ts]
 import { defineEventHandler } from 'h3'
@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`handleUpload()` reads the `files` form field like `blob.handleUpload()`, stores each file under `folder`, and returns one record per file. It deduplicates by default: when the store already holds the same bytes, it returns the existing record and stores nothing. `media.put()` writes to the pathname you give it unless you pass `dedupe: true`.
+`handleUpload()` reads the `files` form field, stores each file under `folder`, and returns one record per file. If the store already has the same bytes, it returns that record and stores nothing. `media.put()` writes to your pathname unless you pass `dedupe: true`.
 
 ```ts
 const [error, record] = await blob.media.put('posts/cover.jpg', file, {
@@ -60,14 +60,14 @@ A record looks like this:
 }
 ```
 
-- `width` and `height` come from the JPEG, PNG, WebP, GIF, AVIF, or SVG header, after EXIF rotation. Other files have no dimensions. `probeImage()` from `@vite-hub/blob/media` exposes the same parser.
+- `width` and `height` come from the JPEG, PNG, WebP, GIF, AVIF, or SVG header, after EXIF rotation. Other files have none. `probeImage()` from `@vite-hub/blob/media` is the same parser.
 - `color` is the average color, for a placeholder background. It needs an [image transformer](#image-transformers), so passthrough stores leave it out.
 - `focal` runs from 0 to 1 on each axis. `{ x: 0.5, y: 0.5 }` is the center.
-- `url` is the served URL when the store is the [served store](/docs/blob/configure#serve-blob-backed-assets). It is never stored.
+- `url` is set only for the [served store](/docs/blob/configure#serve-blob-backed-assets), and is never stored.
 
 ## Read and edit records
 
-`media.get()` returns the record, or `null` when the object does not exist. When an object has no record, or its ETag changed because something overwrote it with `blob.put()`, `get()` reads the object again, keeps the alt text, caption, focal point, and crops, and stores the new record. So objects that you stored without `blob.media` also have records.
+`media.get()` returns the record, or `null` when the file does not exist. When a file has no record, or `blob.put()` changed its ETag, `get()` rebuilds the record and keeps the alt text, caption, focal point, and crops. So files stored without `blob.media` get records too.
 
 ```ts
 import { blob } from 'vite-hub/blob'
@@ -83,11 +83,11 @@ const [updateError, updated] = await blob.media.update('posts/cover.jpg', {
 if (updateError) throw updateError
 ```
 
-`update()` merges crops by name, and `null` removes one. Changing the focal point or crops clears the cached variants of the object, so the next request crops again.
+`update()` merges crops by name, and `null` removes one. A new focal point or crop clears the cached variants, so the next request crops again.
 
 ## Folders
 
-Folders are pathname prefixes. `media.list()` lists one folder level by default and hides ViteHub's `_vitehub/` folders.
+Folders are pathname prefixes. `media.list()` lists one level by default and hides the `_vitehub/` folders.
 
 ```ts
 import { blob } from 'vite-hub/blob'
@@ -101,13 +101,13 @@ const [removeError] = await blob.media.removeFolder('archive/drafts')           
 const [forceError, removed] = await blob.media.removeFolder('archive/drafts', { force: true }) // removes every object and its record
 ```
 
-An empty folder holds an empty `.keep` object, because object stores have no directories. `media.list()` hides it; `blob.list()` shows it.
+Object stores have no real folders, so an empty folder holds an empty `.keep` file. `media.list()` hides it. `blob.list()` shows it.
 
-List items come from the stored records. An item whose object changed since its record was written lists without dimensions or a hash until `media.get()` reads it again. Listing reads one record per object, so keep `limit` at the default of 100 for large folders.
+List items come from the records. A file that changed after its record lists without dimensions or a hash until `media.get()` reads it again. Listing reads one record per file, so keep `limit` at the default of 100 for large folders.
 
 ## Move and remove
 
-Object stores have no rename. `media.move()` copies the object, its record, and its crop replacements, then deletes the originals and the cached variants of both pathnames.
+Object stores have no rename. `media.move()` copies the file, its record, and its crop replacements. Then it deletes the originals and the cached variants of both pathnames.
 
 ```ts
 import { blob } from 'vite-hub/blob'
@@ -117,11 +117,11 @@ const [error, record] = await blob.media.move('posts/cover.jpg', 'posts/2026/cov
 const [removeError] = await blob.media.remove('posts/2026/cover.jpg') // object, record, crops, and variants
 ```
 
-Content that stores a pathname, such as an `image()` field, keeps pointing at the old pathname after a move. Update those references in the same request.
+An `image()` field or other stored pathname still points at the old path after a move. Update it in the same request.
 
 ## Image variants
 
-The generated serve route reads variant parameters from the query string. A request without them serves the original.
+The serve route reads variant parameters from the query string. Without them, it serves the original.
 
 ```text
 /api/_vitehub/blob/posts/cover.jpg?w=640
@@ -138,31 +138,32 @@ The generated serve route reads variant parameters from the query string. A requ
 | `q` | Quality from 1 to 100. PNG stays lossless. | `blob.images.quality`, 75 |
 | `crop` | A crop name of the record. Unknown names serve the uncropped image. | None |
 
-Widths and heights snap up to the nearest allowed size, 16 through 3840 by default, and variants never upscale. `?w=641` and `?w=700` both return the 750-pixel variant, so a client cannot fill the cache with arbitrary sizes. Use a named crop when you need an exact aspect ratio. Invalid values return status 400; other query parameters, such as a cache-busting `?v=`, are ignored.
+Sizes snap up to the nearest allowed size, 16 through 3840 by default, and never upscale. `?w=641` and `?w=700` both return the 750-pixel variant, so a client cannot fill the cache with random sizes. For an exact aspect ratio, use a named crop. Invalid values return 400. Other parameters, such as a cache-busting `?v=`, are ignored.
 
-Variants are cached under `_vitehub/derived/` like every [transformed object](/docs/blob/server-api#serve-a-transformed-object). The ETag covers the source version, the crop region, the output size, the format, and the transformer, so a new focal point produces a new ETag. JPEG, PNG, WebP, and AVIF sources get variants. GIF and SVG sources serve the original, because a variant would drop animation or vector detail.
+Variants are cached under `_vitehub/derived/` like every [transformed object](/docs/blob/server-api#serve-a-transformed-object). The ETag covers the source version, crop region, output size, format, and transformer, so a new focal point gives a new ETag. JPEG, PNG, WebP, and AVIF sources get variants. GIF and SVG serve the original, to keep animation and vector detail.
 
 In your own routes, pass the variant to `blob.serve()`:
 
 ```ts fragment
 import { blob, parseImageVariant } from '@vite-hub/blob'
 
-const [error, stream] = await blob.serve(event, pathname, {
-  variant: parseImageVariant(getQuery(event)) ?? { width: 640 },
+const url = new URL(request.url)
+return blob.serve(request, pathname, {
+  variant: parseImageVariant(url.searchParams) ?? { width: 640 },
 })
 ```
 
 ### Image transformers
 
-`blob.images.transformer` picks how variants are made. The default, `auto`, checks per request.
+`blob.images.transformer` picks how variants are made. The default, `auto`, checks on each request.
 
 | Host | `auto` uses | Notes |
 | --- | --- | --- |
-| Node, Docker, Vercel functions | sharp, when the project installs it | The generated Nitro plugin imports sharp, so Nitro bundles or traces it. Run `pnpm add sharp`. |
-| Cloudflare Workers | The `IMAGES` binding, when the Worker has it | Set `transformer: 'cloudflare-images'` and ViteHub adds the binding to the generated Worker config. Cloudflare bills transformations. |
-| Any host without sharp or the binding | Passthrough | Variant URLs serve the original bytes and type. Dimensions and hashes still work. |
+| Node, Docker, Vercel functions | sharp, when it is installed | The Nitro plugin imports sharp, so Nitro bundles or traces it. Run `pnpm add sharp`. |
+| Cloudflare Workers | The `IMAGES` binding, when the Worker has it | With `transformer: 'cloudflare-images'`, ViteHub adds the binding to the Worker config. Cloudflare bills transformations. |
+| Any host without sharp or the binding | Passthrough | Variant URLs serve the original file. Dimensions and hashes still work. |
 
-Set `transformer: 'photon'` to make variants with WebAssembly on Workers and Node. See [Photon on Workers and Node](#photon-on-workers-and-node).
+Set `transformer: 'photon'` to make variants with WebAssembly on Workers and Node. See [Photon](#photon-on-workers-and-node).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -221,13 +222,18 @@ export default defineConfig({
 :::
 ::
 
-An explicit `sharp` fails the build when the project cannot resolve sharp. An explicit `cloudflare-images` fails variant requests with `BLOB_R0034` when the binding is missing. `images: false` always serves originals. To use another image service, pass an object with `name` and `transform(input, operation)` as `images` to `createBlobStorage()`. The operation has the region to cut, the exact output size, the format, and the quality.
+- `sharp` fails the build when sharp is not installed.
+- `cloudflare-images` fails variant requests with `BLOB_R0034` when the binding is missing.
+- `images: false` always serves originals.
 
-Passthrough keeps the `srcset` URLs valid, but every candidate downloads the full original. Install sharp, add the binding, or use Photon before you rely on variants for page weight.
+For another image service, pass `{ name, transform(input, operation) }` as `images` to `createBlobStorage()`. The operation has the region to cut, the output size, the format, and the quality.
+
+> [!WARNING]
+> With passthrough, `srcset` URLs still work, but each one downloads the full original. To make pages lighter, install sharp, add the binding, or use Photon.
 
 ### Photon on Workers and Node
 
-The `photon` transformer makes variants with [`@cf-wasm/photon`](https://github.com/fineshopdesign/cf-wasm/tree/main/packages/photon), a Rust image library compiled to WebAssembly. It runs on Cloudflare Workers without a paid binding, and on Node. Install it in the app and select it:
+The `photon` transformer uses [`@cf-wasm/photon`](https://github.com/fineshopdesign/cf-wasm/tree/main/packages/photon), a Rust image library compiled to WebAssembly. It runs on Node, and on Cloudflare Workers without a paid binding. Install it and select it:
 
 ```sh
 pnpm add @cf-wasm/photon
@@ -290,32 +296,32 @@ export default defineConfig({
 :::
 ::
 
-Photon reads JPEG, PNG, WebP, and GIF sources. It turns JPEG images upright from their EXIF orientation, cuts the region, resizes to the exact size, and writes only pixels, so EXIF, GPS, and other metadata of the source do not reach the variant. Each step frees the previous image from WebAssembly memory.
+Photon reads JPEG, PNG, WebP, and GIF. It turns JPEG images upright from their EXIF orientation, cuts the region, and resizes. It writes only pixels, so EXIF, GPS, and other source metadata stay out of the variant. Each step frees the previous image from WebAssembly memory.
 
 | Output | Result |
 | --- | --- |
 | `fmt=jpeg` | JPEG at the requested quality. Use it for photos. |
 | `fmt=png` | PNG without loss. |
-| `fmt=webp` | WebP without loss. `q` has no effect, and a photo is often several times larger than its JPEG. |
+| `fmt=webp` | WebP without loss. `q` does nothing, and a photo is often several times larger than its JPEG. |
 | `fmt=avif` | Fails with `BLOB_R0036`. Photon cannot write AVIF. |
 
 `responsiveImage()` requests WebP unless you pass `format`, so pass `format: 'jpeg'` for photos.
 
-Photon decodes the full source before it resizes, with about 19 bytes of WebAssembly memory per source pixel. A Worker has 128 MB for everything, so Photon rejects a source over 10 MiB or over 4 megapixels, such as 2400 × 1600, with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU time per variant, so the Workers Free plan's 10 ms limit is too low. Variants are cached after the first request.
+Photon decodes the full source first, at about 19 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
 
-The generated Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. No app configuration is necessary:
+The Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
 
-- On Cloudflare, Nitro's Worker presets emit `photon_rs_bg.wasm` as a separate module and import it, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
-- On Node, the package's `node` entry embeds the WebAssembly module in JavaScript and compiles it on the first variant.
-- In `vite dev` with Cloudflare emulation, workerd does not let code compile WebAssembly at runtime, so variants fail with `BLOB_R0034`. Use a Node preset in development, or run the built Worker with `wrangler dev`.
+- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
+- On Node, the `node` entry embeds the WebAssembly in JavaScript and compiles it on the first variant.
+- In `vite dev` with Cloudflare emulation, workerd blocks WebAssembly compiled at runtime, so variants fail with `BLOB_R0034`. Use a Node preset in development, or run the built Worker with `wrangler dev`.
 
-`auto` never selects Photon, even when it is installed. Choose it explicitly, because it adds 1.5 MB to the Worker, it rejects large photos where passthrough serves them, and it changes the engine in every variant cache key. An explicit `photon` fails the build with `BLOB_B0007` when the project cannot resolve `@cf-wasm/photon`.
+`auto` never selects Photon, even when it is installed. Photon adds 1.5 MB to the Worker, rejects large photos that passthrough serves, and changes the engine in every variant cache key. An explicit `photon` fails the build with `BLOB_B0007` when `@cf-wasm/photon` is not installed.
 
 ## Art direction
 
-A crop names an aspect ratio, such as a 4:5 image for narrow screens. Without anything else, ViteHub cuts the largest region with that aspect around the crop's focal point, or the record's focal point.
+A crop names an aspect ratio, such as 4:5 for narrow screens. ViteHub cuts the largest region with that aspect around the crop's focal point, or the record's focal point.
 
-When a generated crop is not good enough, upload a replacement for that crop. ViteHub stores it under `_vitehub/media/crops/` and serves it for `?crop=mobile` at the same URL.
+When a generated crop is not good enough, upload a replacement. ViteHub stores it under `_vitehub/media/crops/` and serves it for `?crop=mobile` at the same URL.
 
 ```ts fragment
 const [replaceError] = await blob.media.replaceCrop('posts/cover.jpg', 'mobile', portraitFile) // a new crop takes the file's aspect
@@ -326,7 +332,7 @@ Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their cente
 
 ## Responsive images
 
-`responsiveImage()` from `@vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It is framework-neutral and safe to import in the browser.
+`responsiveImage()` from `@vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It works with any framework and in the browser.
 
 ```ts [server/api/posts/[slug].get.ts] fragment
 import { blob, responsiveImage } from '@vite-hub/blob'
@@ -362,7 +368,7 @@ defineProps<{ image: ResponsiveImage }>()
 </template>
 ```
 
-`img` has `src`, `srcset`, `sizes`, `width`, `height`, `alt`, `loading`, `decoding`, and a `style` with `object-position` from the focal point and the placeholder `background-color`. The `srcset` stops at the source width. Each art-direction source has its own `width` and `height`, so the browser reserves the right box on every screen.
+`img` has `src`, `srcset`, `sizes`, `width`, `height`, `alt`, `loading`, `decoding`, and a `style` with the focal point as `object-position` and the placeholder `background-color`. The `srcset` stops at the source width. Each art-direction source has its own `width` and `height`, so the browser saves the right space on every screen.
 
 Preload the largest image above the fold with unhead:
 
@@ -372,7 +378,7 @@ useHead({
 })
 ```
 
-When you configure custom `blob.images.sizes`, pass the same values as `widths`. The server snaps other widths anyway.
+With custom `blob.images.sizes`, pass the same values as `widths`. The server snaps other widths anyway.
 
 ## Media in Content
 
@@ -382,36 +388,36 @@ When you configure custom `blob.images.sizes`, pass the same values as `widths`.
 const [, record] = await blob.media.get(entry.cover) // accepts the reference object
 ```
 
-References stay portable in Markdown frontmatter and JSON, and an alt-text fix in the [Console media library](/docs/content/console#media-library) shows on every page that uses the image. Copying alt text or dimensions into each document would go stale when an editor changes the record. Write alt text into the document only when it differs per use.
+References stay portable in Markdown frontmatter and JSON. An alt-text fix in the [Console media library](/docs/content/console#media-library) shows on every page that uses the image, while copied alt text goes stale. Write alt text into the document only when it differs per use.
 
-The Content section of the Console is a media library over these records: folders, uploads, alt text, the focal point, and crops with replacements, plus a picker for `image()` fields and images in Markdown bodies. See [Media library](/docs/content/console#media-library).
+The media library edits folders, uploads, alt text, focal points, and crops, and has a picker for `image()` fields and Markdown images.
 
-Keep media in its own store when another store holds private files, such as the Content workspace. Serve the media store and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents can upload media but cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
 
 ## Storage layout
 
 | Pathname | Holds |
 | --- | --- |
-| `<pathname>` | The object. |
+| `<pathname>` | The file. |
 | `_vitehub/media/records/<pathname>.json` | Its record. |
-| `_vitehub/media/hashes/<sha256>.json` | The pathname that holds those bytes, for deduplication. |
-| `_vitehub/media/crops/<owner>/<crop>.<hash><ext>` | Crop replacements. `<owner>` is a hash of the object pathname. |
-| `_vitehub/derived/<hash>/<hash>` | Cached variants, prefixed by a JSON header with the transform key. |
-| `<folder>/.keep` | Marker of an empty folder. |
+| `_vitehub/media/hashes/<sha256>.json` | The pathname with those bytes, for deduplication. |
+| `_vitehub/media/crops/<owner>/<crop>.<hash><ext>` | Crop replacements. `<owner>` is a hash of the file pathname. |
+| `_vitehub/derived/<hash>/<hash>` | Cached variants, after a JSON header with the transform key. |
+| `<folder>/.keep` | Marks an empty folder. |
 
-`blob.put()`, signed PUTs, multipart uploads, and `image()` references reject `_vitehub/derived/` and `_vitehub/media/`, and the serve route returns 404 for them.
+`blob.put()`, signed PUTs, multipart uploads, and `image()` references reject `_vitehub/derived/` and `_vitehub/media/`. The serve route returns 404 for them.
 
 ## Consistency
 
-Media operations make several provider calls: the object, then its record, then the hash entry. Writes are last-writer-wins. Two editors who update one record at the same time can overwrite each other's change. Use one editor per item, or serialize edits in your application.
+Each media operation writes the file, then its record, then the hash entry. The last write wins, so two editors on one record at the same time can lose a change. Use one editor per item, or run edits one at a time.
 
 When a call fails midway:
 
-- An object without a record gets a record on the next `media.get()`.
+- A file without a record gets one on the next `media.get()`.
 - A failed `move()` can leave both copies. Run it again with `{ overwrite: true }`, or remove the copy.
-- A record or hash entry without its object is ignored: `get()` returns `null`, and deduplication checks that the object still exists.
+- A record or hash entry without its file is ignored. `get()` returns `null`, and deduplication checks that the file still exists.
 
-Eventually consistent providers can briefly list an object before its record. Records are never authoritative for the bytes; ETags are.
+Eventually consistent providers can briefly list a file before its record. ETags, not records, are the truth for the bytes.
 
 ## Inspect media
 
@@ -421,4 +427,4 @@ pnpm vitehub blob variants posts/cover.jpg
 pnpm vitehub blob list --prefix _vitehub/media/records/
 ```
 
-`media` prints the record, building it when missing. `variants` lists each cached variant with its transform key, such as `image:v1;src=crop:mobile;region=1200,0,800x1000;out=640x800;fmt=webp;q=75;engine=sharp`, its type, and its size. Both accept `--store` and `--json`. In code, `blob.media.variants(pathname)` returns the same list.
+`media` prints the record and builds it when missing. `variants` lists each cached variant with its transform key, such as `image:v1;src=crop:mobile;region=1200,0,800x1000;out=640x800;fmt=webp;q=75;engine=sharp`, its type, and its size. Both accept `--store` and `--json`. In code, `blob.media.variants(pathname)` returns the same list.

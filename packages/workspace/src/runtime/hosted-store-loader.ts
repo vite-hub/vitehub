@@ -1,7 +1,8 @@
 import type { CloudflareArtifactsWorkspaceStoreOptions, GitHubWorkspaceStoreOptions, VercelBlobWorkspaceStoreOptions, WorkspaceStore } from "../core/types.ts"
 
 export type HostedWorkspaceStoreOptions = CloudflareArtifactsWorkspaceStoreOptions | GitHubWorkspaceStoreOptions | VercelBlobWorkspaceStoreOptions
-export type WorkspaceHostedStoreLoader = (options: HostedWorkspaceStoreOptions, workspaceName: string) => WorkspaceStore
+/** Returns `undefined` when no installed hosted store handles `options.provider`. */
+export type WorkspaceHostedStoreLoader = (options: HostedWorkspaceStoreOptions, workspaceName: string) => WorkspaceStore | undefined
 
 const workspaceHostedStoreLoaderKey = Symbol.for("vitehub.workspace.hostedStoreLoader")
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { handleChannelReplayRequest, replayChannel } from "../src/channel-replay.ts"
 import { defineAgent, resolveAgentTriggerInvocation } from "../src/index.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
@@ -12,7 +12,7 @@ function fixture() {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const agent = defineAgent({
     name: "support", runtime: false, invocations, driver: { run: () => "Synthetic answer" },
-    channels: { mailbox: defineChannel("mailbox", {
+    channels: { mailbox: channelAdapter("mailbox", {
       messages: false,
       history: { collection: defineCollection(async () => [{ id: "m1", thread: "t1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id, thread: item => item.thread },
       webhooks: { secretHeader: "x-signature", secretToken: "secret", signature: "github-sha256" },
@@ -68,7 +68,7 @@ describe("trusted Channel replay metadata", () => {
     const key = vi.fn(() => "m1")
     const thread = vi.fn(() => "t1")
     const agent = defineAgent({ runtime: false, driver: { run: () => "answer" }, channels: {
-      mailbox: defineChannel("mailbox", { messages: false,
+      mailbox: channelAdapter("mailbox", { messages: false,
         history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key, thread, trigger: "received" },
         triggers: {
           received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "received" } }) }),
