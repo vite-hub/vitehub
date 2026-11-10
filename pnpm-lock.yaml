@@ -1912,9 +1912,6 @@ importers:
       '@vite-hub/web-container':
         specifier: workspace:*
         version: link:../web-container
-      drizzle-kit:
-        specifier: catalog:database
-        version: 0.31.11
       jiti:
         specifier: catalog:unjs
         version: 2.7.0
@@ -1937,6 +1934,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      drizzle-kit:
+        specifier: catalog:database
+        version: 0.31.11
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
@@ -3421,6 +3421,9 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.22.0)
       '@vite-hub/bundle':
         specifier: workspace:*
         version: link:../bundle
@@ -3825,9 +3828,6 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
-      '@vercel/functions':
-        specifier: catalog:vercel
-        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
@@ -3868,6 +3868,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
