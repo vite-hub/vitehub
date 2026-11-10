@@ -51,6 +51,10 @@
     "typecheck": "vp run --cache -t @vite-hub/bundle#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/bundle#build && vp test"
   },
+  "dependencies": {
+    "nostics": "catalog:runtime",
+    "vue-router": "^5.4.0"
+  },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",

@@ -7,10 +7,10 @@ icon: i-lucide-workflow
 navigation.kind: Guides
 ---
 
-`startAgentInvocation()` starts an Agent and returns a controller. Trusted
-code uses the controller to inspect the child, cancel it, or send it input
-while it runs. Use it when a parent Agent, a Capability tool, or host code must
-control child work after it starts.
+`startAgentInvocation()` starts a child Agent and returns a controller. With
+it, trusted code (a parent Agent, a Capability tool, or host code) can inspect
+the child, cancel it, or send it input while it runs. The controller gives no
+final result to await.
 
 Use [`runAgent()`](/docs/agents/invocations) when you only need the result.
 `runAgent()` runs the child inline and returns `[error, result]` when it
@@ -35,13 +35,13 @@ if (current.outcome === 'available') {
 ```
 
 Each start gets a new, stable `child.id`. `inspect()` returns an `available`
-snapshot or an explicit `unavailable` outcome. An available snapshot has one of
-these states: `pending`, `running`, `completed`, `failed`, or `cancelled`.
+snapshot with state `pending`, `running`, `completed`, `failed`, or
+`cancelled`, or an explicit `unavailable` outcome.
 
-An inline or serverless runtime can become unavailable after its process ends.
-A Workflow-backed child forwards inspection to its Workflow Run while you keep
-the controller. ViteHub does not keep a registry of controllers, and you
-cannot look one up by id later.
+An inline or serverless child can become unavailable after its process ends.
+A Workflow-backed child reads from its Workflow Run while you keep the
+controller. ViteHub keeps no controller registry, so you cannot look one up
+by id later.
 
 ## Cancel active work
 
@@ -53,14 +53,14 @@ if (cancellation.outcome === 'accepted') {
 }
 ```
 
-`accepted` means that the runtime accepted the request. Inspect again to see
-the terminal state. A provider can return `unsupported`. A child that already
-finished returns `invalid-state`.
+`accepted` means the runtime took the request. Inspect again to see the end
+state. A provider can return `unsupported`. A finished child returns
+`invalid-state`.
 
 ## Respond to provider requests
 
-Check `child.support` before you send input. Then check the result, because
-support can change with the lifecycle state.
+Check `child.support` before you send input. Check the result too, because
+support changes with the lifecycle state.
 
 ```ts fragment
 if (child.support.respond) {
@@ -73,31 +73,31 @@ if (child.support.respond) {
 
 | Mode | Use it to | Support |
 | --- | --- | --- |
-| `'respond'` | Answer a pending provider approval or a `data-agent-input` question. | Inline provider runtimes, while the matching request is pending. |
-| `'steer'` | Add text to the active provider turn. The prompt can be a string or a text-only `Message[]`. | When `child.support.steer` is `true`. |
+| `'respond'` | Answer a pending provider approval or a `data-agent-input` question. | Inline provider runtimes, while the request is pending. |
+| `'steer'` | Add text to the active provider turn, as a string or a text-only `Message[]`. | When `child.support.steer` is `true`. |
 | `'follow-up'` | Start another turn. | Not supported yet. |
 
-Steering returns `accepted` when the provider adds the input to the active
-turn. It returns `unsupported` when the provider cannot do this safely, for
-example for input with attachments. An unclear submission or cancellation
-failure returns `invalid-state`. Do not send that input again automatically.
+Steering returns:
 
-Workflow-backed children do not accept input yet. Their runtime adapters do
-not give the same order and lifecycle guarantees.
+- `accepted` when the provider adds the input to the active turn.
+- `unsupported` when the provider cannot do it safely, for example for input with attachments.
+- `invalid-state` for an unclear submission or a cancel failure. Do not resend that input automatically.
+
+Workflow-backed children do not accept input yet, because their adapters lack
+the same order and lifecycle guarantees.
 
 ## Keep child selection in trusted code
 
-The model can call a named application tool. Trusted code selects the Agent
-Definition, and ViteHub assigns the child id. Do not let model input choose
-which Agent runs.
+The model can call a named app tool. Trusted code picks the Agent Definition,
+and ViteHub gives the child id. Do not let model input choose which Agent runs.
 
 When a tool uses `runAgent()` instead, check `error` before it reads
 `result.text` or `result.output`.
 
 ## Hand off input resources
 
-A host integration that allocates input resources, such as uploaded files, can
-pass `onInputHandoff` in the fourth argument:
+If your host creates input resources, such as uploaded files, pass
+`onInputHandoff` in the fourth argument:
 
 ```ts fragment
 const child = await startAgentInvocation(researcher, runtimeContext, input, {
@@ -107,13 +107,12 @@ const child = await startAgentInvocation(researcher, runtimeContext, input, {
 })
 ```
 
-This synchronous callback runs immediately before input can reach the inline
-runtime or the Workflow provider.
+This synchronous callback runs just before input can reach the inline runtime
+or the Workflow provider.
 
-- If the start fails before the callback, the host can remove its new input
-  resources.
+- If the start fails before the callback, the host can remove the new resources.
 - After the callback, the runtime can keep the input even if the start fails.
-  Keep those resources until you know who owns them.
+  Keep the resources until you know who owns them.
 
-The callback does not confirm durable acceptance. It does not replace cleanup
-after a process interruption.
+The callback does not confirm durable acceptance or replace cleanup after a
+process interruption.

@@ -56,7 +56,7 @@ describe("compareBundleReports", () => {
   })
 
   it("lists a group that went away and counts a missing side as 0 bytes", () => {
-    const comparison = compareBundleReports(createBundleReport([after])!, { schemaVersion: 1, build: "empty" })
+    const comparison = compareBundleReports(createBundleReport([after])!, { schemaVersion: 1, build: "empty", findings: [] })
     expect(comparison.server).toMatchObject({ after: { bytes: 0, gzip: 0, startupBytes: 0, startupGzip: 0 }, delta: { bytes: -1020 } })
     expect(comparison.server!.groups.map(group => [group.name, group.change])).toEqual([["h3", "removed"], ["zod", "removed"], ["server/routes", "removed"], ["server", "removed"]])
   })

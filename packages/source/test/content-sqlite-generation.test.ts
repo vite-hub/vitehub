@@ -32,6 +32,8 @@ it.each([
   const handlers = await prepareSourceGeneration({ projectRoot, ...(contentImportBase ? { contentImportBase } : {}) })
   const plugin = join(projectRoot, ".vitehub/content/sqlite.mjs")
   expect(handlers).toContainEqual({ handler: plugin, plugin: true })
+  expect(handlers).toContainEqual({ handler: join(projectRoot, ".vitehub/content/types.mjs"), plugin: true })
+  expect(await readFile(join(projectRoot, ".vitehub/types/content.d.ts"), "utf8")).toBe("export {}\n")
   expect(await readFile(plugin, "utf8")).toContain(`import { sqlite } from ${JSON.stringify(loaded)}\n`)
   expect(await readFile(plugin, "utf8")).toContain("export default () => sqlite\n")
 })
@@ -43,4 +45,16 @@ it("adds no SQLite plugin without the import, and removes a stale one", async ()
   const handlers = await prepareSourceGeneration({ projectRoot })
   expect(handlers.some(handler => handler.handler.endsWith("sqlite.mjs"))).toBe(false)
   await expect(readFile(join(projectRoot, ".vitehub/content/sqlite.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("removes SQLite and Content types artifacts when the Content entry is removed", async () => {
+  const entry = join(projectRoot, "server/content.ts")
+  await writeFile(entry, contentFile("import { sqlite } from 'vite-hub/content/sqlite'"))
+  await prepareSourceGeneration({ projectRoot })
+  await rm(entry)
+
+  expect(await prepareSourceGeneration({ projectRoot })).toEqual([])
+  for (const path of [".vitehub/content/sqlite.mjs", ".vitehub/content/types.mjs", ".vitehub/types/content.d.ts"]) {
+    await expect(readFile(join(projectRoot, path), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  }
 })

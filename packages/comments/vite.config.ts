@@ -30,6 +30,8 @@ export default defineConfig({
         "src/vite.ts",
       ],
       exports: {
+        // Generated code imports these modules by path. They are not public API.
+        exclude: ["operations", "runtime/console"],
         customExports: normalizePackageExports,
         inlinedDependencies: false,
       },

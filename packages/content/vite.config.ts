@@ -12,6 +12,8 @@ export default defineConfig({
     },
     entry: ["src/cli.ts", "src/client.ts", "src/collections.ts", "src/database.ts", "src/editor.ts", "src/index.ts", "src/operations.ts", "src/realtime.ts", "src/runtime/console.ts", "src/sqlite.ts", "src/sqlite-workerd.ts", "src/vite.ts"],
     exports: {
+      // Generated code imports these modules by path. They are not public API.
+      exclude: ["operations", "runtime/console"],
       customExports(exports) {
         const { "./sqlite-workerd": _workerd, ...entries } = exports
         return normalizePackageExports(Object.fromEntries(Object.entries(entries).map(([key, value]) => {
