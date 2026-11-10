@@ -272,6 +272,8 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
+    // The prebuilt Console app. `vite-hub` serves it at `/_vitehub` when the app installed it.
+    packages: ["@vite-hub/console-client"],
     summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
     title: "Console",
   }),

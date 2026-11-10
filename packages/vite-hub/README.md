@@ -17,7 +17,7 @@ pnpm add vite-hub
 
 If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script.
 
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
+`vite-hub` includes Env, Source, Logs, and the Console routes. Every other feature, and the Console app, is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
@@ -27,6 +27,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
+| `console` | `@vite-hub/console-client` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
@@ -214,7 +215,7 @@ import { defineWorkspace } from "vite-hub/workspace";
 import { defineWorkflow } from "vite-hub/workflow";
 ```
 
-The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath, which forwards to the package that owns it.
+The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath. Each feature subpath is `export * from "@vite-hub/<feature>"` and nothing else, so `vite-hub/agent` and `@vite-hub/agent` behave the same. `test/pure-facades.test.ts` enforces it.
 
 Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. File rendering reads only the requested file at runtime; references such as `@./fragment.md` remain literal, so compose any additional Markdown explicitly before rendering. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
@@ -248,7 +249,7 @@ vitehub({
 
 `databaseUrl` takes a `file:` or libSQL URL, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it at runtime, with `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated endpoint. `retention` takes `maxAge`, `maxRecords`, and `maxSize`. The SQLite journal keeps every terminal record by default; the D1 journal defaults to 30 days and 10,000 terminal records and does not support `maxSize`. On a Worker without D1 or a remote URL, the journal stays in memory. `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL` are removed and fail with a message that names the new option. ViteHub does not move records from the old `.vitehub/data/console.sqlite` file. See [the default journal](https://vitehub.dev/docs/agents/invocation-storage#use-the-default-journal).
 
-`getAgentInvocations()` from `vite-hub/agent` returns the app-wide journal. `await getAgentInvocationsDatabase()` opens Drizzle over the default journal on first use, for queries and atomic writes such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. It resolves to `undefined` for another journal store, for `agent.invocations: false`, and for the in-memory journal of a Worker.
+`getAgentInvocations()` from `vite-hub/agent` returns the app-wide journal. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the default journal on first use, for queries and atomic writes such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. It resolves to `undefined` for another journal store, for `agent.invocations: false`, and for the in-memory journal of a Worker.
 
 Set `invocations` on an Agent Definition to record into another journal, such as the app's Database:
 
@@ -260,7 +261,7 @@ export default defineAgent({
 })
 ```
 
-Set `agent: { invocations: "database" }` in the `vitehub()` options to give every Agent Definition from `vite-hub/agent` the same journal. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off. `"memory"` keeps records in the server process. The object form, such as `{ store: "database", database: "journal", content: "content" }`, accepts the other `defineAgentInvocations()` options.
+Set `agent: { invocations: "database" }` in the `vitehub()` options to give every Agent Definition the same journal. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off. `"memory"` keeps records in the server process. The object form, such as `{ store: "database", database: "journal", content: "content" }`, accepts the other `defineAgentInvocations()` options.
 
 The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
