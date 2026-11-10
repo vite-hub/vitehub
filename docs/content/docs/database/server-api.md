@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
 | `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
-| `@vite-hub/database/cli` | The `vitehub db` CLI commands. |
+| `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 
 `vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
 

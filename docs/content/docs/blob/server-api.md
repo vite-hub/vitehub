@@ -14,7 +14,7 @@ icon: i-lucide-code-2
 | `image`, `file` from `vite-hub/blob` | Validate Blob references and describe them as JSON Schema for pickers. |
 | `blob.media` from `vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
 | `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `vite-hub/blob/media` | Image helpers that also run in the browser. `vite-hub/blob` re-exports them. |
-| `detectContentType` from `vite-hub/blob/content-type` | Detect common image and PDF signatures before storage. |
+| `detectContentType` from `vite-hub/blob`, or from `vite-hub/blob/client` in browser code | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `vite-hub/blob` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime config and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob runtime config yourself. |

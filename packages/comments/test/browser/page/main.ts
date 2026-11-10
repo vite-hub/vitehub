@@ -4,6 +4,8 @@ import start from "../../../src/overlay/index.ts"
 document.querySelector(".menu-button")!.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#menu")!.show())
 
 const pill = document.createElement("vitehub-pill")
+// Where the loader docks it, over the page and the comment UI.
+pill.style.cssText = "position:fixed;left:50%;bottom:16px;translate:-50% 0;z-index:2147483001;display:flex;background:#111;color:#eee;border-radius:12px;padding:4px"
 const bar = document.createElement("vitehub-tool")
 bar.slot = "comments"
 pill.append(bar)

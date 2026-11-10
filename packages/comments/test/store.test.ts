@@ -97,3 +97,12 @@ it("removes threads before messages in transactions so an interleaved reply cann
     client.close()
   }
 })
+
+it("inserts one thread when two creates with the same requestId race", async () => {
+  const { store } = await countedStore()
+  const first = { ...thread("First"), requestId: "draft-1" }
+  const [a, b] = await Promise.all([store.createThread(first), store.createThread({ ...thread("First"), requestId: "draft-1" })])
+  expect(a).toEqual(b)
+  expect(await store.list({ limit: 10 })).toHaveLength(1)
+  expect((await store.createThread({ ...thread("Other scope"), requestId: "draft-1", scope: "doc:guide" })).id).not.toBe(a.id)
+})

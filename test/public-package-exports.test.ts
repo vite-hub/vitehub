@@ -26,9 +26,9 @@ describe("public package export contracts", () => {
 
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
-    expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(server).toContain("fetch(request: Request): Promise<Response>")
     expect(content).toContain("fetch(request: Request): Promise<Response>")
-    expect(server).toContain("(event: unknown): Promise<unknown>")
+    expect(server).not.toContain('from "h3"')
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain('from "h3"')
@@ -229,10 +229,12 @@ describe("public package export contracts", () => {
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
     const manifest = readPackageManifest("auth")
-    for (const dependency of ["@cloudflare/workers-types", "@types/node", "bun-types"]) {
-      expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@types/node"], "auth should install @types/node").toEqual(expect.any(String))
+    for (const dependency of ["@cloudflare/workers-types", "bun-types"]) {
+      expect(manifest.dependencies?.[dependency], `auth should not install ${dependency}`).toBeUndefined()
     }
     const hostDeclarations = readFileSync(join(packageDir("auth"), "src/host-declarations.d.ts"), "utf8")
+    expect(hostDeclarations).toContain('/// <reference path="./bun-sqlite.d.ts" />')
     expect(hostDeclarations).toContain("interface Timer")
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })
