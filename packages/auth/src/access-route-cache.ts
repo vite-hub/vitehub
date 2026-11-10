@@ -1,4 +1,4 @@
-import { prefixApplicationPath } from "./application-path.ts"
+import { resolveAccessRoutePath } from "./application-path.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { normalizeRouteRules } from "h3/rules"
@@ -29,11 +29,15 @@ function appliesTo(entry: RouteRuleEntry, method: string): boolean {
   return !entry.method || entry.method === method || (method === "HEAD" && entry.method === "GET")
 }
 
-/** The guarded pattern below the base URL, as the access middleware mounts it. `/**` also matches the path itself. */
+/**
+ * The rou3 pattern of the paths that the access middleware guards for a route. The middleware matches the path
+ * literally, so the pattern escapes every character that rou3 reads as syntax. In rou3, `/**` also matches the path
+ * itself.
+ */
 function accessRoutePattern(route: string, baseURL: string): string {
-  if (!route.endsWith("/**")) return prefixApplicationPath(baseURL, route)
-  const mounted = prefixApplicationPath(baseURL, route.slice(0, -3)).replace(/\/$/, "")
-  return `${mounted}/**`
+  const { path, recursive } = resolveAccessRoutePath(route, baseURL)
+  const literal = path.replace(/[\\:(){}*?+]/g, "\\$&")
+  return recursive ? `${literal}/**` : literal
 }
 
 /**

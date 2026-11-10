@@ -43,7 +43,7 @@ type NitroConfig = Record<string, unknown>
 type NitroHandler = { handler: string; lazy?: boolean; method?: string; middleware?: boolean; route: string }
 type NitroBuild = {
   hooks: { hook: (name: "build:before" | "build:config" | "build:reload", callback: () => Promise<void>) => void }
-  logger: { error: (error: unknown) => void }
+  logger: { warn: (error: unknown) => void }
   options: { baseURL?: string, builder?: string | false, routeRules: Parameters<typeof assertNoCachedAccessRoutes>[1] }
 }
 
@@ -306,20 +306,13 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
-        let checked = nitro.options.routeRules
-        const check = async () => {
-          await assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
-          checked = nitro.options.routeRules
-        }
+        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
         // A bundler calls `build:config` after every `build:before` hook, such as Nuxt's `nitro:build:before`, and before
         // it builds or prerenders. Without a builder, Nitro calls only `build:before`.
         nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", check)
-        // In development, `nitro.updateConfig()` replaces the route rules and calls only `build:reload`, without waiting.
-        // Keep the last checked rules, so that the reload does not cache a guarded route, and log the error.
-        nitro.hooks.hook("build:reload", () => check().catch((error: unknown) => {
-          nitro.options.routeRules = checked
-          nitro.logger.error(error)
-        }))
+        // In development, `nitro.updateConfig()` replaces the route rules and calls only `build:reload`. The development
+        // server keeps the new rules and logs the error as a warning.
+        nitro.hooks.hook("build:reload", () => check().catch((error: unknown) => nitro.logger.warn(error)))
       },
     }]
   }

@@ -33,16 +33,16 @@ type NitroHook = (...args: unknown[]) => unknown
 /** A Nitro instance with the hooks, options, and logger that the Auth Nitro module reads. */
 function createNitro(routeRules: RouteRules, baseURL = "/", builder: string | false = "vite") {
   const hooks = new Map<string, NitroHook[]>()
-  const errors: unknown[] = []
+  const warnings: unknown[] = []
   const nitro = {
     hooks: {
       hook: (name: string, callback: NitroHook) => { hooks.set(name, [...hooks.get(name) ?? [], callback]) },
       callHook: async (name: string, ...args: unknown[]) => { for (const callback of hooks.get(name) ?? []) await callback(...args) },
     },
-    logger: { error: (error: unknown) => { errors.push(error) } },
+    logger: { warn: (error: unknown) => { warnings.push(error) } },
     options: { baseURL, builder, routeRules },
   }
-  return { errors, nitro }
+  return { nitro, warnings }
 }
 
 type TestNitro = ReturnType<typeof createNitro>["nitro"]
@@ -158,23 +158,33 @@ describe("Auth access routes with cache route rules", () => {
     await expect(runBuildHooks(nitro)).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
-  it("keeps the last checked route rules when a development update caches a guarded route", async () => {
+  it("reads guard paths literally, as the access middleware matches them", async () => {
+    // The access middleware matches `(`, `)`, `:`, and `*` in a guard path as literal characters.
+    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/\\(drafts\\)/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/reports/(drafts)'"], { "/reports/\\(drafts\\)": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/:name'"], { "/files/:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/drafts/**": { swr: 60 } })).resolves.toBeUndefined()
+    await expect(buildViteApp(["'/files/:name'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
+    await expect(buildViteApp(["'/files/*'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
+  })
+
+  it("logs a warning and keeps the route rules when a development update caches a guarded route", async () => {
     const root = await createProject(["'/dashboard/**'"])
-    const { errors, nitro } = createNitro({ "/blog/**": { swr: 60 } })
+    const { nitro, warnings } = createNitro({ "/blog/**": { swr: 60 } })
     await installNitroModules(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), nitro)
     await runBuildHooks(nitro)
-    const checked = nitro.options.routeRules
-    let served: RouteRules | undefined
-    nitro.hooks.hook("build:reload", () => { served = nitro.options.routeRules })
-    // `nitro.updateConfig({ routeRules })` replaces the route rules, then calls `build:reload`.
-    nitro.options.routeRules = { "/dashboard": { swr: 60 } }
-    await nitro.hooks.callHook("build:reload")
-    expect(errors).toEqual([expect.objectContaining({ code: "AUTH_B0002" })])
-    expect(served).toBe(checked)
-    nitro.options.routeRules = { "/dashboard": { cache: false } }
-    await nitro.hooks.callHook("build:reload")
-    expect(errors).toHaveLength(1)
-    expect(served).toEqual({ "/dashboard": { cache: false } })
+    const served: RouteRules[] = []
+    nitro.hooks.hook("build:reload", () => { served.push(nitro.options.routeRules) })
+    // `nitro.updateConfig({ routeRules })` replaces the route rules, then calls `build:reload` without waiting for it,
+    // so two updates can overlap.
+    const routeRuleUpdates: RouteRules[] = [{ "/news": { swr: 60 } }, { "/dashboard": { swr: 60 } }]
+    const updates = routeRuleUpdates.map((routeRules) => {
+      nitro.options.routeRules = routeRules
+      return nitro.hooks.callHook("build:reload")
+    })
+    await Promise.all(updates)
+    expect(warnings).toEqual([expect.objectContaining({ code: "AUTH_B0002" })])
+    expect(served).toEqual([{ "/dashboard": { swr: 60 } }, { "/dashboard": { swr: 60 } }])
   })
 
   it("fails the Nuxt build when a route rule caches a guarded route", async () => {

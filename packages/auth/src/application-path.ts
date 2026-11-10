@@ -18,5 +18,20 @@ export function prefixApplicationPath(baseURL: string, path: string): string {
 
 /** Prefix an application path, such as the Auth Base Path, with the application base path. */
 export function resolveAuthMountPath(path: string): string {
-  return prefixApplicationPath(typeof __VITEHUB_AUTH_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_AUTH_APP_BASE_URL__, path)
+  return prefixApplicationPath(authApplicationBaseURL(), path)
+}
+
+function authApplicationBaseURL(): string {
+  return typeof __VITEHUB_AUTH_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_AUTH_APP_BASE_URL__
+}
+
+/**
+ * The path that an access route guards below the base URL, as the access middleware matches it. A route that ends with
+ * `/**` is recursive: it guards `path` and every path below it, and an empty `path` guards every path. All other
+ * characters of the route are literal.
+ */
+export function resolveAccessRoutePath(route: string, baseURL = authApplicationBaseURL()): { path: string, recursive: boolean } {
+  const recursive = route.endsWith("/**")
+  const resolved = prefixApplicationPath(baseURL, recursive ? route.slice(0, -3) : route)
+  return { path: recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved, recursive }
 }
