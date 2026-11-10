@@ -44,19 +44,19 @@ pnpm add @formisch/vue
 | `submit-label` | `Send` | The text of the button. |
 | `sent-message` | `Thanks. Your message was sent.` | The text after a send. The `sent` slot replaces it. |
 | `error-message` | `The message was not sent. Check the form and try again.` | The text after a post without JavaScript that the server refused. |
-| `result` | | `sent` or `error`: the `form` query of the page after a post without JavaScript. |
+| `result` | | The `form` query of the page after a post without JavaScript, such as `contact.sent`. A result of another form is ignored. |
 | `honeypot` | `website` | The honeypot field of `defineForm()`. `false` leaves it out. |
 | `anchor` | | The selected sentence, sent as `_anchor`. |
 
 The Console shows the text of a message from the first of these fields: `message`, `feedback`, `details`, `description`, `comment`, `body`, `text`, `notes`, `note`, or `workflow`. Give the long field of a form one of these names. `vitehub forms get` shows every field.
 
-The form posts to its route also before the app loads, or without JavaScript. The server sends the browser back with `?form=sent` or `?form=error`. Pass that query as `result`, so a server-rendered page shows the result before JavaScript runs. Without `result`, `AutoForm` reads the query when it mounts, which needs JavaScript:
+The form posts to its route also before the app loads, or without JavaScript. The server sends the browser back with `?form=<name>.sent` or `?form=<name>.error`, so two forms on one page keep their results apart. Pass that query as `result`, so a server-rendered page shows the result before JavaScript runs. Without `result`, `AutoForm` reads the query when it mounts, which needs JavaScript. It then removes the query, so a reload does not show the result again:
 
 ```vue [app/pages/contact.vue] fragment
 <script setup lang="ts">
 const route = useRoute()
-// The query can be any text, so keep only the two results.
-const result = computed(() => route.query.form === 'sent' || route.query.form === 'error' ? route.query.form : undefined)
+// AutoForm keeps only `contact.sent` and `contact.error`.
+const result = computed(() => typeof route.query.form === 'string' ? route.query.form : undefined)
 </script>
 
 <template>
@@ -91,8 +91,9 @@ const { send, sent } = useFormSubmit('feedback', form)
   <Form :of="form" @submit="() => send()">
     <Field v-slot="field" :of="form" :path="['message']">
       <label for="feedback-message">Message</label>
-      <textarea id="feedback-message" v-model="field.input" v-bind="field.props" :aria-describedby="field.errors ? 'feedback-message-error' : undefined" />
-      <p v-if="field.errors" id="feedback-message-error">{{ field.errors[0] }}</p>
+      <textarea id="feedback-message" v-model="field.input" v-bind="field.props" :aria-invalid="field.errors ? 'true' : undefined" :aria-describedby="field.errors ? 'feedback-message-error' : undefined" />
+      <!-- Formisch focuses the field before its error renders, so the error announces itself -->
+      <p v-if="field.errors" id="feedback-message-error" role="alert">{{ field.errors[0] }}</p>
     </Field>
     <!-- The rate limit, a server failure, or a network error -->
     <p v-if="form.errors" role="alert">{{ form.errors[0] }}</p>
