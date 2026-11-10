@@ -801,6 +801,7 @@ describe("vitehub", () => {
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
+        i18n: false,
         kv: "vite-hub/kv",
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },

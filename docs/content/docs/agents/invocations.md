@@ -61,14 +61,15 @@ The success value is an `AgentRunResult`:
 In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
 ```ts [server/api/support.post.ts] fragment
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.string() }), body))
   const user = await requireAuthenticatedUser(event)
 
   const [error, result] = await runAgent(support, {
@@ -99,16 +100,16 @@ Without `runtimeContext`, `runAgent()` creates a fresh memo cache and run ID, us
 Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer needs incremental output. It returns `[error, stream]`.
 
 ```ts [server/api/support-stream.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.pipe(v.string(), v.minLength(1)) }), body))
 
-  const [error, response] = await streamAgent(support, { prompt: body.prompt }, {
+  const [error, response] = await streamAgent(support, { prompt }, {
     output: 'ui-message-stream',
     runtimeContext: getRuntimeContext(event),
   })
@@ -139,13 +140,14 @@ A Trigger is a named event that a Capability defines and shapes, such as `chat.m
 
 ```ts [server/api/support-chat.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { text } = await readBody<{ text: string }>(event)
+  const { text } = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
   const runId = crypto.randomUUID()
 
   const output = await streamAgentTrigger(
