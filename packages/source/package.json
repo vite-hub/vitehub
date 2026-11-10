@@ -22,8 +22,6 @@
   },
   "files": [
     "dist",
-    "types",
-    "tsconfig.vite.json",
     "package.json"
   ],
   "type": "module",
@@ -60,8 +58,7 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
-    "./package.json": "./package.json",
-    "./tsconfig": "./tsconfig.vite.json"
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "vp pack",
