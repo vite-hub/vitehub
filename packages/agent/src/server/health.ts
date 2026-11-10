@@ -1,5 +1,4 @@
 import type { AgentInput } from '../types.ts'
-import type { GitHubHost } from './github-host.ts'
 import { createAgentInspectionMetadata } from '../workspace-agent.ts'
 import { createAgentStatusReader } from './provider-status.ts'
 import { readAgentInvocationWorkload } from './invocation-health.ts'
@@ -25,7 +24,11 @@ export interface AgentHealthOptions {
   name: string
   agent: () => AgentInput | Promise<AgentInput>
   process?: { health(): Promise<Pick<AgentHealthReport, 'checkedAt' | 'diagnostics' | 'status' | 'workload'>> }
-  github?: Pick<GitHubHost, 'access' | 'rateLimit'>
+  /** GitHub access of a process host, such as the Babysitter's. Health reports its credentials and rate limit. */
+  github?: {
+    access(input: { fallback: true, signal: AbortSignal }): Promise<unknown>
+    rateLimit(): { resource: string, limit: number, remaining: number, resetAt: number } | undefined
+  }
   console?: () => boolean
   diagnostics?: (signal: AbortSignal) => readonly AgentHealthDiagnostic[] | Promise<readonly AgentHealthDiagnostic[]>
   workload?: () => Record<string, number> | Promise<Record<string, number>>

@@ -4,11 +4,12 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { UserConfig } from "vite"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler, createAgentWebhookWarmup } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
+import { agentRuntimeModule } from "../src/vite.ts"
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 const cleanups: Array<() => Promise<void> | void> = []
@@ -28,7 +29,7 @@ function deferred() {
 function hookAgent(secretToken: () => string) {
   return defineAgent({
     channels: {
-      hook: defineChannel("hook", {
+      hook: channelAdapter("hook", {
         messages: false,
         triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
         webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secretToken, signature: "github-sha256" },
@@ -163,7 +164,7 @@ describe("generated readiness route", () => {
   it("warms every webhook handler and answers from the warm-up state", async () => {
     const { read } = await generate({})
     const route = await read("chat-webhook-route.ts")
-    expect(route).toContain('import { createAgentWebhookWarmup, installChannelsConsoleHost } from "@vite-hub/agent/server/internal"')
+    expect(route).toContain(`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
     expect(route).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
     expect(route).toContain("export const warmWebhookRoutes = () => webhookWarmup.warm()")
     const ready = await read("ready-route.ts")
@@ -180,7 +181,7 @@ describe("generated readiness route", () => {
     expect(preparation).toContain("fetch(request: Request) {")
     expect(preparation).toContain("if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(request.method)")
     expect(preparation).toContain("return preparation.response(request.method)")
-    expect(preparationPlugin).toContain('import { onShutdown } from "@vite-hub/agent/server/internal"')
+    expect(preparationPlugin).toContain(`import { onShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
     expect(preparationPlugin).toContain('onShutdown(nitroApp, "agent.preparation", () => preparation.stop())')
     expect(preparationPlugin).not.toContain('nitroApp.hooks.hook("close"')
     await expect(read("ready-route.ts")).rejects.toMatchObject({ code: "ENOENT" })

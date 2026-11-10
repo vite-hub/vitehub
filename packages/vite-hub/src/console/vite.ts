@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
-import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 
@@ -25,7 +25,7 @@ import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsoleAssetManifestModule, addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
-import { transformConsoleOperationFeatures } from "./operation-features.ts"
+import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -616,9 +616,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers)
       },
     },
-    transform(code) {
-      const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
-      return transformed === undefined ? undefined : { code: transformed, map: null }
+    transform: {
+      filter: consoleOperationFeaturesFilter,
+      handler(code) {
+        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
+        return transformed === undefined ? undefined : { code: transformed, map: null }
+      },
     },
     async config(config, environment) {
       development = environment.command === "serve"
@@ -692,7 +695,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       assertConsoleProductionAccess(configured, {
         auth: appAuth,
         base: baseURL,
-        development: environment.command !== "build",
+        development: !isProductionBuild(config, environment),
         sections,
       })
       if (environment.command === "build" && !cliDiscovery) assertConsoleProductionAuth(configured)
@@ -1124,12 +1127,15 @@ export function consoleInvocationRootPlugin(
       if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
       rememberFrameworkAgent(resolved.id)
     },
-    async resolveId(source, importer, options) {
-      if (source !== frameworkAgentSpecifier) return
-      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-      if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
-      rememberFrameworkAgent(resolved.id)
-      return { ...resolved, external: false }
+    resolveId: {
+      filter: { id: /^vite-hub\/agent$/ },
+      async handler(source, importer, options) {
+        if (source !== frameworkAgentSpecifier) return
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+        if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
+        rememberFrameworkAgent(resolved.id)
+        return { ...resolved, external: false }
+      },
     },
     transform(code, id) {
       if (!frameworkAgentEntries.has(normalizeModuleId(id))) return

@@ -36,36 +36,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./internal/runtime/cloudflare-client": {
-      "types": "./dist/internal/runtime/cloudflare-client.d.ts",
-      "import": "./dist/internal/runtime/cloudflare-client.js",
-      "default": "./dist/internal/runtime/cloudflare-client.js"
-    },
-    "./internal/runtime/cloudflare-vite": {
-      "types": "./dist/internal/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/internal/runtime/cloudflare-vite.js",
-      "default": "./dist/internal/runtime/cloudflare-vite.js"
-    },
-    "./internal/runtime/local-client": {
-      "types": "./dist/internal/runtime/local-client.d.ts",
-      "import": "./dist/internal/runtime/local-client.js",
-      "default": "./dist/internal/runtime/local-client.js"
-    },
-    "./internal/runtime/state": {
-      "types": "./dist/internal/runtime/state.d.ts",
-      "import": "./dist/internal/runtime/state.js",
-      "default": "./dist/internal/runtime/state.js"
-    },
-    "./internal/runtime/vercel-client": {
-      "types": "./dist/internal/runtime/vercel-client.d.ts",
-      "import": "./dist/internal/runtime/vercel-client.js",
-      "default": "./dist/internal/runtime/vercel-client.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
       "import": "./dist/runtime/hosted.js",
@@ -85,7 +55,6 @@
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
-    "@types/ws": "^8.18.2",
     "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
@@ -94,7 +63,6 @@
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
-    "ws": "^8.22.0",
     "undici": "8.12.2"
   },
   "devDependencies": {

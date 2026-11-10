@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { workflowRuntimeModule } from "./runtime-modules.ts"
 import { dirname, relative, resolve } from "node:path"
 
 import { discoverWorkflowDefinitions } from "../discovery.ts"
@@ -32,14 +33,14 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
 }
 
 /** `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`. */
-export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName, dev = false): string {
+export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, dev = false): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   return [
     "import { definePlugin } from \"nitro\"",
-    `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
+    `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
     // Only this import brings the run history into the app, so a build never includes it.
-    ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(`${importBase}/runtime/dev-runs`)}`] : []),
+    ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
     "export default definePlugin(() => {",
@@ -89,11 +90,11 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   const plugin = resolve(directory, devPluginFile)
   const files: Array<[string, string]> = [
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
-    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase, options.dev)],
+    [plugin, createWorkflowDevPluginModule(options.workflow, options.dev)],
   ]
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [
-      `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${options.importBase ?? workflowPackageName}/runtime/state`)}`,
+      `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
       `import registry from "./${devRegistryFile}"`,
       `setWorkflowRuntimeConfig(${JSON.stringify(options.workflow ?? false)})`,
       "setWorkflowRuntimeRegistry(registry)",

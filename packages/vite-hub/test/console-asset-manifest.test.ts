@@ -15,7 +15,7 @@ async function buildConsoleApp(preset: "cloudflare" | "node"): Promise<{ entry: 
   await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
   await mkdir(join(root, "server/routes"), { recursive: true })
   await writeFile(join(root, "server/routes/hello.ts"), "export default () => \"hello\"\n")
-  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: "token" }, preset })], root })
+  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: "token", embed: true }, preset })], root })
   await builder.buildApp()
   const files = await readdir(join(root, ".output/public/_vitehub/assets"), { recursive: true })
   return { entry: await readFile(join(root, ".output/server/index.mjs"), "utf8"), files, root }
