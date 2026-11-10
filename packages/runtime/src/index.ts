@@ -5,24 +5,6 @@ import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
 export { runtimeErrorDiagnostics }
 
-export {
-  runRuntimePreflight,
-  startRuntimePreflight,
-  type RuntimePreflightCheck,
-  type RuntimePreflightCheckContext,
-  type RuntimePreflightCheckResult,
-  type RuntimePreflightCheckSummary,
-  type RuntimePreflightDetails,
-  type RuntimePreflightDiagnosticData,
-  type RuntimePreflightHandle,
-  type RuntimePreflightIssue,
-  type RuntimePreflightKind,
-  type RuntimePreflightManifest,
-  type RuntimePreflightOptions,
-  type RuntimePreflightState,
-  type RuntimePreflightValue,
-} from "./preflight.ts"
-
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export {
@@ -1561,8 +1543,6 @@ export async function resolveCapabilityPolicy(
 
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 export { getRuntimeContext, getStandardContext, installRequestStandardContext, type RequestRuntimeContext, type RuntimeContextOptions, type RuntimeName } from "./request-context.ts"
-export { createWorkTracker } from "./work.ts"
-export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"
 
 export {
   deserializeResponse,

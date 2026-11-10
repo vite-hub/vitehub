@@ -5,12 +5,26 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/],
+      // Inline the pure Blob field schemas so Content does not import the server root when Blob is disabled.
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/blob$/],
       // Let the consuming host resolve and deduplicate the Markdown preset.
-      neverBundle: ["comark-ui", /^comark-ui\//, "@valibot/to-json-schema", "@vite-hub/blob", /^@vite-hub\/blob\//, "@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", "comark-content", /^comark-content\//, "comark", /^comark\//, /^@tiptap\//, "@vite-hub/realtime", /^@vite-hub\/realtime\//, "diff", "drizzle-orm", /^drizzle-orm\//, "vite", "yaml"],
+      neverBundle: ["comark-ui", /^comark-ui\//, "@valibot/to-json-schema", /^@vite-hub\/blob\//, "@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", "comark-content", /^comark-content\//, "comark", /^comark\//, /^@tiptap\//, "@vite-hub/realtime", /^@vite-hub\/realtime\//, "diff", "drizzle-orm", /^drizzle-orm\//, "vite", "yaml"],
       onlyBundle: false,
     },
-    entry: ["src/cli.ts", "src/client.ts", "src/collections.ts", "src/database.ts", "src/editor.ts", "src/index.ts", "src/operations.ts", "src/realtime.ts", "src/runtime/console.ts", "src/vite.ts"],
+    entry: {
+      "cli": "src/cli.ts",
+      "client": "src/client.ts",
+      "collections": "src/collections.ts",
+      "database": "src/database.ts",
+      "editor": "src/editor.ts",
+      "index": "src/index.ts",
+      "operations": "src/operations.ts",
+      // The preview API without the Content runtime, for the generated preview plugin.
+      "preview": "src/preview-entry.ts",
+      "realtime": "src/realtime.ts",
+      "runtime/console": "src/runtime/console.ts",
+      "vite": "src/vite.ts",
+    },
     exports: {
       // Generated code imports these modules by path. They are not public API.
       exclude: ["operations", "runtime/console"],

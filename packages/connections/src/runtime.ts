@@ -16,9 +16,7 @@ import { isApiKeyProvider } from "./api-key.ts"
 import { isConnectionError, isEnvBridgeError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { isConnectionDefinition, isConnectionInstances } from "./definition.ts"
-import { isLoginProvider } from "./oauth-login.ts"
 import { codeChallenge, randomToken } from "./internal/oauth-crypto.ts"
-import { createLoginSessions } from "./runtime/login.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
 import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
@@ -34,7 +32,6 @@ import type {
   ConnectionFetchInit,
   ConnectionInspection,
   ConnectionInstancesDefinition,
-  ConnectionLoginDefinition,
   ConnectionProvider,
   ConnectionTokenResponse,
   ConnectionValue,
@@ -51,8 +48,6 @@ const API_KEY_PATTERN = /^[\x21-\x7e]{1,8192}$/
 // The approval grant of a write requested while the provider `fallback` key was in use.
 // Stored grants use random 43-character ids, so the two never match.
 const FALLBACK_GRANT = "fallback"
-// The approval grant of a login provider. Its tokens are in memory, so an approval binds to the provider.
-const LOGIN_GRANT = "login"
 
 interface StoredToken {
   chatgpt?: v.InferOutput<typeof chatgptTokenMetadata>
@@ -72,6 +67,11 @@ export interface ConnectionsRuntimeOptions {
    */
   definitions: Readonly<Record<string, ConnectionDefinition | ConnectionInstancesDefinition | (() => Promise<unknown>)>>
   store: ConnectionStore | (() => ConnectionStore | Promise<ConnectionStore>)
+  /**
+   * Markdown by definition name, or loaders that read it, from the `<name>.md` next to each definition file.
+   * A definition's own `docs` wins.
+   */
+  docs?: Readonly<Record<string, string | (() => Promise<string>)>>
   fetch?: typeof fetch
   now?: () => number
   /** Host adapter override. By default one durable Connections store is one host. */
@@ -233,10 +233,6 @@ function isConnectionModule(value: unknown): value is ConnectionModule {
   return isConnectionDefinition(value) || isConnectionInstances(value)
 }
 
-function isLoginDefinition(definition: ConnectionDefinition): definition is ConnectionLoginDefinition {
-  return isLoginProvider(definition.provider)
-}
-
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
   const fetchProvider = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
@@ -272,7 +268,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   let store: Promise<ConnectionStore> | undefined
   const definitions = new Map<string, Promise<ConnectionModule | undefined>>()
   const instanceDefinitions = new Map<string, ConnectionDefinition>()
-  const logins = createLoginSessions({ now, request })
 
   // A store factory that throws synchronously still rejects, so callers can treat the store as unavailable.
   const getStore = () => (store ??= Promise.resolve().then(() => v.is(v.function(), options.store) ? options.store() : options.store).catch((error: unknown) => {
@@ -384,7 +379,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       identityScopes: chatgptScopes,
     }
     if (isApiKeyProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: true, connection: name })
-    if (isLoginProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name, login: "connect" })
     return provider
   }
 
@@ -700,9 +694,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   /** Send one provider request with the Connection token inside an audited Env Bridge use. */
   async function send(context: CallContext, providerRequest: ProviderRequest, init: SendInit = {}): Promise<Response> {
-    if (isLoginDefinition(context.definition)) {
-      return await sendWithLogin(context, context.definition, providerRequest, init)
-    }
     const fallback = await fallbackFor(context)
     if (fallback) return await sendWithFallback(context, providerRequest, init, fallback)
     const connections = await getStore()
@@ -748,41 +739,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  /**
-   * Send with the in-memory token of a login provider. A `401` signs in again once and retries.
-   * Activity is recorded like an Env Bridge use while the store is open.
-   */
-  async function sendWithLogin(context: CallContext, loaded: ConnectionLoginDefinition, providerRequest: ProviderRequest, init: SendInit): Promise<Response> {
-    if (await logins.credentials(loaded.provider) === undefined) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: context.name, login: "credentials" })
-    }
-    const connections = await getStore().catch(() => undefined)
-    const operationId = crypto.randomUUID()
-    const record = async (outcome: EnvActivity["outcome"]) => {
-      await connections?.access.append({ action: "use", actor: envActor(context.actor), id: crypto.randomUUID(), key: tokenKey(context.name), operation: providerRequest.action, operationId, outcome, revision: LOGIN_GRANT, timestamp: new Date(now()).toISOString(), traceId: context.options.traceId, invocationId: context.options.invocationId })
-    }
-    await record("started").catch(() => undefined)
-    try {
-      let token = await logins.token(context.name, loaded)
-      let response = await dispatch(context, providerRequest, init, token)
-      if (response.status === 401) {
-        await response.body?.cancel().catch(() => undefined)
-        token = await logins.token(context.name, loaded, token.accessToken)
-        response = await dispatch(context, providerRequest, init, token)
-      }
-      response = await checkResponse(providerRequest, response)
-      await record("succeeded").catch(() => undefined)
-      return response
-    }
-    catch (error) {
-      await record("failed").catch(() => undefined)
-      throw error
-    }
-  }
-
   /** The credential that an approval binds to: the stored grant, or the provider `fallback` key. */
   async function approvalGrant(context: CallContext): Promise<string> {
-    if (isLoginProvider(context.definition.provider)) return LOGIN_GRANT
     if (await fallbackFor(context)) return FALLBACK_GRANT
     const apiKey = isApiKeyProvider(context.definition.provider)
     await requireConnected(context.name, apiKey)
@@ -892,26 +850,16 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
+  /** The definition's `docs`, or the colocated file of its definition, which an instance shares. */
+  async function connectionDocs(name: string, loaded: ConnectionDefinition): Promise<{ docs?: string }> {
+    const separator = name.lastIndexOf(":")
+    const colocated = options.docs?.[name] ?? (separator > 0 ? options.docs?.[name.slice(0, separator)] : undefined)
+    const docs = loaded.docs ?? (typeof colocated === "function" ? await colocated() : colocated)
+    return docs?.trim() ? { docs } : {}
+  }
+
   async function inspect(name: string): Promise<ConnectionInspection> {
     const loaded = await definition(name)
-    // A login Connection is inspected without the store. It is connected while its credentials resolve,
-    // because each request signs in when it needs to. A failed sign-in fails that request.
-    if (isLoginDefinition(loaded)) {
-      const token = logins.latest(name)
-      const declared = [...(loaded.scopes ?? [])]
-      const credentials = await logins.credentials(loaded.provider).catch(() => undefined)
-      return {
-        account: token?.account,
-        actions: connectionActions(loaded),
-        credential: "oauth2",
-        ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
-        name,
-        provider: loaded.provider.id,
-        refreshedAt: token?.refreshedAt,
-        scopes: { declared, granted: token?.scopes ?? [], missing: token ? declared.filter(scope => !token.scopes.includes(scope)) : declared },
-        status: credentials === undefined ? "disconnected" : "connected",
-      }
-    }
     const provider = loaded.provider
     const apiKeyProvider = isApiKeyProvider(provider)
     const hasFallback = isApiKeyProvider(provider) && provider.fallback !== undefined
@@ -938,6 +886,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         chatgpt: { clientId: state?.chatgpt?.clientId, hostId: await hostId(), plan: state?.status === "connected" && chatgptScopes.every(scope => granted.includes(scope)) ? "enabled" as const : "disabled" as const },
       } : {}),
       credential: apiKeyProvider ? "api-key" : isChatGPTProvider(provider) ? "chatgpt" : "oauth2",
+      ...await connectionDocs(name, loaded),
       ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       ...(keySource ? { keySource } : {}),
       name,
@@ -1123,16 +1072,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   async function revoke(input: { actor?: string, name: string }): Promise<ConnectionInspection> {
     const loaded = await definition(input.name)
-    // A login Connection has no stored grant. Revoking it drops the tokens, and the next request signs in again.
-    if (isLoginProvider(loaded.provider)) {
-      logins.forget(input.name)
-      return await inspect(input.name)
-    }
     const connections = await getStore()
     const key = tokenKey(input.name)
     const actor = input.actor ?? "user:local"
     // ViteHub cannot revoke an API key at the provider. Revocation deletes the stored key.
-    const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) || isLoginProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
+    const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
     const owner = await claimMutationLease(input.name)
     let releaseLease = true
     let providerFailure: Error | undefined
@@ -1234,9 +1178,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   async function setKey(input: { actor?: string, key: string, name: string }): Promise<ConnectionInspection> {
     const name = input.name
     const loaded = await definition(name)
-    if (isLoginProvider(loaded.provider)) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, problem: "login-key" })
-    }
     if (!isApiKeyProvider(loaded.provider)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, problem: "oauth-key" })
     }

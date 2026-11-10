@@ -25,7 +25,9 @@ import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "./inspect.ts"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
-const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
+// Earlier versions wrote this wrapper around `collections.d.ts`. Generation removes it, so an upgraded app with no
+// Collection does not keep a declaration that points at a deleted file.
+const retiredCollectionTypesWrapper = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentPreviewEntry = ".vitehub/content/preview.mjs"
@@ -139,7 +141,6 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
   const files = new Map<string, string>()
   const fixedEntries = [
     collectionTypesEntry,
-    collectionTypesPackageEntry,
     contentRouteEntry,
     contentPreviewEntry,
     contentSitemapEntry,
@@ -175,7 +176,6 @@ async function restoreGeneratedSourceArtifacts(
   await rm(routesDirectory, { force: true, recursive: true })
   for (const entry of [
     collectionTypesEntry,
-    collectionTypesPackageEntry,
     contentRouteEntry,
     contentPreviewEntry,
     contentSitemapEntry,
@@ -859,6 +859,12 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
   return findRoute(exported?.init) ?? true
 }
 
+/** Inspects the named Collection export without running application code. */
+export function inspectCollectionModule(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
+  const exported = findExportNames(source).includes(exportName)
+  return { exported, routeEnabled: exported && collectionRouteEnabled(file, source, exportName) }
+}
+
 async function discoverSourceCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
@@ -873,10 +879,11 @@ async function discoverSourceCollections(options: SourceGenerationOptions): Prom
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
+      const { exported, routeEnabled } = inspectCollectionModule(file, source, exportName)
+      if (!exported) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
-      return { exportName, file, name, routeEnabled: collectionRouteEnabled(file, source, exportName) }
+      return { exportName, file, name, routeEnabled }
     }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 
@@ -914,12 +921,11 @@ async function writeCollectionArtifacts(
   collections: DiscoveredCollection[],
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, collectionTypesEntry)
-  const packageOutput = resolve(options.projectRoot, collectionTypesPackageEntry)
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
+  await rm(resolve(options.projectRoot, retiredCollectionTypesWrapper), { force: true })
   if (collections.length === 0) {
     await Promise.all([
       rm(output, { force: true }),
-      rm(packageOutput, { force: true }),
       rm(routesDirectory, { force: true, recursive: true }),
     ])
     return []
@@ -937,7 +943,6 @@ async function writeCollectionArtifacts(
     "export {}",
     "",
   ].join("\n"))
-  await writeFileIfChanged(packageOutput, '/// <reference path="./collections.d.ts" />\n')
 
   const expectedRoutes = new Set(routedCollections.map(({ name }) => resolve(routesDirectory, `${name}.mjs`)))
   const existingRoutes = await collectCollectionFiles(routesDirectory)
@@ -1181,13 +1186,13 @@ async function writeContentArtifact(
   else await rm(output, { force: true })
   const handlers: GeneratedSourceHandler[] = []
   // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
-  // Previews need collections. Without them the plugin would only load the Content runtime at server startup.
+  // Previews need collections. The plugin imports the small preview entry and loads server/content.ts on the first
+  // preview request, so the server starts without the Content runtime and its Markdown renderer.
   if (features.collections) {
     await writeFileIfChanged(preview, [
-      `import { defineContentPreviewPlugin } from ${importBase}`,
-      `import { content } from ${contentModule}`,
+      `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
       "",
-      "export default defineContentPreviewPlugin(content)",
+      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.content))`,
       "",
     ].join("\n"))
     handlers.push({ handler: preview, plugin: true })
@@ -1443,7 +1448,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       },
     },
     transform: {
-      filter: { id: { exclude: /\/node_modules\// }, code: "source/glob" },
+      filter: { id: { exclude: /\/node_modules\// }, code: /\bvite-hub\/source["'`]/ },
       handler(code, _id, options) {
         const environment = this.environment?.config
         const server = environment

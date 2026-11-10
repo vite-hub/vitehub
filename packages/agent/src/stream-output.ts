@@ -1,5 +1,5 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 import { chatgptGatewayDiagnostic, diagnosticErrorText } from "./agent-error.ts"
 import { isResponse } from "./internal/response.ts"
@@ -30,7 +30,7 @@ const uiMessageStreamHeaders = {
 } as const
 
 export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: (options?: { onError?: (error: unknown) => string }) => ReadableStream<unknown> } {
-  return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
+  return isRuntimeRecord(value) && typeof value.toUIMessageStream === "function"
 }
 
 // `type` is an additional intrinsic-slot accessor. Requiring it keeps the
@@ -65,7 +65,7 @@ function responsePrototype(value: unknown): ResponsePrototype | undefined {
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     const hasAccessors = responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
     const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-    if (constructor?.name === "Response" && hasAccessors && hasRuntimeType(clone, "function")) {
+    if (constructor?.name === "Response" && hasAccessors && typeof clone === "function") {
       // SAFETY: every accepted property is inspected on this prototype before narrowing it.
       return prototype as ResponsePrototype
     }
@@ -121,10 +121,10 @@ export function isUIMessageStreamResponse(value: unknown): value is Response & {
     // recognized through the registered-constructor path. Foreign adapters
     // retain their explicitly supported header operation surface.
     const intrinsicGet = Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "get")?.value
-    const get = headers instanceof intrinsicHeaders && hasRuntimeType(intrinsicGet, "function")
+    const get = headers instanceof intrinsicHeaders && typeof intrinsicGet === "function"
       ? intrinsicGet
       : registered ? Reflect.get(headers as object, "get") : headers && headersDescriptor(headers, "get")?.value
-    if (!body || !headers || (!registered && !lockedGetter) || !hasRuntimeType(get, "function")) return false
+    if (!body || !headers || (!registered && !lockedGetter) || typeof get !== "function") return false
     if (!registered) Reflect.apply(lockedGetter, body, [])
     return Reflect.apply(get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"
   }
@@ -137,7 +137,7 @@ function isPortableUIMessageBody(body: unknown): body is ReadableStream<Uint8Arr
   if (!isRuntimeRecord(body)) return false
   const lockedGetter = readableStreamDescriptor(body, "locked")?.get
   const getReader = readableStreamDescriptor(body, "getReader")?.value
-  if (!lockedGetter || !hasRuntimeType(getReader, "function")) return false
+  if (!lockedGetter || typeof getReader !== "function") return false
   if (Reflect.apply(lockedGetter, body, [])) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
   return !ownReader || ownReader.value === getReader
@@ -147,7 +147,7 @@ function isPortableRegisteredUIMessageBody(body: unknown): body is ReadableStrea
   if (!isRuntimeRecord(body)) return false
   const locked = Reflect.get(body, "locked")
   const getReader = Reflect.get(body, "getReader")
-  return typeof locked === "boolean" && locked === false && hasRuntimeType(getReader, "function")
+  return typeof locked === "boolean" && locked === false && typeof getReader === "function"
 }
 
 function readableStreamDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -190,8 +190,8 @@ function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = fals
     throw new TypeError("Foreign stream getReader override is not supported")
   }
   let getReader: unknown = readableStreamDescriptor(body, "getReader")?.value
-  if (!hasRuntimeType(getReader, "function") && registered) getReader = Reflect.get(body, "getReader")
-  if (!hasRuntimeType(getReader, "function")) throw new TypeError("Foreign stream getReader is unavailable")
+  if (typeof getReader !== "function" && registered) getReader = Reflect.get(body, "getReader")
+  if (typeof getReader !== "function") throw new TypeError("Foreign stream getReader is unavailable")
   const readerOperation = getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(readerOperation, body, [])
   // Some foreign implementations expose reader operations as own properties
@@ -208,9 +208,9 @@ function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = fals
     const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
     const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
     const releaseDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
-    if (!read && hasRuntimeType(readDescriptor?.value, "function")) read = readDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["read"]
-    if (!cancel && hasRuntimeType(cancelDescriptor?.value, "function")) cancel = cancelDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-    if (!releaseLock && hasRuntimeType(releaseDescriptor?.value, "function")) releaseLock = releaseDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+    if (!read && typeof readDescriptor?.value === "function") read = readDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["read"]
+    if (!cancel && typeof cancelDescriptor?.value === "function") cancel = cancelDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    if (!releaseLock && typeof releaseDescriptor?.value === "function") releaseLock = releaseDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
     readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
   }
   if (!read || !cancel || !releaseLock) throw new TypeError("Foreign stream reader is incomplete")
@@ -259,14 +259,14 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     const statusText: unknown = Reflect.get(value, "statusText")
     const headers: unknown = Reflect.get(value, "headers")
     const body: unknown = Reflect.get(value, "body")
-    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 200 || status > 599) return
-    if (!hasRuntimeType(statusText, "string") || !isRuntimeRecord(headers) || !isRuntimeRecord(body)) return
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
+    if (typeof statusText !== "string" || !isRuntimeRecord(headers) || !isRuntimeRecord(body)) return
     const type: unknown = Reflect.get(value, "type")
-    if (!hasRuntimeType(type, "string")) return
+    if (typeof type !== "string") return
     const snapshot = { status, statusText, headers, body, type }
     const markerGetter = registered ? Reflect.get(headers, "get") : headersDescriptor(headers, "get")?.value
     if (!registered && !branded) return
-    if (!hasRuntimeType(markerGetter, "function")
+    if (typeof markerGetter !== "function"
       || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
     const nativeProperties = value instanceof intrinsicResponse && snapshot.type === type && hasResponsePrototype(value)
     const nativeHeaders = ["get", "forEach"].every(key =>
@@ -285,9 +285,9 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     }
     if (!(registered ? isPortableRegisteredUIMessageBody(body) : isPortableUIMessageBody(body))) return
     const forEach = Reflect.get(headers, "forEach")
-    if (!hasRuntimeType(forEach, "function")) return
+    if (typeof forEach !== "function") return
     const getSetCookie = Reflect.get(headers, "getSetCookie")
-    const cookies: unknown = hasRuntimeType(getSetCookie, "function") ? Reflect.apply(getSetCookie, headers, []) : []
+    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     Reflect.apply(forEach, headers, [(headerValue: string, key: string) => {
@@ -337,7 +337,7 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   }
   // SAFETY: The local native stream is piped through a TransformStream whose output type is unknown.
   const pipeThrough = ReadableStream.prototype.pipeThrough
-  if (!hasRuntimeType(pipeThrough, "function")) throw new TypeError("Expected a readable UI message stream Response")
+  if (typeof pipeThrough !== "function") throw new TypeError("Expected a readable UI message stream Response")
   return Reflect.apply(pipeThrough, streamBody, [new TransformStream<Uint8Array, unknown>({
     flush(controller) {
       buffer += decoder.decode()
@@ -359,7 +359,7 @@ function uiMessageStreamErrorText(error: unknown): string {
   if (!(error instanceof Error)) return "Agent stream failed."
   const code: unknown = Reflect.get(error, "code")
   const fix: unknown = Reflect.get(error, "fix")
-  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") ? diagnosticErrorText(code, error.message) : error.message
+  return typeof code === "string" && typeof fix === "string" ? diagnosticErrorText(code, error.message) : error.message
 }
 
 function createAgentUIMessageStream(options: {
@@ -496,7 +496,7 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
 }
 
 function isReadableAsyncIterable(stream: AsyncIterable<unknown>): stream is AsyncIterable<unknown> & ReadableStream<unknown> {
-  return isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+  return isRuntimeRecord(stream) && typeof stream.getReader === "function"
 }
 
 export function withReadableStreamCleanup<T>(
@@ -611,20 +611,20 @@ export function withReadableStreamCleanup<T>(
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {
-  if (hasRuntimeType(rendered, "string")) return rendered
+  if (typeof rendered === "string") return rendered
   if (!isRuntimeRecord(rendered)) return undefined
-  return hasRuntimeType(rendered.text, "string") ? rendered.text : undefined
+  return typeof rendered.text === "string" ? rendered.text : undefined
 }
 
 function streamEventType(event: unknown): string | undefined {
-  return isRuntimeRecord(event) && hasRuntimeType(event.type, "string") ? event.type : undefined
+  return isRuntimeRecord(event) && typeof event.type === "string" ? event.type : undefined
 }
 
 export function uiMessageTextDelta(event: unknown): string | undefined {
   const type = streamEventType(event)
   if ((type !== "text" && type !== "text-delta") || !isRuntimeRecord(event)) return
   const text = event.text ?? event.textDelta ?? event.delta
-  return hasRuntimeType(text, "string") ? text : undefined
+  return typeof text === "string" ? text : undefined
 }
 
 function uiMessageStreamError(event: unknown): Error | undefined {
@@ -632,7 +632,7 @@ function uiMessageStreamError(event: unknown): Error | undefined {
   if (event.recoverable === true) return
   if (event.error instanceof Error) return event.error
   const message = event.errorText ?? event.message ?? event.error
-  return agentDiagnostics.AGENT_R0856({ message: hasRuntimeType(message, "string") && message ? message : "Agent stream failed." })
+  return agentDiagnostics.AGENT_R0856({ message: typeof message === "string" && message ? message : "Agent stream failed." })
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
@@ -640,8 +640,8 @@ function isCapabilityCliInput(input: unknown): input is { argv: string[], input?
   const argv = input.argv
   return Object.keys(input).every(key => key === "argv" || key === "input" || key === "json")
     && Array.isArray(argv)
-    && argv.every(arg => hasRuntimeType(arg, "string"))
-    && (input.json === undefined || hasRuntimeType(input.json, "boolean"))
+    && argv.every(arg => typeof arg === "string")
+    && (input.json === undefined || typeof input.json === "boolean")
 }
 
 export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
@@ -702,7 +702,7 @@ function projectUiMessageStream(
       if (projection.reasoning === "hidden" || projection.commentary === "hidden") {
         if (projection.reasoning === "hidden" && type?.startsWith("reasoning-")) return
         const text = isRuntimeRecord(chunk) ? chunk : {}
-        const id = hasRuntimeType(text.id, "string") ? text.id : undefined
+        const id = typeof text.id === "string" ? text.id : undefined
         if (type === "text-start" && id) {
           hiddenTextIds.delete(id)
           pendingTextStarts.delete(id)
@@ -744,7 +744,7 @@ function isHiddenTextPhase(projection: AgentUIMessageStreamProjection, phase: un
 }
 
 function uiDataType(data: unknown): `data-${string}` {
-  const rawType = isRuntimeRecord(data) && hasRuntimeType(data.type, "string")
+  const rawType = isRuntimeRecord(data) && typeof data.type === "string"
     ? data.type
     : "event"
   const type = rawType.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
@@ -778,7 +778,7 @@ async function writeEventsToUiMessageStream(
     if (!type || !isRuntimeRecord(event)) continue
     if (type === "usage" && usageRecord) continue
     if (options.projection?.reasoning === "hidden" || options.projection?.commentary === "hidden") {
-      const id = hasRuntimeType(event.id, "string") ? event.id : undefined
+      const id = typeof event.id === "string" ? event.id : undefined
       if (type === "text-start" && id) {
         hiddenTextIds.delete(id)
       }
@@ -794,7 +794,7 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "text-delta") {
       const text = event.text ?? event.delta
-      if (!hasRuntimeType(text, "string") || !text) continue
+      if (typeof text !== "string" || !text) continue
       const source = event.messageId ?? event.id
       if (textId && source !== textSource) endText()
       if (!textId) {
@@ -808,11 +808,11 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "tool-call") {
       endText()
-      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input, ...(hasRuntimeType(event.title, "string") ? { title: event.title } : {}) })
+      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input, ...(typeof event.title === "string" ? { title: event.title } : {}) })
       continue
     }
     if (type === "tool-result") {
-      if (hasRuntimeType(event.error, "string")) {
+      if (typeof event.error === "string") {
         writer.write({ type: "tool-output-error", toolCallId: event.id, toolName: event.name, errorText: event.error })
         continue
       }
@@ -820,7 +820,7 @@ async function writeEventsToUiMessageStream(
       continue
     }
     if (type === "data" || type.startsWith("data-")) {
-      writer.write({ type: type === "data" ? uiDataType(event.data) : type, data: event.data, id: event.id, ...(hasRuntimeType(event.transient, "boolean") ? { transient: event.transient } : {}) })
+      writer.write({ type: type === "data" ? uiDataType(event.data) : type, data: event.data, id: event.id, ...(typeof event.transient === "boolean" ? { transient: event.transient } : {}) })
       continue
     }
     if (type === "finish") {
@@ -834,7 +834,7 @@ async function writeEventsToUiMessageStream(
       }
       throw event.error instanceof Error
         ? event.error
-        : agentDiagnostics.AGENT_R0857({ message: hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed." })
+        : agentDiagnostics.AGENT_R0857({ message: typeof event.error === "string" ? event.error : typeof event.message === "string" ? event.message : "Agent stream failed." })
     }
   }
   endText()
