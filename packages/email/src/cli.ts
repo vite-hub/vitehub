@@ -4,6 +4,7 @@ import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
+import { isRecord } from "@vite-hub/internal/object"
 import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
@@ -196,10 +197,6 @@ function formatMessage(message: EmailOutboxMessage): string {
     message.text ?? "(no text body)",
     "",
   ].join("\n")
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !Array.isArray(value) && v.is(v.record(v.string(), v.unknown()), value)
 }
 
 const deliverySchema = v.variant("status", [

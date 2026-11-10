@@ -405,14 +405,23 @@ A journal keeps only metadata by default.
 `redact` rewrites or drops an observation before the store gets it. `redactError` rewrites a failed record's error:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
-  store,
+  store: createDatabaseAgentInvocationStore(),
   redact(observation) {
     if (observation.name === 'agent.tool.result') return undefined
     const { 'tool.input': _input, ...attributes } = observation.attributes ?? {}
     return { ...observation, attributes }
   },
   redactError: error => ({ message: error.message, name: error.name }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
 })
 ```
 
