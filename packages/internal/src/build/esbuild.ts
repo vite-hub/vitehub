@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { build as bundle, type Plugin } from "esbuild"
 
 import { isPlainObject } from "../object.ts"
+import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
@@ -28,43 +29,13 @@ interface BundleEsmEntryOptions {
   workingDir?: string
 }
 
-export interface ViteAlias {
-  customResolver?: boolean
-  find: string | RegExp
-  replacement: string
-}
-
 const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateFileSuffix = ".template.md"
 const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const skipResolvedAlias = "vitehubSkipResolvedAlias"
-const encodedAliasPrefixMarker = "\0vitehub-prefix:"
-const encodedAliasExactMarker = "\0vitehub-exact:"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
-
-interface StringAlias {
-  find: string | RegExp
-  replacement: string
-}
-
-export function encodeProviderOutputAliases(configAliases: readonly StringAlias[]): Record<string, string> {
-  const aliases: Record<string, string> = Object.create(null)
-  for (const [index, alias] of configAliases.entries()) {
-    if (alias.find instanceof RegExp) continue
-    const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}${encodedAliasExactMarker}${index}` : alias.find
-    aliases[exactSpecifier] = alias.replacement
-    if (alias.find.endsWith("/")) {
-      const prefixSpecifier = `${alias.find}/${encodedAliasPrefixMarker}${index}`
-      aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
-    }
-    else {
-      aliases[`${alias.find}/${encodedAliasPrefixMarker}${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
-    }
-  }
-  return aliases
-}
 
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
@@ -470,16 +441,6 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
       }))
     },
   }
-}
-
-/** Select the runtime constants from one resolved Vite configuration. */
-export function resolveViteHubBundleDefines(config: { define?: Record<string, unknown> }): Record<string, string> {
-  const defines: Record<string, string> = {}
-  for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__"]) {
-    const value = config.define?.[name]
-    if (typeof value === "string") defines[name] = value
-  }
-  return defines
 }
 
 function createFileUrlPlugin(): Plugin {
