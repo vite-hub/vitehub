@@ -34,17 +34,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
+// Check the fields that the view reads, so a Response from another Fetch implementation also matches.
 function isResponse(value: unknown): value is Response {
-  if (value instanceof Response) return true
-  const statusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-  if (!statusGetter) return false
-  try {
-    statusGetter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  return isRecord(value) && typeof value.status === "number" && isRecord(value.headers) && typeof value.headers.get === "function"
 }
 
 function jsonReplacer(_key: string, value: unknown): unknown {
