@@ -18,19 +18,18 @@ import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
+import { listConsoleDefinitions } from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
 import scheduleRunRoute, { handleDispatchScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import { allowed } from "./support/console-access.ts"
+import { consoleAccess } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
-import { consoleEvent } from "./console-event.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
 
-const definitionsHandler = allowed(definitionsHandlerRoute)
+const schedules = async () => listConsoleDefinitions({ section: "schedules" }, await consoleAccess())
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope
@@ -167,7 +166,7 @@ describe("Console Schedule runs", () => {
     expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
     expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
-    const timeZone = (): Promise<string[]> => definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))
+    const timeZone = (): Promise<string[]> => schedules()
       .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
     installConsoleDefinitions(root, catalog.content, [], { schedules: readScheduleConsoleRecords })
     expect(await timeZone()).toEqual(["0 14 * * 1 (Not a static string) / Not a static string"])
@@ -188,7 +187,7 @@ describe("Console Schedule runs", () => {
   it("marks runnable Schedule Definitions in the catalog", async () => {
     installSchedules()
 
-    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
+    expect(await schedules()).toEqual({
       definitions: [{ ...scheduleSummary("sync"), runnable: true }, scheduleSummary("nightly")],
       kind: "definition-catalog",
       section: "schedules",
@@ -205,7 +204,7 @@ describe("Console Schedule runs", () => {
     }))
     installConsoleDefinitions("/schedule-run", { schedules: { kind: "record-table", records } })
 
-    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
+    expect(await schedules()).toEqual({
       kind: "record-table",
       records: [{ ...records[0], runnable: true }, records[1], records[2]],
       section: "schedules",

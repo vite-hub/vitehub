@@ -230,7 +230,7 @@ The OAuth callback is reached by a browser redirect from the provider. It comple
 
 ## Generate API catalogs
 
-`pnpm --dir packages/connections run generate` reads the Google Discovery document and writes `src/google/gmail.ts`.
+`pnpm --dir packages/connections run generate` reads the Google Discovery document and writes `src/google/gmail.ts`. It types the Gmail messages, attachments, drafts, labels, threads, history, profile, and filters methods. `useConnection().fetch()` reaches every other Gmail endpoint, such as `users.watch` or the other settings.
 
 See the [Connections documentation](https://vitehub.dev/docs/connections).
 

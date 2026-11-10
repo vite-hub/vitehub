@@ -6,7 +6,7 @@ import { defineConnection } from "../src/definition.ts"
 import { google } from "../src/google.ts"
 import { useConnection } from "../src/runtime/state.ts"
 
-import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
+import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailDraft, GmailLabel, GmailMessagePartBody, GmailMethods } from "../src/google.ts"
 import type { ConnectionDefinitionName } from "../src/registry-types.ts"
 import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionMethod, ConnectionProvider, ConnectionStatus } from "../src/types.ts"
 
@@ -97,6 +97,23 @@ describe("Connection types", () => {
     expectTypeOf(client.gmail.users.messages.modify).toBeFunction()
     // @ts-expect-error users.messages.send is not selected.
     expectTypeOf(client.gmail.users.messages.send).toBeFunction()
+  })
+
+  it("types the Gmail methods that mail automation uses", async () => {
+    const kept: Array<keyof GmailMethods> = [
+      "users.drafts.create", "users.getProfile", "users.history.list", "users.labels.list", "users.messages.attachments.get",
+      "users.messages.get", "users.messages.list", "users.messages.modify", "users.settings.filters.create", "users.threads.list",
+    ]
+    void kept
+    const every = defineConnection({ provider: google({ clientId: "id", clientSecret: "secret" }), scopes: [] })
+    type EveryClient = typeof every extends ConnectionDefinition<infer TApis, infer TSelection> ? ConnectionClient<TApis, TSelection> : never
+    const gmail = ({} as EveryClient).gmail
+    const [, attachment] = await gmail.users.messages.attachments.get({ userId: "me", messageId: "m1", id: "a1" })
+    expectTypeOf(attachment).toEqualTypeOf<GmailMessagePartBody | undefined>()
+    const [, draft] = await gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw: "cmF3" } } })
+    expectTypeOf(draft).toEqualTypeOf<GmailDraft | undefined>()
+    // @ts-expect-error id is required.
+    await gmail.users.messages.attachments.get({ userId: "me", messageId: "m1" })
   })
 
   it("types method input and response", async () => {
