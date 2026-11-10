@@ -8,7 +8,7 @@ import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { mcp } from "../src/capabilities/mcp.ts"
 import { defineAgent } from "../src/index.ts"
 import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
-import { streamAgentOutputToEvents } from "../src/output.ts"
+import { streamAgentOutputToEvents } from "../src/agent-output.ts"
 
 import type { ConnectionsRuntime } from "../../connections/src/runtime.ts"
 import type { ConnectionOAuthDefinition } from "../../connections/src/types.ts"

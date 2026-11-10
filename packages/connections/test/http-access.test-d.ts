@@ -1,10 +1,10 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { createConnectionsHandler } from "../src/http.ts"
+import { createConnectionsHandler } from "../src/index.ts"
 import { checkConnectionsAccess, connectionsRuntimeFor } from "../src/internal/http-access.ts"
 import { connectionsRoutes } from "../src/internal/http-routes.ts"
 
-import type { ConnectionsAccessPolicy } from "../src/http.ts"
+import type { ConnectionsAccessPolicy, ConnectionsHandler } from "../src/index.ts"
 import type { ConnectionsAccess } from "../src/internal/http-access.ts"
 import type { ConnectionsRuntime } from "../src/runtime.ts"
 
@@ -22,6 +22,7 @@ describe("Connections route access types", () => {
     // @ts-expect-error A policy returns the actor id, not a boolean.
     createConnectionsHandler({ actor: () => true })
     expectTypeOf(createConnectionsHandler({ actor: "development" }).fetch).toEqualTypeOf<(request: Request) => Promise<Response>>()
+    expectTypeOf(createConnectionsHandler({ actor: "development" })).toEqualTypeOf<ConnectionsHandler>()
     expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request) => string | Response | undefined | Promise<string | Response | undefined>)>()
   })
 
