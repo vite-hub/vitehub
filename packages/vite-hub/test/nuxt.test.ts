@@ -130,7 +130,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/plugins.ts", async importOriginal => ({ ...await importOriginal<typeof import("../src/plugins.ts")>(), viteHubPlugins: mocks.vitehub }))
 
-import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
@@ -1311,6 +1310,22 @@ describe("ViteHub Nuxt integration", () => {
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ root: "/tmp/vitehub-nuxt", url: `http://localhost:3000${baseURL}` })
     await application.runCloseHook()
     await expect(readFile(file, "utf8")).rejects.toThrow()
+  })
+
+  it.each(["http", "https"])("links the Nuxt browser URL with %s and IPv6 loopback", async (protocol) => {
+    const application = createNuxt(true)
+    Object.assign(application.nuxt.options, { app: { baseURL: "/portal/" } })
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      await viteHubNuxtModule({ preset: "node", console: { auth: false } }, application.nuxt)
+      const server = Object.assign(new EventEmitter(), { address: () => ({ address: "::1", port: 3000 }) })
+      for (const listen of application.listenHooks) listen(server, { url: `${protocol}://localhost:3000/` })
+      expect(info).toHaveBeenCalledWith(expect.stringContaining(`project=${encodeURIComponent(`${protocol}://localhost:3000/portal`)}`))
+    }
+    finally {
+      info.mockRestore()
+      await application.runCloseHook()
+    }
   })
 
   it("does not publish a dev server for a build or for CLI discovery", async () => {

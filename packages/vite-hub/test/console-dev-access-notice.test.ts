@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
+import { createServer } from "vite"
 
 import { consoleDevAccessNotice } from "../src/console/dev-access-notice.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
@@ -30,7 +31,7 @@ describe("the startup line of a development Console without sign-in", () => {
     expect(consoleDevAccessNotice("local", { address: "127.0.0.1", port: 5173 })?.message)
       .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2F127.0.0.1%3A5173&path=%2F")
     expect(consoleDevAccessNotice("open", { address: "::1", port: 3000 }, "/docs/")?.message)
-      .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2F%5B%3A%3A1%5D%3A3000%2Fdocs&path=%2F")
+      .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A3000%2Fdocs&path=%2F")
     expect(consoleDevAccessNotice("open", { address: "0.0.0.0", port: 4000 }, "/docs/")?.message)
       .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A4000%2Fdocs&path=%2F")
     expect(consoleDevAccessNotice("local", { address: "127.0.0.1" })?.message).not.toContain("console.vitehub.dev")
@@ -42,6 +43,25 @@ describe("the startup line of a development Console without sign-in", () => {
     expect(consoleDevAccessNotice(undefined, { address: "0.0.0.0" })).toBeUndefined()
     expect(consoleDevAccessNotice("local", "/tmp/dev.sock")).toBeUndefined()
     expect(consoleDevAccessNotice("local", null)).toBeUndefined()
+  })
+
+  it.each([false, true])("uses the Vite browser URL with HTTPS=%s and a mounted application", async (https) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-browser-url-"))
+    const server = await createServer({ configFile: false, root, base: "/portal/", plugins: [consoleVitePlugin({ console: { auth: false } })], server: { port: 0, ...(https ? { https: {} } : {}) } })
+    const info = vi.spyOn(server.config.logger, "info").mockImplementation(() => {})
+    try {
+      await server.listen()
+      const address = server.httpServer!.address()
+      if (!address || typeof address === "string") throw new Error("Expected TCP listener")
+      const message = info.mock.calls.flat().find(message => message.includes("Open it in the Console:"))!
+      const link = new URL(message.match(/https:\/\/console\.vitehub\.dev\/open\?\S+/)![0])
+      expect(link.searchParams.get("project")).toBe(`${https ? "https" : "http"}://localhost:${address.port}/portal`)
+    }
+    finally {
+      await server.close()
+      info.mockRestore()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it.each([
