@@ -61,8 +61,8 @@ const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
 const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
 const defaultRuntimeImports = {
-  secret: "@vite-hub/env/secret",
-  server: "@vite-hub/env/server",
+  secret: "@vite-hub/env",
+  server: "@vite-hub/env/internal/server",
 }
 let envVitePluginSequence = 0
 const developmentSecretLocks = new Map<string, Promise<{ secret: string, generated: boolean, envKey: string }>>()
@@ -522,7 +522,7 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
         await new Promise(resolve => setTimeout(resolve, 5))
       }
     }
-    if (!lock) throw new Error(`Timed out waiting for generated secret lock: ${secretPath}`)
+    if (!lock) throw envErrorDiagnostics.ENV_B0007({ message: `[vitehub] Timed out waiting for the generated secret lock: ${secretPath}.lock` })
     const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
     try {
       secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")

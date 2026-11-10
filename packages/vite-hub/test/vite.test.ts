@@ -144,7 +144,7 @@ import { ownerModules } from "../src/internal/owner-modules.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/console-client", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -200,9 +200,23 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 }
 
 function dependencyResolver() {
-  const resolver = dependencyPlugin({ preset: "node", blob: true })
-  if (!resolver || !isCallable(resolver.resolveId)) throw new TypeError("Expected the framework dependency resolver.")
-  return resolver.resolveId
+  return filteredResolveId(dependencyPlugin({ preset: "node", blob: true }))
+}
+
+/** Skips the hook for an id that its filter rejects, as Rolldown and Vite do. */
+function matchesIdFilter(hook: unknown, id: unknown): boolean {
+  const filter = isRuntimeRecord(hook) ? hook.filter : undefined
+  if (!isRuntimeRecord(filter) || !("id" in filter)) return true
+  return typeof id === "string" && [filter.id].flat().some(pattern => pattern instanceof RegExp && pattern.test(id))
+}
+
+function filteredResolveId(plugin: Plugin) {
+  const hook = plugin.resolveId
+  const handler = isRuntimeRecord(hook) && "handler" in hook ? hook.handler : hook
+  if (!isCallable(handler)) throw new TypeError(`Expected the ${plugin.name} resolver.`)
+  return function (this: unknown, id: string, ...args: unknown[]): unknown {
+    return matchesIdFilter(hook, id) ? Reflect.apply(handler, this, [id, ...args]) : undefined
+  }
 }
 
 function callHook(hook: unknown, args: readonly unknown[]): unknown {
@@ -212,6 +226,7 @@ function callHook(hook: unknown, args: readonly unknown[]): unknown {
       ? hook.handler
       : undefined
   if (!isCallable(candidate)) throw new TypeError("Expected a callable plugin hook.")
+  if (!matchesIdFilter(hook, args[0])) return undefined
   return Reflect.apply(candidate, undefined, args)
 }
 
@@ -814,7 +829,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
@@ -1049,7 +1064,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
 
@@ -1063,7 +1078,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
   })
@@ -1107,13 +1122,13 @@ describe("vitehub", () => {
     }))
   })
 
-  it("uses framework subpaths in generated Env modules", () => {
+  it("uses the Env owner runtime path in generated Env modules", () => {
     vitehub({ preset: "node" })
 
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       runtimeImports: {
-        secret: "vite-hub/env/secret",
-        server: "vite-hub/env/server",
+        secret: "vite-hub/env",
+        server: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       },
     })
 
@@ -1128,7 +1143,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       diagnostics: "trace",
       runtimeImports: {
-        secret: "vite-hub/env/secret",
+        secret: "vite-hub/env",
         server: "#app/env/server",
       },
     })
@@ -1212,10 +1227,10 @@ describe("vitehub", () => {
     )).toMatch(/\/auth\/dist\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
-      "@vite-hub/env/server",
+      "@vite-hub/env/internal/server",
       "\0#vitehub/env/server",
       pluginResolveOptions,
-    )).toMatch(/\/env\/dist\/server\.js$/)
+    )).toMatch(/\/env\/dist\/internal\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
       "@vite-hub/schedule/runtime",
@@ -1274,12 +1289,22 @@ describe("vitehub", () => {
     sandboxTaskAliases["@vite-hub/sandbox/task"] = providerSandboxTaskFacade
     sandboxTaskAliases["vite-hub/sandbox/task"] = providerSandboxTaskFacade
 
-    const resolveId = plugin.resolveId
-    if (!isCallable(resolveId)) throw new TypeError("Expected the framework dependency resolver.")
+    const resolveId = filteredResolveId(plugin)
     expect(await resolveId.call(pluginContext, "vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, frameworkSandboxTaskFacade, "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+  })
+
+  it("skips relative, virtual, and app file ids before the dependency resolver runs", () => {
+    const plugin = dependencyPlugin()
+    const frameworkKVFacade = pluginAliases(plugin)["vite-hub/kv"]
+    expect(matchesIdFilter(plugin.resolveId, "./server.ts")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "\0virtual:vitehub-agent-cloudflare-state-exports")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "/app/server/api.ts")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "#vitehub/env/server")).toBe(true)
+    expect(matchesIdFilter(plugin.resolveId, "nitro/app")).toBe(true)
+    expect(matchesIdFilter(plugin.resolveId, frameworkKVFacade)).toBe(true)
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
@@ -1986,13 +2011,13 @@ describe("vitehub", () => {
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
     expect(() => callHook(deployment.resolveId, [fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts"])).toThrow("cannot provide blob")
-    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/content-type", "/app/server/api.ts"])).not.toThrow()
+    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/client", "/app/server/api.ts"])).not.toThrow()
 
     const dependency = dependencyPlugin({ preset: "deno" })
     // SAFETY: dependencyPlugin returns the concrete plugin whose config hook supplies this alias shape.
     const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
     expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
-    expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
+    expect(config.resolve.alias["vite-hub/blob/client"]).toEqual(expect.any(String))
     expect(() => callHook(dependency.resolveId, ["@vite-hub/blob", "/app/.vitehub/agents.mjs"])).toThrow("Blob is unavailable")
   })
 
