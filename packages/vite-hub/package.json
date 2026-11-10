@@ -1027,6 +1027,11 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./console/setup": {
+      "types": "./dist/console/runtime/server/setup.d.ts",
+      "import": "./dist/console/runtime/server/setup.js",
+      "default": "./dist/console/runtime/server/setup.js"
     }
   },
   "scripts": {
