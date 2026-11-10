@@ -228,10 +228,12 @@ describe("public package export contracts", () => {
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
     const manifest = readPackageManifest("auth")
-    for (const dependency of ["@cloudflare/workers-types", "@types/node", "bun-types"]) {
-      expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@types/node"], "auth should install @types/node").toEqual(expect.any(String))
+    for (const dependency of ["@cloudflare/workers-types", "bun-types"]) {
+      expect(manifest.dependencies?.[dependency], `auth should not install ${dependency}`).toBeUndefined()
     }
     const hostDeclarations = readFileSync(join(packageDir("auth"), "src/host-declarations.d.ts"), "utf8")
+    expect(hostDeclarations).toContain('/// <reference path="./bun-sqlite.d.ts" />')
     expect(hostDeclarations).toContain("interface Timer")
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })

@@ -83,6 +83,7 @@
     "test": "vp run -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@comark/html": "catalog:markdown",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
