@@ -1,5 +1,7 @@
 // Browser upload helpers. They depend only on `fetch`, and on XMLHttpRequest for upload progress, so framework bindings
 // stay thin.
+import { isRecord } from "@vite-hub/internal/object"
+
 import type { BlobMultipartPart, BlobObject } from "./types.ts"
 
 // Check a file's leading bytes in the browser before upload. The server root exports the same function.
@@ -50,16 +52,9 @@ export interface MultipartUploadTask {
 
 const defaultPartSize = 10 * 1024 * 1024
 
-function isFile(value: unknown): value is File {
-  try {
-    // The native name getter validates File slots across realms without trusting
-    // Symbol.toStringTag or the value's prototype chain.
-    const name = Object.getOwnPropertyDescriptor(File.prototype, "name")?.get
-    return name?.call(value) !== undefined
-  }
-  catch {
-    return false
-  }
+// A File from another realm (an iframe) also matches. An input element has a name but no arrayBuffer().
+function isFile(value: UploadInput): value is File {
+  return "name" in value && typeof value.name === "string" && "arrayBuffer" in value && typeof value.arrayBuffer === "function"
 }
 
 function toFiles(input: UploadInput): File[] {
@@ -78,10 +73,6 @@ function multipartUrl(baseURL: string, action: string, pathname: string, query: 
   const path = pathname.split("/").map(encodeURIComponent).join("/")
   const search = new URLSearchParams(query).toString()
   return `${baseURL.replace(/\/+$/, "")}/${action}/${path}${search ? `?${search}` : ""}`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isResponseLike(value: unknown): value is Response {

@@ -11,7 +11,7 @@ it("counts skipped symlinks toward the filesystem listing work limit", async () 
   const base = join(root, "store")
   await mkdir(base)
   await writeFile(join(root, "outside"), "not a stored key")
-  const driver = createFsLiteKVDriver({ base, driver: "fs-lite" })
+  const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
   try {
     await symlink(join(root, "outside"), join(base, "file-link"))
     await symlink(root, join(base, "directory-link"))
