@@ -53,6 +53,24 @@ function driverImports(source: string) {
 }
 
 describe("hubBlob", () => {
+  it("imports without the optional Vite peer", async () => {
+    const script = [
+      'import { registerHooks } from "node:module"',
+      'registerHooks({ resolve(specifier, context, nextResolve) {',
+      '  if (specifier === "vite" || specifier.startsWith("vite/")) {',
+      '    throw Object.assign(new Error("Cannot find package vite"), { code: "ERR_MODULE_NOT_FOUND" })',
+      '  }',
+      '  return nextResolve(specifier, context)',
+      '} })',
+      'const { hubBlob } = await import("@vite-hub/blob/vite")',
+      'console.log(typeof hubBlob)',
+    ].join("\n")
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", script], {
+      cwd: resolve(import.meta.dirname, ".."),
+    })
+    expect(stdout.trim()).toBe("function")
+  })
+
   it.each([undefined, { authorize: false }, { authorize: true }])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
     const root = await temporaryDirectory("vitehub-blob-auth-watcher-")
     try {

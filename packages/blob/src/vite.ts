@@ -7,7 +7,6 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { exportNames } from "@vite-hub/internal/build/scan-module"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { transform } from "esbuild"
 import { normalizeRoute } from "h3"
@@ -390,6 +389,8 @@ async function discoverBlobAuthorizeModule(rootDir: string, serverDirs: string[]
   const file = files[0]
   if (!file) return
   const source = await readFile(file, "utf8")
+  // Vite is an optional peer; load its parser only when the integration discovers a module.
+  const { exportNames } = await import("@vite-hub/internal/build/scan-module")
   if (exportNames(source, file).includes("authorize")) return file
   if (!file.endsWith(".cts") && !file.endsWith(".cjs") && !commonJSSyntax.test(source)) return
   const commonJS = file.endsWith(".cts") ? (await transform(source, { loader: "ts" })).code : source
