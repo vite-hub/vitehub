@@ -9,7 +9,7 @@ import { consoleAuthPath } from "./auth-path.ts"
 export { defineConsoleAuthorize } from "./authorize.ts"
 export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
 export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
-export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
+export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleSignedInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
 export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleTokenAuthorizeContext, ConsoleUser } from "./auth-types.ts"
 
@@ -88,8 +88,8 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
             { route: consoleAuthPath(mountBaseURL, "/_vitehub/api/**"), authorize: definition.authorize },
           ],
           signIn: {
-            callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub"),
-            errorCallbackURL: consoleAuthPath(mountBaseURL, "/_vitehub?auth_error=signin"),
+            callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"),
+            errorCallbackURL: consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?auth_error=signin"),
             ...definition.signIn,
           },
         },

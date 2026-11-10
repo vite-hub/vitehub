@@ -243,6 +243,7 @@ describe("docs Nuxt setup", () => {
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
     expect(templates.get("docs/manifest.d.ts")?.()).toContain("declare const manifest: DocsManifest\n")
+    expect(templates.get("types/vite-hub-docs.d.ts")?.()).toContain("interface PublicRuntimeConfig { docs: DocsPublicConfig }")
     expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })

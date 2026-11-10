@@ -3,8 +3,8 @@ import { docsHomePath } from "#docs/navigation"
 
 // A collapsed sidebar of a site without the rail: the brand, a button that opens the sidebar, search, and the site
 // links, in one narrow column. The open sidebar has its collapse button in the same place.
-const { site } = useDocsConfig()
-const docsHome = docsHomePath(useDocsManifest())
+const { site, start } = useDocsConfig()
+const docsHome = docsHomePath(useDocsManifest(), start)
 const brandLabel = site.badge ? `${site.name} ${site.badge.label}` : site.name
 const { toggle, focusMounted } = useDocsSidebarToggle()
 onMounted(focusMounted)

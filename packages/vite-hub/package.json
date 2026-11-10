@@ -362,6 +362,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/preview": {
+      "types": "./dist/content/preview.d.ts",
+      "import": "./dist/content/preview.js",
+      "default": "./dist/content/preview.js"
+    },
     "./content/realtime": {
       "types": "./dist/content/realtime.d.ts",
       "import": "./dist/content/realtime.js",
@@ -898,11 +903,6 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/auth/client": {
-      "types": "./dist/console/auth-client.d.ts",
-      "import": "./dist/console/auth-client.js",
-      "default": "./dist/console/auth-client.js"
-    },
     "./console/auth/cloudflare-access": {
       "types": "./dist/console/auth-cloudflare-access.d.ts",
       "import": "./dist/console/auth-cloudflare-access.js",
@@ -1027,12 +1027,17 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./console/setup": {
+      "types": "./dist/console/runtime/server/setup.d.ts",
+      "import": "./dist/console/runtime/server/setup.js",
+      "default": "./dist/console/runtime/server/setup.js"
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack && node scripts/write-console-digest.ts",
+    "build": "vp pack",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
-    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
+    "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run --cache -t vite-hub#build && vp test"
   },
@@ -1104,7 +1109,6 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1144,7 +1148,7 @@
     "google-auth-library": "catalog:storage",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
@@ -1190,7 +1194,6 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1305,9 +1308,6 @@
       "optional": true
     },
     "@vite-hub/connections": {
-      "optional": true
-    },
-    "@vite-hub/console-client": {
       "optional": true
     },
     "@vite-hub/content": {

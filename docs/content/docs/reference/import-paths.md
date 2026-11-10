@@ -60,7 +60,6 @@ the same behavior.
 | `vite-hub/agent/runtime/process` | Adaptive per-process Agent capacity for self-hosted Node apps. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | Define a Console-owned Auth Definition and its access policy. |
-| `vite-hub/console/auth/client` | Configure Console Auth client plugins and setup. |
 | `vite-hub/console/auth/cloudflare-access` | Verify Cloudflare Access tokens for the Console guard. |
 | `vite-hub/console/auth/inline` | Build the Node-only inline GitHub Console Auth Definition. |
 | `vite-hub/console/blob` | Registers read-only Blob inspection for framework servers. |
@@ -72,9 +71,11 @@ the same behavior.
 | `vite-hub/console/operations` | Console operation registration. The generated Console plugin loads it on the first Console request or Agent operation tool, not when the server starts. |
 | `vite-hub/console/sections` | Registers the Console section manifest for framework servers. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
+| `vite-hub/console/setup` | The Console setters that the generated Console plugin calls when the server starts, without the access checks and sign-in pages of `vite-hub/console/sections`. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
+| `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
 | `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` preset's Workspace, its tables, and a Database when the app has none. `vitehub()` registers it. |

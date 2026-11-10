@@ -107,8 +107,12 @@ function collectionModule(name: string): string {
   ].join("\n")
 }
 
+/** Counts evaluations of the server/content.ts fixture. */
+const contentEvaluations = "__vitehubContentEvaluations"
+
 function contentModule(): string {
   return [
+    `Reflect.set(globalThis, ${JSON.stringify(contentEvaluations)}, (Reflect.get(globalThis, ${JSON.stringify(contentEvaluations)}) ?? 0) + 1)`,
     `export const content = {`,
     `  async handler(request: Request) {`,
     `    return Response.json({`,
@@ -691,20 +695,25 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/content/preview.mjs"), "utf8")).resolves.toBe(
       [
-        `import { defineContentPreviewPlugin } from "vite-hub/content"`,
-        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        `import { defineContentPreviewPlugin } from "vite-hub/content/preview"`,
         ``,
-        `export default defineContentPreviewPlugin(content)`,
+        `export default defineContentPreviewPlugin(() => import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}).then(module => module.content))`,
         ``,
       ].join("\n"),
     )
+    Reflect.deleteProperty(globalThis, contentEvaluations)
     const previewModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
     const previewPlugin = Reflect.get(Object(previewModule), "default")
     if (!(previewPlugin instanceof Function)) throw new TypeError("Expected a generated Content preview plugin.")
-    // The plugin wraps Nitro's fetch entry; a request without the preview cookie passes straight through.
-    const nitroApp = { fetch: () => "next" }
+    // The plugin wraps Nitro's fetch entry; a request without the preview cookie passes straight through, and the
+    // server starts without loading server/content.ts.
+    const nitroApp = { fetch: (_request?: Request) => "next" }
     previewPlugin(nitroApp)
-    expect(nitroApp.fetch()).toBe("next")
+    expect(nitroApp.fetch(new Request("https://example.test/blog"))).toBe("next")
+    expect(Reflect.get(globalThis, contentEvaluations)).toBeUndefined()
+    // The first preview request loads it. This runtime has no preview, so the request passes through.
+    await expect(nitroApp.fetch(new Request("https://example.test/blog", { headers: { cookie: "vitehub-content-preview=v1.1.token" } }))).resolves.toBe("next")
+    expect(Reflect.get(globalThis, contentEvaluations)).toBe(1)
     await expect(readFile(join(root, ".vitehub/content/types.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineContentTypesPlugin } from "vite-hub/content"`,

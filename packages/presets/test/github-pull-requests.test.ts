@@ -6,6 +6,8 @@ import {
 } from "../src/github/pull-requests.ts";
 import { githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`;
+
 const connection = <T>(nodes: T[] = []) => ({
   nodes,
   pageInfo: { hasNextPage: false, endCursor: null as string | null },
@@ -42,7 +44,7 @@ describe("GitHub pull request snapshots", () => {
     const id = await agentInvocationId("delivery-1", "team/support")
     expect(run.activity?.links).toEqual([{
       label: "Current session",
-      url: `https://agent.example.test/_vitehub/agents/~007400650061006d002f0073007500700070006f00720074/invocations/${id}`,
+      url: hostedConsoleLink("https://agent.example.test", `/agents/~007400650061006d002f0073007500700070006f00720074/invocations/${id}`),
     }])
   })
 
@@ -53,7 +55,7 @@ describe("GitHub pull request snapshots", () => {
       const linked = await createGitHubPullRequestRun("acme/app", snapshot, { agentName: "babysitter", runId: "delivery-2" })
       expect(linked.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/babysitter/invocations/${await agentInvocationId("delivery-2", "babysitter")}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/babysitter/invocations/${await agentInvocationId("delivery-2", "babysitter")}`),
       }])
       const unlinked = await createGitHubPullRequestRun("acme/app", snapshot, { agentName: "other", runId: "delivery-2" })
       expect(unlinked.activity?.links).toEqual([])

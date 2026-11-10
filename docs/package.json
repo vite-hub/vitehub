@@ -6,7 +6,7 @@
   "scripts": {
     "clean": "rm -rf .nuxt .output node_modules/.cache",
     "postinstall": "node scripts/postinstall.mjs",
-    "pretest": "nuxi prepare",
+    "pretest": "vp run --cache -t vite-hub#build && nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS=--max-old-space-size=8192 nuxi build",
     "deploy:cloudflare": "vp run test && vp run build && vp dlx \"wrangler@4.147.0\" deploy --config .output/server/wrangler.json",
@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
-    "@comark/vue": "0.8.1",
+    "@comark/vue": "0.9.0",
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
@@ -52,7 +52,7 @@
     "@iconify-json/vscode-icons": "catalog:ui",
     "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
-    "comark-chips": "^0.9.1",
+    "comark-chips": "^0.10.1",
     "playwright-core": "catalog:browser",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

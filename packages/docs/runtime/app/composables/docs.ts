@@ -16,8 +16,7 @@ export function useDocsManifest(): DocsManifest<DocsAppPage> {
 
 /** The `docs` options of `nuxt.config`, as the app reads them. */
 export function useDocsConfig(): DocsPublicConfig {
-  // SAFETY: the docs module writes this key with the `DocsPublicConfig` shape.
-  return useRuntimeConfig().public.docs as DocsPublicConfig
+  return useRuntimeConfig().public.docs
 }
 
 /** Whether a path is one of the site pages that `start.links` lists. They open inside the start section. */
