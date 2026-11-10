@@ -340,7 +340,9 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: Vite
     for (const plugin of resolved.plugins) {
       if (plugin.name === "nitro:main") delete plugin.configureServer
     }
-    resolved.environments = { client: resolved.environments.client, ssr: resolved.environments.ssr }
+    for (const name of Object.keys(resolved.environments)) {
+      if (name !== "client" && name !== "ssr") delete resolved.environments[name]
+    }
     resolved.environments.client.dev.createEnvironment = (name, config) => new vite.DevEnvironment(name, config, { hot: false })
     resolved.environments.ssr.dev.createEnvironment = (name, config) => vite.createRunnableDevEnvironment(name, config, { hot: false })
     server = await vite.createServer(resolved)
