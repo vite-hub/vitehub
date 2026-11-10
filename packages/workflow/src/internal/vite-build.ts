@@ -133,6 +133,8 @@ const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "s
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+  detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
+  shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
 export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
@@ -175,7 +177,18 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
 export async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
-  return builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
+  const plugin = builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
+  // Workflow's own Rollup and Vite plugins run SWC only on files with Workflow code. The esbuild plugin runs it on every file.
+  return {
+    ...plugin,
+    setup: build => plugin.setup({
+      ...build,
+      onLoad: (options, callback) => build.onLoad(options, async (args) => {
+        const source = await readFile(args.path, "utf8")
+        return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
+      }),
+    }),
+  }
 }
 
 async function withVercelWorkflowPackageLink<T>(rootDir: string, run: () => Promise<T>): Promise<T> {

@@ -273,6 +273,8 @@ jobs:
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup-deno
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -485,6 +487,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
 
       # The Console client imports the built packages, such as vite-hub/console/sections.
       - run: vp run -t vite-hub#build
