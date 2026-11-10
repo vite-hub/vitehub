@@ -30,7 +30,9 @@ export default defineConfig({
       // `script` and `style`; page-tool.vite.config.ts reads the file and adds `pageTool`. Writing them here keeps the
       // file in step with this build when the task cache replays the page tool build.
       name: "vitehub-console-client-manifest",
-      writeBundle(_options, bundle) {
+      writeBundle(options, bundle) {
+        // console.hosted.vite.config.ts reuses these plugins for a site with its own output folder and no manifest.
+        if (options.dir !== consoleClientOutDir) return
         const files = Object.values(bundle)
         const script = files.find(file => file.type === "chunk" && file.isEntry)?.fileName
         const style = files.find(file => file.type === "asset" && file.names.includes("main.css"))?.fileName
