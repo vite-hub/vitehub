@@ -7,7 +7,12 @@
       "@vite-hub/internal/*": [
         "../../packages/internal/src/*.ts"
       ]
-    }
+    },
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
   "include": [
     "src/**/*.ts",

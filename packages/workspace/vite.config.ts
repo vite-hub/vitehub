@@ -1,16 +1,11 @@
-import { fileURLToPath } from "node:url";
-
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    alias: {
-      undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
-    },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/, /^@vite-hub\/forge/, /^@vercel\/blob/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
         "vite",
         "#vitehub-workspace-assets-registry",
@@ -43,6 +38,7 @@ export default defineConfig({
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
       "src/runtime/assets.ts",
+      "src/runtime/registry.ts",
       "src/runtime/state.ts",
       "src/server.ts",
       "src/providers/github/store.ts",
@@ -53,9 +49,12 @@ export default defineConfig({
       exclude: [
         "hosted",
         "hosted-vercel-blob",
+        // Generated code imports these modules by path. They are not public API.
+        "operations",
         "runtime/assets",
         "runtime/empty-assets-registry",
         "runtime/empty-registry",
+        "runtime/registry",
         "runtime/state",
         "runtime/workspace",
         "providers/github/store",
@@ -64,7 +63,6 @@ export default defineConfig({
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
-        exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
 
