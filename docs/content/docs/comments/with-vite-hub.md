@@ -154,7 +154,8 @@ Both browsers share a Realtime room for the page, which holds only presence. Com
 Add a Content singleton (a single document) with one text field. The `cms` preset stores it in a Workspace on the same Database and adds Blob.
 
 ```ts [server/content.ts]
-import { defineContent, singleton } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { singleton } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 

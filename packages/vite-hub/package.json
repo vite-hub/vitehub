@@ -82,6 +82,11 @@
       "import": "./dist/agent/invocations/database.js",
       "default": "./dist/agent/invocations/database.js"
     },
+    "./agent/invocations/drizzle": {
+      "types": "./dist/agent/invocations/drizzle.d.ts",
+      "import": "./dist/agent/invocations/drizzle.js",
+      "default": "./dist/agent/invocations/drizzle.js"
+    },
     "./agent/invocations/sqlite": {
       "types": "./dist/agent/invocations/sqlite.d.ts",
       "import": "./dist/agent/invocations/sqlite.js",
@@ -341,6 +346,11 @@
       "types": "./dist/content/client.d.ts",
       "import": "./dist/content/client.js",
       "default": "./dist/content/client.js"
+    },
+    "./content/collections": {
+      "types": "./dist/content/collections.d.ts",
+      "import": "./dist/content/collections.js",
+      "default": "./dist/content/collections.js"
     },
     "./content/database": {
       "types": "./dist/content/database.d.ts",
@@ -641,6 +651,11 @@
       "types": "./dist/source/client.d.ts",
       "import": "./dist/source/client.js",
       "default": "./dist/source/client.js"
+    },
+    "./source/drizzle": {
+      "types": "./dist/source/drizzle.d.ts",
+      "import": "./dist/source/drizzle.js",
+      "default": "./dist/source/drizzle.js"
     },
     "./source/mcp": {
       "types": "./dist/source/mcp.d.ts",
