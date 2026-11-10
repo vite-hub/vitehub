@@ -84,7 +84,6 @@ Some rules read the whole project:
 | [`VHUB0025`](#vhub0025) | `vitehub/realtime-persistence` | Error |
 | [`VHUB0026`](#vhub0026) | `vitehub/forge-error-imports` | Warning |
 | [`VHUB0027`](#vhub0027) | `vitehub/sandbox-runtime-options` | Error |
-| [`VHUB0028`](#vhub0028) | `vitehub/define-agent-from-vite-hub` | Warning |
 | [`VHUB0029`](#vhub0029) | `vitehub/rate-limit-capability-limiter` | Error |
 | [`VHUB0030`](#vhub0030) | `vitehub/no-vitehub-plugin-in-nuxt` | Warning |
 | [`VHUB0031`](#vhub0031) | `vitehub/valid-vitehub-options` | Warning |
@@ -670,13 +669,13 @@ The rule reports property reads and destructuring of names that are not `Respons
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. Without the rule, these errors appear only when the Workflow runs.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
 
-```ts [server/workflows/onboard-user/index.ts]
+```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow(async ({ payload, steps }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
   const user = await steps.createUser(payload)
   // Invalid: there is no send-welcome-email step file.
   return await steps.sendWelcomeEmail(user)
@@ -847,22 +846,6 @@ const sandbox = await resolveSandbox({
 ```
 
 It skips definitions with a spread, and runtimes from variables. Read [Sandbox](/docs/sandbox).
-
-## VHUB0028
-
-**Import `defineAgent` from `vite-hub/agent`.** Rule `vitehub/define-agent-from-vite-hub`.
-
-An app that depends on `vite-hub` imports `defineAgent` from `@vite-hub/agent`. That version ignores the app-wide `agent.invocations` journal and the default journal, so the Agent's Invocations are not recorded. A string `invocations` setting, such as `'database'`, also fails when the module loads.
-
-```ts [server/agents/support.ts] fragment
-// Invalid
-import { defineAgent } from '@vite-hub/agent'
-
-// Valid
-import { defineAgent } from 'vite-hub/agent'
-```
-
-The rule reads dependencies from the project `package.json`. It skips `import type`.
 
 ## VHUB0029
 

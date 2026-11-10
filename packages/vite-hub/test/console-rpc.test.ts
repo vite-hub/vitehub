@@ -1,6 +1,4 @@
-import { Readable } from "node:stream"
 
-import { defineHandler } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
@@ -55,26 +53,11 @@ describe("Console RPC", () => {
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
-    const response = await defineHandler(consoleRpcHandler).fetch(request)
+    const response = await consoleRpcHandler.fetch(request)
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
     expect(JSON.stringify(body)).not.toContain(binding)
-  })
-
-  it("reads the call from the H3 1 events of Nuxt 4, which carry Node's request", async () => {
-    installConsoleSections("/console-rpc-nuxt4", ["env"])
-    const req = Object.assign(Readable.from([JSON.stringify({ operation: "sections.list", input: {} })]), {
-      method: "POST",
-      url: "/_vitehub/rpc/__call",
-      headers: { host: "vitehub.local", "content-type": "application/json", [consoleRpcHeader]: "1" },
-    })
-    const event = { node: { req, res: { statusCode: 200, getHeader: () => undefined, getHeaders: () => ({}), setHeader() {}, removeHeader() {} } }, context: {}, method: "POST", headers: new Headers(req.headers) }
-    const response: unknown = await Reflect.apply(consoleRpcHandler, undefined, [event])
-    expect(response).toBeInstanceOf(Response)
-    if (!(response instanceof Response)) return
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ ok: true })
   })
 
   it("returns operation results and errors with no-store headers", async () => {

@@ -1,4 +1,3 @@
-import { defineHandler } from "h3"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { requestConsole } from "../src/console/runtime/client/request.ts"
@@ -13,11 +12,10 @@ afterEach(() => {
 
 /** Send the Console client's calls to one RPC handler instance. */
 function serveWith(handler: typeof consoleRpcHandler): void {
-  const instance = defineHandler(handler)
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(new URL(input, "http://vitehub.local"), init)
     expect(request.headers.get(consoleRpcHeader)).toBe("1")
-    return instance.fetch(request)
+    return handler.fetch(request)
   })
 }
 

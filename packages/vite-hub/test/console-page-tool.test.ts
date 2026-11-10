@@ -14,7 +14,7 @@ import { installConsoleClient } from "../src/console/runtime/server/client-asset
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
-import { requestEvent } from "./console-event.ts"
+import { requestEvent, routeRequest } from "./console-event.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
@@ -24,7 +24,7 @@ const pageToolsKey = Symbol.for("vitehub.page-tools")
 
 function sessionApp() {
   // A development Console without sign-in serves only this machine, so the page comes from a loopback peer.
-  return { fetch: (request: Request) => pageSessionHandler(requestEvent(request, { remoteAddress: "127.0.0.1" })) }
+  return { fetch: (request: Request) => pageSessionHandler.fetch(routeRequest(requestEvent(request, { remoteAddress: "127.0.0.1" }))) }
 }
 
 /** The tools that the page tools session allows for one page request under a Console access policy. */

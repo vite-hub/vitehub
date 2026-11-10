@@ -11,7 +11,7 @@ You write Markdown. The defaults give you a complete site. When a default does n
 ## Install
 
 ```sh
-pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss
+pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui
 ```
 
 ```ts
@@ -178,7 +178,7 @@ Most changes are options in `nuxt.config.ts`:
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
-| `parser` | None | Path of a module whose default export is `{ plugins }`: more Comark plugins for every page. See [Comark plugins](#comark-plugins). |
+| `parser` | None | Path of a module whose default export is the parser options: `{ comarkUi, examples, plugins }`. See [Comark plugins](#comark-plugins). |
 | `examples` | `examples` | Folder, inside `app/`, of the Vue files that `::example{name}` shows. See [Examples](#examples). |
 
 ### Components
@@ -228,25 +228,30 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 
 ### Comark plugins
 
-The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon.
+The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon. Annotated screenshots, diffs, quizzes, and comments have no Vue components, so the server draws them as HTML in a `comark-html` node, with the block's tag in `block`.
 
-Comark plugins are functions, so more of them go in a module that `parser` names:
+`::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. The parser renders the example's first fenced block as its preview, with the page's plugins. An example whose Markdown doesn't parse shows its source alone. A site's parser can still supply its own `example-preview` node. Content without a preview node stays visible.
 
-Install the plugin in your app first:
-
-```sh
-pnpm add comark-chips
-```
+Parser options go in a module that `parser` names, since Comark plugins are functions:
 
 ```ts
 // docs.parser.ts
 import type { DocsParserOptions } from "@vite-hub/docs/server"
-import chips from "comark-chips"
 
-export default { plugins: [chips()] } satisfies DocsParserOptions
+export default {
+  comarkUi: { chips: true },
+  examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
+} satisfies DocsParserOptions
 ```
 
-Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. A plugin that adds a tag that comark-ui doesn't render needs a component for it in `app/components/content/`.
+Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts parse with these options.
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `comarkUi` | `{ typeset: false, chips: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
+| `examples.tags` | `["example", "correct", "incorrect"]` | Tags of the blocks that get a preview of their first fenced block, such as `["example", "correct", "incorrect"]`. |
+| `examples.play` | None | `(source, tag) => url`: a playground URL for the block's Markdown, written as its `play`. Return `undefined` for no link. |
+| `plugins` | `[]` | More Comark plugins, after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. A plugin that adds a tag that comark-ui doesn't render needs a component for it in `app/components/content/`. |
 
 ### Design
 
