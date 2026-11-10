@@ -936,15 +936,17 @@ describe("ViteHub Nuxt integration", () => {
           setup(pluginBuild) {
             pluginBuild.onResolve({ filter: /^#vitehub\/(browser|realtime)\/availability$/ }, async (args) => {
               for (const plugin of plugins) {
-                if (typeof plugin.resolveId !== "function") continue
-                const id = await Reflect.apply(plugin.resolveId, {}, [args.path, undefined, { ssr: true, isEntry: false }])
+                const resolveId = typeof plugin.resolveId === "function" ? plugin.resolveId : plugin.resolveId?.handler
+                if (!resolveId) continue
+                const id = await Reflect.apply(resolveId, {}, [args.path, undefined, { ssr: true, isEntry: false }])
                 if (typeof id === "string") return { path: id, namespace: "availability" }
               }
             })
             pluginBuild.onLoad({ filter: /.*/, namespace: "availability" }, async (args) => {
               for (const plugin of plugins) {
-                if (typeof plugin.load !== "function") continue
-                const contents = await Reflect.apply(plugin.load, {}, [args.path])
+                const load = typeof plugin.load === "function" ? plugin.load : plugin.load?.handler
+                if (!load) continue
+                const contents = await Reflect.apply(load, {}, [args.path])
                 if (typeof contents === "string") return { contents, loader: "js" }
               }
             })
@@ -1182,7 +1184,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(development.nuxt).handlers).toContainEqual({ handler: expect.stringMatching(/server\/page\.get\.js$/), lazy: true, route: "/_vitehub/**" })
     expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
       baseURL: "/_vitehub/assets",
-      dir: expect.stringMatching(/console\/runtime\/public\/console$/),
+      dir: expect.stringMatching(/console-client\/dist\/client$/),
       fallthrough: false,
       maxAge: 31536000,
     }, {
@@ -2389,7 +2391,7 @@ describe("ViteHub Nuxt integration", () => {
   it("installs the Content section and serves its routes from the standalone Console page", async () => {
     const entry = "/tmp/vitehub-nuxt/custom-server/content.ts"
     await mkdir(resolve(entry, ".."), { recursive: true })
-    await writeFile(entry, `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(entry, `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     try {
       const development = createNuxt(true)
       await viteHubNuxtModule({ blob: true, console: { auth: false }, preset: "node", workspace: true }, development.nuxt)

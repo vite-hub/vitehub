@@ -85,7 +85,8 @@ import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setCha
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
+import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
 import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -289,6 +290,8 @@ export type {
   AgentInvocationStore,
 } from "./invocations.ts"
 export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
+export { getAgentInvocations } from "./invocations/app.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal, AgentInvocationsSetting, AgentInvocationsStoreName, AgentInvocationsStoreOptions } from "./invocations/app.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -460,7 +463,6 @@ export type {
   AgentInputHook,
   AgentInterceptContext,
   AgentInterceptHandler,
-  AgentIntegrationOption,
   AgentHookObserver,
   AgentHookObserverEvent,
   AgentHookObserverHooks,
@@ -473,9 +475,6 @@ export type {
   AgentInvocationContextValues,
   AgentInvocationHooks,
   AgentInvocationReference,
-  AgentInvocationsHostSettings,
-  AgentInvocationsInput,
-  AgentIntegrationsOptions,
   AgentInvoker,
   AgentInvokerMeta,
   AgentInvokerOptions,
@@ -532,8 +531,6 @@ export type {
   AgentWebhookRegistrationDefinition,
   AgentChannelWebhookRegistrationDefinition,
   AgentWorkflowRuntimeBinding,
-  AgentSandboxProviderOptions,
-  AgentSchedulerProviderOptions,
   AgentSettings,
   AgentShutdownOptions,
   AgentSourceProvenance,
@@ -3260,9 +3257,9 @@ function createWorkspaceAgentDefinition<
 }
 
 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-export const defineAgent: DefineAgent = ((options: unknown) => {
+const defineAgentDefinition: DefineAgent = ((options: unknown) => {
   // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
-  const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
+  const configured = createConfiguredAgentDefinition(options, settings => defineAgentDefinition(settings as never))
   if (configured) return configured
   // Named lists follow the same per-key layering rules as inline Channel records.
   if (isRuntimeRecord(options) && Array.isArray(options.channels)) {
@@ -3276,11 +3273,6 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   }, name => {
     throw new TypeError(`[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`)
   }) as AgentSettings
-  const invocations: unknown = agentOptions.invocations
-  // Host settings, such as a journal name, must be resolved by the host's defineAgent().
-  if (hasRuntimeType(invocations, "string") || hasRuntimeType(invocations, "boolean") || (isRuntimeRecord(invocations) && "store" in invocations)) {
-    throw new TypeError("[vitehub] Agent invocations must be a journal from defineAgentInvocations(). Import defineAgent from vite-hub/agent to select a journal by name.")
-  }
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
@@ -3311,6 +3303,52 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : defineBaseAgent(normalizedOptions as never)
   return rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
+}) as DefineAgent
+
+function inheritsDisabledInvocations(parent: unknown): boolean {
+  return Object(parent) === parent && Reflect.get(Object(parent), agentInvocationsDisabledKey) === true
+}
+
+// SAFETY: The journal setting is resolved before the Agent definition normalization above.
+export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) => {
+  const setting: AgentInvocationsSetting | undefined = options.invocations
+  const invocations = resolveAgentInvocationsSetting(setting)
+  let agentOptions = options
+  if (setting !== invocations) {
+    const { invocations: _setting, ...rest } = options
+    agentOptions = invocations ? { ...rest, invocations } : rest
+  }
+  const agent = defineAgentDefinition(agentOptions as never)
+  const disabled = setting === false || (setting === undefined && agent.invocations === undefined
+    && (inheritsDisabledInvocations(agent) || ("extends" in options && inheritsDisabledInvocations(options.extends))))
+  if (!disabled) Reflect.deleteProperty(agent, agentInvocationsDisabledKey)
+  if (!disabled && agent.invocations !== undefined) {
+    Reflect.deleteProperty(agent, agentInvocationsFallbackKey)
+    return agent
+  }
+
+  // Without its own journal, the Agent records in the app-wide journal that the generated server installs.
+  let assignedInvocations: AgentInvocations | undefined
+  if (disabled) Object.defineProperty(agent, agentInvocationsDisabledKey, { configurable: true, enumerable: false, value: true })
+  Object.defineProperty(agent, agentInvocationsFallbackKey, {
+    configurable: true,
+    enumerable: false,
+    get() {
+      return assignedInvocations === undefined
+    },
+  })
+  Object.defineProperty(agent, "invocations", {
+    configurable: true,
+    enumerable: false,
+    get() {
+      if (assignedInvocations || disabled) return assignedInvocations
+      return resolveFallbackAgentInvocations()
+    },
+    set(value: AgentInvocations | undefined) {
+      assignedInvocations = value
+    },
+  })
+  return agent
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
