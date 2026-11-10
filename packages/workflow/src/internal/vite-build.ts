@@ -798,6 +798,23 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
   if (!artifacts.providerDefinitions.length) return options.nitro
 
   const nitro = { ...options.nitro }
+  const middlewareFile = resolve(ensureGeneratedDir(options.rootDir, productName), "nitro-middleware.ts")
+  await writeFile(middlewareFile, [
+    'import { defineMiddleware } from "nitro"',
+    'import { env, waitUntil } from "cloudflare:workers"',
+    `import { enterWorkflowRuntimeEvent } from ${JSON.stringify(`${options.workflowImportBase ?? workflowPackageName}/runtime/state`)}`,
+    '',
+    'export default defineMiddleware((event) => {',
+    '  Object.assign(event, { env, waitUntil })',
+    '  enterWorkflowRuntimeEvent(event)',
+    '})',
+    '',
+  ].join("\n"), "utf8")
+  const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
+  if (!handlers.some(handler => record(handler).handler === middlewareFile)) {
+    handlers.unshift({ handler: middlewareFile, middleware: true, route: "/**" })
+  }
+  nitro.handlers = handlers
   const cloudflare = { ...record(nitro.cloudflare) }
   const wrangler = { ...record(cloudflare.wrangler) }
   const workflows = createCloudflareWorkflowBindings(artifacts.providerDefinitions, config)

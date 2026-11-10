@@ -4,12 +4,12 @@ import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
-import { GitHubDependencyConflictError } from "@vite-hub/agent/server/github";
+import { GitHubDependencyConflictError } from "../github/index.ts";
 import * as v from "valibot";
 import { join } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
-import { prepareGitHubRepairBase } from "@vite-hub/agent/server/github";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "@vite-hub/agent/server/github";
+import { prepareGitHubRepairBase } from "../github/index.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
@@ -19,8 +19,8 @@ import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialCont
 import {
   createGitHubPullRequestRun,
   createGitHubPullRequestOperations,
-} from "@vite-hub/agent/server/github";
-import type { GitHubHost } from "@vite-hub/agent/server/github";
+} from "../github/index.ts";
+import type { GitHubHost } from "../github/index.ts";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
@@ -38,7 +38,7 @@ import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxD
 import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
-import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
+import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../github/index.ts";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
 import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
@@ -52,6 +52,22 @@ import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
+export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
+export type {
+  GitHubAppEnvironment,
+  GitHubHost,
+  GitHubHostAccess,
+  GitHubHostAccessOptions,
+  GitHubHostCheckout,
+  GitHubHostCheckoutOptions,
+  GitHubHostCredentialContext,
+  GitHubHostCredentials,
+  GitHubHostForgeOptions,
+  GitHubHostOptions,
+  GitHubHostPullRequest,
+  GitHubHostRateLimit,
+  GitHubHostSecret,
+} from "../github/host.ts";
 
 declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
@@ -1875,7 +1891,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             schedulerEvent("babysitter.owner.deferred", { reason: "provider-rate-limit", ...owner });
           } else {
             outcome = "failed";
-            if (/AGENT_R0767|head.*(?:mismatch|changed)|expected.*head/i.test(String(error))) {
+            if (/head.*(?:mismatch|changed)|expected.*head/i.test(String(error))) {
               await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
             }
             await pullRequestInbox.finish(inboxClaim, {

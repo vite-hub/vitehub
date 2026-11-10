@@ -35,6 +35,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
+| `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 
@@ -53,6 +54,28 @@ The `@vite-hub/runtime/*` forms move to the same places. The report lists what n
 
 ```sh
 npx @vite-hub/codemods runtime-contracts [dir] [--dry-run]
+```
+
+## `queue-workflow-verbs`
+
+ViteHub renamed the Queue and Workflow verbs so that each one says what it does. `queue-workflow-verbs` rewrites the app:
+
+| Old | New |
+| --- | --- |
+| `runQueue()` | `sendQueue()` |
+| `getQueue()` | `useQueue()` |
+| `dynamicQueue.run()`, `dynamicQueue.get()` | `dynamicQueue.send()`, `dynamicQueue.use()` |
+| `runWorkflow()` | `startWorkflow()` |
+| `resumeWorkflowSignal()` | `resumeWorkflow()` |
+| `.run()` of a handle from `createWorkflow()` | `.start()` |
+| `WorkflowDeferOptions` | `WorkflowStartOptions` |
+
+`deferWorkflow()` and the `defer()` method of a Workflow handle now return nothing, like `deferQueue()`. Where the code reads the result, for example to store the run id, the codemod calls `startWorkflow()` or `.start()` instead, which return the run as `deferWorkflow()` did. Where the code only awaits the call as a statement, it removes the `await`.
+
+The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their `@vite-hub/*` forms, also namespace imports, re-exports, and `<script>` blocks of `.vue` files. Named re-exports keep their local public names as aliases so consumers of an application's barrel keep working. Star and namespace re-exports need manual changes in their consumers, which the report lists. The report also lists object keys and strings with an old name, for example in a `vi.mock()` factory, and Workflow handles that a file exports, because other files call their methods. Detection includes migrations that only need manual follow-up.
+
+```sh
+npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]
 ```
 
 ## `nuxt-safe-runtime-config`
