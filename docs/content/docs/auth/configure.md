@@ -13,7 +13,7 @@ The Auth Definition is the `defineAuth()` file: `server/auth.ts` or `server.auth
 In Nuxt, a layer can supply `server/auth.ts`, and the app's own Definition replaces it. Definitions in two layers fail the build until the app defines one.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
@@ -132,7 +132,7 @@ export default defineConfig({
 ::
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   appName: 'Acme',
@@ -178,8 +178,8 @@ Caller runtime options override the `runtime` result, which overrides the Defini
 Use the `stateless()` preset when users sign in only with social providers and the app has no database. Each session lives in an encrypted cookie, so it survives restarts and works across replicas and Workers.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
-import { stateless } from '@vite-hub/auth/presets'
+import { defineAuth } from 'vite-hub/auth'
+import { stateless } from 'vite-hub/auth/presets'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   baseURL: requestOrigin,
@@ -229,7 +229,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 Better Auth extends a stored session once it is older than `session.updateAge`. `session.onRefresh` runs then, so you can check the user again, for example against a ban list.
 
 ```ts [server/auth.ts] fragment
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   session: {
@@ -471,7 +471,7 @@ The `database` and `secondaryStorage` fields record, for inspection, which ViteH
 | `secondaryStorage: { store: 'auth' }` | The named KV Store `auth`. |
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

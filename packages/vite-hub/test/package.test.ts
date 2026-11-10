@@ -112,7 +112,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
-  "@vite-hub/realtime/client",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/ui/browser-support-notice",
@@ -152,7 +151,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/sandbox/task/runtime/state",
   "@vite-hub/schedule/runtime/static",
   "@vite-hub/workflow/runtime/openworkflow",
-  "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
 ]);
 

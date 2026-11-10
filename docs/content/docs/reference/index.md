@@ -86,8 +86,6 @@ Capabilities, and other app APIs come from feature subpaths.
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
 
-- `@vite-hub/box`
-
 - `@vite-hub/presets`
 
 - `@vite-hub/forge`

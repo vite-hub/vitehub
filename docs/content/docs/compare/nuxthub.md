@@ -16,7 +16,7 @@ Workflows, Schedule, Sandbox, Auth, other Server Primitives, and Agents.
 - Use ViteHub if your app also needs background work or Agents, or if it is a
   Vite app without Nuxt.
 
-Neither has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.0.x, and its
+Neither has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.1.x, and its
 public API still changes.
 
 ## What NuxtHub is today

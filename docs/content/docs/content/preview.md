@@ -115,7 +115,7 @@ A browser with a preview cookie reads drafts on every page. A request with `?vit
 - The page sees its URL with the parameter. The response is `private, no-store` and `noindex`, and skips Nitro's cache, so the page shows current published content.
 - An explicit `{ ref: 'draft' }` or `{ revision }` in server code is trusted and reads what it names.
 
-`contentPreviewPublishedParameter` from `@vite-hub/content` and `@vite-hub/content/client` holds the parameter name.
+`contentPreviewPublishedParameter` from `vite-hub/content` and `vite-hub/content/client` holds the parameter name.
 
 ## Signing key
 

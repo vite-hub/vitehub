@@ -10,23 +10,23 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
-| `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect operational Env failures by `ENV_*` code. |
-| `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
-| `defineEnvProvider` from `@vite-hub/env` | Define a read-only runtime provider for external Env storage. |
-| `loadServerEnv` from `#vitehub/env/server` | Load one immutable Server Env snapshot, including provider-backed values. |
-| `describeServerEnv` from `#vitehub/env/server` | List declaration metadata without reading host values or calling providers. |
-| `inspectServerEnv` from `#vitehub/env/server` | Inspect status-only Server Env metadata without returning values. |
-| `isBlockingServerEnvEntry` from `@vite-hub/env` | Check whether an inspection entry makes `loadServerEnv()` fail. |
-| `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
-| `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
+| `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
+| `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
+| `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
+| `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |
+| `loadServerEnv` from `#vitehub/env/server` | Load one frozen Server Env snapshot, with provider values. |
+| `describeServerEnv` from `#vitehub/env/server` | List declaration metadata. Reads no values and calls no provider. |
+| `inspectServerEnv` from `#vitehub/env/server` | Report the status of each value, never the value. |
+| `isBlockingServerEnvEntry` from `vite-hub/env` | Check if an inspection entry makes `loadServerEnv()` fail. |
+| `usePublicEnv` from `#vitehub/env/public` | Read Public Env in browser code. |
+| `useServerEnv` from `#vitehub/env/server` | Read Server Env in server code. |
 | `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
-| `SecretEnv` from `@vite-hub/env` | Represent Secret Env values that redact by default. |
-| `resolveServerEnv` from `@vite-hub/env` | Resolve a server env registry manually. |
-| `openWorkflowEnv` from `@vite-hub/env` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `@vite-hub/env` | Declare the Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver), `llmGate()`, and `llmRoute()` use by default. |
-| `parseSchema` from `@vite-hub/env` | Parse Standard Schema-compatible values. |
+| `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
+| `resolveServerEnv` from `vite-hub/env` | Resolve a Server Env registry yourself. |
+| `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
+| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver), `llmGate()`, and `llmRoute()`. |
+| `parseSchema` from `vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime
 
@@ -232,8 +232,8 @@ export default defineConfig({
 The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `#vitehub/env/server`.
 
 ```ts [server/env/credentials.ts]
-import { defineEnvProvider } from '@vite-hub/env'
-import type { SecretEnv } from '@vite-hub/env'
+import { defineEnvProvider } from 'vite-hub/env'
+import type { SecretEnv } from 'vite-hub/env'
 
 export default defineEnvProvider<{
   credentialsGatewayKey: SecretEnv<string>

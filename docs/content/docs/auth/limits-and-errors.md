@@ -20,7 +20,7 @@ icon: i-lucide-circle-alert
 When a required session is missing, `authenticated()` throws `ViteHubError` with code `AUTHENTICATION_REQUIRED`. HTTP adapters turn it into `401`. The error serializes only its public message, without cause or stack.
 
 ```ts
-import { ViteHubError } from '@vite-hub/runtime'
+import { ViteHubError } from 'vite-hub/runtime'
 
 const error = new ViteHubError('AUTHENTICATION_REQUIRED', 'Sign in to use this Agent.')
 

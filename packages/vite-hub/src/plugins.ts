@@ -246,6 +246,11 @@ function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImport
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
 const envServerRuntimeImport = fileURLToPath(import.meta.resolve("@vite-hub/env/internal/server"))
 
+/** A pattern that matches `specifier` and nothing under it. */
+function exactSpecifier(specifier: string): RegExp {
+  return new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+}
+
 function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
   return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
     const importTarget = packageExportImportTarget(target)
@@ -258,8 +263,7 @@ const frameworkProviderImportAliases = Object.fromEntries(
   frameworkExportAliases(importTarget => importTarget.endsWith(".js"))
     .sort(([left], [right]) => right.length - left.length),
 )
-// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
-// specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
+// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`.
 const frameworkAssetImportAliases = Object.fromEntries(frameworkExportAliases(importTarget => !importTarget.endsWith(".js")))
 
 function escapeRegExp(value: string): string {
@@ -320,11 +324,7 @@ function frameworkDependencyResolver(
     },
     enforce: "pre",
     config() {
-      // Longest specifiers first: Vite uses the first alias that matches.
-      const aliases = Object.fromEntries(
-        Object.entries({ ...frameworkProviderImportAliases, ...frameworkAssetImportAliases })
-          .sort(([left], [right]) => right.length - left.length),
-      )
+      const aliases: Record<string, string> = { ...frameworkProviderImportAliases, ...frameworkAssetImportAliases }
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
@@ -342,9 +342,12 @@ function frameworkDependencyResolver(
         const feature = ownerFacadeFeature(specifier)
         if (feature && !optionalFeaturePackages[feature].every(isInstalled)) delete aliases[specifier]
       }
+      // Each alias matches its specifier alone. A Vite alias given as a string also matches the subpaths under it, so
+      // a subpath the package doesn't export, such as `vite-hub/realtime/nope`, would load `dist/realtime.js/nope`
+      // instead of failing as not exported.
       return {
         resolve: {
-          alias: aliases,
+          alias: Object.entries(aliases).map(([specifier, replacement]) => ({ find: exactSpecifier(specifier), replacement })),
         },
       }
     },
