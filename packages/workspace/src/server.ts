@@ -1,4 +1,3 @@
-import { createError, defineEventHandler, getRouterParam } from "h3"
 import { lookup } from "mrmime"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
@@ -10,7 +9,6 @@ import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspaceFiles } from "./core/use.ts"
 import { withWorkspaceProgress } from "./session/progress.ts"
 
-import type { H3Event } from "h3"
 import type { ReadonlyWorkspaceFiles, WritableWorkspaceFiles } from "./core/use.ts"
 import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionHost, WorkspaceSessionOptions } from "./core/types.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
@@ -51,7 +49,10 @@ export interface WorkspaceFileResponseOptions<Name extends WorkspaceName = Works
 }
 
 export interface WorkspaceFileHandlerOptions<Name extends WorkspaceName = WorkspaceName> extends Omit<WorkspaceFileResponseOptions<Name>, "path"> {
-  param?: string
+  /** The route path, such as `"/api/data/"`, relative to `baseURL`. The rest of the URL path is the file path. */
+  base: string
+  /** The retained application prefix, such as Nitro's `baseURL`. Set this when the app is mounted below `/`. */
+  baseURL?: string
 }
 
 export interface WorkspaceDevCommandInput<Name extends WorkspaceName = WorkspaceName> {
@@ -295,22 +296,23 @@ async function materializeWorkspaceDevSources(
   })
 }
 
+function workspaceFileNotFound(): Response {
+  return Response.json({ status: 404, message: "Workspace file not found." }, { status: 404 })
+}
+
+/** Read a Workspace file as a Response. A missing, disallowed, or unsafe path gets a 404 Response. */
 export async function readWorkspaceFileResponse<Name extends WorkspaceName>(
   options: WorkspaceFileResponseOptions<Name>,
 ): Promise<Response> {
   let filePath: string
   try {
     filePath = resolveWorkspaceFilePath(options.path, options.root)
-    if (!matchesAny(filePath, options.allow)) {
-      throw createError({ statusCode: 404, statusMessage: "Workspace file not found." })
-    }
   }
   catch (error) {
-    if (isNotFoundError(error)) {
-      throw createError({ statusCode: 404, statusMessage: "Workspace file not found." })
-    }
+    if (isNotFoundError(error)) return workspaceFileNotFound()
     throw error
   }
+  if (!matchesAny(filePath, options.allow)) return workspaceFileNotFound()
 
   const workspace = await resolveWorkspace(options.workspace)
   try {
@@ -318,9 +320,7 @@ export async function readWorkspaceFileResponse<Name extends WorkspaceName>(
       workspace.fs.readFile(filePath as never, { encoding: "binary" }),
       workspace.fs.stat(filePath as never),
     ])
-    if (stat.type !== "file") {
-      throw createError({ statusCode: 404, statusMessage: "Workspace file not found." })
-    }
+    if (stat.type !== "file") return workspaceFileNotFound()
 
     const headers = new Headers(options.headers)
     headers.set("content-type", resolveContentType(filePath, stat.mediaType, options.contentTypes))
@@ -331,20 +331,38 @@ export async function readWorkspaceFileResponse<Name extends WorkspaceName>(
     return new Response(content as ResponseBody, { headers })
   }
   catch (error) {
-    if (isNotFoundError(error)) {
-      throw createError({ statusCode: 404, statusMessage: "Workspace file not found." })
-    }
+    if (isNotFoundError(error)) return workspaceFileNotFound()
     throw error
   }
 }
 
+/**
+ * Serve Workspace files from a route. The file path is the part of the URL path after `base`, percent-decoded, so
+ * `/files/my%20file.md` serves `my file.md`. A path that is not valid percent-encoding gets a 400 Response.
+ */
 export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
   options: WorkspaceFileHandlerOptions<Name>,
-): ReturnType<typeof defineEventHandler> {
-  return defineEventHandler((event: H3Event) => {
-    const path = getRouterParam(event, options.param || "path") || ""
-    return readWorkspaceFileResponse({ ...options, path })
-  })
+): { fetch(request: Request): Promise<Response> } {
+  const { base, baseURL, ...fileOptions } = options
+  const segments = [baseURL ?? "", base].map(part => part.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/")
+  const prefix = segments ? `/${segments}/` : "/"
+  return {
+    async fetch(request) {
+      const pathname = new URL(request.url).pathname
+      if (baseURL !== undefined && !pathname.startsWith(prefix)) return workspaceFileNotFound()
+      // Preserve the existing route search when no application prefix is supplied.
+      const start = baseURL === undefined ? pathname.indexOf(prefix) : 0
+      if (start < 0) return workspaceFileNotFound()
+      let path: string
+      try {
+        path = decodeURIComponent(pathname.slice(start + prefix.length))
+      }
+      catch {
+        return Response.json({ status: 400, message: "Workspace file path is not valid percent-encoding." }, { status: 400 })
+      }
+      return await readWorkspaceFileResponse({ ...fileOptions, path })
+    },
+  }
 }
 
 export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
