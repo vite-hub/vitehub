@@ -16,7 +16,6 @@ export default defineConfig({
       "src/google.ts",
       "src/chatgpt.ts",
       "src/cli.ts",
-      "src/http.ts",
       "src/runtime/empty-registry.ts",
       "src/server.ts",
       "src/vite.ts",

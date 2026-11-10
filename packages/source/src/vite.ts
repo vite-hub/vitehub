@@ -1443,7 +1443,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       },
     },
     transform: {
-      filter: { id: { exclude: /\/node_modules\// }, code: "source/glob" },
+      filter: { id: { exclude: /\/node_modules\// }, code: /\bvite-hub\/source["'`]/ },
       handler(code, _id, options) {
         const environment = this.environment?.config
         const server = environment
