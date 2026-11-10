@@ -1,7 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 import type { Plugin } from "vite"
 
-import { deferQueue, dynamicQueue, getQueue, runQueue } from "../src/runtime/client.ts"
+import { deferQueue, dynamicQueue, sendQueue, useQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
 import type { Result } from "@vite-hub/runtime"
 import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueProviderOptions, QueueErrorCode, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
@@ -41,8 +41,8 @@ it("types Queue error codes", () => {
 })
 
 it("types the codes of each method", () => {
-  expectTypeOf(runQueue<"welcome">).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
-  expectTypeOf(dynamicQueue.run).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
+  expectTypeOf(sendQueue<"welcome">).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
+  expectTypeOf(dynamicQueue.send).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
   expectTypeOf<CloudflareQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
   expectTypeOf<CloudflareQueueClient["sendBatch"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult[], "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
   expectTypeOf<VercelQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION">>>()
@@ -50,7 +50,7 @@ it("types the codes of each method", () => {
 })
 
 it("narrows Queue results by the error element", async () => {
-  const [error, result] = await runQueue("welcome", { email: "ada@example.test" })
+  const [error, result] = await sendQueue("welcome", { email: "ada@example.test" })
   if (error) {
     expectTypeOf(error.code).toEqualTypeOf<QueueErrorCode>()
     expectTypeOf(error.why).toEqualTypeOf<string>()
@@ -59,7 +59,7 @@ it("narrows Queue results by the error element", async () => {
   }
   expectTypeOf(result).toEqualTypeOf<QueueSendResult>()
 
-  const client = await getQueue("welcome")
+  const client = await useQueue("welcome")
   if (client.provider === "cloudflare") {
     const [sendError] = await client.send({ email: "ada@example.test" })
     if (sendError) {
@@ -81,14 +81,14 @@ declare module "../src/types.ts" {
 }
 
 it("checks dispatch against the selected Queue Definition", async () => {
-  await runQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 1 })
+  await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 1 })
   deferQueue("audit", { payload: "event", region: "business", id: "row-1" })
-  const client = await getQueue("welcome")
+  const client = await useQueue("welcome")
   await client.send({ email: "ada@example.test" }, { id: "job-1" })
   // @ts-expect-error Payload belongs to welcome, not audit.
-  await runQueue("welcome", { payload: "event", region: "business", id: "row-1" })
+  await sendQueue("welcome", { payload: "event", region: "business", id: "row-1" })
   // @ts-expect-error No envelope form remains.
-  await runQueue("welcome", { payload: { email: "ada@example.test" }, delaySeconds: 1 })
+  await sendQueue("welcome", { payload: { email: "ada@example.test" }, delaySeconds: 1 })
   // @ts-expect-error Named clients retain their definition's payload.
   await client.send({ count: 1 })
   if (client.provider === "cloudflare") {
@@ -100,11 +100,11 @@ it("checks dispatch against the selected Queue Definition", async () => {
   }
   const selected: "welcome" | "audit" = Math.random() > 0.5 ? "welcome" : "audit"
   // @ts-expect-error A union name cannot accept input valid for only one possible target.
-  await runQueue(selected, { email: "ada@example.test" })
+  await sendQueue(selected, { email: "ada@example.test" })
   // @ts-expect-error Missing definition name.
-  await getQueue("missing")
+  await useQueue("missing")
   const name: string = "external-name"
   // @ts-expect-error Operational names require explicit dynamic dispatch.
   deferQueue(name, { email: "ada@example.test" })
-  await dynamicQueue.run(name, { arbitrary: true })
+  await dynamicQueue.send(name, { arbitrary: true })
 })

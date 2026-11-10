@@ -8,21 +8,21 @@ icon: i-lucide-sliders-horizontal
 
 ## Provider origins
 
-Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTIONS_ORIGIN_NOT_ALLOWED` for any other origin, and ViteHub does not send the credential.
+Each provider lists the API origins that may get its credential. For any other origin, `call` and `fetch` fail with `CONNECTIONS_ORIGIN_NOT_ALLOWED` and send no credential.
 
 | Provider | Import | Origins that receive the credential |
 | --- | --- | --- |
-| `google()` | `vite-hub/connections/google` | The root URL origins of its API catalogs, for example `https://gmail.googleapis.com`. |
-| `apiKey()` | `vite-hub/connections` | Its `origins` and the root URL origins of its `apis` catalogs. |
-| `oauthLogin()` | `vite-hub/connections` | Its `mcp` endpoint, its `origins`, and the root URL origins of its `apis` catalogs. |
+| `google()` | `vite-hub/connections/google` | Root URL origins of its API catalogs, such as `https://gmail.googleapis.com`. |
+| `apiKey()` | `vite-hub/connections` | Its `origins` and the root URL origins of its `apis`. |
+| `oauthLogin()` | `vite-hub/connections` | Its `mcp` endpoint, its `origins`, and the root URL origins of its `apis`. |
 
-An origin is `https://host` or `https://host:port`. ViteHub compares origins exactly, so list each host. `http` is accepted only for loopback hosts such as `localhost` and `127.0.0.1`.
+An origin is `https://host` or `https://host:port`. Origins must match exactly, so list each host. `http` works only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-ViteHub has no generic OAuth 2 provider function yet. For another service, declare an [OAuth provider object](#oauth-provider-objects), use [`oauthLogin()`](#oauth-login-connections) when a service account must sign in without a person, or use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
+ViteHub has no generic OAuth 2 provider function yet. For another service, use an [OAuth provider object](#oauth-provider-objects), [`oauthLogin()`](#oauth-login-connections) for a service account with no person, or `apiKey()` for API keys and personal access tokens. `apiKey()` never refreshes the key.
 
 ## OAuth provider objects
 
-A provider object declares the endpoints of an OAuth 2.0 authorization code flow with PKCE:
+A provider object lists the endpoints of an OAuth 2.0 authorization code flow with PKCE:
 
 ```ts [server/connections/crm.ts]
 import { defineConnection } from 'vite-hub/connections'
@@ -42,14 +42,14 @@ export default defineConnection({
 | Option | Default | Description |
 | --- | --- | --- |
 | `account` | The ID token claims when `identityScopes` includes `openid` | Reads the account from the token response. |
-| `apis` | `{}` | Typed API catalogs. Their root URLs receive the token. Without catalogs, `call` and `fetch` send the token nowhere. |
-| `identityScopes` | None | Scopes added to each authorization request so the provider identifies the account. |
+| `apis` | `{}` | Typed API catalogs. Their root URLs get the token. Without them, `call` and `fetch` send the token nowhere. |
+| `identityScopes` | None | Scopes added to each authorization request, so the provider names the account. |
 
-Without `account`, a provider that requests `openid` reads the account from the ID token in the token response: `sub` becomes the account id and a string `email` labels it. ViteHub does not check the token signature, because the ID token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. A missing or malformed ID token gives no account. A reconnect without an account, or with a different account, puts the Connection in `reauth_required`.
+Without `account`, a provider that requests `openid` reads the account from the ID token: `sub` is the id, and a string `email` labels it. ViteHub skips the signature check, because the token comes straight from the token endpoint over TLS, as OpenID Connect allows for this flow. A missing or bad ID token gives no account. A reconnect with no account or a different account sets the Connection to `reauth_required`.
 
 ## API key Connections
 
-`apiKey()` defines a Connection whose credential is a static key. An admin sets the key at runtime, so it is not in code:
+`apiKey()` defines a Connection with a static key. An admin sets the key at runtime, so it is not in code:
 
 ```ts [server/connections/executor.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'
@@ -59,7 +59,7 @@ export default defineConnection({
 })
 ```
 
-`verify` checks a new key before ViteHub stores it. Return `false` to reject the key, or `{ account }` to label the Connection:
+`verify` checks a new key before ViteHub stores it. Return `false` to reject it, or `{ account }` to label the Connection:
 
 ```ts [server/connections/crm.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'
@@ -78,14 +78,14 @@ export default defineConnection({
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `origins` | Required | Origins that `fetch` may send the key to. Use `https`, or `http` for a loopback host. |
+| `origins` | Required | Origins that `fetch` may send the key to. `https`, or `http` for a loopback host. |
 | `header` | `authorization` | Request header that carries the key. |
-| `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `''` to send the bare key. |
-| `apis` | `{}` | Typed API catalogs. Their root URLs also receive the key. |
-| `mcp` | None | The provider's [MCP endpoint](#mcp-endpoint). It also receives the key. |
+| `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. `''` sends the bare key. |
+| `apis` | `{}` | Typed API catalogs. Their root URLs also get the key. |
+| `mcp` | None | The provider's [MCP endpoint](#mcp-endpoint). It also gets the key. |
 | `requests` | None | Pacing, retries, and a timeout for provider requests. See [Request policy](#request-policy). |
-| `verify` | None | Checks a new key before ViteHub stores it. It receives the runtime `fetch` and a 30-second abort signal. |
-| `fallback` | None | Returns the key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
+| `verify` | None | Checks a new key before it is stored. Gets the runtime `fetch` and a 30-second abort signal. |
+| `fallback` | None | Key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
 Set the key in the Console with **Set key**, or pipe it to the CLI:
@@ -94,13 +94,32 @@ Set the key in the Console with **Set key**, or pipe it to the CLI:
 printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 ```
 
-The CLI reads the key only from stdin, so it does not stay in the shell history. The CLI and the Console send the key only over HTTPS or to a loopback host.
+The CLI reads the key only from stdin, so it stays out of shell history. The CLI and the Console send the key only over HTTPS or to a loopback host.
 
-ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth Connections. An API key has no scopes and no refresh: a `401` response does not change the status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking the Connection deletes the stored key; revoke the key at the provider too.
+ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth. A key has no scopes or refresh, so a `401` keeps the status. A redirect to another origin drops the key header. A revoke deletes the stored key. Revoke it at the provider too.
+
+### Fallback key
+
+`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed:
+
+```ts [server/connections/github.ts]
+import { useServerEnv } from '#vitehub/env/server'
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
+export default defineConnection({
+  provider: apiKey({
+    id: 'github',
+    origins: ['https://api.github.com'],
+    fallback: () => useServerEnv().github.token,
+  }),
+})
+```
+
+The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from the Console or `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
 
 ## OAuth login Connections
 
-`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects without a person, for a service account. Use it when a service accepts only its own OAuth tokens, for example an MCP server behind its own authorization server. The app supplies only `login`, which signs in and approves the request like a browser. The examples below read their credentials from Server Env:
+`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects a service account without a person. Use it when a service accepts only its own OAuth tokens, such as an MCP server with its own authorization server. You write only `login`, which signs in and approves like a browser. The examples on this page read their credentials from Server Env:
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -147,28 +166,28 @@ export default defineConnection({
 })
 ```
 
-ViteHub reads the protected resource metadata of `mcp` (RFC 9728) to find the authorization server, then its metadata (RFC 8414, or OpenID Connect discovery). It registers a public client (RFC 7591) once per process, builds the authorization URL with PKCE, `state`, `scope`, and `resource`, calls `login`, checks the returned `code` and `state`, and exchanges the code. A token that expires within a minute is refreshed with its refresh token or replaced by a new sign-in. A `401` signs in again once and retries the request. Concurrent requests share one sign-in, also when it fails.
+ViteHub finds the authorization server from the `mcp` resource metadata (RFC 9728), then reads its metadata (RFC 8414 or OpenID Connect discovery). It registers a public client (RFC 7591) once per process. It builds the authorization URL with PKCE, `state`, `scope`, and `resource`, calls `login`, checks `code` and `state`, and exchanges the code. A token that expires within a minute is refreshed or replaced by a new sign-in. A `401` signs in again once and retries. Parallel requests share one sign-in, also when it fails.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `login` | Required | Receives `{ url, redirectUri, credentials, fetch, signal }` and returns the URL that the provider redirects to `redirectUri`. `fetch` keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and does not follow redirects unless `init.redirect` asks for it. `signal` aborts after 60 seconds. |
-| `mcp` | None | The provider's MCP endpoint. Discovery starts here, and it receives the token. `mcp` or `issuer` is required. |
+| `login` | Required | Gets `{ url, redirectUri, credentials, fetch, signal }` and returns the URL that the provider redirects to `redirectUri`. `fetch` keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and follows redirects only when `init.redirect` asks. `signal` aborts after 60 seconds. |
+| `mcp` | None | The provider's MCP endpoint. Discovery starts here, and it gets the token. Set `mcp` or `issuer`. |
 | `issuer` | From the `mcp` resource metadata | The authorization server issuer. |
 | `resource` | `mcp` | The `resource` of authorization and token requests (RFC 8707). |
-| `credentials` | None | The secret that `login` gets, for example from Server Env. A sealed secret is unsealed. While it resolves to nothing, the Connection is `disconnected`. |
+| `credentials` | None | The secret that `login` gets, for example from Server Env. A sealed secret is unsealed. While it is empty, the Connection is `disconnected`. |
 | `clientId` | Registered | A registered public client id. Without it, the authorization server must support registration. |
 | `clientName` | `'ViteHub'` | `client_name` for client registration. |
 | `redirectUri` | `http://127.0.0.1/callback` | The redirect URI of the client. ViteHub never listens on it. |
 | `authorizationParams` | None | Extra authorization request parameters. |
-| `origins`, `apis` | None | Other origins and typed API catalogs that receive the token. |
+| `origins`, `apis` | None | Other origins and typed API catalogs that get the token. |
 | `account` | The ID token claims when `scopes` includes `openid` | Reads the account from the token response. |
 | `requests` | None | The [request policy](#request-policy). |
 
-Tokens and the client registration stay in memory, so each process signs in again, and requests work without the Connections store. While `credentials` resolves to a value, the Connection is `connected`; a failed sign-in fails only the request that needed it. An error that `login` throws becomes `CONNECTION_PROVIDER` without its message, because the message could contain the credentials. The Connection has no connect flow and no key: the Console connect route, `authorize()`, and `setKey()` reject it, and a revoke drops the tokens, so the next request signs in again.
+Tokens and the client registration stay in memory, so each process signs in and the Connections store is not needed. While `credentials` has a value, the Connection is `connected`. A failed sign-in fails only its request. An error from `login` becomes `CONNECTION_PROVIDER` without its message, because the message could hold the credentials. There is no connect flow and no key: the Console connect route, `authorize()`, and `setKey()` reject it. A revoke drops the tokens, so the next request signs in again.
 
 ## Keyed Connections
 
-A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`. Keep the imports and `login` function above, and replace the default export with this definition. It reads the per-tenant credentials declared in Server Env above:
+A keyed definition makes one Connection per instance, such as one per tenant, named `<name>:<instance>`. Keep the imports and `login` function above, and replace the default export with this definition. It reads the per-tenant credentials declared in Server Env above:
 
 ```ts [server/connections/portal.ts] fragment
 export default defineConnection({
@@ -180,11 +199,11 @@ export default defineConnection({
 })
 ```
 
-This file defines `portal:acme` and `portal:globex`. Use the full name everywhere, for example `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
+This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
 
 ## MCP endpoint
 
-A provider can declare its MCP endpoint with `mcp`. `apiKey({ mcp })` and OAuth providers accept it. The endpoint origin also receives the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, and must not have credentials, a query, or a fragment.
+`apiKey({ mcp })` and OAuth providers can declare an MCP endpoint with `mcp`. Its origin also gets the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, with no credentials, query, or fragment.
 
 ```ts [server/connections/crm.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'
@@ -198,7 +217,7 @@ An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, witho
 
 ## Request policy
 
-`requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` sets how ViteHub sends provider requests. It applies to `fetch` and to API method calls, but not to the provider's [MCP endpoint](#mcp-endpoint), whose sessions are long-lived streams. Without it, ViteHub sends each request once, with no pacing and no timeout.
+`requests` on an OAuth provider, `oauthLogin()`, or `apiKey()` sets pacing, retries, and timeouts for `fetch` and API methods. It skips the [MCP endpoint](#mcp-endpoint), whose sessions are long streams. Without it, each request is sent once, with no pacing and no timeout.
 
 ```ts [server/connections/airtable.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'
@@ -217,47 +236,29 @@ export default defineConnection({
 })
 ```
 
-### Fallback key
-
-`fallback` gives a key from Server Env until an admin sets one. A sealed Server Env secret is unsealed:
-
-```ts [server/connections/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
-import { apiKey, defineConnection } from 'vite-hub/connections'
-
-export default defineConnection({
-  provider: apiKey({
-    id: 'github',
-    origins: ['https://api.github.com'],
-    fallback: () => useServerEnv().github.token,
-  }),
-})
-```
-
 | Option | Default | Description |
 | --- | --- | --- |
-| `bucket` | The Connection name | Connections with the same bucket share one request schedule and one 429 pause. |
-| `rate` | None | `{ intervalMs }` or `{ limit, perMs }`. ViteHub spaces request starts evenly: `{ limit: 5, perMs: 1000 }` starts one request every 200 ms. |
-| `retry.attempts` | `3` | Attempts in total, including the first. Omit `retry` to send each request once. |
-| `retry.methods` | `['GET', 'HEAD', 'OPTIONS']` | Methods that ViteHub retries after a network error or a `5xx` response. Other methods can have reached the provider, so they are sent once. |
-| `retry.delayMs` | `250` | First backoff after a network error or a `5xx` response. It doubles for each attempt. |
+| `bucket` | The Connection name | Connections in one bucket share a request schedule and a 429 pause. |
+| `rate` | None | `{ intervalMs }` or `{ limit, perMs }`. Starts are spaced evenly: `{ limit: 5, perMs: 1000 }` starts one request every 200 ms. |
+| `retry.attempts` | `3` | Total attempts, with the first. Omit `retry` to send each request once. |
+| `retry.methods` | `['GET', 'HEAD', 'OPTIONS']` | Methods retried after a network error or a `5xx`. Other methods may have reached the provider, so they are sent once. |
+| `retry.delayMs` | `250` | First wait after a network error or a `5xx`. It doubles each attempt. |
 | `retry.on429.minDelayMs` | `0` | Shortest pause after a `429`. |
 | `timeoutMs` | None | Aborts each attempt after this time, also while you read the body. |
 
-A `429` response pauses every request in the bucket until its `Retry-After` time (seconds or an HTTP date), and ViteHub then retries it for every method. The last attempt returns its response as is. When your own `signal` aborts, the request stops at once and ViteHub does not retry it.
+A `429` pauses the bucket until its `Retry-After` time (seconds or an HTTP date), then retries for any method. The last attempt returns its response as is. If your `signal` aborts, the request stops with no retry.
 
-The schedule and the pause are in memory. Each server process or isolate has its own. They do not coordinate several replicas.
-The fallback applies only when no key was ever set for the Connection, or when the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins. A revoke also wins: a revoked Connection stays disconnected. The fallback key must pass the same format check as a stored key. Requests with it use the same access rules and approvals, and ViteHub records them as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
+The schedule and the pause live in memory, per server process or isolate. Replicas do not share them.
 
 ## Access rules
 
-`access` has rules for `server`, `routes` (by route id such as `POST /api/sync`), and `agents` (by Agent id). A route without its own rule uses `server`. Each rule has `read`, `write`, and `approve` settings. When an `access` map is present, actors without a matching rule are denied. Without the map, reads and ordinary server writes are allowed, while high-risk writes and fetches are denied.
+`access` has rules for `server`, `routes` (by route id, such as `POST /api/sync`), and `agents` (by Agent id). A route without its own rule uses `server`. Each rule has `read`, `write`, and `approve`. With an `access` map, an actor with no rule is denied. Without a map, reads and normal server writes pass, but high-risk writes and fetches are denied.
 
-An Agent discovered under `server/agents/` that has no rule of its own uses the rule of the nearest Agent it [extends](/docs/agents/agent-presets#extend-an-agent). With `agent:bot` in the map, `bot-dev` from `defineAgent({ extends: bot })` uses the `agent:bot` rule, and a grandchild uses the first rule up its chain. A rule that names the child always wins, also when it grants less. An Agent that is not discovered, such as an inline `defineAgent({ extends })` that `runAgent()` runs, gets only the rules that name it. Server, route, and schedule actors never inherit a rule. An approval replays with the rules that applied when the Agent requested it.
+An Agent in `server/agents/` with no rule uses the rule of the nearest Agent it [extends](/docs/agents/agent-presets#extend-an-agent). With `agent:bot` in the map, `bot-dev` from `defineAgent({ extends: bot })` uses the `agent:bot` rule, and a grandchild uses the first rule up its chain. A rule that names the child wins, even when it grants less. An inline Agent, such as `defineAgent({ extends })` run by `runAgent()`, gets only rules that name it. Server, route, and schedule actors never inherit. An approval replays with the rules from when the Agent asked.
 
-ViteHub checks the actor rule before the operation. A write list can contain exact Operation ids or `*` patterns; high-risk writes require an explicit matching pattern.
+ViteHub checks the rule before the operation. A write list holds exact Operation ids or `*` patterns. High-risk writes need an explicit matching pattern.
 
-An actor that only uses the provider's [MCP endpoint](#mcp-endpoint) can have the `'mcp'` preset instead of a rule:
+An actor that only uses the [MCP endpoint](#mcp-endpoint) can use the `'mcp'` preset instead of a rule:
 
 ```ts [server/connections/docs.ts] fragment
 access: {
@@ -265,36 +266,75 @@ access: {
 },
 ```
 
-The preset allows every method on the provider's `mcp` endpoint without approval, because MCP sends every protocol message as a POST and cannot wait for an approval. It denies every other request, including typed API methods. A Connection with the preset must declare `mcp` on its provider.
+The preset allows every method on the `mcp` endpoint without approval, because MCP sends each message as a POST and cannot wait for approval. It denies every other request, including typed API methods. The provider must declare `mcp`.
 
 | Decision | Result |
 | --- | --- |
 | `allow` | The call runs. |
-| `require-approval` | Server code fails with `CONNECTIONS_APPROVAL_REQUIRED`. An Agent tool asks for tool approval. When a user approves it in a provider Agent session, the call runs. `deny` rules still apply. |
+| `require-approval` | Server code fails with `CONNECTIONS_APPROVAL_REQUIRED`. An Agent tool asks for approval, and the call runs when a user approves it in a provider Agent session. `deny` rules still apply. |
 | `deny` | The call fails with `CONNECTIONS_DENIED`. |
 
 ## Configuration options
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity. See [Activity retention](#activity-retention). |
-| `database` | `'default'` | Database that stores grants and activity. An app with only named Databases sets one of them, such as `'users'`. |
-| `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
+| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long activity is kept. See [Activity retention](#activity-retention). |
+| `database` | `'default'` | Database for grants and activity. An app with only named Databases picks one, such as `'users'`. |
+| `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. No `env.provider()` and no default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` and `vite-hub/nuxt` enable `database` when it is unset. Without a Database Definition, Connections use the empty `default` Database, and `vitehub inspect` shows why it exists. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module builds Connections for production too, including Cloudflare Workers. Production mounts the management API only with `management`, which uses the Console sign-in.
+`vitehub({ connections })` and `vite-hub/nuxt` turn on `database` when unset. Without a Database Definition, Connections use an empty `default` Database, and `vitehub inspect` says why. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module also builds Connections for production, including Cloudflare Workers. Production mounts the management API only with `management`, which uses the Console sign-in.
 
 ## Activity retention
 
-Connections write one activity event per provider request. By default the database keeps 14 days and at most 10,000 events. Change the limits, or set `false` to keep all activity:
+Connections write one activity event per provider request. By default the database keeps 14 days and at most 10,000 events. Change the limits, or set `false` to keep everything:
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  database: true,
-  connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    database: true,
+    connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },
+  },
 })
 ```
+:::
 
-Each limit is a positive integer. A missing limit uses its default. ViteHub prunes after each event, so the limits hold across multiple server processes. A failed prune logs a warning and does not fail the request. Pruning deletes only Connections activity; other Env activity stays.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: true,
+      connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: true,
+      connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },
+    }),
+  ],
+})
+```
+:::
+::
+
+Limits are positive integers; a missing one uses its default. ViteHub prunes after each event, so limits hold across processes. A failed prune logs a warning and does not fail the request. It deletes only Connections activity, not other Env activity.
