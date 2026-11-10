@@ -28,10 +28,10 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
-In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
+In your Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
 
 ```bash pm [commands/install-nuxt]
-pnpm add vite-hub h3@^2.0.8
+pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
 > [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
@@ -56,10 +56,10 @@ Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt 
 :::
 
 :::tabs-item{label="Nitro"}
-In your Nitro app, install ViteHub and its H3 version:
+In your Nitro app, install ViteHub, its H3 version, and Valibot for request validation:
 
 ```bash pm [commands/install-nitro]
-pnpm add vite-hub h3@^2.0.8
+pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
 Add `vitehub()` to `vite.config.ts` before `nitro()`, so ViteHub uses your Nitro plugin. Keep your other plugins.
@@ -106,12 +106,12 @@ Create `package.json`. In an existing app, set `"type": "module"` and add the sc
 }
 ```
 
-Install ViteHub with its Nitro and H3 versions, plus Vite and TypeScript.
+Install ViteHub with its Nitro and H3 versions, Valibot for request validation in the route examples, plus Vite and TypeScript.
 `nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports
 `3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
-pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8
+pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
@@ -213,7 +213,7 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 ```
 
 ::details{summary="Which features need their own package?"}
-`vite-hub` includes Env, Source, Logs, and the Console routes. Every other feature, and the Console app, has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
+`vite-hub` includes Env, Source, Logs, and the Console endpoint. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
 | Feature | Add these packages |
 | --- | --- |
@@ -223,7 +223,6 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
-| `console` | `@vite-hub/console-client`, the prebuilt Console app |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `i18n` | `@vite-hub/i18n` |

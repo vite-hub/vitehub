@@ -124,7 +124,6 @@
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
-    "h3": "catalog:unjs",
     "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"

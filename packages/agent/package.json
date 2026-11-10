@@ -50,11 +50,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ai-sdk": {
-      "types": "./dist/ai-sdk.d.ts",
-      "import": "./dist/ai-sdk.js",
-      "default": "./dist/ai-sdk.js"
-    },
     "./capabilities": {
       "types": "./dist/capabilities.d.ts",
       "import": "./dist/capabilities.js",
@@ -125,16 +120,6 @@
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
     },
-    "./mcp/stdio": {
-      "types": "./dist/mcp/stdio.d.ts",
-      "import": "./dist/mcp/stdio.js",
-      "default": "./dist/mcp/stdio.js"
-    },
-    "./messages": {
-      "types": "./dist/messages.d.ts",
-      "import": "./dist/messages.js",
-      "default": "./dist/messages.js"
-    },
     "./observability": {
       "types": "./dist/observability.d.ts",
       "import": "./dist/observability.js",
@@ -149,11 +134,6 @@
       "types": "./dist/observability/posthog.d.ts",
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
-    },
-    "./output": {
-      "types": "./dist/output.d.ts",
-      "import": "./dist/output.js",
-      "default": "./dist/output.js"
     },
     "./process-host": {
       "types": "./dist/process-host.d.ts",
@@ -232,7 +212,7 @@
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
