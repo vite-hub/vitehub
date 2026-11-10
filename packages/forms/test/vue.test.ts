@@ -108,7 +108,7 @@ describe("AutoForm", () => {
 
   it("renders the result of a post without JavaScript on the server", async () => {
     // No mount on the server: the route query comes in as `result`.
-    const html = await renderToString(createSSRApp(AutoForm, { name: "contact", schema: ContactSchema, result: "error" }))
+    const html = await renderToString(createSSRApp(AutoForm, { name: "contact", schema: ContactSchema, result: "contact.error" }))
     expect(html).toContain("The message was not sent. Check the form and try again.")
     // Until the app runs, the browser checks `required` and `type` itself.
     expect(html).not.toContain("novalidate")
@@ -119,13 +119,15 @@ describe("AutoForm", () => {
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
-    history.replaceState(null, "", "/contact?form=error")
+    history.replaceState(null, "", "/contact?form=contact.error")
     try {
       const { root, type, element } = await mount()
       await nextTick()
       expect(root.querySelector("[role=status]")?.textContent).toBe("The message was not sent. Check the form and try again.")
       // The page loads at the top, so focus moves to the result. The app's own checks take over.
       expect(document.activeElement).toBe(root.querySelector("[role=status]"))
+      // A reload must not show it again.
+      expect(location.search).toBe("")
       expect(root.querySelector("form")?.hasAttribute("novalidate")).toBe(true)
       await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
       await type("[data-field=topic] :is(input, select, textarea)", "idea")
@@ -188,7 +190,7 @@ describe("AutoForm", () => {
     expect(body.has("terms")).toBe(false)
     const response = await fetch(form.action, { method: "POST", headers: { accept: "text/html" }, body })
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe("/?form=sent")
+    expect(response.headers.get("location")).toBe("/?form=contact.sent")
     await submit()
     expect((await store.list()).map(row => row.data)).toStrictEqual([
       { age: 42, count: 2, message: "Hello", terms: false },
@@ -218,8 +220,41 @@ describe("AutoForm", () => {
     expect(root.querySelector<HTMLOptionElement>("[data-field=topic] option[value='']")).toBeNull()
   })
 
+  it("shows that it is busy while a slow check runs, and sends one message for two clicks", async () => {
+    // The check waits until the test releases it, then passes at once, as the second validation of handleSubmit runs it again.
+    let released = false
+    const waiting: Array<() => void> = []
+    const release = () => {
+      released = true
+      for (const resolve of waiting.splice(0)) resolve()
+    }
+    const slow = v.objectAsync({ message: v.pipeAsync(v.string(), v.checkAsync(async () => { if (!released) await new Promise<void>(resolve => waiting.push(resolve)); return true })) })
+    const { root, store, type, element } = await mount(v.object({ message: v.string() }), slow as never)
+    await type("[data-field=message] textarea", "Hello there")
+    element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
+    await nextTick()
+    expect(root.querySelector("button")?.getAttribute("aria-busy")).toBe("true")
+    element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
+    release()
+    await vi.waitFor(async () => expect(await store.list()).toHaveLength(1))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  it("ignores the result of another form on the page", async () => {
+    history.replaceState(null, "", "/contact?form=newsletter.sent")
+    try {
+      const { root } = await mount()
+      expect(root.querySelector("[role=status]")?.textContent).toBe("")
+      expect(location.search).toBe("?form=newsletter.sent")
+    }
+    finally {
+      history.replaceState(null, "", "/")
+    }
+  })
+
   it("leaves focus in a field that the visitor chose before the app ran", async () => {
-    history.replaceState(null, "", "/contact?form=error")
+    history.replaceState(null, "", "/contact?form=contact.error")
     const field = document.createElement("input")
     document.body.append(field)
     field.focus()

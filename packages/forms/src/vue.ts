@@ -32,10 +32,14 @@ export interface FormSubmitState {
 export function useFormSubmit<TSchema extends FormSchema>(name: string, form: FormStore<TSchema>, options: SubmitFormOptions = {}): FormSubmitState {
   const sent = ref<string | true>()
   const error = ref<FormSubmitError>()
+  let pending = false
   async function send(extra: Record<string, unknown> = {}) {
+    // A second click on a slow network would store the message twice.
+    if (pending) return
+    pending = true
     sent.value = undefined
     error.value = undefined
-    const [failure, data] = await submitForm(name, { ...getInput(form), ...extra }, options)
+    const [failure, data] = await submitForm(name, { ...getInput(form), ...extra }, options).finally(() => { pending = false })
     if (!failure) {
       sent.value = data.id ?? true
       reset(form)
@@ -198,10 +202,11 @@ export const AutoForm = defineComponent({
     submitLabel: { type: String, default: "Send" },
     sentMessage: { type: String, default: "Thanks. Your message was sent." },
     /**
-     * The result of a post without JavaScript: `?form=sent` or `?form=error` of the page. Pass it from the route query,
-     * so a server-rendered page shows it before JavaScript runs. Without it, `AutoForm` reads the query when it mounts.
+     * The `form` query of the page after a post without JavaScript, such as `contact.sent` or `contact.error`. Pass it
+     * from the route, so a server-rendered page shows the result before JavaScript runs. Without it, `AutoForm` reads
+     * the query when it mounts. A result of another form is ignored.
      */
-    result: { type: String as PropType<"sent" | "error">, default: undefined },
+    result: { type: String, default: undefined },
     /** Shown after a post without JavaScript that the server refused. */
     errorMessage: { type: String, default: "The message was not sent. Check the form and try again." },
     /** The honeypot field of `defineForm()`. `false` leaves it out. */
@@ -219,16 +224,20 @@ export const AutoForm = defineComponent({
       get anchor() { return props.anchor },
       get base() { return props.base },
     } as SubmitFormOptions)
-    // A post without JavaScript comes back with `?form=sent` or `?form=error`. Show it in the status region.
-    const returned = ref<"sent" | "error" | undefined>(props.result === "sent" || props.result === "error" ? props.result : undefined)
+    // A post without JavaScript comes back with `?form=<name>.sent` or `?form=<name>.error`. Show it in the status region.
+    const resultOf = (value: string | null | undefined): "sent" | "error" | undefined => value === `${props.name}.sent` ? "sent" : value === `${props.name}.error` ? "error" : undefined
+    const returned = ref(resultOf(props.result))
     // The browser checks `required` and `type` itself until the app runs, so a post without JavaScript is checked too.
     const mounted = ref(false)
     const statusElement = ref<HTMLElement>()
     onMounted(() => {
       mounted.value = true
-      if (!returned.value) {
-        const result = new URLSearchParams(globalThis.location?.search).get("form")
-        if (result === "sent" || result === "error") returned.value = result
+      const url = globalThis.location ? new URL(globalThis.location.href) : undefined
+      returned.value ??= resultOf(url?.searchParams.get("form"))
+      // A reload or a shared link must not show the result again. `history.state` keeps the state of a router.
+      if (url && resultOf(url.searchParams.get("form"))) {
+        url.searchParams.delete("form")
+        history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`)
       }
       // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
       // Not when the visitor is already in a field: that would close the keyboard on a phone.
@@ -245,18 +254,19 @@ export const AutoForm = defineComponent({
       if (sent.value) emit("sent", sent.value)
     })
     // The button stays focusable while it sends, so a second submit is ignored here instead.
-    let checking = false
+    // Reactive, so the button shows that it is busy while a slow check runs.
+    const checking = ref(false)
     const onSubmit = async (event: SubmitEvent) => {
       event.preventDefault()
-      if (form.isSubmitting || checking) return
+      if (form.isSubmitting || checking.value) return
       // A new send replaces the result of an earlier post without JavaScript.
       returned.value = undefined
       // Formisch `handleSubmit()` focuses the first invalid field before Vue renders its error. Validate and render
       // first, so the field already points to its error when `handleSubmit()` focuses it. It also marks the form
       // submitted, so a corrected field validates again as the user types.
-      checking = true
+      checking.value = true
       // A schema check that throws is left to `handleSubmit()`, which shows it as the form error.
-      const result = await validate(form).catch(() => undefined).finally(() => { checking = false })
+      const result = await validate(form).catch(() => undefined).finally(() => { checking.value = false })
       if (!result?.success) await nextTick()
       await submit(event)
     }
@@ -280,7 +290,7 @@ export const AutoForm = defineComponent({
       // The live region is always there, so screen readers announce the text when it appears.
       h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status", tabindex: "-1", ref: statusElement }, status()),
       // The label stays the same while it sends, so the button keeps its width. `aria-busy` tells that it sends.
-      h("button", { type: "submit", "aria-disabled": form.isSubmitting ? "true" : undefined, "aria-busy": form.isSubmitting ? "true" : undefined }, props.submitLabel),
+      h("button", { type: "submit", "aria-disabled": form.isSubmitting || checking.value ? "true" : undefined, "aria-busy": form.isSubmitting || checking.value ? "true" : undefined }, props.submitLabel),
     ])
   },
 })
