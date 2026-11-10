@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 A CMS lets you write and publish content, such as blog posts, from an editor in your app. ViteHub's CMS keeps each post as a Markdown file and saves every draft.
 
-In this tutorial, you add a `posts` collection, write a post in the Console, and publish it. The Console is the ViteHub admin page of your app. You set up no storage and no database schema yourself.
+In this tutorial, you add a `posts` collection, write a post in the Console, and publish it. The Console is the ViteHub admin app at [console.vitehub.dev](https://console.vitehub.dev). It calls your app. You set up no storage and no database schema yourself.
 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. Everything runs on your computer.
@@ -60,7 +60,7 @@ export default defineConfig({
 ::::
 :::
 
-`console: { auth: false }` turns on the [Console](/docs/development/console) with no sign-in. Anyone who can reach the dev server can use it. Use it only on your own computer.
+`console: { auth: false }` turns on the [Console](/docs/development/console) endpoint with no sign-in. On the dev server, the hosted Console can call it without a token. Use it only on your own computer.
 
 ::
 
@@ -117,7 +117,7 @@ Start the dev server:
 pnpm dev
 ```
 
-Open `http://localhost:3000/_vitehub/content`. If your app uses another port, use that port. The Console shows the `posts` collection.
+The dev server prints a link that opens the app in the [Console](/docs/development/console#in-development), such as `https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A3000`. Open it, select **Continue**, then **Content**. The Console shows the `posts` collection.
 
 1. Select **Posts**, then **New**. Type a title. The id follows the title.
 2. Pick a date. `date` is a field of the collection, so a post without a date cannot be published.

@@ -48,7 +48,7 @@ Entry points are ESM. Keep `"type": "module"` and import local `.ts` and `.mts` 
 Outside `server/sandbox-tasks`, name a file `<path>.sandbox-task.ts` (or `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`) and default-export `defineSandboxTask()`. This free-form Definition uses its nearest `package.json`, so several files can share one package.
 
 ```ts [server/tools/resize.sandbox-task.ts]
-import { defineSandboxTask } from '@vite-hub/sandbox/task'
+import { defineSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineSandboxTask({
   timeout: 60000,

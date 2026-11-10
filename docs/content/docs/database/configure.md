@@ -97,7 +97,7 @@ Use `server/databases/<name>/index.ts` when the Database has other files, such a
 An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/default.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/default/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
 
 ```ts [src/database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({
@@ -244,7 +244,7 @@ Definitions with the same name join into one database with all their tables.
 `vitehub database generate` writes one set of migrations for it.
 
 ```ts [layers/blog/server/databases/default.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({
@@ -461,7 +461,7 @@ pnpm add postgres
 ```
 
 ```ts [server/databases/default.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 
 export default defineDatabase({

@@ -271,9 +271,9 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    // The prebuilt Console app. `vite-hub` serves it at `/_vitehub` when the app installed it.
-    packages: ["@vite-hub/console-client"],
-    summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
+    // The Console app is hosted at console.vitehub.dev. The app serves only its Operations endpoint and MCP.
+    packages: [],
+    summary: "The Operations endpoint and MCP at `/_vitehub`, which the hosted Console at console.vitehub.dev and the CLI call.",
     title: "Console",
   }),
   database: feature({

@@ -304,7 +304,7 @@ describe("Cloudflare Access Console Auth", () => {
         .toThrow("cannot use env.provider()")
 
       const handlers = await writeConsoleAuthHandlers(root, defaults)
-      expect(handlers).toEqual({ auth: "cloudflare-access", clientSources: [], middleware: handlers.middleware })
+      expect(handlers).toEqual({ auth: "cloudflare-access", middleware: handlers.middleware })
       const middleware = await readFile(handlers.middleware, "utf8")
       expect(middleware).toContain('from "vite-hub/console/auth/cloudflare-access"')
       expect(middleware).toContain("resolveServerEnv(settings, event)")
@@ -351,7 +351,7 @@ describe("Cloudflare Access Console Auth", () => {
       const config: { root: string, base: string, nitro?: { handlers: Array<{ handler: string, middleware?: boolean }> } } = { root, ...bases }
       await Reflect.apply(handler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
-        expect.objectContaining({ route: `${mount}/_vitehub` }),
+        expect.objectContaining({ route: `${mount}/_vitehub/rpc/**` }),
       ]))
       const middleware = config.nitro?.handlers.find(entry => entry.middleware)?.handler
       if (!middleware) throw new TypeError("Expected Console auth middleware.")
@@ -418,8 +418,9 @@ describe("Cloudflare Access Console Auth", () => {
       const production = await run("build")
       expect(production).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/**", middleware: true, handler: resolve(root, ".vitehub/nitro/console/auth-middleware.mjs") }),
-        expect.objectContaining({ route: "/_vitehub/api/client.js", handler: expect.stringContaining("server/client.get.js") }),
+        expect.objectContaining({ route: "/_vitehub/rpc/**" }),
       ]))
+      expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/client.js")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/sign-in")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/auth/**")
       expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], "cloudflare-access")`)

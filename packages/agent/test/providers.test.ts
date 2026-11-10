@@ -32,6 +32,8 @@ import type { AgentMessageDeliveryKind, AgentRunContext, AgentRunInput } from ".
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 const chatMessageHeader = expect.objectContaining({ id: "message-header", type: "data-chat-message-header" })
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
@@ -11494,7 +11496,7 @@ describe("server helpers", () => {
         deliveryId: "delivery-failed",
         error: expect.objectContaining({ message: terminal === "last attempt" ? "persistent failure" : expect.stringContaining("exhausted 3 execution leases") }),
         input: expect.objectContaining({ prompt: "Review the pull request." }),
-        invocation: { consoleUrl: `https://agents.example.test/_vitehub/agents/review/invocations/${encodeURIComponent(id)}`, id },
+        invocation: { consoleUrl: hostedConsoleLink("https://agents.example.test", `/agents/review/invocations/${encodeURIComponent(id)}`), id },
         publicError: expect.objectContaining({ code: "INTERNAL" }),
         run: expect.objectContaining({ runId: "failed-webhook-run" }),
       })
@@ -17981,7 +17983,7 @@ describe("server helpers", () => {
       expect(errorFallbackText).toHaveBeenCalledOnce()
       const args = errorFallbackText.mock.calls[0]![0]
       const id = await agentInvocationId(args.run!.runId, "support")
-      const consoleUrl = `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      const consoleUrl = hostedConsoleLink("https://agents.example.test", `/agents/support/invocations/${encodeURIComponent(id)}`)
       expect(args.invocation).toEqual({ consoleUrl, id })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", consoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
     }
@@ -20842,7 +20844,7 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       expect(runId).toBeDefined()
       const id = await agentInvocationId(runId!, "support")
-      const consoleUrl = `https://agents.example.test${base}_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      const consoleUrl = hostedConsoleLink(`https://agents.example.test${base.replace(/\/$/, "")}`, `/agents/support/invocations/${encodeURIComponent(id)}`)
       for (const message of [adapter.postMessage.mock.calls[0]?.[1], adapter.editMessage.mock.calls.at(-1)?.[2]]) {
         if (!consoleLink) continue
         const markdown = isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown) ? message.markdown : ""

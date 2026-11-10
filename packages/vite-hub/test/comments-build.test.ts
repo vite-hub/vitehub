@@ -111,8 +111,11 @@ describe("Comments in a built Nitro 3 app", () => {
       const api = async (path: string, init: RequestInit = {}) => await server.fetch(`/api/_vitehub/comments${path}`, { ...init, headers: { "content-type": "application/json", "x-test-user": "ana", ...init.headers } })
       const overApi = await (await api("/threads?page=/pricing&status=resolved")).json() as { data: CommentThread[] }
       expect(overApi.data.map(thread => thread.id)).toEqual([created.id])
-      const reopened = await (await api(`/threads/${created.id}/reopen`, { method: "POST" })).json() as { data: CommentThread }
-      expect(reopened.data.status).toBe("open")
+      // The overlay API trusts Auth or `identify`, not the Console, so the Console user of this fixture may not reopen there.
+      const refused = await api(`/threads/${created.id}/reopen`, { method: "POST" })
+      expect(refused.status).toBe(403)
+      expect(await refused.json()).toMatchObject({ error: { code: "COMMENTS_FORBIDDEN" } })
+      expect(await call<CommentThread>("comments.reopen", { threadId: created.id })).toMatchObject({ status: "open" })
       expect((await call<CommentThread[]>("comments.list", { status: "open" })).map(thread => thread.id)).toEqual([created.id])
     }
     finally {
