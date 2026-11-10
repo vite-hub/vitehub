@@ -73,44 +73,15 @@ describe("public URL", () => {
     expect(resolvePublicUrl({ agentName: "declared" })).toBe("https://first.example.com")
   })
 
-  it("builds one Console invocation URL with the application base path", () => {
-    expect(consoleInvocationUrl("https://agents.example.com", "team/support", "a/b")).toBe(
-      "https://agents.example.com/_vitehub/agents/~007400650061006d002f0073007500700070006f00720074/invocations/a%2Fb",
-    )
+  it("builds one hosted Console invocation URL with the application base path", () => {
+    const first = new URL(consoleInvocationUrl("https://agents.example.com", "team/support", "a/b"))
+    expect(first.origin + first.pathname).toBe("https://console.vitehub.dev/open")
+    expect(Object.fromEntries(first.searchParams)).toEqual({
+      project: "https://agents.example.com",
+      path: "/agents/~007400650061006d002f0073007500700070006f00720074/invocations/a%2Fb",
+    })
     vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
-    expect(consoleInvocationUrl("https://agents.example.com", "bot", "id")).toBe("https://agents.example.com/portal/_vitehub/agents/bot/invocations/id")
-  })
-
-  describe("without the Console embed", () => {
-    const hosted = Symbol.for("vitehub.console.hosted")
-    afterEach(() => {
-      Reflect.deleteProperty(globalThis, hosted)
-    })
-
-    it.each(["/portal/", "/_vitehub-app/", "/portal/_vitehub-assets/"])("links the hosted Console with the project origin and base %s", (base) => {
-      Reflect.set(globalThis, hosted, true)
-      vi.stubGlobal("__VITEHUB_APP_BASE_URL__", base)
-      const url = new URL(consoleInvocationUrl("https://agents.example.com", "team/support", "a/b"))
-      expect(url.origin).toBe("https://console.vitehub.dev")
-      expect(url.pathname).toBe("/open")
-      expect(Object.fromEntries(url.searchParams)).toEqual({
-        path: "/agents/~007400650061006d002f0073007500700070006f00720074/invocations/a%2Fb",
-        project: `https://agents.example.com${base.slice(0, -1)}`,
-      })
-    })
-
-    it("links the hosted Console for a loopback http origin", () => {
-      Reflect.set(globalThis, hosted, true)
-      expect(consoleInvocationUrl("http://localhost:3000", "bot", "id")).toBe("https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A3000&path=%2Fagents%2Fbot%2Finvocations%2Fid")
-    })
-
-    it("keeps the app URL for an http origin on the network", () => {
-      Reflect.set(globalThis, hosted, true)
-      expect(consoleInvocationUrl("http://192.168.1.20:3000", "bot", "id")).toBe("http://192.168.1.20:3000/_vitehub/agents/bot/invocations/id")
-    })
-
-    it("keeps the app URL when the generated Console plugin did not set the flag", () => {
-      expect(consoleInvocationUrl("https://agents.example.com", "bot", "id")).toBe("https://agents.example.com/_vitehub/agents/bot/invocations/id")
-    })
+    const mounted = new URL(consoleInvocationUrl("https://agents.example.com", "bot", "id"))
+    expect(Object.fromEntries(mounted.searchParams)).toEqual({ project: "https://agents.example.com/portal", path: "/agents/bot/invocations/id" })
   })
 })

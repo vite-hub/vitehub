@@ -60,6 +60,7 @@ describe("Forms in a built Nitro 3 app", () => {
         "export default defineForm({",
         "  schema: v.object({ email: v.pipe(v.string(), v.email('Enter a valid email.')), message: v.pipe(v.string(), v.minLength(1)) }),",
         "  rateLimit: { limit: 3, window: '1m' },",
+        "  authorize: async ({ request }) => request.headers.get('content-type') === 'application/json' && (await request.json()).message !== 'Denied',",
         "})",
         "",
       ].join("\n"),
@@ -77,13 +78,13 @@ describe("Forms in a built Nitro 3 app", () => {
     const token = "forms-build-test-token-0123456789abcdef"
     const authorization = `Bearer ${token}`
 
-    const generate = await runCli(root, app(), ["db", "generate"])
+    const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrations = join(root, "server/databases/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)).toEqual(["CREATE TABLE `vitehub_form_submissions`"])
-    const migrate = await runCli(root, app(), ["db", "migrate"])
+    const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 
@@ -115,6 +116,9 @@ describe("Forms in a built Nitro 3 app", () => {
         headers: { "content-type": "application/json", referer: "http://localhost/pricing", ...headers },
         method: "POST",
       })
+      // Authorization can read the bounded host request, and a refusal leaves all three rate-limit attempts.
+      const denied = await send({ email: "ada@example.com", message: "Denied" })
+      expect(denied.status).toBe(401)
       const created = await send({ email: "ada@example.com", message: "Hello" })
       expect(created.status).toBe(201)
       const { id } = await created.json() as { id: string }

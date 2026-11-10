@@ -10,10 +10,10 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineConnection`, `apiKey`, `oauthLogin` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), with an API key or [OAuth login provider](/docs/connections/configure#oauth-login-connections). |
-| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods. |
-| `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code. The runtime functions are for hosts and tests. |
-| `createConnectionsHandler` from `vite-hub/connections/http` | Management, connect, and callback routes, mounted by the Console. Needs an `actor` access policy. |
+| `defineConnection`, `apiKey` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), with an [OAuth provider object](/docs/connections/configure#oauth-provider-objects) or an API key. |
+| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods for messages, attachments, drafts, labels, threads, history, the profile, and filters. `fetch()` reaches the other Gmail endpoints. |
+| `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code, and runtime access for hosts and tests. |
+| `createConnectionsHandler` from `vite-hub/connections` | Management, connect, and callback routes. The Console mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
 
 ## Management routes
@@ -31,7 +31,7 @@ Each route checks access before it reads or changes a Connection. With the Conso
 
 `console.authorize` runs after each check. If it returns `{ sections }`, the routes also need the `connections` section.
 
-A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). `createConnectionsHandler()` returns a handler that takes a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 1 or H3 2 event in a ViteHub app. With `createConnectionsHandler()`, pass `actor`: a function that gets the request and the request event and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
+A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). `createConnectionsHandler()` returns a Fetchable route, `{ fetch(request) }`. Nitro mounts it as a route, and you can call `fetch()` with a Web `Request`. With `createConnectionsHandler()`, pass `actor`: a function that gets the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the [Standard Context](/docs/reference/runtime-context#standard-context) of the event, so `getStandardContext(request)` and the Auth helpers accept it. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
 
 With `createConnectionsHandler()`, pass `actor` as one of these:
 
@@ -45,7 +45,7 @@ Add `?return=/path` to the connect route to pick the page to return to, such as 
 - A success returns to that page after two seconds and shows a **Back to Connections** link. Without `return`, it asks the user to close the tab.
 - A failure shows the error code, the fix, a docs link, and the same link, and stays.
 
-The action route takes only `POST`, so `GET /_vitehub/connections` shows the Console Connections page.
+The action route takes only `POST`.
 
 ### Origin checks
 
@@ -88,7 +88,7 @@ The CLI calls the management route of a running dev server with the Console on. 
 | --- | --- |
 | `vitehub connections list` | List Connections and their status. |
 | `vitehub connections inspect <name>` | Show one Connection: account, scopes, and actions. |
-| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the Console connect URL. |
+| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the connect URL. |
 | `vitehub connections set-key <name>` | Store the key of an API key Connection from stdin. |
 | `vitehub connections activity <name>` | Show audited calls, refreshes, and denials. |
 | `vitehub connections approvals [approve\|deny <id>]` | List, approve, or deny pending writes. |

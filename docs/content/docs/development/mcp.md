@@ -13,7 +13,7 @@ The endpoint uses Streamable HTTP without a session: each `POST` sends one JSON-
 
 ## Connect an agent
 
-The Console's **Connect an agent** page, at `/_vitehub/connect`, is linked from the rail and the Overview. It shows the server URL, setup for Claude Code, Codex, Cursor, and VS Code with your origin, how the agent signs in, and the sections its tools can use. For Claude Code and Codex:
+Give the agent the server URL of your app. For Claude Code and Codex:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
@@ -24,7 +24,7 @@ claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
 url = "https://app.example.com/_vitehub/mcp"
 ```
 
-For Cloudflare Access, create a service token and allow it in the app's Service Auth policy. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in your shell. The Console shows these commands when Cloudflare Access protects it:
+For Cloudflare Access, create a service token and allow it in the app's Service Auth policy. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in your shell:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp --header "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" --header "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
@@ -116,13 +116,13 @@ Needs is the `authorize` action of [`defineComments()`](/docs/comments/configure
 
 A request without valid sign-in gets `401` and a `WWW-Authenticate: Bearer resource_metadata="…"` header. An invalid token gets `error="invalid_token"` in that header. The metadata, at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/_vitehub/mcp`, names the authorization server.
 
-To try the tools as yourself, open the Console's [MCP client](/docs/development/console#open-vitehub-mcp). It connects with your Console session.
+To try the tools as yourself, open the Console's [MCP client](/docs/development/console#open-vitehub-mcp). It connects with the credentials of your Console request.
 
 ### Set up OAuth
 
 This section covers the Console endpoint. An app with its own MCP server, such as `/mcp`, signs clients in with [`mcpOAuth()`](/docs/auth/configure#sign-mcp-clients-in) from `vite-hub/auth/mcp`.
 
-Better Auth is the authorization server. A Console Auth that ViteHub generates (inline GitHub, or `vitehub/console/auth/server.ts` with `defineConsoleAuth()`) already has the `jwt()` and `oauthProvider()` plugins. The Console sign-in page is also the login and consent page. A Console Auth with `migrate: false` manages its own schema, so it adds the plugins itself. ViteHub keeps a supplied OAuth provider and adds a registration hook that accepts MCP clients' loopback redirects, also with `migrate: false`.
+Better Auth is the authorization server. A Console Auth that ViteHub generates (inline GitHub, or `vitehub/console/auth/server.ts` with `defineConsoleAuth()`) already has the `jwt()` and `oauthProvider()` plugins. Its sign-in page, `/_vitehub/sign-in`, is the login and consent page. A Console Auth with `migrate: false` manages its own schema, so it adds the plugins itself. ViteHub keeps a supplied OAuth provider and adds a registration hook that accepts MCP clients' loopback redirects, also with `migrate: false`.
 
 A bearer token still runs the Console Auth `authorize` callback with the verified user, then `console.authorize`. With `console.auth: 'app'`, it also runs the `authorize` callback of each matching app Auth access route. There is no browser session, so these callbacks get an empty `session` object. Tokens work only on the exact mounted MCP endpoint. Other routes still need a session.
 
@@ -142,7 +142,7 @@ export default defineAuth(({ requestOrigin }) => ({
 }))
 ```
 
-The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub db generate` writes their migration.
+The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub database generate` writes their migration.
 
 Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage` (default: `loginPage`). The default `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the Auth's social providers. Then it shows the client name and asks the person to allow or deny it.
 

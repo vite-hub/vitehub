@@ -3,8 +3,8 @@ import { defineWorkflow } from "../src/definition.ts"
 import type { WorkflowDefinitionRegistry } from "../src/types.ts"
 
 it("accepts definitions with a typed payload without a cast", () => {
-  const onboardUser = defineWorkflow<{ email: string }>(async ({ payload }) => ({ userId: `user:${payload.email}` }))
-  const untyped = defineWorkflow(async ({ payload }) => payload)
+  const onboardUser = defineWorkflow("onboard-user", async (payload: { email: string }) => ({ userId: `user:${payload.email}` }))
+  const untyped = defineWorkflow("untyped", async payload => payload)
 
   const registry = {
     "onboard-user": async () => onboardUser,

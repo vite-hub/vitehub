@@ -12,7 +12,6 @@ import { commentsRoute } from "../page.ts"
 import { requestOf } from "./request.ts"
 
 import type { createAuthForRequest } from "@vite-hub/auth/server"
-import type { H3Event } from "h3"
 import type { CommentsGitHubAccess, CommentsRequestEvent, CommentsUser } from "../types.ts"
 
 /** The Server Env names of the OAuth client that people sign in to Comments with: a GitHub App's, or an OAuth App's. */
@@ -38,7 +37,7 @@ export interface CommentsGitHubLogin {
   /** The person signed in with GitHub, with what they may do in the repository. Null without a session. */
   user(event: CommentsRequestEvent): Promise<CommentsUser | null>
   /** The sign-in, callback, and sign-out routes under `/api/_vitehub/comments/auth/`. */
-  handle(event: H3Event, path: string): Promise<Response>
+  handle(request: Request & CommentsRequestEvent, path: string): Promise<Response>
 }
 
 function serverEnv(name: string): string | undefined {
@@ -157,12 +156,11 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
       const name = "name" in user && typeof user.name === "string" && user.name ? user.name : githubAccess.login
       return { ...user, id: user.id, name, github: githubAccess }
     },
-    async handle(event, path) {
+    async handle(request, path) {
       if (!configured()) {
         return Response.json({ error: { code: "COMMENTS_SIGN_IN_OFF", why: "This site has no GitHub sign-in for Comments.", fix: `Set ${githubLoginEnv.clientId} and ${githubLoginEnv.clientSecret} on the server.` } }, { status: 404 })
       }
-      const request = requestOf(event)
-      const instance = await auth(event, request)
+      const instance = await auth(request, request)
       const url = new URL(request.url)
       // Starts the GitHub sign-in, then comes back to the page with comment mode on.
       if (path === "/auth/github" && request.method === "GET") {

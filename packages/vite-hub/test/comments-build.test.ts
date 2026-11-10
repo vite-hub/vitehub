@@ -48,13 +48,13 @@ describe("Comments in a built Nitro 3 app", () => {
     // Production output must never invent a local identity, even with NODE_ENV=development.
     const app = () => vitehub({ auth: true, console: { auth: "app", authorize: "./server/console-authorize.ts" }, preset: "node" })
 
-    const generate = await runCli(root, app(), ["db", "generate"])
+    const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrations = join(root, "server/databases/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `vitehub_comment_counters`", "CREATE TABLE `vitehub_comment_forge`", "CREATE TABLE `vitehub_comment_messages`", "CREATE TABLE `vitehub_comment_threads`"])
-    const migrate = await runCli(root, app(), ["db", "migrate"])
+    const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 
@@ -114,8 +114,11 @@ describe("Comments in a built Nitro 3 app", () => {
       const api = async (path: string, init: RequestInit = {}) => await server.fetch(`/api/_vitehub/comments${path}`, { ...init, headers: { "content-type": "application/json", "x-test-user": "ana", ...init.headers } })
       const overApi = await (await api("/threads?page=/pricing&status=resolved")).json() as { data: CommentThread[] }
       expect(overApi.data.map(thread => thread.id)).toEqual([created.id])
-      const reopened = await (await api(`/threads/${created.id}/reopen`, { method: "POST" })).json() as { data: CommentThread }
-      expect(reopened.data.status).toBe("open")
+      // The overlay API trusts Auth or `identify`, not the Console, so the Console user of this fixture may not reopen there.
+      const refused = await api(`/threads/${created.id}/reopen`, { method: "POST" })
+      expect(refused.status).toBe(403)
+      expect(await refused.json()).toMatchObject({ error: { code: "COMMENTS_FORBIDDEN" } })
+      expect(await call<CommentThread>("comments.reopen", { threadId: created.id })).toMatchObject({ status: "open" })
       expect((await call<CommentThread[]>("comments.list", { status: "open" })).map(thread => thread.id)).toEqual([created.id])
     }
     finally {

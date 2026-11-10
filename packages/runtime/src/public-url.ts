@@ -1,4 +1,4 @@
-import { hostedConsoleUrl } from "./hosted-console.ts"
+import { hostedConsoleOrigin } from "./hosted-console.ts"
 import { encodeRouteSegment } from "./route-segment.ts"
 
 /** Public origins resolved from `vitehub({ publicUrl })` at build time. */
@@ -74,27 +74,13 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
 }
 
 /**
- * The generated Console plugin of a production build without `console.embed` sets this global to `true`: the app then
- * serves no Console pages, so Console links open the hosted Console.
- */
-const consoleHostedKey = Symbol.for("vitehub.console.hosted")
-
-/**
- * Build the Console URL of one Agent invocation. `origin` must not include the application base path.
- *
- * The URL opens `/_vitehub` on the app in `vite dev` and with `console.embed: true`. A production build without the
- * embed links the hosted Console, `https://console.vitehub.dev/open?project=...&path=...`. An `http:` origin that is not
- * loopback cannot be a hosted Console project, so it keeps the `/_vitehub` URL.
+ * Build the hosted Console URL that opens one Agent invocation, such as
+ * `https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fbot%2Finvocations%2Fid`.
+ * `origin` must not include the application base path. The hosted Console checks the project URL when it opens the link.
  */
 export function consoleInvocationUrl(origin: string, agentName: string, invocationId: string): string {
+  const project = `${new URL(origin).origin}${applicationBasePath()}`
   const path = `/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
-  if (Reflect.get(globalThis, consoleHostedKey) === true) {
-    try {
-      return hostedConsoleUrl(`${new URL(origin).origin}${applicationBasePath()}`, path)
-    }
-    catch (error) {
-      if (!(error instanceof TypeError)) throw error
-    }
-  }
-  return new URL(`${applicationBasePath()}/_vitehub${path}`, origin).href
+  // Vercel's Workflow VM has `URL` but no `URLSearchParams`, so the query is built by hand.
+  return `${hostedConsoleOrigin}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 }

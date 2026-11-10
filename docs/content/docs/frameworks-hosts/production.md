@@ -54,7 +54,7 @@ Validate HTTP bodies, webhook payloads, and stored job inputs at runtime. TypeSc
 The [Console](/docs/development/console) can show stored KV values, prompts, model output, and tool activity. Turn it off when you do not need it.
 ::
 
-Every Console must set its access with `console.auth`. `auth: false` has no sign-in, so a production build fails with it. Use `auth: 'app'`, Console Auth, or a Console token with `auth: 'token'` and `VITEHUB_CONSOLE_TOKEN_SHA256`. Add `authorize`, a server file that default-exports `defineConsoleAuthorize()`, to limit who may use which section. Every Console data route calls it before it reads data. A production build serves the Console data routes but not the Console pages. Open the app in the hosted Console at `https://console.vitehub.dev`, or set `console.embed: true` to serve the pages from the app.
+Every Console must set its access with `console.auth`. `auth: false` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. Use `auth: 'token'`, which the hosted Console needs, `auth: 'app'`, or Console Auth. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console route calls it after authentication and before it reads data.
 
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.
 

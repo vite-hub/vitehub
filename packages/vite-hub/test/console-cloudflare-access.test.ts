@@ -77,7 +77,7 @@ async function bundleMiddleware(root: string, platform: "browser" | "node", midd
       name: "test-cloudflare-access-imports",
       setup(plugin) {
         plugin.onResolve({ filter: /^vite-hub\/console\/auth\/cloudflare-access$/ }, () => ({ path: resolve(packageRoot, "src/console/auth-cloudflare-access.ts") }))
-        plugin.onResolve({ filter: /^vite-hub\/env\/server$/ }, () => ({ path: resolve(packageRoot, "src/env/server.ts") }))
+        plugin.onResolve({ filter: /^vite-hub\/env$/ }, () => ({ path: resolve(packageRoot, "src/env.ts") }))
       },
     }],
   })
@@ -304,7 +304,7 @@ describe("Cloudflare Access Console Auth", () => {
         .toThrow("cannot use env.provider()")
 
       const handlers = await writeConsoleAuthHandlers(root, defaults)
-      expect(handlers).toEqual({ auth: "cloudflare-access", clientSources: [], middleware: handlers.middleware })
+      expect(handlers).toEqual({ auth: "cloudflare-access", middleware: handlers.middleware })
       const middleware = await readFile(handlers.middleware, "utf8")
       expect(middleware).toContain('from "vite-hub/console/auth/cloudflare-access"')
       expect(middleware).toContain("resolveServerEnv(settings, event)")
@@ -351,7 +351,7 @@ describe("Cloudflare Access Console Auth", () => {
       const config: { root: string, base: string, nitro?: { handlers: Array<{ handler: string, middleware?: boolean }> } } = { root, ...bases }
       await Reflect.apply(handler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
-        expect.objectContaining({ route: `${mount}/_vitehub` }),
+        expect.objectContaining({ route: `${mount}/_vitehub/rpc/**` }),
       ]))
       const middleware = config.nitro?.handlers.find(entry => entry.middleware)?.handler
       if (!middleware) throw new TypeError("Expected Console auth middleware.")
@@ -418,8 +418,8 @@ describe("Cloudflare Access Console Auth", () => {
       const production = await run("build")
       expect(production).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/**", middleware: true, handler: resolve(root, ".vitehub/nitro/console/auth-middleware.mjs") }),
+        expect.objectContaining({ route: "/_vitehub/rpc/**" }),
       ]))
-      // Without console.embed, a production build has no Console page, so it needs no Console Auth client.
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/client.js")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/sign-in")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/auth/**")
@@ -434,19 +434,18 @@ describe("Cloudflare Access Console Auth", () => {
     }
   })
 
-  it("refuses host-managed exposure in a production build on every preset", async () => {
+  it.each(["cloudflare", "node"])("rejects host-managed production exposure on %s", async (preset) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-host-managed-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const run = async (preset: string) => {
-        const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
-        const configHook = plugin.config
-        if (!configHook) throw new TypeError("Expected Console config hooks.")
-        const config = { root }
-        await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
-      }
-      await expect(run("cloudflare")).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
-      await expect(run("node")).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected Console config hook.")
+      const configure = "handler" in configHook ? configHook.handler : configHook
+      await expect(Reflect.apply(configure, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+      await expect(Reflect.apply(configure, {}, [{ root }, { command: "serve", mode: "development" }]))
+        .resolves.toBeUndefined()
     }
     finally {
       await rm(root, { recursive: true, force: true })

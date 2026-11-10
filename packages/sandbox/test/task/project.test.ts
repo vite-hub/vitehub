@@ -52,7 +52,8 @@ describe("bundleSandboxTaskDefinition", () => {
     expect(bundle.entry).toBe("definition.js")
     expect(bundle.execution).toBe("definition")
     expect(bundle.modules[bundle.entry]).toContain('from "node:path"')
-    expect(bundle.modules[bundle.entry]).toContain("answer = 42")
+    expect(bundle.modules[bundle.entry]).not.toContain("./helper")
+    expect(bundle.modules[bundle.entry]).toContain("42")
   })
 
   it("keeps the project for a runtime-resolved Definition import", async () => {
