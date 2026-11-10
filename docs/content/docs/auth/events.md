@@ -21,9 +21,9 @@ export default defineDatabase({ name: 'auth', schema: {} })
 ```
 
 ```ts [server/auth.ts]
-import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
-import { authDatabase } from '@vite-hub/auth/database'
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineAuth(() => ({
   database: authDatabase('auth'),
@@ -41,7 +41,7 @@ Better Auth 1.7.7 has a last-login-method plugin but no local audit log. ViteHub
 ## Read events from code
 
 ```ts
-import { aggregateAuthEvents, listAuthEvents } from '@vite-hub/auth/server'
+import { aggregateAuthEvents, listAuthEvents } from 'vite-hub/auth/server'
 
 const first = await listAuthEvents({
   type: 'user.signed_in',
@@ -91,7 +91,7 @@ Server readers do not authorize HTTP callers. Guard the route, or the Console, b
 The Auth Vite integration adds `vitehub auth events`, which calls the app's Auth route. Turn on this read endpoint with `events.authorize` and your own access policy:
 
 ```ts fragment
-import type { AuthEventsConfiguration } from '@vite-hub/auth'
+import type { AuthEventsConfiguration } from 'vite-hub/auth'
 
 const events: AuthEventsConfiguration = {
   store,

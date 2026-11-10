@@ -1477,6 +1477,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "The default Agent Invocation journal cannot open a file: URL in a Cloudflare Worker.",
       fix: "Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL or agent.invocations.databaseUrl to a remote libSQL URL, or remove the file URL to use the host default journal.",
     },
+    AGENT_R1036: {
+      why: "The default Agent Invocation journal selected SQLite or libSQL, but the server was built without the libSQL driver.",
+      fix: "Set agent.invocations.databaseUrl to the libSQL URL in the build, so a Cloudflare build includes the driver, or remove VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to use D1 or memory.",
+    },
     AGENT_R1024: {
       why: "The ChatGPT access token expired during this Invocation.",
       fix: "Start a new Invocation to resolve a fresh token. Review completed tool effects before retrying. ViteHub does not replay the interrupted Invocation automatically.",
