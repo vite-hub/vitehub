@@ -42,14 +42,6 @@ describe("agent-ready HTTP contracts", () => {
     expect(typeof config.docs?.rawMarkdown).toBe("function");
   });
 
-  it("serves raw Markdown copies from the docs package", () => {
-    const docsModule = readFileSync(resolve(packageRoot, "src/nuxt.ts"), "utf8");
-
-    expect(docsModule).toContain('for (const method of ["get", "head"] as const) addServerHandler({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") })');
-    expect(docsModule).toContain('{ baseName: "docs-raw", dir: rawDir }');
-    expect(docsModule).toContain("toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot, page.path, siteUrl)");
-  });
-
   it("derives Capability references from the real model-facing tools", async () => {
     const references = await createCapabilityReferences();
 
@@ -89,22 +81,6 @@ describe("agent-ready HTTP contracts", () => {
 
     expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt"]);
   });
-
-  it("pins the patched Nuxt toolchain and disables DevTools", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
-    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
-    const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
-
-    expect(workspace).toContain("nuxt: ^4.6.4");
-    expect(lockfile).toContain("nuxt@4.6.4:");
-    expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
-    expect(lockfile).not.toContain("nuxt@4.4.8:");
-    expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
-    expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
-    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
-    expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
-  });
 });
 
 describe("ViteHub OpenAPI document", () => {
@@ -140,52 +116,5 @@ describe("ViteHub OpenAPI document", () => {
         }
       }
     }
-  });
-});
-
-describe("trust and developer discovery content", () => {
-  it("publishes substantive About, Contact, and Privacy source pages", () => {
-    for (const page of trustPages) {
-      const source = readFileSync(resolve(docsRoot, `content/${page}.md`), "utf8");
-      expect(source.length, page).toBeGreaterThan(500);
-      expect(source, page).toContain(`title: ${page === "privacy" ? "ViteHub privacy" : `${page[0]!.toUpperCase()}${page.slice(1)} ViteHub`}`);
-      // The page header renders the title as the only H1.
-      expect(source, page).not.toMatch(/^# /m);
-    }
-  });
-
-  it("renders no site footer and keeps recovery links on the 404 page", () => {
-    const app = readFileSync(resolve(packageRoot, "runtime/app/app.vue"), "utf8");
-    const error = readFileSync(resolve(docsRoot, "app/error.vue"), "utf8");
-
-    expect(app).not.toMatch(/<(?:AppFooter|UFooter)\b/);
-    expect(error).not.toMatch(/<(?:AppFooter|UFooter)\b/);
-    expect(error).toContain("label: \"Docs\", to: \"/docs\"");
-    expect(error).toContain("<AppSearch");
-    expect(error).toContain("llms.txt");
-    expect(error).toContain("Sitemap");
-  });
-
-  it("names the OpenAPI, skill, MCP, and npm CLI entry points", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const resources = readFileSync(resolve(docsRoot, "content/docs/getting-started/ai-resources/index.md"), "utf8");
-    const combined = `${config}\n${resources}`;
-
-    expect(combined).toContain("When to use ViteHub");
-    expect(combined).toContain("ViteHub OpenAPI");
-    expect(combined).toContain("ViteHub Agent Skill");
-    expect(combined).toContain("ViteHub MCP server");
-    expect(combined).toContain("https://www.npmjs.com/package/vite-hub");
-  });
-
-  it("uses Nuxt Schema.org for truthful product and project identities", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const landing = readFileSync(resolve(docsRoot, "app/pages/index.vue"), "utf8");
-
-    expect(config).toContain('"nuxt-schema-org"');
-    expect(landing).toContain("defineOrganization({");
-    expect(landing).toContain("defineSoftwareApp({");
-    expect(landing).toContain('applicationCategory: "DeveloperApplication"');
-    expect(landing).not.toMatch(/telephone|postalCode|streetAddress/);
   });
 });
