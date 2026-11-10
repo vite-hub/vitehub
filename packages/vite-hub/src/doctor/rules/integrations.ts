@@ -501,7 +501,31 @@ const removedPaths = new Map([
   ["vite-hub/content/presets/cms", { replacement: "vite-hub/cms", note: "The CMS has its own package." }],
   ["@vite-hub/content/presets/cms", { replacement: "@vite-hub/cms", note: "The CMS has its own package." }],
   ["vite-hub/schedule/runtime/driver", { replacement: "`startSchedule()` from `vite-hub/schedule`, with a Definition without `cron` in `server/schedules/`", note: "Runtime Schedules are started with `startSchedule()`." }],
+  ...oneEntryPerConcept(),
 ])
+
+/** Subpaths that moved into the root of their primitive, or into `env/bridge`. `npx @vite-hub/codemods one-entry-imports` moves them. */
+function oneEntryPerConcept(): [string, { replacement: string, note: string }][] {
+  const moves: [string, string][] = [
+    ...["file", "files", "github", "glob", "markdown"].map((name): [string, string] => [`source/${name}`, "source"]),
+    ...["presets", "provider", "schema", "secret", "server"].map((name): [string, string] => [`env/${name}`, "env"]),
+    ["env/auth", "env/bridge"],
+    ["env/http", "env/bridge"],
+    ["blob/content-type", "blob"],
+    ["blob/ensure", "blob"],
+    ["blob/reference", "blob"],
+    ["browser/actions", "browser"],
+    ["connections/http", "connections"],
+  ]
+  const note = "Each concept has one entry. Run `npx @vite-hub/codemods one-entry-imports` to move the imports."
+  return [
+    ...moves.flatMap(([from, to]): [string, { replacement: string, note: string }][] => [
+      [`vite-hub/${from}`, { replacement: `vite-hub/${to}`, note }],
+      [`@vite-hub/${from}`, { replacement: `@vite-hub/${to}`, note }],
+    ]),
+    ["vite-hub/task", { replacement: "nitro/task", note: "`vite-hub/task` only re-exported Nitro's task API. Import `defineTask` and `runTask` from `nitro/task`, and the types from `nitro/types`." }],
+  ]
+}
 
 /** Exports that ViteHub renamed, by module name from `vitehubModule()`. */
 const renamedExports: { modules: (module: string) => boolean, renames: Map<string, string> }[] = [
