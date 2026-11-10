@@ -19,7 +19,7 @@ async function migrate(files: Record<string, string>) {
     await writeFile(join(cwd, path), contents)
   }
   const run = await runCodemod("renamed-apis", { cwd, dryRun: true })
-  return { after: Object.fromEntries(run.result.edits.map(edit => [edit.path, edit.after])), cwd, run }
+  return { after: Object.fromEntries(run.result.edits.flatMap(edit => edit.after === null ? [] : [[edit.path, edit.after]])), cwd, run }
 }
 
 describe("renamed-apis", () => {

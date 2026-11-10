@@ -138,7 +138,7 @@ describe("inline Workflow run retention", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     const first = gate()
     const remaining = gate()
-    const workflow = createWorkflow<boolean, string>("pending", async ({ payload }) => {
+    const workflow = createWorkflow<boolean, string>("pending", async (payload) => {
       await (payload ? first.promise : remaining.promise)
       return "done"
     })

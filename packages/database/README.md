@@ -72,17 +72,24 @@ The batch executes atomically. Use conditional statements in a batch when a
 change must compare and update shared state without an interactive transaction.
 
 ```ts
-await db.batch([
-  db.insert(schema.notes).values({ title: "First note" }),
-  db.insert(schema.notes).values({ title: "Second note" }),
-])
+// server/api/notes/seed.post.ts
+import { useDatabase } from "@vite-hub/database/drizzle"
+import { defineEventHandler } from "h3"
+
+export default defineEventHandler(async () => {
+  const { db, schema } = useDatabase("default")
+  await db.batch([
+    db.insert(schema.notes).values({ title: "First note" }),
+    db.insert(schema.notes).values({ title: "Second note" }),
+  ])
+})
 ```
 
 Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
 
-Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database.
+Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names.
 
 In a Nuxt application, ViteHub also discovers Definitions in each layer's server directory. Definitions with the same name merge their tables into one database and one set of migrations in the application. The application Definition takes precedence over layer tables. When it sets `connection`, `cloudflare`, or `drizzle`, it replaces all layer options and must also set each option that a layer sets.
 

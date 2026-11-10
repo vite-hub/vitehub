@@ -41,10 +41,8 @@ try {
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [
-        /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "fdir",
-        "ocache",
         "picomatch",
         "tinyglobby",
       ],
@@ -59,21 +57,18 @@ try {
     ],
     exports: {
       customExports(exports) {
-        return {
-          ...normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
-            if (String(value) !== value || !value.endsWith(".js")) {
-              return [key, value];
-            }
-            return [
-              key,
-              {
-                types: value.replace(/\.js$/, ".d.ts"),
-                import: value,
-              },
-            ];
-          }))),
-          "./tsconfig": "./tsconfig.vite.json",
-        };
+        return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
+          if (String(value) !== value || !value.endsWith(".js")) {
+            return [key, value];
+          }
+          return [
+            key,
+            {
+              types: value.replace(/\.js$/, ".d.ts"),
+              import: value,
+            },
+          ];
+        })));
       },
       inlinedDependencies: false,
     },

@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { askOnTerminal, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "./results.ts"
@@ -48,16 +48,12 @@ interface ParsedKVArgs {
   yes: boolean
 }
 
-interface KVCliFailure {
-  code?: string
-  fix?: string
-  message: string
-}
+const usageError = (problem: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem })
 
 const kvDevTargetErrors = {
-  invalidInlineTimeout: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
-  invalidTimeout: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
-  missingValue: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
+  invalidInlineTimeout: usageError,
+  invalidTimeout: usageError,
+  missingValue: usageError,
 }
 
 const kvCommands: readonly KVCommand[] = [
@@ -111,28 +107,10 @@ function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): vo
   ].join("\n"))
 }
 
-function parsePositiveInteger(name: string, value: string | undefined): number {
-  const number = Number(value)
-  if (!value || !Number.isInteger(number) || number < 1) {
-    throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `--${name} must be a positive integer.` })
-  }
-  return number
-}
-
 function parseTTL(value: string): number {
   const ttl = Number(value)
   if (!value || !Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "--ttl must be a positive number." })
   return ttl
-}
-
-function readOptionValue(args: readonly string[], index: number, name: string): { consumed: number, value: string } | undefined {
-  const arg = args[index]!
-  if (arg === `--${name}`) {
-    const value = args[index + 1]
-    if (value === undefined || value.startsWith("--")) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `--${name} needs a value.` })
-    return { consumed: 1, value }
-  }
-  if (arg.startsWith(`--${name}=`)) return { consumed: 0, value: arg.slice(name.length + 3) }
 }
 
 function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
@@ -165,7 +143,7 @@ function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
       index += targetOption
       continue
     }
-    const store = readOptionValue(args, index, "store")
+    const store = readCliOptionValue(args, index, "store", usageError)
     if (store) {
       if (!store.value.trim()) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "--store needs a nonempty name." })
       parsed.store = store.value
@@ -175,11 +153,11 @@ function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
     let matched = false
     for (const option of ["cursor", "limit", "prefix", "ttl"] as const) {
       if (!command.options.includes(option)) continue
-      const read = readOptionValue(args, index, option)
+      const read = readCliOptionValue(args, index, option, usageError)
       if (!read) continue
       if (option === "cursor" && !read.value.trim()) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "--cursor needs a nonempty value." })
       if (option === "ttl") parsed.ttl = parseTTL(read.value)
-      else if (option === "limit") parsed.limit = parsePositiveInteger(option, read.value)
+      else if (option === "limit") parsed.limit = parseCliPositiveInteger(option, read.value, usageError)
       else parsed[option] = read.value
       index += read.consumed
       matched = true
@@ -242,10 +220,6 @@ async function readValue(parsed: ParsedKVArgs, cwd: string): Promise<unknown> {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !Array.isArray(value) && v.is(v.record(v.string(), v.unknown()), value)
-}
-
 function formatValue(result: KVDevGetResult): string | Uint8Array {
   if (result.encoding === "base64" && v.is(v.string(), result.value)) return Uint8Array.from(atob(result.value), character => character.charCodeAt(0))
   if (v.is(v.string(), result.value)) return result.value
@@ -283,7 +257,7 @@ function writeResult(result: KVCommandResult, context: KVCliContext): number {
   switch (result.operation) {
     case "list": {
       const page = result.value
-      if (page.keys.some(key => /[\r\n\u2028\u2029]/.test(key))) return writeFailure({ json: false }, context, { message: "The KV list contains line-breaking keys. Use --json to preserve the complete keys." })
+      if (page.keys.some(key => /[\r\n\u2028\u2029]/.test(key))) return writeCliFailure(false, context, { message: "The KV list contains line-breaking keys. Use --json to preserve the complete keys." })
       // Some drivers scan a fixed number of entries per page, so a page can be empty while more keys exist.
       if (page.keys.length === 0 && page.cursor) context.stderr.write("No keys on this page.\n")
       else if (page.keys.length === 0) context.stderr.write(`No keys${page.prefix ? ` with prefix ${page.prefix}` : ""} in store ${page.store}.\n`)
@@ -331,22 +305,6 @@ function exitCode(operation: KVDevOperation, result: Record<string, unknown>): n
   return 0
 }
 
-function writeFailure(parsed: Pick<ParsedKVArgs, "json">, context: KVCliContext, failure: KVCliFailure): number {
-  if (parsed.json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
-}
-
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
-}
-
 async function runKVCommand(command: KVCommand, args: string[], context: KVCliContext, options: KVCliOptions): Promise<number> {
   let parsed: ParsedKVArgs
   let value: unknown
@@ -356,7 +314,7 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   }
   catch (error) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeFailure({ json: true }, context, { message: error instanceof Error ? error.message : String(error) })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeUsage(command, context.stderr)
     return 1
@@ -368,7 +326,7 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   if (command.name === "delete" && !parsed.yes) {
     const question = `Delete key ${parsed.key} from KV store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv delete deletes a key and was not confirmed." })
+    if (!confirmed) return writeCliFailure(parsed.json, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv delete deletes a key and was not confirmed." })
   }
   const input: Record<string, unknown> = {}
   if (parsed.cursor !== undefined) input.cursor = parsed.cursor
@@ -386,11 +344,11 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
     ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     ...(parsed.url ? { url: parsed.url } : {}),
   }, `kv.${command.name}`, input)
-  if (!called.ok) return writeFailure(parsed, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  if (!called.ok) return writeCliFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
   const result = called.value
-  if (!isRecord(result)) return writeFailure(parsed, context, { message: "The kv operation answered with an invalid result." })
+  if (!isRecord(result)) return writeCliFailure(parsed.json, context, { message: "The kv operation answered with an invalid result." })
   const commandResult = parseResult(command.name, result)
-  if (!commandResult) return writeFailure(parsed, context, { message: "The kv operation answered with an invalid result shape." })
+  if (!commandResult) return writeCliFailure(parsed.json, context, { message: "The kv operation answered with an invalid result shape." })
   if (!parsed.json) return writeResult(commandResult, context)
   context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   return exitCode(command.name, result)

@@ -10,6 +10,7 @@ import { averageImageColor } from "./color.ts"
 import { probeImage } from "./probe.ts"
 import { selectImageTransformer } from "./transformers.ts"
 import { isMediaCropName, isMediaFocalPoint, parseAspectRatio, resolveImageGeometry } from "./variant.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { ResolvedBlobImages } from "./transformers.ts"
 import type { MediaCrop, MediaCropReplacement, MediaRecord, MediaUpdate, MediaVariantEntry } from "./types.ts"
@@ -80,10 +81,6 @@ function isString(value: unknown): value is string {
 function isNumber(value: unknown): value is number {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Records come from stored JSON.
   return typeof value === "number" && Number.isFinite(value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && !Array.isArray(value) && Object(value) === value
 }
 
 async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {

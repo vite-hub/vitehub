@@ -262,11 +262,15 @@ async function runDrizzleKit(
   }
   const dryRun = feature === "migrate" && args.includes("--dry-run")
   const allowDataLoss = args.includes("--allow-data-loss")
+  // Databases that already have every migration of their journal. Drizzle Kit would start only to apply nothing.
+  const upToDate = new Map<ResolvedDrizzleDatabaseConfig, MigrationPlan>()
   if (feature === "migrate" && (dryRun || !allowDataLoss)) {
     // Check every Database before the first one changes, so a refusal leaves all of them as they were.
     let exitCode = 0
     for (const { database } of runs) {
-      exitCode = Math.max(exitCode, await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun }))
+      const check = await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun })
+      exitCode = Math.max(exitCode, check.exitCode)
+      if (database && check.plan && !check.plan.pending.length && check.plan.applied) upToDate.set(database, check.plan)
     }
     if (dryRun) context.stdout.write("[vitehub] Dry run. No changes were made.\n")
     if (exitCode !== 0 || dryRun) return exitCode
@@ -286,6 +290,11 @@ async function runDrizzleKit(
     if (usesD1Http(database)) {
       const result = await migrateD1Database(database, projectRoot, context)
       if (result !== 0) return result
+      continue
+    }
+    const plan = database && upToDate.get(database)
+    if (plan) {
+      writeMigrationPlan(plan, context)
       continue
     }
     if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, projectRoot, context)
@@ -362,7 +371,7 @@ async function checkPendingMigrations(
   projectRoot: string,
   context: ViteHubCliContext,
   { allowDataLoss, dryRun }: { allowDataLoss: boolean, dryRun: boolean },
-): Promise<number> {
+): Promise<{ exitCode: number, plan?: MigrationPlan }> {
   // Keep the database driver and migration inspector out of config-time imports.
   // The CLI contributor is loaded while Vite resolves the project config.
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
@@ -372,15 +381,15 @@ async function checkPendingMigrations(
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
-    return 1
+    return { exitCode: 1 }
   }
   if (dryRun) writeMigrationPlan(plan, context)
   const losses = plan.pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
   if (losses.length && !allowDataLoss) {
     context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: plan.database, statements: losses }))}\n`)
-    return 1
+    return { exitCode: 1, plan }
   }
-  return 0
+  return { exitCode: 0, plan }
 }
 
 async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext): Promise<number> {

@@ -1,3 +1,4 @@
+import { consoleRelativeTime } from "../../client/format.ts";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, type DefineComponent, type ComponentOptionsMixin, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
@@ -12,11 +13,6 @@ export function invocationStatusLabel(status: AgentInvocationStatus): string {
     running: "Working",
   };
   return Object.hasOwn(labels, status) ? labels[status] : "Unknown";
-}
-
-interface RelativeTime {
-  label: string;
-  short: string;
 }
 
 const invocationListPaginationThreshold = 6 * 106;
@@ -57,25 +53,6 @@ function groupByRecency(items: readonly AgentInvocationListItem[], now: number) 
   });
 }
 
-function relativeTime(value: string | undefined, now: number | undefined): RelativeTime | undefined {
-  if (!value || now === undefined) return;
-  const elapsed = now - Date.parse(value);
-  if (!Number.isFinite(elapsed) || elapsed < 0) return;
-  if (elapsed < 60_000) return { label: "now", short: "now" };
-  if (elapsed < 3_600_000) {
-    const minutes = Math.floor(elapsed / 60_000);
-    return { label: new Intl.RelativeTimeFormat("en").format(-minutes, "minute"), short: `${minutes}m` };
-  }
-  if (elapsed < 86_400_000) {
-    const hours = Math.floor(elapsed / 3_600_000);
-    return { label: new Intl.RelativeTimeFormat("en").format(-hours, "hour"), short: `${hours}h` };
-  }
-  const date = new Date(value);
-  return {
-    label: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date),
-    short: new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(date),
-  };
-}
 
 function statusIcon(status: AgentInvocationStatus) {
   const paths: Record<AgentInvocationStatus, readonly string[]> = {
@@ -102,7 +79,7 @@ function renderItem(
   harnessSlot?: Slot,
 ) {
   const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
-  const time = relativeTime(timestamp, now);
+  const time = consoleRelativeTime(timestamp, now);
   const state = h("span", { class: "vh-invocation-list__state", title: item.description }, [
     item.status === "completed"
       ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
@@ -116,6 +93,8 @@ function renderItem(
       "aria-current": selectedId === item.id ? "true" : undefined,
       "aria-description": item.description,
       class: "vh-invocation-list__item",
+      // The list clips its overflow, so the focus ring goes inside the row.
+      "data-focus-inset": "",
       "data-invocation-id": item.id,
       "data-relative-time": time?.short,
       "data-status": item.status,

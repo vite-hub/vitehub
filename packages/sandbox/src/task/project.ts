@@ -4,6 +4,7 @@ import { dirname, relative, resolve } from 'node:path'
 import picomatch from 'picomatch'
 import type { SandboxTaskProjectOptions } from './module-types'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 type SandboxTaskPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
@@ -116,10 +117,6 @@ function parseManifest(source: string, path: string): PackageManifest {
   catch (error) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0056({ message: `[vitehub] Sandbox package manifest is invalid JSON: ${path}`, cause: error })
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function parseSandboxTaskProjectOptions(manifest: PackageManifest, path: string): SandboxTaskProjectOptions | undefined {

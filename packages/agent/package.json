@@ -50,11 +50,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ai-sdk": {
-      "types": "./dist/ai-sdk.d.ts",
-      "import": "./dist/ai-sdk.js",
-      "default": "./dist/ai-sdk.js"
-    },
     "./capabilities": {
       "types": "./dist/capabilities.d.ts",
       "import": "./dist/capabilities.js",
@@ -110,6 +105,16 @@
       "import": "./dist/invocations/default.js",
       "default": "./dist/invocations/default.js"
     },
+    "./invocations/default-core": {
+      "types": "./dist/invocations/default-core.d.ts",
+      "import": "./dist/invocations/default-core.js",
+      "default": "./dist/invocations/default-core.js"
+    },
+    "./invocations/default-libsql": {
+      "types": "./dist/invocations/default-libsql.d.ts",
+      "import": "./dist/invocations/default-libsql.js",
+      "default": "./dist/invocations/default-libsql.js"
+    },
     "./invocations/drizzle": {
       "types": "./dist/invocations/drizzle.d.ts",
       "import": "./dist/invocations/drizzle.js",
@@ -125,16 +130,6 @@
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
     },
-    "./mcp/stdio": {
-      "types": "./dist/mcp/stdio.d.ts",
-      "import": "./dist/mcp/stdio.js",
-      "default": "./dist/mcp/stdio.js"
-    },
-    "./messages": {
-      "types": "./dist/messages.d.ts",
-      "import": "./dist/messages.js",
-      "default": "./dist/messages.js"
-    },
     "./observability": {
       "types": "./dist/observability.d.ts",
       "import": "./dist/observability.js",
@@ -149,11 +144,6 @@
       "types": "./dist/observability/posthog.d.ts",
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
-    },
-    "./output": {
-      "types": "./dist/output.d.ts",
-      "import": "./dist/output.js",
-      "default": "./dist/output.js"
     },
     "./process-host": {
       "types": "./dist/process-host.d.ts",
@@ -232,7 +222,7 @@
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
@@ -243,7 +233,6 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -256,7 +245,6 @@
     "@vite-hub/workflow": "workspace:*",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -293,7 +281,6 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:vue-compat",
-    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
     "@vite-hub/connections": "workspace:*"
@@ -345,9 +332,6 @@
       "optional": true
     },
     "vue": {
-      "optional": true
-    },
-    "eve": {
       "optional": true
     },
     "evlog": {

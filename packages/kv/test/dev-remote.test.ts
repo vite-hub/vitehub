@@ -93,7 +93,7 @@ describe("KV in vite dev", () => {
     fixture.kv = inDirectory(config)
     expect(await kv.set("theme", "dark")).toEqual([undefined, undefined])
     expect(await kv.get("theme")).toEqual([undefined, "dark"])
-    expect(existsSync(join(directory, ".vitehub/data/kv/theme"))).toBe(true)
+    expect(existsSync(join(directory, ".vitehub/data/kv/key-theme"))).toBe(true)
     expect(fetch).not.toHaveBeenCalled()
     expect(warn).not.toHaveBeenCalled()
   })
@@ -138,7 +138,7 @@ describe("KV in vite dev", () => {
     fixture.kv = inDirectory(config)
     expect(await kv.set("theme", "dark")).toEqual([undefined, undefined])
     expect(await kv.get("theme")).toEqual([undefined, "dark"])
-    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/theme"))).toBe(true)
+    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/key-theme"))).toBe(true)
     expect((await kv.set("k".repeat(513), "value"))[0]).toMatchObject({ code: "KV_KEY_TOO_LONG" })
     expect((await kv.setIfAbsent("ticket", "1"))[0]).toMatchObject({ code: "KV_UNSUPPORTED_OPERATION" })
   })
@@ -156,7 +156,7 @@ describe("KV in vite dev", () => {
 
     expect(await runWithActiveCloudflareEnv({ KV: binding }, () => kv.set("theme", "dark"))).toEqual([undefined, undefined])
     expect(values.get("theme")).toBe("dark")
-    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/theme"))).toBe(false)
+    expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/key-theme"))).toBe(false)
   })
 
   it("writes `remote: true` on the Wrangler binding of a remote Cloudflare store", async () => {
@@ -287,7 +287,7 @@ describe("KV in a Vite dev server", () => {
       // SAFETY: The fixture module above exports `handle()`.
       const worker = await server.ssrLoadModule("/src/worker.ts") as { handle: () => Promise<unknown> }
       await expect(worker.handle()).resolves.toEqual({ ok: true })
-      expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/settings"))).toBe(true)
+      expect(existsSync(join(directory, ".vitehub/data/kv-cloudflare/KV/key-settings"))).toBe(true)
     }
     finally {
       const { disposeKVStores: disposeServerStores } = await server.ssrLoadModule("@vite-hub/kv") as { disposeKVStores: () => Promise<void> }

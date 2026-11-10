@@ -133,10 +133,9 @@ retrieval. Content owns parsed documents, navigation, queries, and search.
 ## Optional name lookup
 
 ```ts fragment
-import { defineSources, registerSources, useSource } from "@vite-hub/source"
+import { registerSources, useSource } from "@vite-hub/source"
 
-const sources = defineSources({ docs })
-registerSources(sources)
+registerSources({ docs })
 
 declare global {
   interface ViteHubSourceMap {
@@ -173,28 +172,7 @@ The result is a Source definition. `get()` reads only the parent item of the
 part, and a part without a `path` keeps the parent's path. Part keys must be
 unique in their parent item and must not contain `#`.
 
-## Combine keyed readers
-
-Use ordinary objects or functions for readers that do not need a loader
-lifecycle. `combineSources()` keeps aliases in each key and result:
-
-```ts
-import { combineSources } from "@vite-hub/source"
-
-const recaps = combineSources({
-  sources: {
-    github: {
-      get: async (month: `${number}-${number}`) => ({ month }),
-      items: async () => [{ key: "2026-07" as const }],
-    },
-  },
-})
-
-await recaps.get(["github", "2026-07"])
-await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github", "2026-07"] }]
-```
-
-A combined reader exposes `items()` only when every input implements it.
+## Cache keyed readers
 
 Use `cachedSource()` to add Nitro caching to a keyed reader. It loads
 `nitro/cache` on the first `get()`, so the app must run on Nitro:
@@ -206,8 +184,7 @@ const cachedDocs = cachedSource(createSource(docs), { name: "docs", maxAge: 60 }
 await cachedDocs.get("intro.md")
 ```
 
-Use a different cache name for each origin and access scope. Cache ordinary
-readers before passing them to `combineSources()`.
+Use a different cache name for each origin and access scope.
 
 ## Collections
 
@@ -219,8 +196,17 @@ paginated client read model:
 import { defineCollection } from "@vite-hub/source"
 import * as v from "valibot"
 
+interface Article { id: string, title: string, createdAt: number }
+
 export const articles = defineCollection(async ({ cursor, limit, query }) => {
-  return db.listArticles({ after: cursor, author: query.author, limit })
+  // A CMS API that pages by the last (createdAt, id) it returned
+  const url = new URL("https://cms.example.com/api/articles")
+  url.searchParams.set("limit", String(limit))
+  if (cursor) url.searchParams.set("after", cursor.join(","))
+  if (query.author) url.searchParams.set("author", query.author)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
+  return await response.json() as Article[]
 }, {
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
@@ -302,9 +288,6 @@ every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
 `vite-hub/source/drizzle`.
-
-`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
-in a Workspace file.
 
 Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
 Cancelled reads reject with the signal's reason, including when a loader or
