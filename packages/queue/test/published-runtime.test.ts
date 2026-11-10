@@ -18,26 +18,16 @@ describe("published Queue error runtime", () => {
 })
 
 describe("published Queue internal runtime", () => {
-  const internalRuntimeSpecifiers = [
-    "@vite-hub/queue/internal/runtime/cloudflare-vite",
-    "@vite-hub/queue/internal/runtime/state",
-  ]
+  const internalRuntimeFiles = ["cloudflare-vite", "postgres-client", "state"]
 
-  it.each(internalRuntimeSpecifiers)("resolves internal runtime path %s from the built package", (specifier) => {
-    const runtimePath = specifier.split("/").at(-1)
-    expect(resolvePackageImport(specifier))
-      .toBe(fileURLToPath(new URL(`../dist/internal/runtime/${runtimePath}.js`, import.meta.url)))
-  })
-
-  it.each(internalRuntimeSpecifiers)("loads internal runtime path %s from the built package", async (specifier) => {
-    await expect(import(specifier))
+  it.each(internalRuntimeFiles)("builds the internal runtime file %s that generated code imports by path", async (file) => {
+    await expect(import(new URL(`../dist/internal/runtime/${file}.js`, import.meta.url).href))
       .resolves.toBeTypeOf("object")
   })
 
-  it.each(internalRuntimeSpecifiers)("does not expose the old runtime path %s", (specifier) => {
-    const runtimePath = specifier.split("/").at(-1)
-    expect(() => resolvePackageImport(`@vite-hub/queue/runtime/${runtimePath}`))
-      .toThrow(/Package subpath/)
+  it.each(internalRuntimeFiles)("does not export the internal runtime file %s", (file) => {
+    expect(() => resolvePackageImport(`@vite-hub/queue/internal/runtime/${file}`)).toThrow(/Package subpath/)
+    expect(() => resolvePackageImport(`@vite-hub/queue/runtime/${file}`)).toThrow(/Package subpath/)
   })
 
   it("keeps the supported hosted adapter public", () => {

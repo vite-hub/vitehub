@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Develop locally
 
-`pnpm dev` runs Queue jobs in the dev server for every preset. `runQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
+`pnpm dev` runs Queue jobs in the dev server for every preset. `sendQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
 
 ```bash [Terminal]
 pnpm vitehub queue list
@@ -33,7 +33,7 @@ With `preset: 'node'` and a Postgres Default Database, the build uses the postgr
 
 `vitehub queue list` shows `provider: "postgres"`, the table and its database without the password, and `durability: "shared"`. The `queue jobs` commands and the Console read and change the jobs in Postgres, so any instance shows the jobs of all instances.
 
-For Cloudflare or Vercel, build to check the Nitro output. A plain Node process, such as a `tsx` script, skips Vite discovery and the generated registry, so `runQueue()` finds no queue files there.
+For Cloudflare or Vercel, build to check the Nitro output. A plain Node process, such as a `tsx` script, skips Vite discovery and the generated registry, so `sendQueue()` finds no queue files there.
 
 ```bash [Terminal]
 pnpm add vite-hub @vite-hub/queue

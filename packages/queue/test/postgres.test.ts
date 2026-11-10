@@ -6,7 +6,7 @@ import postgres from "postgres"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 
 import { defineDatabase } from "@vite-hub/database"
-import { createPostgresDatabase } from "@vite-hub/database/runtime/postgres"
+import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
 import { closePostgresQueues, createPostgresQueueRuntimeClient, resolvePostgresQueueConnection, startPostgresQueue } from "../src/internal/runtime/postgres-client.ts"
 import { getQueueRuntimeJobStore, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"

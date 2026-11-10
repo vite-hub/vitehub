@@ -95,7 +95,7 @@ describe("launch documentation trust boundaries", () => {
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
-    expect(matrix).toMatch(/\| Queue \| Local provider \|[^\n]+\| — \| — \| Cloudflare \/ Vercel \| Local provider \|/);
+    expect(matrix).toMatch(/\| Queue \| Local provider \|[^\n]+\| — \| — \| Cloudflare \/ Vercel \| Postgres \/ local provider \|/);
     expect(matrixData).toContain(
       "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
     );

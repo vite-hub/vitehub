@@ -129,11 +129,27 @@ export function docsSectionHome(section: DocsSection<DocsAppPage>): string {
   return (section.pages.find(page => page.path === section.path) ?? section.pages.find(page => page.navigation) ?? section.pages[0])?.path ?? section.path
 }
 
-/** The page that a "Docs" link opens: the docs base page, else the first section. `null` when the site has no docs pages. */
-export function docsHomePath(manifest: DocsManifest<DocsAppPage>): string | null {
-  if (manifest.root) return manifest.root.path
-  const first = manifest.sections[0]
-  return first ? docsSectionHome(first) : null
+/** The `start` option as the app reads it. Nuxt turns a `null` in runtime config into "", which reads as no start. */
+export type DocsStart = { section: string, links?: Pick<DocsLink, "to">[] } | ""
+
+/**
+ * The first start link that opens a docs page outside the docs base, such as an Introduction outside every section.
+ * It leads the start section, so the links that open it begin there. `null` when no start link is a docs page.
+ */
+export function docsStartPage(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
+  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home").map(page => page.path))
+  const link = start ? start.links?.find(candidate => pages.has(normalizeDocsPath(candidate.to))) : undefined
+  return link ? normalizeDocsPath(link.to) : null
+}
+
+/**
+ * The page that a "Docs" link opens: the docs base page, unless it is a `home` landing page, else the first start link
+ * that is a docs page, else the start section, else the first section. `null` when the site has no docs pages.
+ */
+export function docsHomePath(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
+  if (manifest.root && manifest.root.layout !== "home") return manifest.root.path
+  const first = (start ? manifest.sections.find(section => section.id === start.section) : undefined) ?? manifest.sections[0]
+  return docsStartPage(manifest, start) ?? (first ? docsSectionHome(first) : null)
 }
 
 /**

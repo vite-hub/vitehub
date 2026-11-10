@@ -46,13 +46,41 @@ export default defineConfig({
 
 With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. On `preset: 'node'`, ViteHub picks `postgres` when the app has a Postgres Default Database, else `local`. To pick it yourself, set `queue: { provider: 'postgres' }` or `queue: { provider: 'local' }`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: { preset: 'node', queue: { provider: 'postgres' } },
 })
 ```
- For the other options, such as `region`, use the Queue package alone. Pass them to `hubQueue()`, or to a top-level `queue` key, which wins:
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', queue: { provider: 'postgres' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', queue: { provider: 'postgres' } })],
+})
+```
+:::
+::
+
+For the other options, such as `region`, use the Queue package alone. Pass them to `hubQueue()`, or to a top-level `queue` key, which wins:
 
 ```ts [vite.config.ts]
 import { hubQueue } from '@vite-hub/queue/vite'
@@ -90,13 +118,13 @@ ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one hos
 
 ### Cloudflare names
 
-Without `binding`, the binding comes from the queue name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are `<namePrefix>queue--<hex-name>`. A name over 63 characters becomes a readable prefix plus a digest. Do not depend on these names. Call `runQueue()` with the queue name.
+Without `binding`, the binding comes from the queue name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are `<namePrefix>queue--<hex-name>`. A name over 63 characters becomes a readable prefix plus a digest. Do not depend on these names. Call `sendQueue()` with the queue name.
 
 ### Vercel region and topics
 
 Without `region`, ViteHub reads `QUEUE_REGION`, then `VERCEL_REGION`, then the headers of a Vercel request.
 
-Vercel topic names are `topic--<hex-name>`. Do not depend on them. Call `runQueue()` with the queue name.
+Vercel topic names are `topic--<hex-name>`. Do not depend on them. Call `sendQueue()` with the queue name.
 
 ## Define a queue
 
