@@ -1,11 +1,13 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { getAuthTables } from "better-auth/db"
+import { getTableName } from "drizzle-orm"
 import { admin, jwt } from "better-auth/plugins"
 import { getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
 import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { authPostgresSchema, authSqliteSchema, authTableSpecs } from "../src/schema.ts"
+import { authTableNames } from "../src/table-names.ts"
 import { assertAuthDatabaseSchema } from "../src/database-schema-options.ts"
 
 import type { AuthTableField, AuthTableSpec } from "../src/schema.ts"
@@ -68,5 +70,11 @@ describe("Auth tables", () => {
       ["oauthClientResource_clientId_idx", false],
       ["oauthClientResource_resourceId_idx", false],
     ])
+  })
+
+  it("lists every schema key and SQL name for the Database contribution", () => {
+    for (const schema of [authSqliteSchema, authPostgresSchema]) {
+      expect(Object.fromEntries(Object.entries(schema).map(([key, table]) => [key, getTableName(table)]))).toEqual(authTableNames)
+    }
   })
 })
