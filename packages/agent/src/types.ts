@@ -4,6 +4,7 @@ import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
+import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
 import type { JSONSchema7 } from "json-schema"
@@ -58,7 +59,6 @@ export interface AgentWorkflowRuntimeBinding {
   name?: string
 }
 export type AgentWaitUntil = RuntimeWaitUntil
-export type AgentIntegrationOption = "auto" | boolean
 export interface AgentHealthDescriptor {
   handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
 }
@@ -2159,16 +2159,6 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
-/**
- * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
- * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
- * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
- */
-export interface AgentInvocationsHostSettings {}
-
-/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
-export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
-
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2199,7 +2189,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocationsInput
+  invocations?: AgentInvocationsSetting
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -2315,22 +2305,7 @@ export interface AgentStateProviderOptions {
 export type ResolvedAgentStateProviderOptions =
   Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
 
-export interface AgentSchedulerProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
-}
-
-export interface AgentSandboxProviderOptions {
-  provider?: "auto" | "cloudflare" | "vercel" | (string & {})
-}
-
-export interface AgentIntegrationsOptions {
-  sandbox?: AgentIntegrationOption
-  workflow?: AgentIntegrationOption
-}
-
 export interface AgentProvidersOptions {
-  sandbox?: AgentSandboxProviderOptions
-  scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
 }
 
@@ -2405,7 +2380,6 @@ export interface AgentOptions {
   execution?: AgentExecution
   eval?: AgentEvalOptions
   imports?: boolean
-  integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
@@ -2421,10 +2395,7 @@ export interface ResolvedAgentModuleOptions {
   execution: AgentExecution
   shutdown: false | AgentShutdownOptions
   imports: boolean
-  integrations: Required<AgentIntegrationsOptions>
   providers: {
-    sandbox: Required<AgentSandboxProviderOptions>
-    scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
   routes: ResolvedAgentRoutesOptions
