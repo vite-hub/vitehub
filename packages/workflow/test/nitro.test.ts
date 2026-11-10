@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -13,6 +13,7 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/depl
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createCloudflareWorkflowNitroConfig } from "../src/internal/vite-build.ts"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { nitroOrderPlugins } from "../../vite-hub/src/nitro-order.ts"
 import type { WorkflowModuleOptions } from "../src/types.ts"
@@ -34,7 +35,7 @@ it("leaves implicit Workflow disabled for Netlify Nitro output", async () => {
   })).resolves.toBe(nitro)
 })
 
-it("retains a deferred start from a Nitro Cloudflare application route before its definition loads", async () => {
+it.each([undefined, "vite-hub/workflow"])("retains a deferred start from a Nitro Cloudflare application route before its definition loads (import base: %s)", async (workflowImportBase) => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-defer-"))
   try {
     const workflowDir = join(rootDir, "server", "workflows")
@@ -45,6 +46,7 @@ it("retains a deferred start from a Nitro Cloudflare application route before it
       nitro: { preset: "cloudflare-module", handlers: [existing] },
       rootDir,
       workflow: {},
+      workflowImportBase,
     })
     const handlers = nitro.handlers as Array<{ handler: string, middleware?: boolean }>
     expect(handlers).toContainEqual(existing)
@@ -61,7 +63,7 @@ it("retains a deferred start from a Nitro Cloudflare application route before it
       require(id: string) {
         if (id === "nitro") return { defineMiddleware: (handler: (event: object) => void) => handler }
         if (id === "cloudflare:workers") return { env, waitUntil }
-        if (id === "@vite-hub/workflow/runtime/state") return workflowState
+        if (id === workflowRuntimeModule("state")) return workflowState
         throw new Error(`Unexpected middleware import: ${id}`)
       },
     })
@@ -97,6 +99,7 @@ it("retains a deferred start from a Nitro Cloudflare application route before it
 it("installs discovered Agent workflows into a Cloudflare Nitro entry", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-"))
   try {
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
     const agentDir = join(rootDir, "server", "agents", "calories")
     await mkdir(agentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), "export default defineAgent({ driver: { run: () => 'ok' } })\n")

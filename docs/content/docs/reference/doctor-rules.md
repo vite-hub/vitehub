@@ -100,14 +100,13 @@ Some rules read the whole project:
 
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
-- `vite-hub/_internal/*` is for generated ViteHub code only.
+- `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
 - `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
 - `.vitehub/**` and `.nuxt/vitehub/**` are build output, rewritten on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub's own runtime, such as `#vitehub/agent/registry`.
 
 ```ts [server/api/settings.get.ts] fragment
 // Invalid
-import { kv } from 'vite-hub/_internal/kv'
 import { useServerEnv } from '../../.vitehub/env/server'
 
 // Valid
