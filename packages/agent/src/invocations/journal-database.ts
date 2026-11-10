@@ -4,7 +4,7 @@ import { drizzle as drizzleRemote } from "drizzle-orm/sqlite-proxy"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import type { AgentInvocationRecord, AgentInvocationSummary } from "../invocations.ts"
-import type { DefaultAgentInvocationsD1Database } from "./default.ts"
+import type { DefaultAgentInvocationsD1Database } from "./default-core.ts"
 import type { Client } from "@libsql/client"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
