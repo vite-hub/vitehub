@@ -11,7 +11,10 @@ export default defineConfig({
   // Tests that mount the comments overlay build its parts the way the overlay build does.
   plugins: [vue(), standaloneUI()],
   resolve: {
-    alias: [{ find: /^@vite-hub\/ui\/standalone\/(.+)$/, replacement: `${fileURLToPath(new URL("../ui/src/standalone", import.meta.url))}/$1` }],
+    alias: [
+      { find: /^@vite-hub\/ui\/comments$/, replacement: fileURLToPath(new URL("../ui/src/comments.ts", import.meta.url)) },
+      { find: /^@vite-hub\/ui\/standalone\/(.+)$/, replacement: `${fileURLToPath(new URL("../ui/src/standalone", import.meta.url))}/$1` },
+    ],
   },
   test: {
     environment: "node",

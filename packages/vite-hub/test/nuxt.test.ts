@@ -652,7 +652,7 @@ describe("ViteHub Nuxt integration", () => {
     ])
     // The list that @vite-hub/ui generates from the icons its sources name, so a new icon of a part needs no change here.
     expect([...runIconHook()].sort()).toEqual([...viteHubUIIcons].sort())
-    expect(viteHubUIIcons).toEqual(expect.arrayContaining(["ph:arrow-left", "ph:check", "ph:pencil-simple-light", "ph:trash-light", "ph:x-light"]))
+    expect(viteHubUIIcons).toEqual(expect.arrayContaining(["lucide:arrow-left", "lucide:check", "lucide:pencil", "lucide:trash-2", "lucide:x"]))
   })
 
   it("installs the Email resolver for Nitro Console output", async () => {

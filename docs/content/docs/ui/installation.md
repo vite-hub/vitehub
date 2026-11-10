@@ -186,7 +186,7 @@ A part uses the component given here first, then a global one with the same name
 
 Parts such as `CopyButton` read their icons from Nuxt UI's `appConfig.ui.icons`. The Nuxt module passes them for you. In Vue with Vite, pass the same icons, or each part falls back to Lucide:
 
-```ts [vite/icons/src/main.ts]
+```ts [vite/icons/src/main.ts] fragment
 import { vitehubTheme } from "@vite-hub/ui/theme";
 
 app.use(createViteHubUI({ icons: vitehubTheme.icons }));

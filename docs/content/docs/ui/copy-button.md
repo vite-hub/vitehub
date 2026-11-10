@@ -51,6 +51,9 @@ Pass `icon` when the copied text has its own icon, such as a link. The check sti
 A menu item that copies is not a button. Use `useCopy()`, the same clipboard logic, and confirm with a toast:
 
 ```ts
+import { useToast } from "@nuxt/ui/composables";
+import { useCopy } from "@vite-hub/ui";
+
 const toast = useToast();
 const { copy } = useCopy();
 

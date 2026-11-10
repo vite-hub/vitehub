@@ -164,6 +164,10 @@ export default defineConfig({
         { from: ".vitehub/skills", to: "dist/console/runtime/public" },
         { from: ".vitehub/comments-overlay", to: "dist" },
         {
+          from: "src/console/runtime/components/console-lazy-views.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
         },

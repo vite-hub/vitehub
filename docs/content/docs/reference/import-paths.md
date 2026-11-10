@@ -174,6 +174,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/comments/operations` | Comments Package | The `comments.*` operations. The framework distribution imports them for you. |
 | `@vite-hub/docs/server` | Docs Package | `createDocsManifest()`, the Markdown parser, and `toRawMarkdown()`, for tools and tests that read a content folder without Nuxt. |
+| `@vite-hub/docs/primitive-rail` | Docs Package | `PrimitiveRail`, the navigation rail for Server Primitives. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
@@ -181,6 +182,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/ui/workspace` | UI Package | The WebContainer workspace parts and `PlaygroundContainer`, outside the root so a chat page never loads CodeMirror or xterm. |
 | `@vite-hub/ui/playground` | UI Package | Share links and zips for a playground, with no UI. They run in Node too. |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | UI Package | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |
+| `@vite-hub/web-container/vue` | WebContainer Package | `useWebContainer()`, the Vue composable for the WebContainer lifecycle, files, commands, and preview. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 
 ## Integration imports
