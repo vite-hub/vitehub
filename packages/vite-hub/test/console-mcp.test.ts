@@ -1,7 +1,5 @@
-import { defineHandler } from "h3"
+import { defineHandler, H3 } from "h3"
 import { spawnSync } from "node:child_process"
-import { createServer } from "node:http"
-import { createApp, eventHandler, toNodeListener } from "h3-v1"
 import { exportJWK, generateKeyPair, importJWK, SignJWT } from "jose"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -75,7 +73,7 @@ function post(message: unknown, headers: Record<string, string> = {}, url = `${o
     method: "POST",
   })
   if (clientAddress) Object.assign(request, { context: { clientAddress } })
-  return defineHandler(consoleMcpHandler).fetch(request)
+  return consoleMcpHandler.fetch(request)
 }
 
 const rpc = (id: number, method: string, params?: unknown) => ({ id, jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) })
@@ -99,31 +97,22 @@ function install() {
 }
 
 describe("MCP endpoint", () => {
-  it("reads tool calls through the h3 1 HTTP server used by Nuxt 4", async () => {
+  it("reads tool calls through an H3 2 router, as Nitro 3 serves the Fetchable route", async () => {
     install()
     installConsoleDevelopment("/tmp/console-mcp", true)
-    const app = createApp()
-    app.use("/_vitehub/mcp", eventHandler(event => Reflect.apply(consoleMcpHandler, undefined, [event])))
-    const server = createServer(toNodeListener(app))
-    try {
-      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-      const address = server.address()
-      if (!address || typeof address === "string") throw new Error("The MCP test server has no TCP address.")
-      const response = await fetch(`http://127.0.0.1:${address.port}/_vitehub/mcp`, {
-        body: JSON.stringify(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" })),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      })
-      expect(response.status).toBe(200)
-      await expect(response.json()).resolves.toMatchObject({
-        id: 1,
-        jsonrpc: "2.0",
-        result: { isError: false, structuredContent: { greeting: "Hello Ada", surface: "mcp" } },
-      })
-    }
-    finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-    }
+    const app = new H3().all("/_vitehub/mcp", consoleMcpHandler)
+    const request = Object.assign(new Request("http://localhost/_vitehub/mcp", {
+      body: JSON.stringify(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { context: { clientAddress: "127.0.0.1" } })
+    const response = await app.fetch(request)
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      id: 1,
+      jsonrpc: "2.0",
+      result: { isError: false, structuredContent: { greeting: "Hello Ada", surface: "mcp" } },
+    })
   })
 
   it("answers initialize with the tools capability, and takes notifications without an answer", async () => {
@@ -281,19 +270,19 @@ describe("MCP endpoint", () => {
 
   it("refuses other methods and web pages of another origin", async () => {
     install()
-    const get = await defineHandler(consoleMcpHandler).fetch(new Request(`${origin}/_vitehub/mcp`, { headers: { accept: "text/event-stream" } }))
+    const get = await consoleMcpHandler.fetch(new Request(`${origin}/_vitehub/mcp`, { headers: { accept: "text/event-stream" } }))
     expect(get.status).toBe(405)
     expect(get.headers.get("allow")).toBe("POST")
     expect((await post(rpc(1, "ping"), { origin: "https://evil.example" })).status).toBe(403)
     expect((await post(rpc(1, "ping"), { origin })).status).toBe(200)
-    const bad = await defineHandler(consoleMcpHandler).fetch(new Request(`${origin}/_vitehub/mcp`, { body: "{", method: "POST" }))
+    const bad = await consoleMcpHandler.fetch(new Request(`${origin}/_vitehub/mcp`, { body: "{", method: "POST" }))
     expect(bad.status).toBe(400)
     await expect(bad.json()).resolves.toMatchObject({ error: { code: -32700 } })
   })
 })
 
 describe("MCP protocol limits", () => {
-  const raw = (body: string, headers: Record<string, string> = {}) => defineHandler(consoleMcpHandler).fetch(new Request(`${origin}/_vitehub/mcp`, { body, headers: { "content-type": "application/json", ...headers }, method: "POST" }))
+  const raw = (body: string, headers: Record<string, string> = {}) => consoleMcpHandler.fetch(new Request(`${origin}/_vitehub/mcp`, { body, headers: { "content-type": "application/json", ...headers }, method: "POST" }))
 
   it("honors operation limits for single calls", async () => {
     const run = vi.fn(({ text }: { text: string }) => ({ bytes: new TextEncoder().encode(text).byteLength }))
@@ -496,7 +485,7 @@ describe("MCP sign-in with OAuth access tokens", () => {
     expect((await post(rpc(1, "tools/list"), bearer(await issuer.token({ audience, issuer: normalized })), resource)).status).toBe(200)
     expect((await post(rpc(1, "tools/list"), bearer(await issuer.token({ audience, issuer: `${normalized}/` })), resource)).status).toBe(401)
     expect((await post(rpc(1, "tools/list"), bearer(await issuer.token({ audience: resource, issuer: normalized })), resource)).status).toBe(401)
-    const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+    const metadata = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
     await expect(metadata.json()).resolves.toMatchObject({ authorization_servers: [normalized], resource: audience })
   })
 
@@ -602,13 +591,13 @@ describe("MCP sign-in with OAuth access tokens", () => {
     for (const path of ["/_vitehub/mcp/", "/other/_vitehub/mcp", "/_vitehub/mcp/extra", "/portal/_vitehub/mcp"]) {
       expect((await post(rpc(1, "ping"), headers, `${app}${path}`)).status, path).toBe(401)
     }
-    const rpcResponse = await defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/_vitehub/mcp`, {
+    const rpcResponse = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/_vitehub/mcp`, {
       body: JSON.stringify({ input: {}, operation: "sections.list" }),
       headers: { ...headers, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))
     expect(rpcResponse.status).toBe(401)
-    const rpcRoot = await defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__call`, {
+    const rpcRoot = await consoleRpcHandler.fetch(new Request(`${app}/_vitehub/rpc/__call`, {
       body: JSON.stringify({ input: {}, operation: "sections.list" }),
       headers: { ...headers, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
@@ -647,7 +636,7 @@ describe("MCP sign-in with OAuth access tokens", () => {
     const response = await post(rpc(1, "tools/list"), bearer(token), resource)
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).not.toContain("resource_metadata")
-    const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`, { headers: { host: "evil.example" } }))
+    const metadata = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`, { headers: { host: "evil.example" } }))
     expect(metadata.status).toBe(503)
     await expect(metadata.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_ORIGIN_REQUIRED", fix: expect.stringContaining("console.mcp.resource") })
     // The development server has no fixed origin, so it uses the request, which only picks its own in-process keys.
@@ -674,7 +663,7 @@ describe("MCP sign-in with OAuth access tokens", () => {
       const issuer = await authorizationServer({ plugins })
       installOAuth(issuer.auth)
       for (const handler of [consoleMcpMetadataHandler, consoleMcpAuthorizationServerHandler]) {
-        const response = await defineHandler(handler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+        const response = await handler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
         expect(response.status, label).toBe(503)
         const body = await read<{ code: string, fix: string, message: string }>(response)
         expect(body.code).toBe("CONSOLE_MCP_OAUTH_INCOMPLETE")
@@ -698,10 +687,10 @@ describe("MCP sign-in with OAuth access tokens", () => {
     const metadataUrl = /resource_metadata="([^"]+)"/.exec(challenge.headers.get("www-authenticate") ?? "")?.[1]
     expect(metadataUrl).toBe(`${app}/.well-known/oauth-protected-resource${path}/`)
     if (!metadataUrl) throw new Error("Expected an OAuth metadata URL.")
-    const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(metadataUrl))
+    const metadata = await consoleMcpMetadataHandler.fetch(new Request(metadataUrl))
     expect(metadata.status).toBe(200)
     await expect(metadata.json()).resolves.toMatchObject({ resource: audience })
-    expect((await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource/other/`))).status).toBe(404)
+    expect((await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource/other/`))).status).toBe(404)
   })
 
   it("publishes the protected resource metadata from the configured resource", async () => {
@@ -709,35 +698,35 @@ describe("MCP sign-in with OAuth access tokens", () => {
     installOAuth(issuer.auth)
     for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/_vitehub/mcp"]) {
       // The Host of the request does not change the answer.
-      const response = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`https://evil.example${path}`))
+      const response = await consoleMcpMetadataHandler.fetch(new Request(`https://evil.example${path}`))
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/auth`], bearer_methods_supported: ["header"], resource, scopes_supported: expect.arrayContaining(["vitehub:read", "vitehub:write"]) })
     }
-    expect((await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource/other`))).status).toBe(404)
+    expect((await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource/other`))).status).toBe(404)
     // The bare metadata of an app below a base path names the endpoint with the base.
     const portal = await authorizationServer({ resource: `${app}/portal/_vitehub/mcp` })
     installOAuth(portal.auth, { path: "/portal/_vitehub/mcp", resource: `${app}/portal/_vitehub/mcp` })
-    const mounted = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+    const mounted = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
     await expect(mounted.json()).resolves.toMatchObject({ resource: `${app}/portal/_vitehub/mcp` })
-    expect((await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource/portal/_vitehub/mcp`))).status).toBe(200)
+    expect((await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource/portal/_vitehub/mcp`))).status).toBe(200)
     // No OAuth, no metadata.
     installConsoleAccess({ mode: "open" })
-    expect((await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))).status).toBe(404)
+    expect((await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))).status).toBe(404)
     installConsoleAccess({ check: async () => new Response("{}", { status: 401 }), mode: "cloudflare-access" })
-    expect((await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))).status).toBe(404)
+    expect((await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))).status).toBe(404)
   })
 
   it("serves the authorization server metadata at the origin root, for the issuer path", async () => {
     const issuer = await authorizationServer()
     installOAuth(issuer.auth)
     for (const path of ["/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/api/auth"]) {
-      const response = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}${path}`))
+      const response = await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}${path}`))
       expect(response.status, path).toBe(200)
       await expect(response.json()).resolves.toEqual({ issuer: `${app}/api/auth`, token_endpoint: `${app}/api/auth/oauth2/token` })
     }
-    expect((await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/elsewhere`))).status).toBe(404)
+    expect((await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}/.well-known/oauth-authorization-server/elsewhere`))).status).toBe(404)
     installConsoleAccess({ mode: "open" })
-    expect((await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server`))).status).toBe(404)
+    expect((await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}/.well-known/oauth-authorization-server`))).status).toBe(404)
   })
 })
 

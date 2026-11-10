@@ -70,7 +70,8 @@ export default defineConfig({
 A collection is a group of documents of the same kind. Create `server/content.ts` and add a `posts` collection:
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 

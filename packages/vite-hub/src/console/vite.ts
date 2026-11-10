@@ -18,7 +18,8 @@ import { insertConsoleSection, isConsoleConnectionsEnabled, type ConsoleSectionI
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
-import { consolePublicRoot, consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
+import { resolveConsoleClient } from "./client.ts"
+import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
@@ -350,13 +351,14 @@ function configureConsoleNitroRoutes(
   }
   const consoleAssetsBase = consoleMountPath(mount, "/_vitehub/assets")
   // The page tools contribute their loader asset to the kit.
+  const clientRoot = rpcOnly ? undefined : resolveConsoleClient().dir
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
-    .filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
-  const publicAssets = [...rpcOnly
+    .filter(asset => asset?.dir !== clientRoot && asset?.dir !== consoleSkillsRoot)
+  const publicAssets = [...!clientRoot
     ? []
     : [{
         baseURL: consoleAssetsBase,
-        dir: consolePublicRoot,
+        dir: clientRoot,
         fallthrough: false,
         // Every Console asset name contains a content hash.
         maxAge: 60 * 60 * 24 * 365,

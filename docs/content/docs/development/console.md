@@ -88,7 +88,15 @@ Each Console build has an id, which changes only when the Console catalog or cli
 
 ## Enable the Console
 
-Set `console` in the ViteHub options. `console.auth` chooses who can open it, and every environment must set it:
+The Console app is its own package, `@vite-hub/console-client`, so an app without the Console does not install it. Add it before you turn the Console on:
+
+```bash [commands/install-console]
+pnpm add @vite-hub/console-client
+```
+
+`vitehub add console` adds it for you. If it is missing, the build stops and prints the same install command.
+
+Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:
 
 | `auth` | Who can open the Console |
 | --- | --- |
@@ -159,7 +167,7 @@ export default defineConfig({
 :::
 ::
 
-A standalone Nitro 3 app adds Nitro after ViteHub. The Console and its UI ship inside `vite-hub`, so you install no other package.
+A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies are prebuilt inside `@vite-hub/console-client`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -1691,7 +1699,7 @@ Read [Auth](/docs/auth/server-api#authorize-access-routes) for sign-in redirects
 
 The Console does not store Agent Invocations. It reads the app-wide journal that `@vite-hub/agent` installs, with the Console on or off. When Agents are configured and no journal is set, that is the default journal at `.vitehub/data/agent-invocations.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. See [the default journal](/docs/agents/invocation-storage#use-the-default-journal) for its options, location, and retention. A KV-only Console does not read an Agent journal or install Agent read endpoints.
 
-Earlier releases stored this journal at `.vitehub/data/console.sqlite` and read `console.databaseUrl`, `console.observations`, `console.retention`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed. A build that sets one of them fails with `VITE_HUB_B0020`, and a server that sets `VITEHUB_CONSOLE_DATABASE_URL` fails with `VITE_HUB_R0139`. Set `agent: { invocations: { databaseUrl, observations, retention } }` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` instead. ViteHub does not move records from `console.sqlite`. To keep them, set `databaseUrl` to the old file, or pass it to [`vitehub agent invocations`](/docs/agents/invocation-storage#inspect-and-maintain-from-the-cli) with `--database`.
+Earlier releases stored this journal at `.vitehub/data/console.sqlite` and read `console.databaseUrl`, `console.observations`, `console.retention`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed. A build that sets one of them fails with `VITE_HUB_B0020`, and a server that sets `VITEHUB_CONSOLE_DATABASE_URL` fails with `AGENT_R1032`. Set `agent: { invocations: { databaseUrl, observations, retention } }` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` instead. ViteHub does not move records from `console.sqlite`. To keep them, set `databaseUrl` to the old file, or pass it to [`vitehub agent invocations`](/docs/agents/invocation-storage#inspect-and-maintain-from-the-cli) with `--database`.
 
 Console image uploads use the configured Blob store. Before each new upload, the Console retries at most 100 pending rollback records. Malformed batch records move unchanged to `_vitehub/console/quarantine/batch/<id>`. New uploads continue, but stored attachment references stay unavailable while any quarantine record exists, because their delete owner is unknown. Quarantine deletes no image bytes.
 
@@ -1707,7 +1715,7 @@ In production, the operator must still decide how long to keep records that may 
 
 A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option replaces the default journal. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions. With `agent: { invocations: false }`, the Console lists no sessions.
 
-The default journal requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store.
+An Agent records in the default journal whether you import `defineAgent` from `vite-hub/agent` or from `@vite-hub/agent`, because both paths export the same function.
 
 The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Set [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent) to give all of them the same journal. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
 
