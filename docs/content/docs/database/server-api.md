@@ -32,7 +32,7 @@ Call `useDatabase()` from server code with the discovered database name. Use `de
 
 Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
 
-This route reads the `notes` table of the Default Database:
+This route reads the `notes` table of the Default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
 
 ```ts [src/database.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -47,6 +47,7 @@ export default defineDatabase({
     files: sqliteTable('files', {
       id: text('id').primaryKey(),
       ownerId: text('owner_id').notNull(),
+      name: text('name').notNull(),
     }),
   },
 })
