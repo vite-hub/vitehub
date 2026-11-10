@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { runInNewContext } from "node:vm"
 
 import { blob } from "../src/runtime/storage.ts"
 import { getNamedBlobRuntimeStorage, resolveNamedBlobRuntimeStorage, setBlobRuntimeConfig, setNamedBlobRuntimeStorage } from "../src/runtime/state.ts"
@@ -72,57 +71,6 @@ describe("Blob runtime storage lifetime", () => {
     await resolveNamedBlobRuntimeStorage("assets", create)
 
     config.store.bucket = "after"
-    setBlobRuntimeConfig(config)
-    const second = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => second)
-
-    expect(getNamedBlobRuntimeStorage("assets")).toBe(second)
-    expect(second).not.toBe(first)
-  })
-
-  it("invalidates storage when a callback credential is replaced in place", async () => {
-    const firstToken = () => "before"
-    const secondToken = () => "after"
-    const config = { store: { accessToken: firstToken, driver: "dropbox" as const } }
-    setBlobRuntimeConfig(config)
-    const first = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => first)
-
-    config.store.accessToken = secondToken
-    setBlobRuntimeConfig(config)
-    const second = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => second)
-
-    expect(getNamedBlobRuntimeStorage("assets")).toBe(second)
-    expect(second).not.toBe(first)
-  })
-
-  it("tracks callback credentials from another JavaScript realm", async () => {
-    const firstToken = runInNewContext("() => 'before'") as () => string
-    const secondToken = runInNewContext("() => 'after'") as () => string
-    const config = { store: { accessToken: firstToken, driver: "dropbox" as const } }
-    setBlobRuntimeConfig(config)
-    const first = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => first)
-
-    config.store.accessToken = secondToken
-    setBlobRuntimeConfig(config)
-    const second = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => second)
-
-    expect(getNamedBlobRuntimeStorage("assets")).toBe(second)
-    expect(second).not.toBe(first)
-  })
-
-  it("tracks callback credentials wrapped in a Proxy", async () => {
-    const firstToken = new Proxy((() => "before") as () => string, { get: (target, property, receiver) => property === Symbol.toStringTag ? "Object" : Reflect.get(target, property, receiver) })
-    const secondToken = new Proxy((() => "after") as () => string, { get: (target, property, receiver) => property === Symbol.toStringTag ? "Object" : Reflect.get(target, property, receiver) })
-    const config = { store: { accessToken: firstToken, driver: "dropbox" as const } }
-    setBlobRuntimeConfig(config)
-    const first = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => first)
-
-    config.store.accessToken = secondToken
     setBlobRuntimeConfig(config)
     const second = blob.store("assets")
     await resolveNamedBlobRuntimeStorage("assets", async () => second)

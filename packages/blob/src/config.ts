@@ -149,19 +149,9 @@ function resolveExplicitStore(
       return resolveNetlifyStore(store)
     case "vercel-blob":
       return resolveVercelStore(store, env)
-    case "akamai":
     case "azure":
-    case "box":
-    case "digitalocean-spaces":
-    case "dropbox":
     case "gcs":
-    case "google-drive":
-    case "hetzner":
-    case "onedrive":
     case "s3":
-    case "storj":
-    case "supabase":
-    case "uploadthing":
       return store
     default:
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.

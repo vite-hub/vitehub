@@ -33,7 +33,6 @@ describe("optional peer imports", () => {
 
   it("names the provider peers required by bundled Files SDK adapters", async () => {
     expect(getFilesSdkPeerInstall("azure")).toBe("@azure/identity @azure/storage-blob")
-    expect(getFilesSdkPeerInstall("google-drive")).toBe("@googleapis/drive google-auth-library")
     expect(getFilesSdkPeerInstall("cloudflare-r2")).toContain("@aws-sdk/client-s3")
 
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -50,11 +49,11 @@ describe("optional peer imports", () => {
   it("names the driver SDKs that the app has not installed", () => {
     const resolvePeer = (id: string) => {
       if (id === "@google-cloud/storage") throw Object.assign(new Error("missing"), { code: "ERR_MODULE_NOT_FOUND" })
-      if (id === "uploadthing") throw Object.assign(new Error("no root export"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" })
+      if (id === "@azure/identity") throw Object.assign(new Error("no root export"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" })
       return id
     }
 
-    expect(findMissingFilesSdkPeers(["gcs", "gcs", "uploadthing", "s3", "fs"], resolvePeer))
+    expect(findMissingFilesSdkPeers(["gcs", "gcs", "azure", "s3", "fs"], resolvePeer))
       .toEqual([{ driver: "gcs", peers: ["@google-cloud/storage"] }])
     expect(findMissingFilesSdkPeers(["s3", "azure"])).toEqual([])
   })
@@ -290,21 +289,11 @@ describe("package exports", () => {
       exports: Record<string, string | { types: string, default: string }>
     }
     const providers = [
-      "akamai",
       "azure",
-      "box",
-      "digitalocean-spaces",
-      "dropbox",
       "fs",
       "gcs",
-      "google-drive",
-      "hetzner",
       "minio",
-      "onedrive",
       "s3",
-      "storj",
-      "supabase",
-      "uploadthing",
     ]
 
     for (const provider of providers) {
