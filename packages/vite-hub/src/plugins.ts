@@ -17,14 +17,14 @@ import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { hostFromNitroPreset, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, isPackageInstalled, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
@@ -185,7 +185,13 @@ function packageExportImportTarget(target: unknown): string | undefined {
   return typeof importTarget === "string" ? importTarget : undefined
 }
 
-function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
+interface FrameworkWorkspaceDependencyRuntimeImports {
+  sandboxTask?: string
+  sandboxTaskRuntimeState?: string
+  shellWorkspace?: string
+}
+
+function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean): FrameworkWorkspaceDependencyRuntimeImports {
   return {
     ...(sandboxTask
       ? {
@@ -196,6 +202,29 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
     ...(isPackageInstalled("@vite-hub/shell") ? { shellWorkspace: "vite-hub/shell/workspace" } : {}),
   }
 }
+
+/**
+ * Workspace shell commands need `@vite-hub/shell`, an optional peer that the app installs. Its loader pulls just-bash
+ * (about 2 MB) into every Agent server, so keep it only when the app resolves the package from its own root. The Agent,
+ * Workflow, and Sandbox Task plugins read `imports` when they generate code. Code generated before this hook keeps
+ * the loader, as before.
+ */
+function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImports): Plugin {
+  return {
+    name: "vite-hub/workspace-shell",
+    enforce: "pre",
+    config: {
+      order: "pre",
+      handler(config) {
+        // SAFETY: ViteHub hosts add this private project-root key before plugins read the config.
+        const projectRoot = (config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string })[VITEHUB_PROJECT_ROOT]
+        const root = projectRoot ? resolve(projectRoot) : resolveViteHubProjectRoot(config.root ?? process.cwd())
+        if (!isPackageInstalledInApp(root, "@vite-hub/shell")) delete imports.shellWorkspace
+      },
+    },
+  }
+}
+
 // One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
 
@@ -1194,6 +1223,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const hostKVOptions = hostKV && (hostKV.stores ? { stores: hostKV.stores } : hostKV.store)
   configureProviderOptionalImportAliases(providerImportAliases, options, hostKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxTaskEnabled)
+  if (workspaceDependencyRuntimeImports.shellWorkspace && (options.agent || workflowEnabled || sandboxTaskEnabled)) {
+    plugins.push(workspaceShellPlugin(workspaceDependencyRuntimeImports))
+  }
 
   if (!options.database) {
     const databaseRuntimeImports = new Map<string, string>()
