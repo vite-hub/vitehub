@@ -1,8 +1,8 @@
 import type { AgentInvocationContextStore } from "@vite-hub/agent";
 import { defineCapability } from "@vite-hub/agent";
-import type { GitHubPullRequestOperations } from "@vite-hub/agent/server/github";
+import type { GitHubPullRequestOperations } from "../github/index.ts";
 import { isRuntimeRecord, hasRuntimeType } from "../internal/runtime-type.ts";
-import { isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "@vite-hub/agent/server/github";
+import { isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
 
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 

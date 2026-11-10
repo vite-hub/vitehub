@@ -237,7 +237,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await mkdir(join(root, "server", "agents", "review", "workspace"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review", "agent.ts"), "export default defineAgent({ workspace: { mode: \"write\" } })", "utf8")
 
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const replyEffect = vi.fn()
@@ -246,7 +246,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
     const agent = defineAgent({
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           [channelDeliveryHandlers]: { reply: replyEffect },
           messages: false,
           triggers: {
@@ -663,7 +663,7 @@ describe("Agent Invocation Stream Channel replay", () => {
 
     const v = await import("valibot")
     const { defineCollection } = await import("../../source/src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const label = vi.fn()
@@ -674,7 +674,7 @@ describe("Agent Invocation Stream Channel replay", () => {
     })
     const agent = defineAgent({
       channels: {
-        mailbox: defineChannel("mailbox", {
+        mailbox: channelAdapter("mailbox", {
           history: { collection: history, key: message => message.id },
           message: { methods: { label: (_context, name: string) => label(name) } },
           messages: false,

@@ -120,12 +120,26 @@ Serve a constrained Workspace subtree without custom route plumbing:
 import { defineWorkspaceFileHandler } from "@vite-hub/workspace/server"
 
 export default defineWorkspaceFileHandler({
+  base: "/api/data/",
   workspace: "docs",
   root: "data",
   allow: ["data/**/*.json", "data/**/*.md"],
   cacheControl: "public, max-age=60",
 })
 ```
+
+The handler is a Fetchable route, `{ fetch(request) }`. `base` is the route path. The
+rest of the URL path is the file path, percent-decoded: `/api/data/my%20file.json`
+serves `my file.json`. A missing file, a
+path outside `root` or `allow`, or a path with `..` gets a `404` JSON Response. A path
+that is not valid percent-encoding gets a `400` JSON Response. `readWorkspaceFileResponse({ workspace,
+path })` returns the same Responses for a route that finds the path itself.
+
+When Nitro has a non-root `baseURL`, pass the same value as the handler's `baseURL`.
+For example, `{ baseURL: "/api/data/", base: "/api/data/", workspace: "docs" }`
+serves `a.json` at `/api/data/api/data/a.json`. This also works with `base: "/"`.
+With `baseURL` set, the full prefix must match the start of the request path.
+The Request alone cannot distinguish overlapping application and route bases.
 
 ## Retained folder history
 

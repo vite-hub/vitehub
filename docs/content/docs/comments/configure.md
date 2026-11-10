@@ -594,9 +594,12 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | Key | Action |
 | --- | --- |
 | <kbd>C</kbd> | Turn **Comment** on or off. While on, a click anywhere starts a thread. |
+| <kbd>B</kbd> | Turn **Highlight** on or off. While on, a drag draws a highlighter stroke over the page. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
-| <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
-| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. |
+| <kbd>Esc</kbd> | Close the open thread, or turn **Comment**, **Highlight**, and **Edit** off. |
+| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the strokes. |
+
+**Highlight** works like the Marker in Drop. Pick a color, draw on the page, and select **Done**. The overlay takes a picture of the screen with the strokes on it, and opens a comment on the area that the strokes cover with the picture attached. The strokes stay on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
 
 Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
