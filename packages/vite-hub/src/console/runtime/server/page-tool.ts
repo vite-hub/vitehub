@@ -27,7 +27,7 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
       icon: "i-lucide-square-terminal",
       script,
       ...getConsoleSections().includes("content") ? {} : { lazy: true },
-      allowed: ({ event }) => consoleAllowsRequest(event),
+      allowed: ({ request }) => consoleAllowsRequest(request),
     })
   }
   installViteHubPageTools(nitroApp, options)

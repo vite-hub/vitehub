@@ -277,8 +277,8 @@ hashes the items for pagination. Keyed lookups do not compute a digest.
 page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
-request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
-exports `table()` too.
+request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
+`vite-hub/source/drizzle`.
 
 Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
 Cancelled reads reject with the signal's reason, including when a loader or
