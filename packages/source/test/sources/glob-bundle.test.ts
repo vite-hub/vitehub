@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { parseAst } from "vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { files, glob } from "../../src/index.ts"
@@ -30,6 +30,7 @@ async function project() {
   await writeFile(join(docs, ".hidden.md"), "# Hidden\n")
   await writeFile(join(docs, "node_modules/pkg/readme.md"), "# Dependency\n")
   await writeFile(join(docs, "logo.png"), new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0, 255]))
+  await writeFile(join(docs, "bom.txt"), "\uFEFFbyte order mark\n")
   const outside = await mkdtemp(join(tmpdir(), "vitehub-source-glob-bundle-outside-"))
   tempDirs.push(outside)
   await writeFile(join(outside, "secret.md"), "secret")
@@ -93,13 +94,22 @@ describe("glob() bundled by the build", () => {
     const id = BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "vite-hub/source", input: "content/docs/**/*" }))
     const { code, watched } = await loadBundledGlob(id, root)
     expect(code.split("\n")[0]).toBe(`import { files } from "vite-hub/source"`)
-    expect(code).toContain(`"index.md": text("# Home\\n")`)
-    expect(code).toMatch(/"logo\.png": bytes\("[\w+/=]+"\)/)
+    // The files load from one gzip blob, so the module holds no Markdown as JavaScript.
+    expect(code).toMatch(/"index\.md": file\(\d+, \d+\)/)
+    expect(code).toMatch(/"logo\.png": file\(\d+, \d+\)/)
+    expect(code).not.toContain("# Home")
     expect(watched).toContain(join(root, "content/docs/index.md"))
 
     const body = code.split("\n").slice(1).join("\n").replace("export default ", "return ")
+    const fromDisk = await served(glob("content/docs/**/*"), root)
     const source = new Function("files", body)(files) as FileSource<string>
-    expect(await served(source, "/no-file-system")).toEqual(await served(glob("content/docs/**/*"), root))
+    expect(await served(source, "/no-file-system")).toEqual(fromDisk)
+    // Hosts without node:zlib, such as Workers without nodejs_compat, inflate with DecompressionStream.
+    const getBuiltinModule = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined)
+    const withoutZlib = new Function("files", body)(files) as FileSource<string>
+    expect(await served(withoutZlib, "/no-file-system")).toEqual(fromDisk)
+    expect(getBuiltinModule).toHaveBeenCalledWith("node:zlib")
+    vi.restoreAllMocks()
   })
 })
 

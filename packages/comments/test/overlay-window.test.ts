@@ -49,9 +49,10 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.mocked(window.confirm).mockReturnValue(true)
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
+  await new Promise(resolve => setTimeout(resolve, 0))
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-window, vitehub-tools-off")) element.remove()
   localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""

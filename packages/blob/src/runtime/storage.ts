@@ -17,7 +17,7 @@ import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
   constructor(message: string) {
-    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message }, UnknownBlobStoreError)
+    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message, fix: blobErrorDiagnostics.BLOB_R0027({ message }).fix }, UnknownBlobStoreError)
     this.name = "UnknownBlobStoreError"
   }
 }

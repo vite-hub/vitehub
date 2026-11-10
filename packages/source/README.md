@@ -98,7 +98,11 @@ export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 Under `vite dev` it reads the files from disk. A server build with `hubSource()`
 bundles the files of a call whose options are literals, through `files()`, so
 hosts without a runtime file system, such as Cloudflare Workers, serve them.
-`files(entries, { base, prefix })` serves files the server already holds.
+`files(entries, { base, prefix })` serves files the server already holds. An
+entry can be the content or a function that loads it, such as an
+`import.meta.glob()` loader. After removing `base`, a leading `./` is removed
+from each key: `./content/a.md` becomes `content/a.md`, or `a.md` with
+`base: "./content"`.
 
 ## Reuse a definition
 

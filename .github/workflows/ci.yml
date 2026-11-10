@@ -224,8 +224,9 @@ jobs:
   # times with no Vitest output. 30 minutes is about 2.5 times the slowest healthy shard.
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
-  # about 4 minutes and set the floor. Presets, Auth, and Schedule run in the
-  # shorter shards, so "other packages" is not the slowest job. The last
+  # about 4 minutes and set the floor. Presets, Auth, Schedule, and the docs
+  # package's Nuxt builds run in the shorter shards, so "other packages" is
+  # not the slowest job. The last
   # shard excludes the named packages, so a new package always runs
   # somewhere. A pull request tests only the packages it changes and their
   # dependents. A shard without one passes after checkout and does not
@@ -251,12 +252,12 @@ jobs:
             args: --packages vite-hub
           - name: workspace and presets
             args: --packages @vite-hub/workspace,@vite-hub/presets
-          - name: content and workflow
-            args: --packages @vite-hub/content,@vite-hub/workflow
+          - name: content, workflow, and docs
+            args: --packages @vite-hub/content,@vite-hub/workflow,@vite-hub/docs
           - name: storage, delivery, and auth
             args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
           - name: other packages
-            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/docs,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -278,12 +279,12 @@ jobs:
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup-deno
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+        run: node test/run-package-task.mjs test --cache ${{ matrix.shard.args }}
         env:
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
       - name: Test changed packages
         if: ${{ steps.changed.outputs.packages != '' }}
-        run: node test/run-package-task.mjs test --packages "$PACKAGES"
+        run: node test/run-package-task.mjs test --cache --packages "$PACKAGES"
         env:
           PACKAGES: ${{ steps.changed.outputs.packages }}
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
@@ -413,6 +414,12 @@ jobs:
       - uses: ./.github/actions/setup
 
       - run: vp run build
+      # This job builds every package, so its task cache serves the next run.
+      - name: Save the Vite+ task cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: vp-task-cache-${{ runner.os }}-${{ github.sha }}
       - run: vp run --filter vitehub-docs test:snippets
 
   # The docs site deploys from the verified bundle on every push to main. The Production environment holds the Cloudflare token.

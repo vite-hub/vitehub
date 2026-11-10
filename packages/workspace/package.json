@@ -95,11 +95,6 @@
       "import": "./dist/nitro.js",
       "default": "./dist/nitro.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -141,11 +136,6 @@
       "import": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
     },
-    "./internal/runtime/state": {
-      "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js",
-      "default": "./dist/runtime/state.js"
-    },
     "./internal/runtime/workspace": {
       "types": "./dist/runtime/workspace.d.ts",
       "import": "./dist/runtime/workspace.js",
@@ -164,6 +154,7 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/forge": "workspace:*",
@@ -172,7 +163,6 @@
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
-    "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
     "minimatch": "catalog:workspace",
@@ -194,6 +184,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
+    "h3": "catalog:unjs",
     "ocache": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

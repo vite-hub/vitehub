@@ -259,7 +259,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await mkdir(join(root, "server", "utils"), { recursive: true })
     await writeFile(join(root, "server", "utils", "token.mjs"), 'export const token = "untransformed"\n')
     await writeFile(join(root, "server", "token-provider.mjs"), [
-      'import { defineEnvProvider } from "@vite-hub/env/provider"',
+      'import { defineEnvProvider } from "@vite-hub/env"',
       'import { token } from "#server/utils/token.mjs"',
       'import { stage } from "virtual:env-stage"',
       `export default defineEnvProvider({ read: () => ({ token: stage === "production" && token === ${JSON.stringify(secretValue)} ? token : undefined }) })`,

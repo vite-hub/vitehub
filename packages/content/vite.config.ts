@@ -13,6 +13,8 @@ export default defineConfig({
     },
     entry: ["src/cli.ts", "src/client.ts", "src/collections.ts", "src/database.ts", "src/editor.ts", "src/index.ts", "src/operations.ts", "src/realtime.ts", "src/runtime/console.ts", "src/vite.ts"],
     exports: {
+      // Generated code imports these modules by path. They are not public API.
+      exclude: ["operations", "runtime/console"],
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
             if (String(value) !== value || !value.endsWith(".js")) return [key, value]

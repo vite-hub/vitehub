@@ -15,7 +15,7 @@ A loader reads one kind of origin, such as a GitHub repository. Use a built-in o
 | `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source root. `workspacePath` sets the key. |
 | `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Same as `file()`, with `text/markdown` as the default media type. It requires an options object. |
 | `glob(pattern)`, `glob(options)` | A pattern such as `'content/docs/**/*.md'`, or `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Finds files with `tinyglobby`. Keys are relative to `cwd` (in a pattern, the folders before the first wildcard). `prefix` adds a path before each item. `keyCache: false` turns off the key cache. Symlinks are off by default. A build bundles the files ([Hosts without a file system](#hosts-without-a-file-system)). |
-| `files(entries, options?)` | A record of path to content, `base`, and `prefix`. | Serves files from memory. `base` is removed from each path. A build turns `glob()` into this. Needs no file system. |
+| `files(entries, options?)` | A record of path to content or a content loader, `base`, and `prefix`. | Serves files from memory. A loader runs on each read, so an `import.meta.glob()` record works. `base` is removed from each path, then a leading `./` is removed from the key. A build turns `glob()` into this. Needs no file system. |
 | `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `ignore`, `cache`. | Reads repository content through [`forges`](https://forges.link). `ref` defaults to the default branch. `auth` is a token string or a trusted callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. `auth: false` uses no token. |
 | `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines your own loader, with inferred item types. |
@@ -43,7 +43,7 @@ export const content = defineContent({
 })
 ```
 
-Under `vite dev`, `glob()` reads from disk, so edits show at once. A server build lists the files with the same `ignore`, `dot`, and symlink rules, and replaces the call with [`files()`](#source-loader-options) that holds their bytes. Cloudflare Workers, Netlify, Vercel, Deno Deploy, and Node then serve the same content. New files appear after the next build.
+Under `vite dev`, `glob()` reads from disk, so edits show at once. A server build lists the files with the same `ignore`, `dot`, and symlink rules, and replaces the call with [`files()`](#source-loader-options) holding their bytes, gzipped. The server inflates them on the first read, so a large folder costs little at startup. Cloudflare Workers, Netlify, Vercel, Deno Deploy, and Node then serve the same content. New files appear after the next build.
 
 ::warning
 The build bundles a call only when its options are literals: a string, or an object of strings, booleans, and string arrays. With any other value, such as a variable, the call reads from disk at runtime and the build warns. Hosts without a file system will not find those files.
