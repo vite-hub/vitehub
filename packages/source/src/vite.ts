@@ -17,7 +17,7 @@ import type { Plugin, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
-import { collectCollectionFiles, discoverCollections } from "./internal/collection-discovery.ts"
+import { collectCollectionFiles, discoverCollections, inspectCollectionSource } from "./internal/collection-discovery.ts"
 import type { DiscoveredCollection } from "./internal/collection-discovery.ts"
 import { collectionRoutePath } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
@@ -25,7 +25,9 @@ import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "./inspect.ts"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
-const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
+// Earlier versions wrote this wrapper around `collections.d.ts`. Generation removes it, so an upgraded app with no
+// Collection does not keep a declaration that points at a deleted file.
+const retiredCollectionTypesWrapper = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentPreviewEntry = ".vitehub/content/preview.mjs"
@@ -132,7 +134,6 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
   const files = new Map<string, string>()
   const fixedEntries = [
     collectionTypesEntry,
-    collectionTypesPackageEntry,
     contentRouteEntry,
     contentPreviewEntry,
     contentSitemapEntry,
@@ -168,7 +169,6 @@ async function restoreGeneratedSourceArtifacts(
   await rm(routesDirectory, { force: true, recursive: true })
   for (const entry of [
     collectionTypesEntry,
-    collectionTypesPackageEntry,
     contentRouteEntry,
     contentPreviewEntry,
     contentSitemapEntry,
@@ -271,6 +271,11 @@ export function toTypeModuleSpecifier(file: string): string {
   return file.replaceAll("\\", "/")
 }
 
+/** Inspects the named Collection export without running application code. The docs snippet check calls it. */
+export function inspectCollectionModule(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
+  return inspectCollectionSource(file, source, exportName)
+}
+
 async function writeFileIfChanged(path: string, contents: string): Promise<void> {
   let current: string | undefined
   try {
@@ -289,12 +294,11 @@ async function writeCollectionArtifacts(
   collections: DiscoveredCollection[],
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, collectionTypesEntry)
-  const packageOutput = resolve(options.projectRoot, collectionTypesPackageEntry)
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
+  await rm(resolve(options.projectRoot, retiredCollectionTypesWrapper), { force: true })
   if (collections.length === 0) {
     await Promise.all([
       rm(output, { force: true }),
-      rm(packageOutput, { force: true }),
       rm(routesDirectory, { force: true, recursive: true }),
     ])
     return []
@@ -312,7 +316,6 @@ async function writeCollectionArtifacts(
     "export {}",
     "",
   ].join("\n"))
-  await writeFileIfChanged(packageOutput, '/// <reference path="./collections.d.ts" />\n')
 
   const expectedRoutes = new Set(routedCollections.map(({ name }) => resolve(routesDirectory, `${name}.mjs`)))
   const existingRoutes = await collectCollectionFiles(routesDirectory)

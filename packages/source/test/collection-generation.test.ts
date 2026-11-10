@@ -36,6 +36,11 @@ it.each([
   expect((await generatedRoutes({ "server/collections/articles.ts": source })).routes).toEqual([])
 })
 
+it("reads TypeScript syntax in a .mjs Collection file", async () => {
+  const source = "type Row = { id: number }\nexport const articles: Collection<Row> = defineCollection(load, { route: false } as const)"
+  expect((await generatedRoutes({ "server/collections/articles.mjs": source })).routes).toEqual([])
+})
+
 it.each([
   "export const articles = defineCollection(load, {})",
   "function make(route?: false) { return defineCollection(load, { route }) }; export const articles = make()",
@@ -118,4 +123,18 @@ it("skips the Content route for defineContent({ route: false, ... })", async () 
 
   expect(generated.contentRoute).toBe(false)
   expect(generated.routes).toEqual(["/robots.txt"])
+})
+
+it("removes the Collection types wrapper that earlier versions wrote", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    const wrapper = join(projectRoot, ".vitehub/types/source/vitehub-source-registry.d.ts")
+    await mkdir(join(projectRoot, ".vitehub/types/source"), { recursive: true })
+    await writeFile(wrapper, '/// <reference path="./collections.d.ts" />\n')
+    expect(await prepareSourceGeneration({ projectRoot })).toEqual([])
+    await expect(access(wrapper)).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
 })

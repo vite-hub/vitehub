@@ -70,7 +70,8 @@ function exportedLocalName(module: ScannedModule, exportName: string): string | 
  * such as a conditional, has no known call: the scanner cannot know which branch runs.
  */
 function findCollectionDefinitionCall(source: string, exportName: string, file: string): CollectionDefinitionCall | undefined {
-  const module = scanModule(source, file)
+  // Collection files may use TypeScript syntax whatever their extension, such as a `.mjs` file from generated types.
+  const module = scanModule(source, `${file}.ts`)
   const calls = findCalls(module, ["defineCollection"])
   const factory = callsViteHubFactory(module)
   const callIn = ({ init, constant }: { init: Expression, constant: boolean }) => {
@@ -112,6 +113,12 @@ function collectionRouteDisabled(definition: CollectionDefinitionCall | undefine
   const index = properties.findLastIndex(property => property.key === "route")
   const route = properties[index]?.value
   return route !== undefined && staticValue(route) === false && properties.slice(index + 1).every(property => property.key !== undefined)
+}
+
+/** Whether the module exports `exportName`, and whether that Collection gets a generated route. */
+export function inspectCollectionSource(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
+  const exported = findExportNames(source).includes(exportName)
+  return { exported, routeEnabled: exported && !collectionRouteDisabled(findCollectionDefinitionCall(source, exportName, file)) }
 }
 
 export async function collectCollectionFiles(directory: string): Promise<string[]> {
