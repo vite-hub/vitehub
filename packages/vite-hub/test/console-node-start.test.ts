@@ -54,6 +54,12 @@ it("starts a KV app with the Console from the Node output", async () => {
       expect(stderr).not.toContain("TypeError")
       expect(response?.status).toBe(200)
       expect(await response?.json()).toEqual({ ok: true })
+      // Without the Schedules and Auth sections, their Console routes are absent. Apps no longer serve a Console page.
+      for (const path of ["/_vitehub/schedules/run", "/_vitehub/auth/manage"]) {
+        const post = await fetch(`http://127.0.0.1:${port}${path}`, { body: "{}", headers: { "content-type": "application/json" }, method: "POST" })
+        expect(post.status, path).toBe(404)
+      }
+      expect(stderr).not.toContain("Unhandled error")
     }
     finally {
       server.kill()
