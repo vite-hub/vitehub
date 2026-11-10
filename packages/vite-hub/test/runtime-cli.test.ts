@@ -39,3 +39,31 @@ it("runs connections commands against the running app without loading the projec
   expect(stdout).toBe("No Connections found.\n")
   expect(requests).toEqual(["POST /_vitehub/connections"])
 })
+
+it("runs kv commands against the running app without loading the project", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-kv-cli-"))
+  cleanup.push(() => rm(root, { force: true, recursive: true }))
+  await writeFile(join(root, "vite.config.mjs"), "throw new Error('the project config was loaded')\n")
+  const bodies: unknown[] = []
+  const server = createServer((request, response) => {
+    let body = ""
+    request.on("data", (chunk: Buffer) => { body += chunk.toString() })
+    request.on("end", () => {
+      bodies.push(JSON.parse(body))
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, value: { exists: true, key: "greeting", store: "default" } }))
+    })
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  cleanup.push(() => new Promise(resolve => server.close(() => resolve())))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("The test server has no port.")
+
+  const { stdout } = await execFileAsync(process.execPath, [bin, "kv", "has", "greeting", "--json", "--url", `http://127.0.0.1:${address.port}`], {
+    cwd: root,
+    env: { ...process.env, NO_COLOR: "1" },
+    timeout: 10_000,
+  })
+
+  expect(JSON.parse(stdout)).toEqual({ exists: true, key: "greeting", store: "default" })
+  expect(bodies).toEqual([{ input: { key: "greeting" }, operation: "kv.has" }])
+})
