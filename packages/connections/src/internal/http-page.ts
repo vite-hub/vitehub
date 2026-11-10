@@ -47,6 +47,8 @@ export function requestReturnPath(request: Request): string | undefined {
 export interface ConnectionsPageInput {
   /** A Connections error code. The page shows it with the fix and docs link from the catalog. */
   readonly code?: string;
+  /** The fix of the thrown error. It replaces the catalog fix of `code`. */
+  readonly fix?: string;
   readonly message: string;
   readonly outcome: "error" | "success";
   /** The Console page to return to. A success page returns there by itself. */
@@ -91,7 +93,7 @@ code{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted
  * what happened, how to fix a failure, and how to get back to the Console.
  */
 export function page(input: ConnectionsPageInput): Response {
-  const diagnostic = input.code ? managementErrorBody(input.code, input.message) : undefined;
+  const diagnostic = input.code ? managementErrorBody(input.code, input.message, undefined, undefined, input.fix) : undefined;
   const back = input.returnTo ? escapeHtml(input.returnTo) : undefined;
   const autoReturn = input.outcome === "success" && back;
   const links = [

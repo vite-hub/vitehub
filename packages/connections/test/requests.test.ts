@@ -88,7 +88,7 @@ describe("Connection request policy", () => {
     const provider = fakeFetch()
     transport(provider.request, { bucket: "base", rate: { intervalMs: 1000 } }, { name: "slow", scheduler })
     expect(() => transport(provider.request, { bucket: "base", rate: { intervalMs: 1 } }, { name: "fast", scheduler }))
-      .toThrow('Connections sharing request bucket "base" must use the same rate interval.')
+      .toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION", message: 'Connections that share request bucket "base" use different rate intervals.' }))
   })
 
   it("accepts equivalent intervals expressed with different rate forms", () => {

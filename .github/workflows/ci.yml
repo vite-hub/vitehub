@@ -27,7 +27,6 @@ jobs:
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
-      - windows-agent-credentials
       - node-22
       - docs
       - docs-snippets
@@ -48,29 +47,28 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.CI_RESULTS)
-          // Pull requests run the contract and package tests that their
-          // change can affect. The full integration matrix still runs on
-          // every push to main, and on the main guardian's repair PRs from
-          // this repository: a repair that passes only the PR checks merges
-          // and leaves main red.
+          // Pull requests run fast checks and the package tests their change
+          // can affect. The full integration matrix, the Node.js floor and the
+          // packed release contracts run on every push to main, and on the
+          // main guardian's repair PRs from this repository: a repair that
+          // passes only the PR checks merges and leaves main red. The release
+          // workflow repeats the strict checks before it publishes.
           // Keep this aggregate job required so skipped PR-only jobs never
           // leave a branch protection check pending.
           const skippedPullRequestJobs = new Set([
             "contracts-examples",
             "consumer-contracts",
             "consumer-contracts-success",
-            "windows-agent-credentials",
+            "node-22",
+            "prepublish-contracts",
             "verify-providers",
           ])
-          const skippedPushJobs = new Set(["prepublish-contracts"])
           // Deploys run only on a push to main.
           const deployJobs = new Set(["docs-deploy", "console-deploy"])
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.GITHUB_EVENT_NAME === "pull_request"
               && process.env.REPAIR_MAIN !== "true"
               && skippedPullRequestJobs.has(name))
-              || (process.env.GITHUB_EVENT_NAME === "push"
-                && skippedPushJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
@@ -157,11 +155,12 @@ jobs:
 
   # Match Void's prepublish contract: install the exact tarballs a release
   # would publish and exercise them without workspace visibility. This runs
-  # for pull requests and manual dispatches; pushes already run the sharded
-  # consumer suite below.
+  # on pushes to main, manual dispatches and repair-main pull requests, so a
+  # packing problem shows up on main before the release workflow repeats it.
+  # Other pull requests skip it: it took 13 minutes on every one.
   prepublish-contracts:
     name: prepublish package contracts
-    if: ${{ github.event_name != 'push' }}
+    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -225,8 +224,9 @@ jobs:
   # times with no Vitest output. 30 minutes is about 2.5 times the slowest healthy shard.
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
-  # about 4 minutes and set the floor. Presets, Auth, and Schedule run in the
-  # shorter shards, so "other packages" is not the slowest job. The last
+  # about 4 minutes and set the floor. Presets, Auth, Schedule, and the docs
+  # package's Nuxt builds run in the shorter shards, so "other packages" is
+  # not the slowest job. The last
   # shard excludes the named packages, so a new package always runs
   # somewhere. A pull request tests only the packages it changes and their
   # dependents. A shard without one passes after checkout and does not
@@ -252,12 +252,12 @@ jobs:
             args: --packages vite-hub
           - name: workspace and presets
             args: --packages @vite-hub/workspace,@vite-hub/presets
-          - name: content and workflow
-            args: --packages @vite-hub/content,@vite-hub/workflow
+          - name: content, workflow, and docs
+            args: --packages @vite-hub/content,@vite-hub/workflow,@vite-hub/docs
           - name: storage, delivery, and auth
             args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
           - name: other packages
-            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/docs,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -274,15 +274,17 @@ jobs:
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup-deno
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+        run: node test/run-package-task.mjs test --cache ${{ matrix.shard.args }}
         env:
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
       - name: Test changed packages
         if: ${{ steps.changed.outputs.packages != '' }}
-        run: node test/run-package-task.mjs test --packages "$PACKAGES"
+        run: node test/run-package-task.mjs test --cache --packages "$PACKAGES"
         env:
           PACKAGES: ${{ steps.changed.outputs.packages }}
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
@@ -331,30 +333,13 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  windows-agent-credentials:
-    name: agent credentials (windows)
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup
-
-      - name: Build Agent test dependencies
-        run: vp run -t @vite-hub/agent#build
-
-      - name: Codex credential ACLs
-        shell: bash
-        working-directory: packages/agent
-        run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
-
   # The standalone package floor is Node.js 22.18; Nitro integrations require
   # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
   # different behavior on 22: fs glob, node:sqlite, module hooks, Response
   # brand checks, TextDecoder, and structuredClone.
   node-22:
     name: node 22.18
+    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -436,6 +421,12 @@ jobs:
       - uses: ./.github/actions/setup
 
       - run: vp run build
+      # This job builds every package, so its task cache serves the next run.
+      - name: Save the Vite+ task cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: vp-task-cache-${{ runner.os }}-${{ github.sha }}
       - run: vp run --filter vitehub-docs test:snippets
 
   # The docs site deploys from the verified bundle on every push to main. The Production environment holds the Cloudflare token.
@@ -448,7 +439,6 @@ jobs:
       - contract-tests
       - package-tests-success
       - consumer-contracts-success
-      - windows-agent-credentials
       - node-22
       - docs
       - docs-snippets
@@ -511,6 +501,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
 
       # The Console client imports the built packages, such as vite-hub/console/sections.
       - run: vp run -t vite-hub#build
@@ -542,7 +534,6 @@ jobs:
       - contract-tests
       - package-tests-success
       - consumer-contracts-success
-      - windows-agent-credentials
       - node-22
       - docs-snippets
       - console

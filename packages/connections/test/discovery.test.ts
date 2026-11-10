@@ -49,7 +49,7 @@ describe("discoverConnectionDefinitions", () => {
   it("rejects names with surrounding whitespace", async () => {
     const root = await createTempProject()
     await touch(root, "server/connections/ mail.ts")
-    expect(() => discoverConnectionDefinitions({ rootDir: root })).toThrow("cannot start or end with whitespace")
+    expect(() => discoverConnectionDefinitions({ rootDir: root })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_NAME", fix: expect.stringContaining("Rename") }))
   })
 
   it("preserves discovered names longer than the old management limit", async () => {
