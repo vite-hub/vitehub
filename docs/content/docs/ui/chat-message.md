@@ -6,14 +6,14 @@ navigation.group: Chat
 icon: i-ph-chat-text-light
 ---
 
-`ChatMessage` renders one `UIMessage` with the [Message](/docs/ui/message) parts. The user speaks from the end in a secondary [Bubble](/docs/ui/bubble). The assistant replies at the start without a frame. `MessageParts` renders the content. Use it alone for a single message, or let `Chat` render one for each message.
+`ChatMessage` renders one `UIMessage` with the [Message](/docs/ui/message) parts. User text sits at the end in a secondary [Bubble](/docs/ui/bubble). Other roles reply at the start without a frame. `MessageParts` renders the content. Use it alone, or let `Chat` render one per message.
 
-::component-preview{name="ChatMessageExample"}
+::example{name="ChatMessageExample" height=16}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/chat-message`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat-message`:
 
 ```ts
 import { ChatMessage } from "@vite-hub/ui";
@@ -35,7 +35,7 @@ import { ChatMessage } from "@vite-hub/ui";
 
 ## Composition
 
-Each slot fills one part of the [Message](/docs/ui/message). A slot that you do not use renders no part.
+Each slot fills one part of the [Message](/docs/ui/message). An unused slot renders nothing.
 
 ```text
 Message, aligned to the end for the user and to the start for others
@@ -50,29 +50,27 @@ Message, aligned to the end for the user and to the start for others
 
 ## Features
 
-- Renders one AI SDK `UIMessage`.
-- Puts user text in a secondary `Bubble` at the end. Other roles reply at the start without a frame.
-- Renders the content with `MessageParts` and forwards the part slots to it.
-- Adds optional header, avatar, and action areas through slots.
-- Sets the accessible name from the message role.
+- Passes the part slots to `MessageParts`.
+- Optional header, avatar, and action slots.
+- Takes its accessible name from the message role.
 
 ## User Message with a Header
 
-Use the `header` slot for metadata above the body, for example an attachment count. File parts render as download links or image previews.
+Use the `header` slot for details above the body, such as an attachment count. File parts render as download links or image previews.
 
-::component-preview{name="ChatMessageUserExample"}
+::example{name="ChatMessageUserExample" height=8}
 ::
 
 ## Streaming with a Custom Avatar
 
-Set `streaming` while the response arrives. Text and reasoning parts render in their streaming state. Use the `leading` slot to replace the avatar.
+Set `streaming` while the response arrives, so text and reasoning parts stream. The `leading` slot replaces the avatar.
 
-::component-preview{name="ChatMessageStreamingExample"}
+::example{name="ChatMessageStreamingExample" height=8}
 ::
 
 ## Accessibility
 
-- The message has the accessible name **User message**, **Assistant message**, or **System message**. Pass `aria-label` to change it.
+- The message is named **User message**, **Assistant message**, or **System message**. Pass `aria-label` to change it.
 - Give icon-only action buttons an `aria-label`.
 
 ## API Reference
@@ -86,7 +84,7 @@ Renders one message as a `Message` with its parts.
 | Prop        | Type                      | Default  | Description                                               |
 | ----------- | ------------------------- | -------- | --------------------------------------------------------- |
 | `message`   | `UIMessage`               | Required | The message to render.                                    |
-| `streaming` | `boolean`                 | `false`  | Renders text and reasoning parts in the streaming state.  |
+| `streaming` | `boolean`                 | `false`  | Renders text and reasoning parts as streaming. |
 
 Other attributes, such as `class`, go to the `Message` root.
 
@@ -94,11 +92,11 @@ Other attributes, such as `class`, go to the `Message` root.
 
 | Slot       | Scope             | Description                                         |
 | ---------- | ----------------- | --------------------------------------------------- |
-| `default`  | `{ message }`     | Replaces the complete message body.                 |
-| `header`   | `{ message }`     | Content above the body, for example files or metadata. |
+| `default`  | `{ message }`     | Replaces the whole body. |
+| `header`   | `{ message }`     | Content above the body, such as files or details. |
 | `leading`  | `{ message }`     | Replaces the avatar or role marker.                 |
-| `actions`  | `{ message }`     | Copy, retry, feedback, or other application actions. |
-| Part slots | `{ part, index }` | Forwarded to `MessageParts`, for example `text`, `tool`, or `fallback`. |
+| `actions`  | `{ message }`     | Copy, retry, feedback, or other actions. |
+| Part slots | `{ part, index }` | Passed to `MessageParts`, such as `text`, `tool`, or `fallback`. |
 
 ## Related
 

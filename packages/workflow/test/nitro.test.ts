@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
+import { transformSync } from "esbuild"
 import { resolveConfig } from "vite"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { expect, it, vi } from "vitest"
@@ -11,9 +13,12 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/depl
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createCloudflareWorkflowNitroConfig } from "../src/internal/vite-build.ts"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { nitroOrderPlugins } from "../../vite-hub/src/nitro-order.ts"
 import type { WorkflowModuleOptions } from "../src/types.ts"
+import { deferWorkflow } from "../src/runtime/client.ts"
+import * as workflowState from "../src/runtime/state.ts"
 
 const generated = vi.hoisted(() => vi.fn())
 vi.mock("../src/internal/vite-build.ts", async importOriginal => ({
@@ -28,6 +33,67 @@ it("leaves implicit Workflow disabled for Netlify Nitro output", async () => {
     rootDir: "/tmp/unused",
     workflow: undefined,
   })).resolves.toBe(nitro)
+})
+
+it.each([undefined, "vite-hub/workflow"])("retains a deferred start from a Nitro Cloudflare application route before its definition loads (import base: %s)", async (workflowImportBase) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-defer-"))
+  try {
+    const workflowDir = join(rootDir, "server", "workflows")
+    await mkdir(workflowDir, { recursive: true })
+    await writeFile(join(workflowDir, "welcome.ts"), "export default async () => 'ok'\n")
+    const existing = { handler: "existing.ts", route: "/health" }
+    const nitro = await createCloudflareWorkflowNitroConfig({
+      nitro: { preset: "cloudflare-module", handlers: [existing] },
+      rootDir,
+      workflow: {},
+      workflowImportBase,
+    })
+    const handlers = nitro.handlers as Array<{ handler: string, middleware?: boolean }>
+    expect(handlers).toContainEqual(existing)
+    const middleware = handlers.find(handler => handler.middleware)!
+    const source = await readFile(middleware.handler, "utf8")
+    const pending: Promise<unknown>[] = []
+    const waitUntil = vi.fn((promise: Promise<unknown>) => { pending.push(promise) })
+    const createBatch = vi.fn(async () => [{ id: "welcome-1" }])
+    const env = { WORKFLOW_CUSTOM: { createBatch } }
+    const module = { exports: {} as { default: (event: object) => void } }
+    runInNewContext(transformSync(source, { loader: "ts", format: "cjs" }).code, {
+      module,
+      exports: module.exports,
+      require(id: string) {
+        if (id === "nitro") return { defineMiddleware: (handler: (event: object) => void) => handler }
+        if (id === "cloudflare:workers") return { env, waitUntil }
+        if (id === workflowRuntimeModule("state")) return workflowState
+        throw new Error(`Unexpected middleware import: ${id}`)
+      },
+    })
+    workflowState.setWorkflowRuntimeConfig({ provider: "cloudflare", binding: "WORKFLOW_CUSTOM" })
+    let resolveDefinition!: () => void
+    const definition = new Promise<void>((resolve) => { resolveDefinition = resolve })
+    workflowState.setWorkflowRuntimeRegistry({
+      welcome: async () => {
+        await definition
+        return { default: { handler: async () => "done" } }
+      },
+    })
+    const event = { context: {} }
+    module.exports.default(event)
+    expect(workflowState.getWorkflowRuntimeEvent()).toBe(event)
+    const response = (() => {
+      expect(deferWorkflow("welcome", { email: "test@example.com" }, { id: "welcome-1" })).toBeUndefined()
+      return new Response("accepted")
+    })()
+    expect(response.status).toBe(200)
+    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(createBatch).not.toHaveBeenCalled()
+    resolveDefinition()
+    await Promise.all(pending)
+    expect(createBatch).toHaveBeenCalledExactlyOnceWith([{ id: "welcome-1", params: { email: "test@example.com" } }])
+  }
+  finally {
+    workflowState.resetWorkflowRuntime()
+    await rm(rootDir, { force: true, recursive: true })
+  }
 })
 
 it("installs discovered Agent workflows into a Cloudflare Nitro entry", async () => {

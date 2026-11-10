@@ -5,6 +5,29 @@ import { coerceFormFields } from "./schema.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { FormDefinition, FormEmailMessage, FormIssue, FormServices, FormSubmission, FormUser } from "./types.ts"
 
+/** Keep schema output in the same JSON representation for hooks, notifications, and both stores. */
+function jsonData<T>(value: T): { value: T } | undefined {
+  const ancestors = new Set<object>()
+  const valid = (value: unknown): boolean => {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true
+    if (typeof value === "number") return Number.isFinite(value)
+    if (typeof value !== "object" || ancestors.has(value)) return false
+    const prototype: unknown = Object.getPrototypeOf(value)
+    if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false
+    ancestors.add(value)
+    const values: unknown[] = Array.isArray(value) ? Array.from(value) : Object.values(value)
+    const accepted = values.every(valid)
+    ancestors.delete(value)
+    return accepted
+  }
+  try {
+    return valid(value) ? { value: JSON.parse(JSON.stringify(value)) as T } : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
 function issuePath(path: StandardSchemaV1.Issue["path"]): (string | number)[] {
   return (path ?? []).map((segment) => {
     const key = typeof segment === "object" ? segment.key : segment
@@ -70,11 +93,19 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     return json(400, { message: "Check the form and try again.", issues: result.issues.map((issue): FormIssue => ({ message: issue.message, path: issuePath(issue.path) })) })
   }
 
+  const data = jsonData(result.value)
+  if (!data) {
+    if (html) return back(request, page, "error")
+    return json(400, { message: "Check the form and try again.", issues: [{ message: "The form schema must return JSON data: plain objects, arrays, strings, finite numbers, booleans, or null.", path: [] }] })
+  }
+  const store = options.store === false ? undefined : services.store
+  if (options.store !== false && !store) return stop(503, "This form cannot store messages now.")
+
   const now = services.now?.() ?? Date.now()
   const submission: FormSubmission<StandardSchemaV1.InferOutput<TSchema>> = {
     id: services.id?.() ?? crypto.randomUUID(),
     form: name,
-    data: result.value,
+    data: data.value,
     page,
     anchor,
     user,
@@ -89,12 +120,12 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   }
 
   const message = emailMessage(name, definition, submission)
-  const store = options.store === false ? undefined : services.store
   if (store) await store.insert(submission)
   if (message && store) {
     // The submission is safe in the inbox, so a notification failure does not fail the request.
     if (services.email) {
-      const notified = services.email(message).catch(error => services.log?.(`[vitehub] The ${name} form stored a submission but could not send its email.`, error))
+      const email = services.email
+      const notified = Promise.resolve().then(() => email(message)).catch(error => services.log?.(`[vitehub] The ${name} form stored a submission but could not send its email.`, error))
       if (services.waitUntil) services.waitUntil(notified)
       else await notified
     }

@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -59,8 +60,8 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 
 describe("Workflow dev registry", () => {
   it("generates a Nitro plugin that installs the development registry", () => {
-    const code = createWorkflowDevPluginModule({ provider: "vercel" }, "vite-hub/_internal/workflow")
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "vite-hub/_internal/workflow/runtime/state"`)
+    const code = createWorkflowDevPluginModule({ provider: "vercel" })
+    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
     expect(code).toContain(`import registry from "./dev-registry.mjs"`)
     expect(code).toContain("setWorkflowRuntimeRegistry(registry)")
     expect(code).not.toContain("enableWorkflowDevRuns")
@@ -68,9 +69,9 @@ describe("Workflow dev registry", () => {
   })
 
   it("turns on the run history only in `vite dev`", () => {
-    const code = createWorkflowDevPluginModule({ provider: "vercel" }, "vite-hub/_internal/workflow", true)
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "vite-hub/_internal/workflow/runtime/state"`)
-    expect(code).toContain(`import { enableWorkflowDevRuns } from "vite-hub/_internal/workflow/runtime/dev-runs"`)
+    const code = createWorkflowDevPluginModule({ provider: "vercel" }, true)
+    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
+    expect(code).toContain(`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
     expect(code).toContain("  enableWorkflowDevRuns()\n")
   })
 
@@ -84,29 +85,18 @@ describe("Workflow dev registry", () => {
     const projectRoot = await createApp()
     await configHook(workflow)({ root: projectRoot }, { command: "serve", mode: "development" })
 
-    // Execute the generated plugin with only its external Nitro and runtime state imports stubbed.
+    // Execute the generated plugin with only Nitro stubbed. It imports the Workflow runtime state by file path.
     const nitroDir = join(projectRoot, "node_modules/nitro")
-    const stateDir = join(projectRoot, "node_modules/@vite-hub/workflow")
     await mkdir(nitroDir, { recursive: true })
-    await mkdir(stateDir, { recursive: true })
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
-    await writeFile(join(stateDir, "package.json"), JSON.stringify({ type: "module", exports: { "./runtime/dev-runs": "./dev-runs.mjs", "./runtime/state": "./state.mjs" } }))
-    await writeFile(join(stateDir, "state.mjs"), [
-      "export let config, devRuns, registry",
-      "export const setWorkflowRuntimeConfig = value => { config = value }",
-      "export const setWorkflowRuntimeRegistry = value => { registry = value }",
-      "export const enableDevRuns = () => { devRuns = true }",
-    ].join("\n"))
-    await writeFile(join(stateDir, "dev-runs.mjs"), "import { enableDevRuns } from './state.mjs'\nexport const enableWorkflowDevRuns = enableDevRuns\n")
-    const pluginUrl = pathToFileURL(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")).href
-    const stateUrl = pathToFileURL(join(stateDir, "state.mjs")).href
-    const { default: startup } = await import(/* @vite-ignore */ pluginUrl)
+    const pluginFile = join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")
+    expect(await readFile(pluginFile, "utf8")).toContain(`from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
+    const { default: startup } = await import(/* @vite-ignore */ pathToFileURL(pluginFile).href)
     await startup()
-    const state = await import(/* @vite-ignore */ stateUrl)
-    expect(state.config).toEqual(workflow)
-    expect(state.registry).toHaveProperty("welcome")
-    expect(state.devRuns).toBe(true)
+    const state = await import(/* @vite-ignore */ pathToFileURL(workflowRuntimeModule("state")).href) as typeof import("../src/runtime/state.ts")
+    expect(state.getWorkflowRuntimeConfig()).toEqual(workflow)
+    expect(state.getWorkflowRuntimeRegistry()).toHaveProperty("welcome")
   })
 
   it("uses the config hook override when resolving runtime options", async () => {
@@ -174,19 +164,14 @@ describe("Workflow dev registry", () => {
     const finalConfig = changedOption === "root" ? { root: finalRoot } : { root: projectRoot, __vitehubProjectRoot: finalRoot }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(finalConfig)
     const nitroDir = join(projectRoot, "node_modules/nitro")
-    const stateDir = join(projectRoot, "node_modules/@vite-hub/workflow")
     await mkdir(nitroDir, { recursive: true })
-    await mkdir(stateDir, { recursive: true })
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
-    await writeFile(join(stateDir, "package.json"), JSON.stringify({ type: "module", exports: { "./runtime/dev-runs": "./dev-runs.mjs", "./runtime/state": "./state.mjs" } }))
-    await writeFile(join(stateDir, "state.mjs"), "export let registry; export const setWorkflowRuntimeConfig = () => {}; export const setWorkflowRuntimeRegistry = value => { registry = value }\n")
-    await writeFile(join(stateDir, "dev-runs.mjs"), "export const enableWorkflowDevRuns = () => {}\n")
     const { default: startup } = await import(/* @vite-ignore */ pathToFileURL(startupPath).href)
     await startup()
-    const state = await import(/* @vite-ignore */ pathToFileURL(join(stateDir, "state.mjs")).href)
-    expect(state.registry).toHaveProperty("latest")
-    expect(state.registry).not.toHaveProperty("welcome")
+    const state = await import(/* @vite-ignore */ pathToFileURL(workflowRuntimeModule("state")).href) as typeof import("../src/runtime/state.ts")
+    expect(state.getWorkflowRuntimeRegistry()).toHaveProperty("latest")
+    expect(state.getWorkflowRuntimeRegistry()).not.toHaveProperty("welcome")
     expect(await readFile(join(finalRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("latest")
   })
 

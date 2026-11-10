@@ -141,9 +141,9 @@ describe("AutoForm", () => {
     expect(response.status).toBe(303)
     expect(response.headers.get("location")).toBe("/?form=sent")
     await submit()
-    expect((await store.list()).map(row => row.data)).toEqual([
-      { age: 42, count: 2, message: "Hello", terms: false, extra: undefined, size: undefined },
-      { age: 42, count: 2, message: "Hello", terms: false, extra: undefined, size: undefined },
+    expect((await store.list()).map(row => row.data)).toStrictEqual([
+      { age: 42, count: 2, message: "Hello", terms: false },
+      { age: 42, count: 2, message: "Hello", terms: false },
     ])
   })
 

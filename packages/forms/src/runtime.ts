@@ -24,7 +24,7 @@ export interface FormsRuntimeOptions {
   /** The signed-in user of a request. */
   session?: (request: Request) => Promise<FormUser | null>
   /** The Standard Context of a request, from `getStandardContext()`: the client address in `runtime`, and `waitUntil`. */
-  context?: (request: Request) => { runtime?: { clientAddress?: string }, waitUntil?: (promise: Promise<unknown>) => void }
+  context?: (request: Request) => { runtime?: { clientAddress?: string, cloudflare?: object }, waitUntil?: (promise: Promise<unknown>) => void }
 }
 
 const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
@@ -108,7 +108,7 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   const { sendEmail, session, context } = options
   const services = (request: Request): FormServices => {
     const host = context?.(request)
-    const address = addressKey(host?.runtime?.clientAddress ?? request.headers.get("cf-connecting-ip") ?? "unknown")
+    const address = addressKey(host?.runtime?.clientAddress ?? (host?.runtime?.cloudflare ? request.headers.get("cf-connecting-ip") : undefined) ?? "unknown")
     return {
       store,
       // Counts in this server process. Rate Limit on Cloudflare needs each limit name at build time.
