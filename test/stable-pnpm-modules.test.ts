@@ -34,8 +34,13 @@ describe("stable pnpm modules state", () => {
     expect(JSON.parse(first)).toMatchObject({ virtualStoreDir: ".pnpm", hoistPattern: ["*"] })
   })
 
-  it("runs in the setup action right after the install", () => {
+  it("runs in the setup action after the install and before any cached build", () => {
     const action = readFileSync(new URL(".github/actions/setup/action.yml", root), "utf8")
-    expect(action).toMatch(/run: vp install --frozen-lockfile\n[\s\S]*?run: node "\$GITHUB_ACTION_PATH\/stable-pnpm-modules\.mjs"/)
+    const install = action.indexOf("run: vp install --frozen-lockfile")
+    const stabilize = action.indexOf('run: node "$GITHUB_ACTION_PATH/stable-pnpm-modules.mjs"')
+    const docs = action.indexOf("run: vp run --filter vitehub-docs postinstall")
+    expect(install).toBeGreaterThan(-1)
+    expect(stabilize).toBeGreaterThan(install)
+    expect(docs).toBeGreaterThan(stabilize)
   })
 })
