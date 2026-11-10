@@ -72,6 +72,17 @@ export interface CommentsIdentifyContext {
   event: CommentsRequestEvent
 }
 
+export interface CommentsPageContext {
+  /** The page URL: the origin of the request and the normalized path, without query and hash. */
+  url: URL
+  event: CommentsRequestEvent
+}
+
+/** The subject of a page, and the version of the subject that new threads start on. */
+export interface CommentsPageSubject extends CommentSubject {
+  revision?: number
+}
+
 export interface DefineCommentsOptions extends CommentsDefinition {
   /** Resolves the user of a request. Without it, Comments reads the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: CommentsIdentifyContext) => CommentsUser | null | undefined | Promise<CommentsUser | null | undefined>
@@ -79,6 +90,12 @@ export interface DefineCommentsOptions extends CommentsDefinition {
   database?: string
   /** Posts threads to the pull request that the page previews. */
   forge?: CommentsForgeOptions
+  /**
+   * The subject that the overlay comments on for a page, such as `{ kind: "drop", id, revision }`. The server decides:
+   * the overlay reads the subject from `/session`, and a new thread from the overlay must be on it. `authorize` still
+   * runs on the subject. Return `null` or `undefined` for the default, `{ kind: "page", id: url.pathname }`.
+   */
+  page?: (context: CommentsPageContext) => CommentsPageSubject | null | undefined | Promise<CommentsPageSubject | null | undefined>
 }
 
 export interface ListCommentThreadsOptions {
