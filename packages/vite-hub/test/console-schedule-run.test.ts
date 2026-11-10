@@ -104,9 +104,9 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/sync.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("sync")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "sync" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
     const invokeEnabled = await readFile(plugin, "utf8")
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
     const invokeDisabled = await readFile(plugin, "utf8")
 
     expect(invokeEnabled).toContain(`{ installConsoleDefinitions, installConsoleSchedules }`)
@@ -122,7 +122,7 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/__proto__.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("__proto__")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "__proto__" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
 
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
   })
@@ -161,7 +161,7 @@ describe("Console Schedule runs", () => {
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, "server/schedules/brief.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nconst COPENHAGEN = 'Europe/Copenhagen'\nexport default defineSchedule({ cron: '0 14 * * 1', timeZone: COPENHAGEN, handler() {} })\n")
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
     const generated = await readFile(plugin, "utf8")
     expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
     expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)

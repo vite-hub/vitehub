@@ -331,7 +331,7 @@ describe("Console document editor discovery", () => {
     const root = await temporaryRoot()
     const plugin = join(root, "console.mjs")
     const entry = join(root, "server/content.ts")
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, blobStores: [] })
     const source = await readFile(plugin, "utf8")
 
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
@@ -345,7 +345,7 @@ describe("Console document editor discovery", () => {
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)
     expect(source).toContain(`"id":"content"`)
 
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: {} }, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [] })
     const without = await readFile(plugin, "utf8")
     expect(without).not.toContain("installConsoleDocuments")
     expect(without).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
