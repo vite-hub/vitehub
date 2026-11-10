@@ -46,12 +46,14 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node' }), nitro()],
-  env: {
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -63,12 +65,14 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node' })],
-  env: {
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
     },
-  },
+  })],
 })
 ```
 :::

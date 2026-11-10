@@ -63,7 +63,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database` | `boolean` or `DBModulePublicOptions` | disabled | `true` or an object turns on Database in `vitehub()`. `false` leaves it off. |
+| `database` | `boolean` or `DatabaseOptions` | disabled | `true` or an object turns on Database in `vitehub()`. `false` leaves it off. |
 | `database.projectRoot` | `string` | effective application root | Root for finding Definitions, generated files, and provisioning. Relative paths start from the Vite root, or from the Nuxt `rootDir` in Nuxt. |
 | `database.cli.export` | `false` | enabled | Turns off `db export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `db generate`. |

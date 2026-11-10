@@ -45,23 +45,25 @@ icon: i-lucide-key-round
   import { env } from 'vite-hub/env'
 
   export default defineConfig({
-    plugins: [vitehub({ host: 'node' }), nitro()],
-    env: {
-      // Safe to show in the browser
-      public: {
-        appName: env({ default: 'Acme', mode: 'build' }),
-      },
-      // Only server code can read these
-      server: {
-        github: {
-          token: env({
-            secret: true,
-            source: env.source('GITHUB_TOKEN'),
-          }),
+    plugins: [vitehub({
+      host: 'node',
+      env: {
+        // Safe to show in the browser
+        public: {
+          appName: env({ default: 'Acme', mode: 'build' }),
         },
-        dryRun: env.boolean({ default: true }),
+        // Only server code can read these
+        server: {
+          github: {
+            token: env({
+              secret: true,
+              source: env.source('GITHUB_TOKEN'),
+            }),
+          },
+          dryRun: env.boolean({ default: true }),
+        },
       },
-    },
+    }), nitro()],
   })
   ```
   ::::
@@ -72,23 +74,25 @@ icon: i-lucide-key-round
   import { env } from 'vite-hub/env'
 
   export default defineConfig({
-    plugins: [vitehub({ host: 'node' })],
-    env: {
-      // Safe to show in the browser
-      public: {
-        appName: env({ default: 'Acme', mode: 'build' }),
-      },
-      // Only server code can read these
-      server: {
-        github: {
-          token: env({
-            secret: true,
-            source: env.source('GITHUB_TOKEN'),
-          }),
+    plugins: [vitehub({
+      host: 'node',
+      env: {
+        // Safe to show in the browser
+        public: {
+          appName: env({ default: 'Acme', mode: 'build' }),
         },
-        dryRun: env.boolean({ default: true }),
+        // Only server code can read these
+        server: {
+          github: {
+            token: env({
+              secret: true,
+              source: env.source('GITHUB_TOKEN'),
+            }),
+          },
+          dryRun: env.boolean({ default: true }),
+        },
       },
-    },
+    })],
   })
   ```
   ::::

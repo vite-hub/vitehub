@@ -201,17 +201,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', auth: true }), nitro()],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    host: 'cloudflare',
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
         },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -223,17 +226,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', auth: true })],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    host: 'cloudflare',
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
         },
       },
     },
-  },
+  })],
 })
 ```
 :::

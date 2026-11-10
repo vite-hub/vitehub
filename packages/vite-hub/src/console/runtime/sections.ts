@@ -324,7 +324,7 @@ export function resolveConsoleSectionIds(options: {
   email?: unknown;
   host?: unknown;
   kv?: unknown;
-  logs?: unknown;
+  observability?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
   sandboxTask?: unknown;
@@ -336,7 +336,8 @@ export function resolveConsoleSectionIds(options: {
     && Boolean(options.workflow || (options.agent && options.host !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
-    ...(options.logs ? ["logs"] : []),
+    // `observability: { logs }` connects the log source that the section reads.
+    ...(options.observability && typeof options.observability === "object" && "logs" in options.observability && options.observability.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),

@@ -5,7 +5,10 @@ import { join } from "node:path"
 import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { detectHost, vitehub } from "../src/index.ts"
+import { getDeploymentHost } from "@vite-hub/internal/build/vite"
+
+import { detectHost } from "../src/deployment.ts"
+import { vitehub } from "../src/index.ts"
 
 const hostVariables = [
   "VITEHUB_HOST",
@@ -74,14 +77,14 @@ describe("vitehub() without a host", () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     vi.stubEnv(name, value)
     const config = await buildConfig()
-    expect(config.vitehub).toEqual({ host })
+    expect(getDeploymentHost(config)).toBe(host)
     expect(config.nitro?.preset).toBe(nitroPreset)
   })
 
   it("builds for Node when no variable names a host", async () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     const config = await buildConfig()
-    expect(config.vitehub).toEqual({ host: "node" })
+    expect(getDeploymentHost(config)).toBe("node")
     expect(config.nitro?.preset).toBe("node-server")
   })
 
@@ -90,7 +93,7 @@ describe("vitehub() without a host", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-no-options-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     const config = await resolveConfig({ root, plugins: [vitehub()] }, "build")
-    expect(config.vitehub).toEqual({ host: "node" })
+    expect(getDeploymentHost(config)).toBe("node")
   })
 
   it("follows NITRO_PRESET instead of failing on a conflict", async () => {

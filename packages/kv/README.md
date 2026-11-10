@@ -40,11 +40,10 @@ import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  kv: {
+  plugins: [hubKv({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
-  },
-  plugins: [hubKv()],
+  })],
 })
 ```
 

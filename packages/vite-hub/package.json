@@ -1065,7 +1065,7 @@
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
     "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
-    "test": "vp run -t vite-hub#build && vp test"
+    "test": "vp run --cache -t vite-hub#build && vp test"
   },
   "dependencies": {
     "@cfworker/json-schema": "4.1.1",

@@ -475,11 +475,6 @@
     "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
-    "label": "vite.config.ts",
-    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type 'string | undefined' is not assignable to type 'EnvRuntimeConfigValue'.\n      Type 'undefined' is not assignable to type 'EnvRuntimeConfigValue'."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
     "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
