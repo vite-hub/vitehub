@@ -110,7 +110,7 @@ pnpm dev
 
 Local capture works only in development. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
-Local capture requires Nitro 3.
+Local capture requires Nitro 3, in Vite or Nuxt 5.
 
 For a larger example, run `playground/logs` in the ViteHub repository. It shows a checkout request, redacted fields, and a diagnostic. Its README tells you how to start it.
 

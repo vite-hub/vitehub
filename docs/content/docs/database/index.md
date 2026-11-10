@@ -125,23 +125,23 @@ icon: i-lucide-database
 
 ::product-features
   :::product-feature-item{title="Tables in one file" icon="i-lucide-file-code-2" to="/docs/database/configure#define-a-database"}
-  Write your tables with Drizzle in `src/database.ts`. ViteHub finds the file and makes migrations from it.
+  Write your tables with Drizzle in `src/database.ts`. ViteHub finds it and makes migrations.
   :::
 
   :::product-feature-item{title="Query from any route" icon="i-lucide-code-2" to="/docs/database/server-api#use-it-at-runtime"}
-  `useDatabase()` gives you a Drizzle client and your tables. Results have the types of your columns.
+  `useDatabase()` gives you a Drizzle client and your tables, with typed results.
   :::
 
   :::product-feature-item{title="More than one database" icon="i-lucide-layers" to="/docs/database/server-api#use-named-databases"}
-  Give a database a name to keep its data apart. Each one has its own client and connection.
+  Name a database to keep its data apart, with its own client and connection.
   :::
 
   :::product-feature-item{title="Local first, hosted later" icon="i-lucide-cloud-cog" to="/docs/database/hosts#providers"}
-  Use a local SQLite file while you develop. Move to Turso or Cloudflare D1 without changing your routes.
+  Use a local SQLite file while you develop. Move to Turso or Cloudflare D1 with the same routes.
   :::
 
   :::product-feature-item{title="SQLite everywhere" icon="i-lucide-table-2" to="/docs/database/hosts#production-checks"}
-  Every connection uses SQLite-compatible SQL, so your queries work the same on each host.
+  Every connection uses SQLite-compatible SQL, so queries work the same on each host.
   :::
 ::
 

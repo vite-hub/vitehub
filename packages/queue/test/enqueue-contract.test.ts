@@ -42,7 +42,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     { payload: "event", region: "business-region", id: "business-id", kind: "audit" },
   ]
   for (const payload of payloads) {
-    expect((await dynamicQueue.run("audit", payload, { delaySeconds: 5, id: "dispatch-id" }))[0]).toBeUndefined()
+    expect((await dynamicQueue.send("audit", payload, { delaySeconds: 5, id: "dispatch-id" }))[0]).toBeUndefined()
   }
   expect(sent.map(call => call.payload)).toEqual(payloads)
   for (const call of sent) {
