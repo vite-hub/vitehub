@@ -3,13 +3,17 @@ import { addViteHubPageToolRoutes, viteHubPageToolsBase } from "@vite-hub/intern
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { resolveConsoleClient } from "./client.ts"
+
+import type { NitroModule } from "nitro/types"
 
 export function mountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
 }
 
 type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route?: string }
-const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
+// Nitro 3 resolves handler paths against rootDir unless they start with `#`, so a `virtual:` id would become a missing file.
+const configuredMcpDiscovery = "#vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 type NitroPrerenderConfig = { baseURL?: string, prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
 
@@ -31,14 +35,14 @@ export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: strin
  * adds the application base to these routes.
  */
 export function addConsolePageHandlers(
-  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
+  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], modules?: unknown, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
   signInPage?: string,
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
-  const assets = join(consoleRuntimeRoot, "public/console")
+  const assets = resolveConsoleClient().dir
   const skills = join(consoleRuntimeRoot, "public/skills")
   const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
   if (signInPage) {
@@ -58,6 +62,55 @@ export function addConsolePageHandlers(
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
   ]
   addConsolePageToolRoutes(nitro, consoleRuntimeRoot, viteHubBasePath(base))
+  addConsoleAssetManifestModule(nitro)
+}
+
+const consoleAssetManifestModuleName = "vite-hub/console-asset-manifest"
+const publicAssetsDataId = /^#nitro\/virtual\/public-assets-data$/
+const publicAssetsDataPrefix = "export default "
+
+/**
+ * Remove the Console files from Nitro's public asset manifest on presets that do not serve static files, such as
+ * Cloudflare. There, Nitro reads the manifest only to ask whether a URL is a public asset, and the `/_vitehub/` asset
+ * bases already answer yes for every file below them. The Console client has about 600 files, whose entries add about
+ * 165 KB to the server entry.
+ */
+export function addConsoleAssetManifestModule(nitro: { modules?: unknown }): void {
+  const modules = Array.isArray(nitro.modules) ? nitro.modules : []
+  if (modules.some(module => Object(module) === module && Reflect.get(Object(module), "name") === consoleAssetManifestModuleName)) return
+  nitro.modules = [...modules, consoleAssetManifestModule]
+}
+
+const consoleAssetManifestModule: NitroModule = {
+  name: consoleAssetManifestModuleName,
+  setup(nitro) {
+    if (nitro.options.dev || nitro.options.serveStatic) return
+    const transform = {
+      filter: { id: publicAssetsDataId },
+      handler: (code: string) => pruneConsoleAssetManifest(code, consoleAssetBases(nitro.options.baseURL, nitro.options.publicAssets)),
+    }
+    nitro.hooks.hook("build:config", (_nitro, config) => {
+      if (config.rolldown) config.rolldown.plugins = [config.rolldown.plugins, { name: consoleAssetManifestModuleName, transform }]
+      else config.rollup.plugins = [config.rollup.plugins, { name: consoleAssetManifestModuleName, transform }]
+    })
+  },
+}
+
+/** The URL prefixes of the `/_vitehub/` asset folders that Nitro matches as a whole: the folders without fallthrough. */
+export function consoleAssetBases(baseURL: string, publicAssets: ReadonlyArray<{ baseURL?: string, fallthrough?: boolean }>): string[] {
+  return publicAssets.flatMap((asset) => {
+    if (asset.fallthrough || !asset.baseURL?.includes("/_vitehub/")) return []
+    return [`${baseURL.replace(/\/+$/, "")}/${asset.baseURL.replace(/^\/+|\/+$/g, "")}/`]
+  })
+}
+
+/** Nitro's manifest module without the files below `bases`. It returns `undefined` to keep a module it cannot read. */
+export function pruneConsoleAssetManifest(code: string, bases: readonly string[]): string | undefined {
+  if (!bases.length || !code.startsWith(publicAssetsDataPrefix)) return undefined
+  const assets: unknown = JSON.parse(code.slice(publicAssetsDataPrefix.length).trim().replace(/;$/, ""))
+  if (Object(assets) !== assets) return undefined
+  const kept = Object.entries(Object(assets)).filter(([id]) => !bases.some(base => id.startsWith(base)))
+  return `${publicAssetsDataPrefix}${JSON.stringify(Object.fromEntries(kept), null, 2)};`
 }
 
 /**
@@ -85,8 +138,10 @@ export function addConsoleRpcHandler(
   base?: string,
   sections: readonly string[] = [],
   oauth = false,
+  crossOrigin = false,
 ): void {
   const kit = createNitroServerKit(nitro)
+  const preflight = join(consoleRuntimeRoot, "server/console-preflight.js")
   // Nitro 2 resolves plugin names against srcDir, so this virtual plugin needs an absolute filename.
   const nitro2McpDiscovery = join(consoleRuntimeRoot, "server/mcp-discovery-nitro2.js")
   // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
@@ -129,8 +184,11 @@ export function addConsoleRpcHandler(
   }
   // SAFETY: The kit preserves the caller's Nitro plugin registrations.
   const plugins = kit.config.plugins as string[]
-  const retainedPlugins = plugins.filter(plugin => plugin !== nitro2McpDiscovery)
+  const retainedPlugins = plugins.filter(plugin => plugin !== nitro2McpDiscovery && plugin !== preflight)
   plugins.splice(0, plugins.length, ...retainedPlugins)
+  // CORS preflights carry no credentials, so the plugin answers them before every app middleware and app Auth. Only
+  // `console.origins` with `auth: "token"` accepts cross-origin calls.
+  if (crossOrigin) kit.addPlugin(preflight, "start")
   if (oauth) {
     // Nitro 2 mounts even route-less middleware below app.baseURL. Its request hook runs at the origin root,
     // before app middleware, and H3 1's respondWith() completes the response without entering the mounted stack.

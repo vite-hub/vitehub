@@ -2,7 +2,9 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
-import { array, object, parse, picklist, string } from "valibot"
+import { array, object, optional, parse, picklist, string } from "valibot"
+
+import { frameworks, frameworkView } from "../modules/tutorials/build"
 
 const docsRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = resolve(import.meta.dirname, "../../fixtures/docs-hosts")
@@ -12,6 +14,7 @@ const snippetContractsSchema = array(object({
   label: string(),
   page: string(),
   verification: picklist(["build", "json", "typecheck"]),
+  framework: optional(picklist(frameworks)),
 }))
 
 function normalize(source: string) {
@@ -21,6 +24,7 @@ function normalize(source: string) {
 function sourceBlocks(source: string) {
   return [...normalize(source).matchAll(/```(ts|json) \[([^\]]+)\][^\n]*\n([\s\S]*?)\n```/g)].map(match => ({
     label: match[2]!,
+    language: match[1]!,
     source: normalize(match[3]!),
   }))
 }
@@ -32,25 +36,33 @@ async function readContracts() {
 describe("launch-critical documentation snippets", () => {
   it("reads source blocks from CRLF pages", () => {
     expect(sourceBlocks("```ts [vite.config.ts]\r\nexport default {}\r\n```\r\n")).toEqual([
-      { label: "vite.config.ts", source: "export default {}" },
+      { label: "vite.config.ts", language: "ts", source: "export default {}" },
     ])
   })
 
-  it("sources every TypeScript and JSON block from an executable fixture", async () => {
+  it("shows every fixture on its page and sources every JSON block from a fixture", async () => {
     const contracts = await readContracts()
     const pages = [...new Set(contracts.map(contract => contract.page))]
 
-    expect(contracts).toHaveLength(21)
+    expect(contracts).toHaveLength(14)
 
+    // A block outside the framework tabs has one contract for every framework. A block in a tab names its framework.
+    // docs/scripts/check-snippets.mjs type-checks the TypeScript blocks, so only JSON blocks need a fixture each.
     for (const page of pages) {
-      const blocks = sourceBlocks(await readFile(resolve(docsRoot, "content/docs", page), "utf8"))
-      const pageContracts = contracts.filter(contract => contract.page === page)
-      const expected = await Promise.all(pageContracts.map(async contract => ({
-        label: contract.label,
-        source: normalize(await readFile(resolve(fixturesRoot, contract.fixture), "utf8")),
-      })))
+      const markdown = await readFile(resolve(docsRoot, "content/docs", page), "utf8")
+      for (const framework of frameworks) {
+        const blocks = sourceBlocks(frameworkView(markdown, framework))
+        const pageContracts = contracts.filter(contract => contract.page === page && (contract.framework ?? framework) === framework)
+        const expected = await Promise.all(pageContracts.map(async contract => ({
+          label: contract.label,
+          language: contract.verification === "json" ? "json" : "ts",
+          source: normalize(await readFile(resolve(fixturesRoot, contract.fixture), "utf8")),
+        })))
+        const json = (list: typeof blocks) => list.filter(block => block.language === "json").sort(compareBlocks)
 
-      expect(expected.sort(compareBlocks), `${page} should inventory every source block`).toEqual(blocks.sort(compareBlocks))
+        expect(blocks, `${page} (${framework}) should show every fixture`).toEqual(expect.arrayContaining(expected))
+        expect(json(expected), `${page} (${framework}) should source every JSON block from a fixture`).toEqual(json(blocks))
+      }
     }
   })
 

@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot";
 import { getLogSource } from "../../../logs/host.ts";
 import {
@@ -7,8 +8,9 @@ import {
   parseLogQuery,
 } from "../../../logs/source.ts";
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
-import type { ConsoleRequestEvent } from "./request.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
+import { consoleHttpError } from "./http-error.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
 import type { LogPage, LogSourceInfo } from "../../../logs/source.ts";
 
 export async function consoleLogsHandler(
@@ -32,10 +34,10 @@ export async function consoleLogsHandler(
         throw new Error(`The source does not support ${filter} filters.`);
     }
   } catch {
-    throw Object.assign(new Error("Invalid or unsupported log filter."), { statusCode: 400 });
+    throw consoleHttpError(400, new Error("Invalid or unsupported log filter."));
   }
   try {
-    const page = v.parse(logPageSchema, await source.query(query, { signal: event.req?.signal }));
+    const page = v.parse(logPageSchema, await source.query(query, { signal: getStandardContext(event).req.signal }));
     if (page.entries.length > query.limit)
       throw new Error("The source exceeded the requested page size.");
     const json = JSON.stringify(page);
@@ -43,12 +45,16 @@ export async function consoleLogsHandler(
       throw new Error("The source exceeded the response size limit.");
     return { source: v.parse(logSourceInfoSchema, source.info), page };
   } catch (error) {
-    if (error instanceof LogCursorExpiredError) throw Object.assign(error, { statusCode: 409 });
-    throw Object.assign(new Error("Could not read the log source."), { statusCode: 502 });
+    if (error instanceof LogCursorExpiredError) throw consoleHttpError(409, error);
+    throw consoleHttpError(502, new Error("Could not read the log source."));
   }
 }
-const handler: ConsoleAccessRoute<typeof consoleLogsHandler> = withConsoleAccess(
+/** The log page, for the `logs.list` operation. */
+export const readConsoleLogs: ConsoleAccessRoute<typeof consoleLogsHandler> = withConsoleAccess(
   consoleLogsHandler,
   { section: "logs" },
 );
-export default handler;
+
+/** `GET <base>/api/_vitehub/console/logs` */
+const consoleLogsRoute: ConsoleRoute = consoleRoute(readConsoleLogs);
+export default consoleLogsRoute;

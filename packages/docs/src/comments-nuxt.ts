@@ -38,9 +38,8 @@ function installed(name: string, rootDir: string): boolean {
 
 /**
  * The module dependency that turns Comments on in `vite-hub/nuxt`. Comments keeps threads in a ViteHub Database, so a
- * site without `vite-hub/nuxt` has none unless it asks for them, which fails the build. `false` sets `comments: false`,
- * so the Console's default does not turn Comments on either. The dependency only sets defaults: the app's own
- * `vitehub.comments` wins.
+ * site without `vite-hub/nuxt` has none unless it asks for them, which fails the build. `false` sets `comments: false`.
+ * The dependency only sets defaults: the app's own `vitehub.comments` wins.
  */
 export async function docsCommentsDependencies(
   nuxt: ModuleOptionsNuxt & { options: { rootDir: string } },

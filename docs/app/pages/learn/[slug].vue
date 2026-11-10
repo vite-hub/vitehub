@@ -4,7 +4,7 @@ import { checkWebContainerSupport } from "@vite-hub/web-container";
 import { useClipboard, useMediaQuery } from "@vueuse/core";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
-import { splitTutorialDocument } from "~/utils/runnable-tutorial";
+import { frameworkNodes, splitTutorialDocument } from "~/utils/runnable-tutorial";
 import { tutorialActionsKey } from "~/utils/tutorial-actions";
 
 import type { DocsPageResponse } from "@vite-hub/docs";
@@ -21,7 +21,8 @@ if (!tutorial) throw createError({ statusCode: 404, statusMessage: "Tutorial not
 
 const { data } = await useFetch<DocsPageResponse>(`/api/_docs/page${tutorial.page}.json`, { key: `docs:${tutorial.page}` });
 if (!data.value) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
-const lesson = splitTutorialDocument(data.value.document.nodes);
+// The workspace is a Vite app, so the lesson shows the Vite tab of every framework tabs block.
+const lesson = splitTutorialDocument(frameworkNodes(data.value.document.nodes, "Vite"));
 const total = tutorial.steps.length;
 
 useSeoMeta({ title: tutorial.title, ogTitle: tutorial.title, description: tutorial.description, ogDescription: tutorial.description });
@@ -166,7 +167,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
             <TutorialWorkspace v-model:selected="selected" :tutorial="tutorial" :step="step" :actions="actions" />
           </div>
           <div v-else class="vh-run-open">
-            <p class="text-sm text-muted">Edit and run the code of each step in your browser. The first start installs the app, which takes a few minutes.</p>
+            <p class="text-sm text-muted">Edit and run the code of each step in your browser.{{ tutorial.snapshot ? "" : " The first start installs the app, which takes a few minutes." }}</p>
             <UButton class="mt-3" color="neutral" icon="i-lucide-play" label="Open workspace" @click="opened = true" />
           </div>
         </div>

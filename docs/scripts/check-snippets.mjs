@@ -57,7 +57,7 @@ export function extractBlocks(markdown, languages = fenceLanguages) {
     }
     if (languages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
-      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:m?ts|tsx))$/.exec(body[0] ?? "")?.[1]
+      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
       const fails = meta.find(entry => entry.startsWith(`${failsMarker}=`))?.slice(failsMarker.length + 1).split(",").map(code => Number(code.replace(/^TS/, "")))
       blocks.push({ code: body.join("\n"), end: end + 1, fails, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
@@ -80,7 +80,7 @@ const options = {
   skipLibCheck: true,
   strict: true,
   target: ts.ScriptTarget.ESNext,
-  types: ["node"],
+  types: ["node", "vite/client"],
 }
 
 /** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue and `?raw` shims of a Vite app. */
@@ -94,6 +94,11 @@ const nuxtModules = {
 }
 const appDeclarations = [
   {
+    // The ViteHub plugin includes this H3 augmentation in `.vitehub/types.d.ts`.
+    code: `import type {} from "vite-hub/runtime/h3"\nexport {}\n`,
+    file: join(docsRoot, ".snippets/standard-context.d.ts"),
+  },
+  {
     code: [
       `declare module "*.vue" {`,
       `  const component: import("vue").DefineComponent`,
@@ -106,6 +111,16 @@ const appDeclarations = [
       `}`,
     ].join("\n"),
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
+  },
+  {
+    // `hubAuth()` writes this declaration for the stable Auth alias that manual hosts mount.
+    code: [
+      `declare module "#vitehub/auth/server" {`,
+      `  export * from "@vite-hub/auth/server"`,
+      `  export { default } from "@vite-hub/auth/server"`,
+      `}`,
+    ].join("\n"),
+    file: join(docsRoot, ".snippets/vitehub-auth-server.d.ts"),
   },
   {
     // Nuxt writes these options into `.nuxt/types/modules.d.ts` for the modules that an app installs.
@@ -141,7 +156,7 @@ export function collectSnippets(sources = snippetSources()) {
       .map(({ code, label }) => ({ code, label }))
     extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
-      let name = block.label && /\.(m?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
+      let name = block.label && /\.(?:[cm]?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
@@ -169,7 +184,7 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = [...registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
+  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -181,40 +196,50 @@ export async function generatedDeclarations(pageSnippets) {
  * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
  */
 function definitionName(directory, kind) {
-  const server = new RegExp(`^server/${directory}/(.+?)(?:/index)?(?:\\.${kind})?\\.(?:m?ts|tsx)$`)
-  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.(?:m?ts|tsx)$`)
+  const server = new RegExp(`^server/${directory}/(.+)\\.(?:[cm]?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.[cm]?ts$`)
   return (label) => {
-    const name = server.exec(label)?.[1] ?? suffix.exec(label)?.[1]
-    return name ? [name] : []
+    const serverPath = server.exec(label)?.[1]
+    let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
+    if (serverPath && (kind === "channel" || kind === "connection")) name = name.replace(new RegExp(`\\.${kind}$`, "i"), "")
+    const names = name ? [name] : []
+    // Queue discovery also scans suffix files below server/queues from the project root.
+    if (serverPath && kind === "queue") {
+      const suffixName = suffix.exec(label)?.[1]
+      if (suffixName) names.push(suffixName)
+    }
+    return names
   }
 }
 
 /** Source names a Collection after its relative file path and imports the export matching the filename. */
-function collectionNames(label, code) {
-  const name = /^server\/collections\/(.+)\.m?ts$/.exec(label)?.[1]
+async function collectionNames(label, code) {
+  const name = /^server\/collections\/(.+)\.[cm]?ts$/.exec(label)?.[1]
   if (!name) return []
   const exportName = name.split("/").at(-1)
-  const source = ts.createSourceFile(label, code, ts.ScriptTarget.Latest, true)
-  const definition = source.statements
-    .filter(statement => ts.isVariableStatement(statement) && statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))
-    .flatMap(statement => statement.declarationList.declarations)
-    .find(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === exportName)
-  if (!definition) return []
-  const call = definition.initializer
-  if (call && ts.isCallExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "defineCollection") {
-    const options = call.arguments[1] ?? call.arguments[0]
-    const route = options && ts.isObjectLiteralExpression(options) && options.properties.find(property =>
-      ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === "route")
-    if (route && route.initializer.kind === ts.SyntaxKind.FalseKeyword) return []
-  }
-  return [name]
+  const { inspectCollectionModule } = await import(pathToFileURL(join(packagesRoot, "source/dist/vite.js")).href)
+  return inspectCollectionModule(label, code, exportName).routeEnabled ? [name] : []
+}
+
+async function channelNames(label, code, pageSnippets) {
+  const names = definitionName("channels", "channel")(label)
+  if (!names.length || !label.startsWith("server/channels/")) return names
+  // Owner discovery reserves an indexed folder for one Channel before classifying its modules.
+  const indexFolder = /^server\/channels\/(.+)\/index\.(?:[cm]?ts|tsx)$/i
+  if (pageSnippets.some((snippet) => {
+    const indexLabel = snippet.label?.replace(/^\/+/, "") ?? ""
+    const folder = isAppFile(snippet) && indexFolder.exec(indexLabel)?.[1]
+    return folder && label !== indexLabel && label.startsWith(`server/channels/${folder}/`)
+  })) return []
+  const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
+  return isOutboundChannelSource(code, label) ? names : []
 }
 
 const globalModules = name => entries => ["declare global {", `  interface ${name} {`, ...entries.map(([key, path]) => `    ${key}: typeof import(${path})`), "  }", "}", "export {}"]
 
 /**
  * The registries that ViteHub generates from the Definitions of an app, in the form that each package writes them.
- * A page shows the Definitions that its other blocks use by name, such as `runQueue('welcome-email')`.
+ * A page shows the Definitions that its other blocks use by name, such as `sendQueue('welcome-email')`.
  */
 const registries = [
   {
@@ -224,7 +249,7 @@ const registries = [
     type: "queue",
   },
   // @vite-hub/channels, @vite-hub/connections, and @vite-hub/browser: `renderRegistryTypes()` in src/vite.ts
-  { definitions: definitionName("channels", "channel"), render: globalModules("ViteHubChannelDefinitionModules"), type: "channels" },
+  { definitions: channelNames, render: globalModules("ViteHubChannelDefinitionModules"), type: "channels" },
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
@@ -243,15 +268,15 @@ const registries = [
     // @vite-hub/database: src/internal/generated.ts. `server/databases/config.ts` and `src/database.ts` define the
     // `default` Database, and `server/databases/<name>/config.ts` a named one.
     definitions: (label) => {
-      if (/^(?:server\/databases\/config|src\/database)\.m?ts$/.test(label)) return ["default"]
-      const name = /^server\/databases\/(.+)\/config\.m?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.m?ts$/.exec(label)?.[1]
+      if (/^server\/databases\/config\.[cm]?ts$/.test(label) || label === "src/database.ts") return ["default"]
+      const name = /^server\/databases\/(.+)\/config\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
     render: entries => ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(module => [
       `import ${JSON.stringify(module)}`,
       `declare module ${JSON.stringify(module)} {`,
       "  interface DatabaseRegistry {",
-      ...entries.map(([key, path]) => `    ${key}: { schema: typeof import(${path}).default.schema }`),
+      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema }`),
       "  }",
       "}",
     ]),
@@ -259,19 +284,20 @@ const registries = [
   },
 ]
 
-function registryDeclarations(pageSnippets) {
+async function registryDeclarations(pageSnippets) {
   const declarations = []
   for (const registry of registries) {
     const definitions = new Map()
     for (const snippet of pageSnippets) {
       if (!isAppFile(snippet) || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
-      for (const name of registry.definitions(label, snippet.code)) if (!definitions.has(name)) definitions.set(name, snippet.file)
+      if (/\.d\.(?:[cm]?ts|tsx)$/i.test(label)) continue
+      for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
     }
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
     const entries = [...definitions].map(([name, handler]) => {
-      // Bundler resolution finds extensionless .ts/.tsx files, but .mts imports need their extension.
+      // Bundler resolution finds extensionless .ts/.tsx files, but .mts/.cts imports need their extension.
       const path = relative(dirname(file), handler).replace(/\.tsx?$/, "")
       return [JSON.stringify(name), JSON.stringify(path.startsWith(".") ? path : `./${path}`), name]
     })
@@ -282,12 +308,22 @@ function registryDeclarations(pageSnippets) {
 
 const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
 
+async function envPluginDeclarations(plugins, config) {
+  const plugin = await plugins
+  if (Array.isArray(plugin)) {
+    const declarations = []
+    for (const child of plugin) declarations.push(...await envPluginDeclarations(child, config))
+    return declarations
+  }
+  return plugin?.name === "@vite-hub/env/vite" ? [plugin.api.resolveDeclarations(config)] : []
+}
+
 /**
  * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
  * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
  */
 async function envDeclarations(pageSnippets) {
-  const configs = pageSnippets.filter(snippet => isAppFile(snippet) && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:/.test(snippet.code))
+  const configs = pageSnippets.filter(snippet => isAppFile(snippet) && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
   if (!configs.length) return []
   const env = { public: {}, server: {} }
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
@@ -304,14 +340,17 @@ async function envDeclarations(pageSnippets) {
       writeFileSync(file, snippet.code)
       let config
       try {
-        config = (await import(pathToFileURL(file).href)).default
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
+        for (const declarations of [config?.env, ...await envPluginDeclarations(config?.plugins, config)]) {
+          Object.assign(env.public, declarations?.public)
+          Object.assign(env.server, declarations?.server)
+        }
       }
       catch {
-        // Keep the page's fallback declarations rather than deriving Env types from an incomplete config.
+        // Only excluded blocks may be skipped; a failed app config must not leave a partial Env contract.
         return []
       }
-      Object.assign(env.public, config?.env?.public)
-      Object.assign(env.server, config?.env?.server)
     }
   }
   finally {
@@ -330,7 +369,7 @@ async function envDeclarations(pageSnippets) {
     "",
   ].join("\n")
   return [
-    { code: createEnvTypes(env), file: join(pageRoot, envTypesFile) },
+    { code: createEnvTypes(env, { projectRoot: pageRoot }), file: join(pageRoot, envTypesFile) },
     { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }
@@ -491,8 +530,15 @@ export function compareBaseline(failures, baseline) {
   return { fresh, stale }
 }
 
-function readBaseline() {
-  return existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : []
+function readBaseline(path = baselinePath) {
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : []
+}
+
+export function updateBaseline(failures, path = baselinePath) {
+  if (compareBaseline(failures, readBaseline(path)).fresh.length) return false
+  const entries = failures.map(baselineEntry)
+  writeFileSync(path, `${JSON.stringify(entries, null, 2)}\n`)
+  return true
 }
 
 /** Expected-error assertions always fail on a mismatch, even if a baseline once listed them. */
@@ -517,10 +563,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...sharedCheck.failures,
     ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
   ]
-  const { entries, fresh, stale } = checkBaseline(failures, readBaseline())
-  if (process.argv.includes("--update-baseline") && !failures.some(({ snippet }) => snippet.fails)) {
-    writeFileSync(baselinePath, `${JSON.stringify(entries, null, 2)}\n`)
-    console.log(`Wrote ${entries.length} known failures to ${relative(repoRoot, baselinePath)}.`)
+  const { fresh, stale } = checkBaseline(failures, readBaseline())
+  if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {
+    console.log(`Wrote ${failures.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
   for (const { snippet, diagnostics } of fresh) {

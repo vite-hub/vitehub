@@ -1,5 +1,7 @@
 import {
   createCloudflareProvisionClient,
+  isShellSafeProvisionValue,
+  listCloudflarePages,
   ProvisionRequestError,
   resolveCloudflareProvisionConfig,
 } from "@vite-hub/internal/provision"
@@ -8,7 +10,7 @@ import { KV_CLOUDFLARE_PROVISION_CATEGORY } from "./integrations/cloudflare.ts"
 import { resolveKVViteConfig } from "./vite-config.ts"
 
 import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
-import type { KVModuleOptions } from "./types.ts"
+import type { KVOptions } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareKVNamespace {
@@ -17,8 +19,6 @@ interface CloudflareKVNamespace {
 }
 
 const CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE = 100
-// Cloudflare rejects a duplicate namespace title with this error code.
-const CLOUDFLARE_KV_DUPLICATE_TITLE_CODE = 10014
 
 function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
   if (!Array.isArray(value)) throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace list." })
@@ -47,28 +47,14 @@ function parseCreatedNamespace(value: unknown): { id: string } {
 
 async function listNamespaceIds(request: CloudflareProvisionRequest): Promise<Map<string, string>> {
   const ids = new Map<string, string>()
-  for (let page = 1; ; page++) {
-    const listed = await request("/storage/kv/namespaces", {
-      parse: parseNamespaces,
-      query: { page: String(page), per_page: String(CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE) },
-    })
-    const namespaces = listed.result ?? []
-    for (const namespace of namespaces) {
-      if (namespace.id && namespace.title && !ids.has(namespace.title)) ids.set(namespace.title, namespace.id)
-    }
-    const resultInfo = listed.result_info
-    if (resultInfo?.total_pages !== undefined) {
-      if (page >= resultInfo.total_pages) return ids
-      continue
-    }
-    if (resultInfo?.total_count !== undefined) {
-      const currentPage = resultInfo.page ?? page
-      const pageSize = resultInfo.per_page ?? CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE
-      if (currentPage * pageSize < resultInfo.total_count) continue
-      return ids
-    }
-    if (namespaces.length < CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE) return ids
+  const namespaces = await listCloudflarePages(request, "/storage/kv/namespaces", {
+    parse: parseNamespaces,
+    perPage: CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE,
+  })
+  for (const namespace of namespaces) {
+    if (namespace.id && namespace.title && !ids.has(namespace.title)) ids.set(namespace.title, namespace.id)
   }
+  return ids
 }
 
 async function createNamespace(request: CloudflareProvisionRequest, title: string): Promise<string | undefined> {
@@ -78,9 +64,7 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
   }
   catch (error) {
     // Another run created the namespace after this plan listed it.
-    const duplicate = error instanceof ProvisionRequestError
-      && (error.status === 400 || error.status === 409 || error.codes.includes(CLOUDFLARE_KV_DUPLICATE_TITLE_CODE))
-    if (!duplicate) throw error
+    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
     const id = (await listNamespaceIds(request)).get(title)
     if (!id) throw error
     return id
@@ -88,7 +72,7 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
 }
 
 // Groups Cloudflare KV Stores without a configured namespace id by namespace name.
-function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record<string, string | undefined>): Map<string, string[]> {
+function planStoresByNamespace(options: KVOptions | undefined, env: Record<string, string | undefined>): Map<string, string[]> {
   const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
   const storesByNamespace = new Map<string, string[]>()
   if (!kv) return storesByNamespace
@@ -101,10 +85,26 @@ function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record
   return storesByNamespace
 }
 
-export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOptions | undefined): ProvisionStep {
+function cloudflareStoreNames(options: KVOptions | undefined, env: Record<string, string | undefined>): string[] {
+  const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
+  if (!kv) return []
+  return Object.entries(kv.stores || { default: kv.store }).filter(([, store]) => store.driver === "cloudflare-kv-binding").map(([name]) => name)
+}
+
+export function createKVCloudflareProvisionStep(resolveOptions: () => KVOptions | undefined): ProvisionStep {
   return {
     id: "kv:cloudflare-kv",
     provider: "cloudflare",
+    recordedState(context) {
+      return [{
+        category: KV_CLOUDFLARE_PROVISION_CATEGORY,
+        // A store with a configured namespace id still declares its key, so its recorded id is never offered for deletion.
+        declared: cloudflareStoreNames(resolveOptions(), context.env),
+        deleteHint: ({ id }) => isShellSafeProvisionValue(id)
+          ? `run \`wrangler kv namespace delete --namespace-id ${id}\``
+          : "delete the KV namespace in the Cloudflare dashboard",
+      }]
+    },
     async plan(context) {
       const storesByNamespace = planStoresByNamespace(resolveOptions(), context.env)
       if (!storesByNamespace.size) return []
@@ -112,6 +112,7 @@ export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOp
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
         context.logger.warn("kv: skipping Cloudflare KV, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+        context.markPlanUnchecked?.()
         return []
       }
 

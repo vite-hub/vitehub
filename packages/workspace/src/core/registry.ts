@@ -2,14 +2,10 @@ import { workspaceNotFoundError } from "./errors.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
-import runtimeRegistry from "#vitehub-workspace-registry"
+import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry } from "../runtime/registry.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
-export type WorkspaceRegistryModule = {
-  default?: WorkspaceDefinitionInput
-}
-
-export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryModule>>
+export type { WorkspaceRegistry, WorkspaceRegistryModule } from "../runtime/registry.ts"
 
 const workspaceRegistryStateKey = Symbol.for("vitehub.workspace.registryState")
 
@@ -22,8 +18,9 @@ interface WorkspaceRegistryState {
   }>
   loadGenerations: Map<string, number>
   loadedDefinitions: Map<string, WorkspaceDefinition>
-  loaders: WorkspaceRegistry
   registeredDefinitions: Map<string, WorkspaceDefinition>
+  registryVersion: number
+  scopedDefinitions: Map<string, Map<string, WorkspaceDefinition>>
 }
 
 type WorkspaceRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceRegistryState | undefined>
@@ -35,12 +32,22 @@ function workspaceRegistryState(): WorkspaceRegistryState {
     loadingDefinitions: new Map(),
     loadGenerations: new Map<string, number>(),
     loadedDefinitions: new Map<string, WorkspaceDefinition>(),
-    loaders: runtimeRegistry,
     registeredDefinitions: new Map<string, WorkspaceDefinition>(),
+    registryVersion: workspaceRuntimeRegistryState().version,
+    scopedDefinitions: new Map(),
   }
-  scope[workspaceRegistryStateKey].loadingDefinitions ??= new Map()
-  scope[workspaceRegistryStateKey].loadGenerations ??= new Map<string, number>()
-  return scope[workspaceRegistryStateKey]
+  const state = scope[workspaceRegistryStateKey]
+  state.loadingDefinitions ??= new Map()
+  state.loadGenerations ??= new Map<string, number>()
+  state.scopedDefinitions ??= new Map()
+  // The startup plugin sets the registry without loading this module. Drop what an older registry loaded.
+  const { version } = workspaceRuntimeRegistryState()
+  if (state.registryVersion !== version) {
+    invalidateWorkspaceLoads(state)
+    state.loadedDefinitions.clear()
+    state.registryVersion = version
+  }
+  return state
 }
 
 function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<string, unknown>): WorkspaceDefinitionInput {
@@ -103,18 +110,22 @@ export function registerWorkspace(name: string, definition: WorkspaceDefinitionI
   return registered
 }
 
-export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
+/** Replace one generated catalog's definitions without replacing application registrations. */
+export function setWorkspaceRuntimeDefinitions(scope: string, definitions: Record<string, WorkspaceDefinitionInput>): void {
+  const normalized = new Map(Object.entries(definitions).map(([name, definition]) => [name, normalizeWorkspaceDefinition(name, definition)]))
   const state = workspaceRegistryState()
-  invalidateWorkspaceLoads(state)
-  state.loaders = registry
-  state.loadedDefinitions.clear()
+  if (normalized.size) state.scopedDefinitions.set(scope, normalized)
+  else state.scopedDefinitions.delete(scope)
+}
+
+export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
+  setWorkspaceRuntimeRegistry(registry)
+  workspaceRegistryState()
 }
 
 export function resetWorkspaceRegistry(): void {
-  const state = workspaceRegistryState()
-  invalidateWorkspaceLoads(state)
-  state.loaders = runtimeRegistry
-  state.loadedDefinitions.clear()
+  resetWorkspaceRuntimeRegistry()
+  workspaceRegistryState()
 }
 
 function invalidateWorkspaceLoads(state: WorkspaceRegistryState): void {
@@ -128,10 +139,16 @@ function invalidateWorkspaceLoads(state: WorkspaceRegistryState): void {
 
 async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {
   const state = workspaceRegistryState()
-  const existing = state.registeredDefinitions.get(name) || state.loadedDefinitions.get(name)
+  const registered = state.registeredDefinitions.get(name)
+  if (registered) return registered
+  for (const definitions of state.scopedDefinitions.values()) {
+    const definition = definitions.get(name)
+    if (definition) return definition
+  }
+  const existing = state.loadedDefinitions.get(name)
   if (existing) return existing
 
-  const load = state.loaders[name]
+  const load = workspaceRuntimeRegistryState().loaders[name]
   if (!load) throw workspaceNotFoundError(name)
 
   let loading = state.loadingDefinitions.get(name)
@@ -140,7 +157,7 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
     state.loadGenerations.set(name, generation)
     const promise = load().then((mod) => {
       const definition = normalizeWorkspaceDefinition(name, mod.default)
-      if (state.loadGenerations.get(name) === generation && state.loaders[name] === load) {
+      if (state.loadGenerations.get(name) === generation && workspaceRuntimeRegistryState().loaders[name] === load) {
         state.loadedDefinitions.set(name, definition)
       }
       return definition

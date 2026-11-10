@@ -4,9 +4,8 @@ import { docsIcons } from "./app/utils/docs-sidebar-icons";
 import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
 
 export default defineNuxtConfig({
-  modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
-  // Motion components must use the same Vue runtime as Nuxt's server renderer.
-  build: { transpile: ["motion-v"] },
+  // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
   docs: {
     site: {
       name: "ViteHub",
@@ -25,14 +24,24 @@ export default defineNuxtConfig({
         { label: "Playground", to: "/playground", icon: "i-ph-code-light" },
         { label: "Projects", to: "/projects", icon: "i-ph-folder-simple-light" },
         { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
+        // The hosted Console opens deployed ViteHub apps from the browser. See /docs/development/console#hosted-console.
+        { label: "Console", to: "https://console.vitehub.dev", icon: "i-ph-monitor-light" },
       ],
     },
-    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://discord.gg/YTRDsRP3" }],
+    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://chat.vitehub.dev" }],
+    footer: [
+      { label: "About", to: "/about" },
+      { label: "Examples", to: "/examples" },
+      { label: "Contact", to: "/contact" },
+      { label: "Privacy", to: "/privacy" },
+    ],
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
     mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
     sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
+    // Fail the build on pages that a site audit would flag: see DocsSeoError.
+    seoAudit: "error",
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
     rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
   },
@@ -184,8 +193,9 @@ export default defineNuxtConfig({
     serverBundle: {
       collections: ["lucide", "ph", "simple-icons", "vscode-icons"],
     },
+    // Server-rendered icons come with their CSS. Icons that appear only in the browser and are not listed here load from
+    // the server bundle on first use, so the client bundle stays small instead of holding every icon in the source.
     clientBundle: {
-      scan: true,
       icons: [
         "lucide:brain",
         "lucide:calendar-plus",

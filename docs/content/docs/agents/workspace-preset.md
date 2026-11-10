@@ -7,16 +7,16 @@ icon: i-lucide-folder-search
 navigation.kind: Guides
 ---
 
-The Workspace preset supplies a read-only Codex Agent and instructions for citing mounted Sources. It uses Source provenance to build GitHub links to the exact revision read by the Agent.
+The Workspace preset gives you a read-only Codex Agent that answers from mounted Sources (file trees such as a GitHub repository). It cites each file with a GitHub link to the exact revision it read.
 
 ## Add the Agent
 
-Enable `agent: true` and `workspace: true` in your [ViteHub configuration](/docs/agents/workspace-context#add-a-read-only-workspace). Import the preset's default export and declare the Sources to read:
+Set `agent: true` and `workspace: true` in your [ViteHub configuration](/docs/agents/workspace-context#add-a-read-only-workspace). Then import the preset and list the Sources to read:
 
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 import workspace from 'vite-hub/presets/workspace'
-import { github } from 'vite-hub/source/github'
+import { github } from 'vite-hub/source'
 
 export default defineAgent({
   preset: 'workspace',
@@ -34,7 +34,7 @@ export default defineAgent({
 })
 ```
 
-Add project guidance in `server/agents/docs/instructions.md`:
+Add your project guidance:
 
 ```md [server/agents/docs/instructions.md]
 Answer questions from the mounted docs Source.
@@ -42,28 +42,29 @@ Read the relevant files before answering and cite the lines you used.
 Say when the Source does not contain the answer.
 ```
 
-Run this Agent through your application's [invocation path](/docs/agents/invocations) or attach a [Channel](/docs/agents/channels). The preset supplies no Channel or background worker.
+Run the Agent through your app's [invocation path](/docs/agents/invocations) or a [Channel](/docs/agents/channels). The preset adds no Channel or background worker.
 
 ## What the preset supplies
 
 | Setting | Behavior |
 | --- | --- |
-| `driver.kind` | Codex. Configure its model and provider settings in `driver`. |
-| `workspace.mode` | Read-only access to the mounted file tree. |
+| `driver.kind` | Codex. Set its model and provider settings in `driver`. |
+| `workspace.mode` | Read-only access to the mounted files. |
 | Instructions | Source provenance, citation rules, and a slot for your project guidance. |
 
-The preset adds no tools or workflow options. Codex reads the configured Workspace through its provider file access. Your application supplies the Sources, provider authentication, invocation path, and storage configuration.
+The preset adds no tools or workflow options. Codex reads the Workspace through its own file access. Your app gives the Sources, provider authentication, invocation path, and storage.
 
 ## Citation behavior
 
-The instructions ask the Agent to map each cited mounted path to its Source metadata and use a GitHub HTTPS link with the resolved revision ID. They include the Source root, encode each path segment, and add a line anchor when known.
-
-For the example above, a citation has this form:
+The instructions tell the Agent to map each cited path to its Source and link to GitHub at the resolved revision. The link includes the Source root, encodes each path segment, and adds a line anchor when known. For the example above:
 
 ```text
 https://github.com/vite-hub/vitehub/blob/<resolved-commit>/docs/content/docs/agents/presets.md#L10
 ```
 
-The Agent is instructed to omit a link when a file cannot be mapped to exact provenance. Local Sources without GitHub provenance do not gain a guessed repository URL. These are model instructions; the preset does not validate citations in the returned text.
+The Agent omits a link when it cannot map a file to an exact revision. Local Sources without GitHub data get no guessed URL.
 
-Use [Workspace context](/docs/agents/workspace-context) to configure access and shared file trees, and [Source configuration](/docs/source/configure) for loader settings and revision behavior.
+> [!NOTE]
+> These are model instructions. The preset does not check the citations in the answer.
+
+Read [Workspace context](/docs/agents/workspace-context) to set access and shared file trees, and [Source configuration](/docs/source/configure) for loaders and revisions.

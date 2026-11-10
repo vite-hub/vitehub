@@ -1,5 +1,7 @@
+import { Request as WorkerRequest } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { connectionsErrorDiagnostics } from "../src/error-diagnostics.ts";
 import { createConnectionsRuntime } from "../src/runtime.ts";
 import { createConnectionsHandler } from "../src/http.ts";
 import { ACCESS_TOKEN, createTestRuntime, REFRESH_TOKEN, mailConnection } from "./helpers.ts";
@@ -25,10 +27,43 @@ function streamedPost(body: ReadableStream<Uint8Array>): Request {
 }
 
 describe("createConnectionsHandler", () => {
+  it("accepts a host's Web Request without consuming its body", async () => {
+    const request = new WorkerRequest(`${origin}/_vitehub/connections`, {
+      body: JSON.stringify({ action: "list" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    });
+    expect(request).not.toBeInstanceOf(Request);
+    const actor = vi.fn(async () => {
+      expect(request.bodyUsed).toBe(false);
+      await expect(request.clone().json()).resolves.toEqual({ action: "list" });
+      return "user:local" as const;
+    });
+    const handler = createConnectionsHandler({ actor, runtime: () => createTestRuntime().runtime });
+    // SAFETY: Miniflare implements the Web Request API with its host's Fetch types.
+    const response = await handler.fetch(request as unknown as Request);
+    expect(response.status).toBe(200);
+    expect(actor).toHaveBeenCalledWith(request);
+    await expect(response.json()).resolves.toMatchObject({ connections: [{ name: "mail" }] });
+  });
+
   it.each(["", "   ", "/", "//", "connections", "  /  ", "/portal?x", "/portal#section"])("rejects invalid base path %s during setup", (basePath) => {
     expect(() => createConnectionsHandler({ actor: () => "user:local", basePath, runtime: () => createTestRuntime().runtime }))
       .toThrow("Connections basePath")
   })
+
+  it("passes the Request with its Standard Context to the actor", async () => {
+    const request = post({ action: "unknown" });
+    // Nitro sets the Standard Context of the event on its Request.
+    Object.defineProperty(request, "~standard", { value: { vendor: "test", req: request, res: { headers: new Headers() } } });
+    const actor = vi.fn((input: Request) => {
+      expect(Reflect.get(input, "~standard")).toMatchObject({ req: request });
+      return undefined;
+    });
+    const handler = createConnectionsHandler({ actor, runtime: () => createTestRuntime().runtime });
+    expect((await handler.fetch(request)).status).toBe(403);
+    expect(actor).toHaveBeenCalledWith(request);
+  });
 
   it.each([
     () => undefined,
@@ -47,7 +82,7 @@ describe("createConnectionsHandler", () => {
         headers: { cookie: "vitehub_connection_state=state" },
       }),
     ]) {
-      expect((await handler(request)).status).toBe(403);
+      expect((await handler.fetch(request)).status).toBe(403);
     }
     expect(getRuntime).not.toHaveBeenCalled();
   });
@@ -60,22 +95,36 @@ describe("createConnectionsHandler", () => {
       store: test.store,
     });
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => runtime });
-    const inspect = await handler(post({ action: "inspect", name }));
+    const inspect = await handler.fetch(post({ action: "inspect", name }));
     expect(inspect.status).toBe(200);
     expect(await inspect.json()).toMatchObject({ connection: { name } });
-    const start = await handler(new Request(`${origin}/_vitehub/connections/connect/${encodeURIComponent(name)}`));
+    const start = await handler.fetch(new Request(`${origin}/_vitehub/connections/connect/${encodeURIComponent(name)}`));
     expect(start.status).toBe(302);
     expect(new URL(start.headers.get("location")!).searchParams.get("state")).toBeTruthy();
-    expect((await handler(post({ action: "inspect", name: "team//mail" }))).status).toBe(400);
+    expect((await handler.fetch(post({ action: "inspect", name: "team//mail" }))).status).toBe(400);
   });
 
   it("rejects malformed encoded connection names with a client error", async () => {
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
 
-    const response = await handler(new Request(`${origin}/_vitehub/connections/connect/%E0%A4%A`));
+    const response = await handler.fetch(new Request(`${origin}/_vitehub/connections/connect/%E0%A4%A`));
 
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("Connection name is invalid");
+  });
+
+  it("keeps the thrown error's recovery guidance on Fetchable error pages", async () => {
+    const handler = createConnectionsHandler({
+      actor: () => { throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: "t3:alice" }); },
+    });
+
+    const response = await handler.fetch(new Request(`${origin}/_vitehub/connections/connect/t3:alice`));
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const html = await response.text();
+    expect(html).toContain("/_vitehub/connections?connection=t3%3Aalice");
+    expect(html).toContain("vitehub connections connect t3:alice");
   });
 
   it("runs JSON actions for same-origin requests", async () => {
@@ -84,7 +133,7 @@ describe("createConnectionsHandler", () => {
       actor: () => "user:local",
       runtime: () => test.runtime,
     });
-    const response = await handler(post({ action: "list" }));
+    const response = await handler.fetch(post({ action: "list" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       connections: [{ name: "mail", provider: "example", status: "disconnected" }],
@@ -104,7 +153,7 @@ describe("createConnectionsHandler", () => {
       },
       cancel,
     }, { highWaterMark: 0 });
-    const response = await handler(streamedPost(body));
+    const response = await handler.fetch(streamedPost(body));
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_INVALID_REQUEST" } });
     expect(reads).toBe(9);
@@ -132,7 +181,7 @@ describe("createConnectionsHandler", () => {
       },
       cancel,
     }, { highWaterMark: 0 });
-    const response = await handler(streamedPost(body));
+    const response = await handler.fetch(streamedPost(body));
     expect(response.status).toBe(size === 65536 ? 200 : 400);
     expect(cancel).toHaveBeenCalledTimes(size === 65536 ? 0 : 1);
   });
@@ -143,7 +192,7 @@ describe("createConnectionsHandler", () => {
       [new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("{broken")); controller.close(); } }), 400],
       [new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error("Stream failed")); } }), 500],
     ] as const) {
-      const response = await handler(streamedPost(body));
+      const response = await handler.fetch(streamedPost(body));
       expect(response.status).toBe(status);
       expect(body.locked).toBe(false);
     }
@@ -152,18 +201,18 @@ describe("createConnectionsHandler", () => {
   it("dispatches and completes OAuth under an application base", async () => {
     const test = createTestRuntime()
     const handler = createConnectionsHandler({ actor: () => "user:local", basePath: "/portal/_vitehub/connections", runtime: () => test.runtime })
-    const response = await handler(new Request(`${origin}/portal/_vitehub/connections`, {
+    const response = await handler.fetch(new Request(`${origin}/portal/_vitehub/connections`, {
       body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin }, method: "POST",
     }))
     expect(response.status).toBe(200)
-    const start = await handler(new Request(`${origin}/portal/_vitehub/connections/connect/mail`))
+    const start = await handler.fetch(new Request(`${origin}/portal/_vitehub/connections/connect/mail`))
     expect(start.status).toBe(302)
     const location = new URL(start.headers.get("location")!)
     expect(location.searchParams.get("redirect_uri")).toBe(`${origin}/portal/_vitehub/connections/callback`)
     expect(start.headers.get("set-cookie")).toContain("Path=/portal/_vitehub/connections;")
     const state = location.searchParams.get("state")!
     test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, id_token: "account-1", refresh_token: REFRESH_TOKEN } })
-    const callback = await handler(new Request(`${origin}/portal/_vitehub/connections/callback?code=code-1&state=${state}`, {
+    const callback = await handler.fetch(new Request(`${origin}/portal/_vitehub/connections/callback?code=code-1&state=${state}`, {
       headers: { cookie: `vitehub_connection_state=${state}` },
     }))
     expect(callback.status).toBe(200)
@@ -176,15 +225,15 @@ describe("createConnectionsHandler", () => {
       await test.store.approvals.create({ action: "mail.messages.modify", actor: "agent:mail", createdAt: new Date().toISOString(), id: `approval-${index}`, input: {}, name: "mail", status: "pending" })
     }
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
-    const response = await handler(post({ action: "approvals", name: "mail", status: "pending" }))
+    const response = await handler.fetch(post({ action: "approvals", name: "mail", status: "pending" }))
     // SAFETY: The local handler serializes the approval list from the real test store.
     const result = await response.json() as { approvals: Array<{ id: string }>, nextCursor: string }
     expect(result.approvals).toHaveLength(100)
     expect(result.nextCursor).toBe("approval-1")
-    const older = await handler(post({ action: "approvals", before: result.nextCursor, name: "mail", status: "pending" }))
+    const older = await handler.fetch(post({ action: "approvals", before: result.nextCursor, name: "mail", status: "pending" }))
     expect(older.status).toBe(200)
     expect(await older.json()).toMatchObject({ approvals: [{ id: "approval-0" }] })
-    const denied = await handler(post({ action: "deny", id: "approval-0" }))
+    const denied = await handler.fetch(post({ action: "deny", id: "approval-0" }))
     expect(denied.status).toBe(200)
     expect(await test.store.approvals.get("approval-0")).toMatchObject({ status: "denied" })
     expect((await test.runtime.approvals({})).approvals).toHaveLength(100)
@@ -194,9 +243,9 @@ describe("createConnectionsHandler", () => {
     const test = createTestRuntime()
     await test.store.approvals.create({ action: "mail.messages.modify", actor: "agent:test", createdAt: new Date().toISOString(), id: "summary-1", input: { to: "ada@example.com" }, name: "mail", status: "pending" })
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
-    const page = await handler(post({ action: "approval-summaries", name: "mail", status: "pending" }))
+    const page = await handler.fetch(post({ action: "approval-summaries", name: "mail", status: "pending" }))
     expect(await page.json()).toEqual({ approvals: [{ action: "mail.messages.modify", actor: "agent:test", createdAt: expect.any(String), id: "summary-1", name: "mail", status: "pending" }] })
-    const counts = await handler(post({ action: "approval-counts" }))
+    const counts = await handler.fetch(post({ action: "approval-counts" }))
     expect(await counts.json()).toEqual({ counts: { mail: 1 } })
   })
 
@@ -210,7 +259,7 @@ describe("createConnectionsHandler", () => {
     await test.store.approvals.create({ action: "mail.messages.modify", actor: "agent:test", createdAt: new Date().toISOString(), id: "proto-1", input: {}, name: "__proto__", status: "pending" })
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => runtime })
 
-    const counts = await handler(post({ action: "approval-counts" }))
+    const counts = await handler.fetch(post({ action: "approval-counts" }))
 
     expect(await counts.json()).toEqual({ counts: Object.fromEntries([["__proto__", 1]]) })
   })
@@ -231,13 +280,13 @@ describe("createConnectionsHandler", () => {
     })
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
 
-    const response = await handler(post({ action: "approval-counts" }))
+    const response = await handler.fetch(post({ action: "approval-counts" }))
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_INVALID_STORED_DATA",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
@@ -253,13 +302,13 @@ describe("createConnectionsHandler", () => {
     }))
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
 
-    const response = await handler(post({ action: "approval-counts" }))
+    const response = await handler.fetch(post({ action: "approval-counts" }))
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_INVALID_STORED_DATA",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
@@ -286,13 +335,13 @@ describe("createConnectionsHandler", () => {
     })
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
 
-    const response = await handler(post({ action: "approval-counts" }))
+    const response = await handler.fetch(post({ action: "approval-counts" }))
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_INVALID_STORED_DATA",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
       },
@@ -319,7 +368,7 @@ describe("createConnectionsHandler", () => {
     })
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
 
-    const response = await handler(post({ action: "approval-counts" }))
+    const response = await handler.fetch(post({ action: "approval-counts" }))
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ counts: { mail: 1_001 } })
@@ -332,18 +381,18 @@ describe("createConnectionsHandler", () => {
       actor: () => "user:local",
       runtime: () => test.runtime,
     });
-    expect((await handler(post({ action: "inspect", name: "n".repeat(502) }))).status).toBe(400);
+    expect((await handler.fetch(post({ action: "inspect", name: "n".repeat(502) }))).status).toBe(400);
     expect(
-      (await handler(post({ action: "list" }, { origin: "https://attacker.example.com" }))).status,
+      (await handler.fetch(post({ action: "list" }, { origin: "https://attacker.example.com" }))).status,
     ).toBe(403);
     expect(
-      (await handler(post({ action: "list" }, { "sec-fetch-site": "cross-site" }))).status,
+      (await handler.fetch(post({ action: "list" }, { "sec-fetch-site": "cross-site" }))).status,
     ).toBe(403);
-    expect((await handler(post({ action: "list" }, { "content-type": "text/plain" }))).status).toBe(
+    expect((await handler.fetch(post({ action: "list" }, { "content-type": "text/plain" }))).status).toBe(
       403,
     );
-    expect((await handler(post({ action: "drop" }))).status).toBe(400);
-    expect((await handler(new Request(`${origin}/_vitehub/connections`))).status).toBe(405);
+    expect((await handler.fetch(post({ action: "drop" }))).status).toBe(400);
+    expect((await handler.fetch(new Request(`${origin}/_vitehub/connections`))).status).toBe(405);
   });
 
   it("names the expected and received origin when a TLS proxy hides https from the server", async () => {
@@ -356,7 +405,7 @@ describe("createConnectionsHandler", () => {
       headers: { "content-type": "application/json", origin: "https://agent.example.com" },
       method: "POST",
     });
-    const response = await handler(request);
+    const response = await handler.fetch(request);
     expect(actor).toHaveBeenCalledOnce();
     expect(response.status).toBe(403);
     const body = await response.json();
@@ -364,7 +413,7 @@ describe("createConnectionsHandler", () => {
       error: {
         code: "CONNECTIONS_ORIGIN_REJECTED",
         details: { expectedOrigin: "http://agent.example.com", receivedOrigin: "https://agent.example.com" },
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_origin_rejected",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_origin_rejected",
         fix: expect.stringContaining("TLS-terminating proxy"),
         message: "The request Origin https://agent.example.com does not match the server origin http://agent.example.com.",
       },
@@ -385,7 +434,7 @@ describe("createConnectionsHandler", () => {
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
       // The proxy terminates TLS, so the server sees http:// for the public host.
-      const start = await handler(new Request("http://agent.example.com/_vitehub/connections/connect/mail"));
+      const start = await handler.fetch(new Request("http://agent.example.com/_vitehub/connections/connect/mail"));
       expect(start.status).toBe(302);
       const location = new URL(start.headers.get("location")!);
       expect(location.searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
@@ -401,10 +450,10 @@ describe("createConnectionsHandler", () => {
         headers: { "content-type": "application/json", origin },
         method: "POST",
       });
-      expect((await handler(request("https://agent.example.com"))).status).toBe(200);
+      expect((await handler.fetch(request("https://agent.example.com"))).status).toBe(200);
       // The origin that the server sees stays valid, for example through a port forward.
-      expect((await handler(request("http://agent.example.com"))).status).toBe(200);
-      const rejected = await handler(request("https://attacker.example.com"));
+      expect((await handler.fetch(request("http://agent.example.com"))).status).toBe(200);
+      const rejected = await handler.fetch(request("https://attacker.example.com"));
       expect(rejected.status).toBe(403);
       expect(await rejected.json()).toMatchObject({
         error: { code: "CONNECTIONS_ORIGIN_REJECTED", details: { expectedOrigin: "https://agent.example.com" } },
@@ -415,21 +464,21 @@ describe("createConnectionsHandler", () => {
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ agentName: "bot", actor: () => "user:ada", runtime: () => test.runtime });
-      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      const start = await handler.fetch(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
       expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
       const request = new Request("http://attacker.example/_vitehub/connections", {
         body: JSON.stringify({ action: "list" }),
         headers: { "content-type": "application/json", origin: "http://attacker.example" },
         method: "POST",
       });
-      expect((await handler(request)).status).toBe(403);
+      expect((await handler.fetch(request)).status).toBe(403);
     });
 
     it("uses the only configured Agent URL behind an internal host", async () => {
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
-      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      const start = await handler.fetch(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
       expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
     });
 
@@ -437,21 +486,21 @@ describe("createConnectionsHandler", () => {
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
-      const start = await handler(new Request("https://alternate.example.com/_vitehub/connections/connect/mail"));
+      const start = await handler.fetch(new Request("https://alternate.example.com/_vitehub/connections/connect/mail"));
       expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://alternate.example.com/_vitehub/connections/callback");
       const request = new Request("https://alternate.example.com/_vitehub/connections", {
         body: JSON.stringify({ action: "list" }),
         headers: { "content-type": "application/json", origin: "https://alternate.example.com" },
         method: "POST",
       });
-      expect((await handler(request)).status).toBe(200);
+      expect((await handler.fetch(request)).status).toBe(200);
     });
   });
 
   it("gives non-JSON requests their own code", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime });
-    const response = await handler(post({ action: "list" }, { "content-type": "text/plain" }));
+    const response = await handler.fetch(post({ action: "list" }, { "content-type": "text/plain" }));
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
       error: { code: "CONNECTIONS_CONTENT_TYPE_REJECTED", fix: "Send the request with Content-Type: application/json." },
@@ -464,10 +513,10 @@ describe("createConnectionsHandler", () => {
       actor: () => "user:local",
       runtime: () => test.runtime,
     });
-    const response = await handler(post({ action: "inspect", name: "missing" }));
+    const response = await handler.fetch(post({ action: "inspect", name: "missing" }));
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_NOT_FOUND" } });
-    expect((await handler(post({ action: "approve", id: "approval_missing" }))).status).toBe(400);
+    expect((await handler.fetch(post({ action: "approve", id: "approval_missing" }))).status).toBe(400);
   });
 
   it("completes the web authorization flow with a state cookie", async () => {
@@ -476,7 +525,7 @@ describe("createConnectionsHandler", () => {
       actor: () => "user:owner",
       runtime: () => test.runtime,
     });
-    const start = await handler(new Request(`${origin}/_vitehub/connections/connect/mail`));
+    const start = await handler.fetch(new Request(`${origin}/_vitehub/connections/connect/mail`));
     expect(start.status).toBe(302);
     const location = new URL(start.headers.get("location")!);
     expect(location.searchParams.get("redirect_uri")).toBe(
@@ -487,13 +536,13 @@ describe("createConnectionsHandler", () => {
     expect(cookie).toContain(`vitehub_connection_state=${state}`);
     expect(cookie).toContain("HttpOnly");
 
-    const mismatch = await handler(
+    const mismatch = await handler.fetch(
       new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`),
     );
     expect(mismatch.status).toBe(400);
     const sameLength = `${state.slice(0, -1)}${state.endsWith("A") ? "B" : "A"}`;
     for (const cookieState of [state.slice(0, -1), `${state}x`, sameLength]) {
-      const wrong = await handler(
+      const wrong = await handler.fetch(
         new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`, {
           headers: { cookie: `vitehub_connection_state=${cookieState}` },
         }),
@@ -510,7 +559,7 @@ describe("createConnectionsHandler", () => {
         scope: "mail.modify",
       },
     });
-    const callback = await handler(
+    const callback = await handler.fetch(
       new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`, {
         headers: { cookie: `vitehub_connection_state=${state}` },
       }),
@@ -533,7 +582,7 @@ describe("createConnectionsHandler", () => {
     }
 
     async function start(handler: ReturnType<typeof createConnectionsHandler>, query = "") {
-      const response = await handler(new Request(`${origin}/_vitehub/connections/connect/mail${query}`));
+      const response = await handler.fetch(new Request(`${origin}/_vitehub/connections/connect/mail${query}`));
       expect(response.status).toBe(302);
       const state = new URL(response.headers.get("location")!).searchParams.get("state")!;
       const returnCookie = cookies(response).find((cookie) => cookie.startsWith("vitehub_connection_return="))!;
@@ -547,7 +596,7 @@ describe("createConnectionsHandler", () => {
       expect(flow.returnCookie).toContain("vitehub_connection_return=%2F_vitehub%2Fconnections;");
       expect(flow.returnCookie).toContain("HttpOnly");
       test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, id_token: "account-1", refresh_token: REFRESH_TOKEN } });
-      const callback = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${flow.state}`, {
+      const callback = await handler.fetch(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${flow.state}`, {
         headers: { cookie: flow.cookie },
       }));
       const html = await callback.text();
@@ -572,7 +621,7 @@ describe("createConnectionsHandler", () => {
       const flow = await start(handler);
       expect(flow.returnCookie).toContain("Max-Age=0");
       test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN } });
-      const html = await (await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${flow.state}`, {
+      const html = await (await handler.fetch(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${flow.state}`, {
         headers: { cookie: `vitehub_connection_state=${flow.state}` },
       }))).text();
       expect(html).toContain("You can close this tab.");
@@ -587,7 +636,7 @@ describe("createConnectionsHandler", () => {
         const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
         const flow = await start(handler, `?return=${encodeURIComponent(target)}`);
         expect(flow.returnCookie).toMatch(/^vitehub_connection_return=; .*Max-Age=0/);
-        const forged = await handler(new Request(`${origin}/_vitehub/connections/callback?error=access_denied`, {
+        const forged = await handler.fetch(new Request(`${origin}/_vitehub/connections/callback?error=access_denied`, {
           headers: { cookie: `vitehub_connection_return=${encodeURIComponent(target)}` },
         }));
         expect(await forged.text()).not.toContain("Back to Connections");
@@ -598,7 +647,7 @@ describe("createConnectionsHandler", () => {
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
       const flow = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: `${origin}/_vitehub/connections/callback` });
-      const response = await handler(new Request(`${origin}/_vitehub/connections/callback?error=access_denied&error_description=Call%20us&state=${flow.state}`, {
+      const response = await handler.fetch(new Request(`${origin}/_vitehub/connections/callback?error=access_denied&error_description=Call%20us&state=${flow.state}`, {
         headers: { cookie: `vitehub_connection_state=${flow.state}; vitehub_connection_return=%2Fportal%2F_vitehub%2Fconnections` },
       }));
       const html = await response.text();
@@ -607,7 +656,7 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain("<h1>Connection cancelled</h1>");
       expect(html).toContain("Connect again and approve the access that the Connection asks for.");
       expect(html).toContain("CONNECTIONS_AUTHORIZATION_CANCELLED · 400");
-      expect(html).toContain('href="https://vitehub.dev/docs/connections/limits-and-errors#connections_authorization_cancelled"');
+      expect(html).toContain('href="https://vitehub.dev/docs/connections/diagnostics/connections_authorization_cancelled"');
       expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
       // A failure waits for the user and never shows the provider's free text.
       expect(html).not.toContain("http-equiv");
@@ -618,23 +667,23 @@ describe("createConnectionsHandler", () => {
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
       for (const error of ["invalid_scope", "<b>call</b>", "access_denied"]) {
-        const forged = await handler(new Request(`${origin}/_vitehub/connections/callback?error=${encodeURIComponent(error)}`));
+        const forged = await handler.fetch(new Request(`${origin}/_vitehub/connections/callback?error=${encodeURIComponent(error)}`));
         expect(forged.status).toBe(400);
         expect(await forged.text()).toContain("CONNECTIONS_STATE_MISMATCH");
       }
       const flow = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: `${origin}/_vitehub/connections/callback` });
       const callback = () => new Request(`${origin}/_vitehub/connections/callback?error=invalid_scope&state=${flow.state}`, { headers: { cookie: `vitehub_connection_state=${flow.state}` } });
-      const provider = await handler(callback());
+      const provider = await handler.fetch(callback());
       expect(provider.status).toBe(502);
       expect(await provider.text()).toContain("CONNECTIONS_PROVIDER_FAILED");
-      const replay = await handler(callback());
+      const replay = await handler.fetch(callback());
       expect(replay.status).toBe(400);
       expect(await replay.text()).toContain("CONNECTIONS_AUTHORIZATION_EXPIRED");
     });
 
     it("explains an expired authorization with the runtime code", async () => {
       const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
-      const response = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=unknown`, {
+      const response = await handler.fetch(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=unknown`, {
         headers: { cookie: "vitehub_connection_state=unknown" },
       }));
       expect(response.status).toBe(400);

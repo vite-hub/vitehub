@@ -6,14 +6,14 @@ navigation.group: Parts
 icon: i-ph-paperclip-light
 ---
 
-`Attachment` shows one file: an icon or an image, a title, a description, and actions. The `state` prop shows whether the file is waiting, uploading, processing, done, or failed. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
+`Attachment` shows one file: an icon or image, a title, a description, and actions. The `state` prop shows if the file is waiting, uploading, processing, done, or failed. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
 
-::component-preview{name="AttachmentExample"}
+::example{name="AttachmentExample" height=20}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/attachment`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/attachment`:
 
 ```ts
 import { Attachment, AttachmentMedia, AttachmentContent, AttachmentTitle } from "@vite-hub/ui";
@@ -54,11 +54,9 @@ const open = ref(false);
 </template>
 ```
 
-[`useAgentAttachments()`](/docs/ui/attachments) validates and converts the files that these parts display.
+[`useAgentAttachments()`](/docs/ui/attachments) validates and converts the files these parts show.
 
 ## Composition
-
-Use the following composition to build an attachment:
 
 ```text
 Attachment
@@ -71,7 +69,7 @@ Attachment
 └── AttachmentTrigger
 ```
 
-Use `AttachmentGroup` to put several attachments in a row that scrolls:
+`AttachmentGroup` puts several attachments in a scrolling row:
 
 ```text
 AttachmentGroup
@@ -81,48 +79,48 @@ AttachmentGroup
 
 ## Features
 
-- Icon or image media through `AttachmentMedia`.
+- Icon or image media.
 - Five upload states: `idle`, `uploading`, `processing`, `error`, and `done`.
-- Three sizes, and a horizontal or vertical orientation.
-- An `AttachmentTrigger` that makes the whole attachment open a link or a dialog. The actions stay clickable.
-- An `AttachmentGroup` that scrolls horizontally and snaps to each attachment.
-- `AttachmentAction` is a Nuxt UI `UButton`, so it takes `icon`, `aria-label`, and the other `UButton` props.
+- Three sizes, and horizontal or vertical orientation.
+- `AttachmentTrigger` makes the whole attachment open a link or dialog. Actions stay clickable.
+- `AttachmentGroup` scrolls horizontally and snaps to each attachment.
+- `AttachmentAction` is a Nuxt UI `UButton`, so it takes `icon`, `aria-label`, and other `UButton` props.
 
 ## Image
 
-Set `variant="image"` on `AttachmentMedia` and put an `img` in it. Use `orientation="vertical"` to show the media above the content. In a vertical attachment, the actions go to the top right corner of the media.
+Set `variant="image"` on `AttachmentMedia` and put an `img` in it. `orientation="vertical"` puts the media above the content, with the actions in its top right corner.
 
-::component-preview{name="AttachmentImageExample"}
+::example{name="AttachmentImageExample" height=11}
 ::
 
 ## States
 
-Set `state` to show the upload lifecycle. `idle` uses a dashed border. `error` uses the error color for the border, the media, and the description. An image dims while the state is `uploading`, `processing`, or `error`.
+Set `state` to show upload progress. `idle` uses a dashed border. `error` colors the border, media, and description. An image dims while `uploading`, `processing`, or `error`.
 
-::component-preview{name="AttachmentStatesExample"}
+::example{name="AttachmentStatesExample" height=21}
 ::
 
-shadcn/ui animates the title with a shimmer while the file is `uploading` or `processing`. ViteHub does not use continuous animations, so write the state in `AttachmentDescription`, for example "Uploading · 64%".
+shadcn/ui animates the title with a shimmer while `uploading` or `processing`. ViteHub uses no continuous animations, so write the state in `AttachmentDescription`, such as "Uploading · 64%".
 
 ## Sizes
 
-Use `size` to select `default`, `sm`, or `xs`.
+Set `size` to `default`, `sm`, or `xs`.
 
-::component-preview{name="AttachmentSizesExample"}
+::example{name="AttachmentSizesExample" height=11}
 ::
 
 ## Group
 
-Put attachments in an `AttachmentGroup` to show them in a row that scrolls horizontally and snaps to each attachment. The group hides its scrollbar.
+An `AttachmentGroup` shows attachments in a row that scrolls horizontally and snaps to each one. It hides its scrollbar.
 
-::component-preview{name="AttachmentGroupExample"}
+::example{name="AttachmentGroupExample" height=8}
 ::
 
 ## Trigger
 
-Add an `AttachmentTrigger` to make the whole attachment open a link or a dialog. It covers the attachment behind the actions, so the actions stay clickable. Use `as` to render it as a link, for example `as="a"` with `href`, or `:as="NuxtLink"` with `to`. To open a dialog, set the open state of the dialog from `@click`.
+Add an `AttachmentTrigger` to make the whole attachment open a link or dialog. It sits behind the actions, so they stay clickable. For a link, use `as="a"` with `href`, or `:as="NuxtLink"` with `to`. For a dialog, set its open state from `@click`.
 
-::component-preview{name="AttachmentTriggerExample"}
+::example{name="AttachmentTriggerExample" height=8}
 ::
 
 ```vue
@@ -141,11 +139,11 @@ const open = ref(false);
 
 ## Accessibility
 
-`AttachmentAction` renders a Nuxt UI `UButton`. `AttachmentTrigger` renders a native `button` with `type="button"`, or the element that you set with `as`.
+`AttachmentAction` renders a Nuxt UI `UButton`. `AttachmentTrigger` renders a native `button` with `type="button"`, or the element you set with `as`.
 
 ### Label icon-only actions
 
-`AttachmentAction` usually shows only an icon. Give each action an `aria-label` that names the action and the file.
+`AttachmentAction` usually shows only an icon. Give each one an `aria-label` that names the action and file.
 
 ```vue
 <AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
@@ -153,69 +151,69 @@ const open = ref(false);
 
 ### Label the trigger
 
-`AttachmentTrigger` covers the attachment and has no text. Give it an `aria-label` that says what it does.
+`AttachmentTrigger` has no text. Give it an `aria-label` that says what it does.
 
 ```vue
 <AttachmentTrigger as="a" :href="file.url" target="_blank" rel="noreferrer" :aria-label="`Open ${file.name}`" />
 ```
 
-The trigger is behind the actions. Users can focus and click each action and the trigger separately.
+Users can focus and click each action and the trigger separately.
 
 ### Keyboard scrolling
 
-`AttachmentGroup` scrolls horizontally. When the attachments have a trigger or actions, keyboard users reach the attachments that are off screen with the Tab key. For a row of attachments with no controls, add `tabindex="0"`, `role="group"`, and an `aria-label` to the group, so that keyboard users can scroll it.
+When attachments have a trigger or actions, keyboard users reach off-screen ones with Tab. For a row with no controls, add `tabindex="0"`, `role="group"`, and an `aria-label` to the `AttachmentGroup` so keyboard users can scroll it.
 
 ### Meaning beyond color
 
-The `error` state uses the error color. Write the state in `AttachmentDescription`, for example "Upload failed. Try again." The border and the colors are not the only signal.
+Do not rely on the `error` color alone. Write the state in `AttachmentDescription`, such as "Upload failed. Try again."
 
 ## API Reference
 
 ### Attachment
 
-The root of one attachment. Renders a `div` with `data-slot="attachment"` and `data-state`, `data-size`, and `data-orientation` attributes.
+Renders a `div` with `data-slot="attachment"`, `data-state`, `data-size`, and `data-orientation`.
 
 #### Props
 
 | Prop          | Type                                                         | Default        | Description                                       |
 | ------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------- |
-| `state`       | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | `"done"`       | The upload state. Sets the border and the colors. |
-| `size`        | `"default" \| "sm" \| "xs"`                                  | `"default"`    | The size of the attachment.                       |
+| `state`       | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | `"done"`       | The upload state. Sets the border and colors. |
+| `size`        | `"default" \| "sm" \| "xs"`                                  | `"default"`    | The attachment size. |
 | `orientation` | `"horizontal" \| "vertical"`                                 | `"horizontal"` | Puts the media beside or above the content.       |
 
 ### AttachmentMedia
 
-The icon or the image preview. Renders a `div` with `data-slot="attachment-media"`.
+The icon or image preview. Renders a `div` with `data-slot="attachment-media"`.
 
 #### Props
 
 | Prop      | Type                | Default  | Description                                  |
 | --------- | ------------------- | -------- | -------------------------------------------- |
-| `variant` | `"icon" \| "image"` | `"icon"` | Whether the media holds an icon or an `img`. |
+| `variant` | `"icon" \| "image"` | `"icon"` | An icon or an `img`. |
 
 ### AttachmentContent
 
-Holds the title and the description. Has no props. Renders a `div` with `data-slot="attachment-content"`.
+Holds the title and description. No props. Renders a `div` with `data-slot="attachment-content"`.
 
 ### AttachmentTitle
 
-The file name. Has no props. Renders a `span` with `data-slot="attachment-title"`. A long name ends with an ellipsis.
+The file name. No props. Renders a `span` with `data-slot="attachment-title"`. Long names end with an ellipsis.
 
 ### AttachmentDescription
 
-The file type, the size, or the upload state. Has no props. Renders a `span` with `data-slot="attachment-description"`.
+The file type, size, or upload state. No props. Renders a `span` with `data-slot="attachment-description"`.
 
 ### AttachmentActions
 
-Holds one or more actions at the end of the attachment. Has no props. Renders a `div` with `data-slot="attachment-actions"`.
+Actions at the end of the attachment. No props. Renders a `div` with `data-slot="attachment-actions"`.
 
 ### AttachmentAction
 
-One action button. Has no props of its own. Renders a Nuxt UI `UButton` with `color="neutral"`, `variant="ghost"`, `size="xs"`, and `square`. Other attributes, such as `icon`, `aria-label`, and `@click`, go to the button.
+One action button. No props of its own. Renders a Nuxt UI `UButton` with `color="neutral"`, `variant="ghost"`, `size="xs"`, and `square`. Other attributes, such as `icon`, `aria-label`, and `@click`, go to the button.
 
 ### AttachmentTrigger
 
-Covers the whole attachment so that a click on any part of it opens the file. Renders a `button` with `type="button"` by default. A `type` attribute that you set overrides it.
+Covers the attachment, so a click anywhere opens the file. Renders a `button` with `type="button"`. Your own `type` attribute overrides it.
 
 #### Props
 
@@ -225,7 +223,7 @@ Covers the whole attachment so that a click on any part of it opens the file. Re
 
 ### AttachmentGroup
 
-Puts attachments in a row that scrolls horizontally and snaps to each attachment. Has no props. Renders a `div` with `data-slot="attachment-group"`.
+A row that scrolls horizontally and snaps to each attachment. No props. Renders a `div` with `data-slot="attachment-group"`.
 
 ## Related
 

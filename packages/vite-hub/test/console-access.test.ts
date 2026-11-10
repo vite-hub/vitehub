@@ -13,13 +13,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import { createConnectionsHandler } from "@vite-hub/connections/http"
+import { createConnectionsHandler } from "@vite-hub/connections"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
 import { bindConsoleAccess, consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
@@ -28,15 +29,21 @@ import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import { requestEvent, routeRequest } from "./console-event.ts"
+import { consoleEvent } from "./console-event.ts"
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // Page shells, static assets, and OAuth discovery carry no protected project data.
-// The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
-const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
+// The Schedule run route checks Console access only for a bearer call. Signed dispatches and other requests read no
+// Console data. The preflight plugin answers only CORS preflights.
+const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
-  return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
+  return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
 }
 
 async function run(policy: ConsoleAccessPolicy | undefined, request = event()) {
@@ -75,8 +82,12 @@ describe("Console data route contract", () => {
     for (const file of routes.filter(route => !shellRoutes.has(route))) {
       Reflect.deleteProperty(globalThis, policyKey)
       const route: unknown = (await import(join(serverRoot, file))).default
-      if (!(route instanceof Function)) throw new TypeError(`${file} must default-export a route handler.`)
-      const result: unknown = await route(event())
+      // HTTP routes are Fetchables. Operation handlers are functions of a request event.
+      const fetchRoute: unknown = route instanceof Object ? Reflect.get(route, "fetch") : undefined
+      const result: unknown = fetchRoute instanceof Function
+        ? await Reflect.apply(fetchRoute, route, [routeRequest(event())])
+        : route instanceof Function ? await route(event()) : undefined
+      if (result === undefined) throw new TypeError(`${file} must default-export a route.`)
       expect(result, `${file} must call withConsoleAccess() before it reads data`).toBeInstanceOf(Response)
       await expect(rejection(result), file).resolves.toMatchObject({ code: "CONSOLE_ACCESS_NOT_CONFIGURED", message: expect.stringContaining("Console access is not configured"), status: 500 })
     }
@@ -84,7 +95,7 @@ describe("Console data route contract", () => {
 
   it("takes only signed dispatches on the Schedule run route", async () => {
     const route = (await import("../src/console/runtime/server/schedule-run.ts")).default
-    const response = await route(event() as never)
+    const response = await route.fetch(routeRequest(event()))
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toMatchObject({ message: expect.stringMatching(/signed dispatches only.*VITEHUB_DISPATCH_KEY.*Console credentials/) })
   })
@@ -158,7 +169,8 @@ describe("Console access policies", () => {
 
   it("keeps the local development Console open and fails closed in production", async () => {
     installConsoleDevelopment("/test/app", true)
-    const allowed = await run({ mode: "local" })
+    // A development Console without sign-in serves only this machine.
+    const allowed = await run({ mode: "local" }, requestEvent(new Request("http://localhost:3000/_vitehub/api/data"), { remoteAddress: "127.0.0.1" }))
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
 
@@ -218,7 +230,7 @@ describe("Console access policies", () => {
       })
       const definition = createConsoleAuthDefinition(input)
       const signUp = async (email: string): Promise<string> => {
-        const request = new Request("https://example.com/api/_vitehub/console/auth/sign-up/email", {
+        const request = new Request("https://example.com/_vitehub/api/auth/sign-up/email", {
           body: JSON.stringify({ email, name: email, password: "passwordpassword" }),
           headers: { "content-type": "application/json", origin: "https://example.com" },
           method: "POST",
@@ -232,13 +244,10 @@ describe("Console access policies", () => {
       const authorizeConsole = withAuthorization(input.authorize, () => undefined, definition)
       installConsoleAccess({
         mode: "auth",
-        check: async request => request.req instanceof Request ? authorizeConsole(request.req) : new Response(null, { status: 400 }),
+        check: async request => request["~standard"].req instanceof Request ? authorizeConsole(request["~standard"].req) : new Response(null, { status: 400 }),
       })
       const route = withConsoleAccess(() => "workspace file", { anySection: true })
-      const call = (cookie?: string) => route({
-        method: "GET",
-        req: new Request("https://example.com/_vitehub/rpc/__call", { headers: cookie ? { cookie } : {} }),
-      })
+      const call = (cookie?: string) => route(requestEvent(new Request("https://example.com/_vitehub/rpc/__call", { headers: cookie ? { cookie } : {} })))
 
       const denied = await signUp("denied@example.com")
       const allowed = await signUp("allowed@example.com")
@@ -291,7 +300,7 @@ describe("Console access grants", () => {
     installConsoleAccess({ mode: "auth", check })
     const inner = vi.fn((_event: ConsoleRequestEvent, access: ConsoleAccess) => access)
     const outer = withConsoleAccess(async (_event: ConsoleRequestEvent, access: ConsoleAccess) => {
-      const internal = bindConsoleAccess(access, { method: "GET" })
+      const internal = bindConsoleAccess(access, consoleEvent({ url: "http://vitehub.local/" }))
       expect(() => bindConsoleAccess(access, internal)).toThrow("already bound")
       return withConsoleAccess(inner, { anySection: true })(internal)
     }, { anySection: true })
@@ -348,7 +357,7 @@ describe("read-only section access", () => {
 
 describe("Connections manager from Console access", () => {
   function connectionsEvent(): ConsoleRequestEvent {
-    return { method: "POST", req: new Request("http://vitehub.local/_vitehub/connections", { headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST", body: JSON.stringify({ action: "list" }) }) }
+    return requestEvent(new Request("http://localhost:3000/_vitehub/connections", { headers: { "content-type": "application/json", origin: "http://localhost:3000" }, method: "POST", body: JSON.stringify({ action: "list" }) }), { remoteAddress: "127.0.0.1" })
   }
 
   it.each([
@@ -398,8 +407,9 @@ describe("Connections manager from Console access", () => {
     installConsoleAccess({ mode: "auth", check: async () => undefined })
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST" })
-    const requestEvent: ConsoleRequestEvent = { method: "POST", req: request }
-    const response = await createConnectionsHandler({ actor: () => consoleConnectionsActor(requestEvent, async () => undefined), runtime })(request, requestEvent)
+    const actor = vi.fn((input: Request) => consoleConnectionsActor(input, async () => undefined))
+    const response = await createConnectionsHandler({ actor, runtime }).fetch(request)
+    expect(actor).toHaveBeenCalledWith(request)
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_MANAGER_REQUIRED", fix: expect.stringContaining("sign in again"), ok: false })
     expect(runtime).not.toHaveBeenCalled()
@@ -412,8 +422,7 @@ describe("Connections manager from Console access", () => {
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const call = (headers: Record<string, string>) => {
       const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local", ...headers }, method: "POST" })
-      const requestEvent: ConsoleRequestEvent = { method: "POST", req: request }
-      return createConnectionsHandler({ actor: () => consoleConnectionsActor(requestEvent), runtime })(request, requestEvent)
+      return createConnectionsHandler({ actor: input => consoleConnectionsActor(input), runtime }).fetch(request)
     }
     expect((await call({})).status).toBe(403)
     expect(runtime).not.toHaveBeenCalled()
@@ -456,6 +465,12 @@ describe("generated Console access", () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
   })
 
+  it("installs the Console origins even when the list is empty, so a reload revokes removed origins", async () => {
+    await expect(generatedPlugin({ console: { auth: "token", origins: [] } }, "build")).resolves.toContain("vitehubInstallConsoleOrigins([])")
+    await expect(generatedPlugin({ console: { auth: "token" } }, "build")).resolves.toContain('vitehubInstallConsoleOrigins(["https://console.vitehub.dev"])')
+    await expect(generatedPlugin({}, "serve")).resolves.toContain("vitehubInstallConsoleOrigins([])")
+  })
+
   it("serves development operations without Console pages or assets", async () => {
     const assets = [{ baseURL: "/public", dir: "/user-owned-assets" }]
     const config = { base: "/portal/", nitro: { handlers: [], publicAssets: assets } }
@@ -481,26 +496,26 @@ describe("generated Console access", () => {
       resolveAuthConfig: () => appAuth([
         { route: "/api/**" },
         { authorize: true, route: "/_vitehub/**" },
-        { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
+        { authorize: true, method: "GET", route: "/_vitehub/api/**" },
       ]),
     }, "build")
     expect(plugin).toContain('"authorize":true,"index":1,"route":"/_vitehub/**"')
-    expect(plugin).toContain('"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"')
+    expect(plugin).toContain('"authorize":true,"index":2,"method":"GET","route":"/_vitehub/api/**"')
     expect(plugin).toContain('import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from "vite-hub/console/sections"')
     // Better Auth loads on the first Console request, not with the plugin.
     expect(plugin).not.toContain('from "#vitehub/auth/server"')
     expect(plugin).toContain('const vitehubAuthServer = () => import("#vitehub/auth/server")')
-    expect(plugin).toContain('const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"}], getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession })')
-    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/_vitehub/sign-in" })')
+    expect(plugin).toContain('const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/_vitehub/api/**"}], getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession })')
+    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event), verify: vitehubVerifyConsoleJwt }, signInPage: "/_vitehub/sign-in" })')
   })
 
   it.each(["/", "/portal/"])("installs the app Auth sign-in page and MCP OAuth below %s", async (base) => {
     const mount = base.replace(/\/$/, "")
     const plugin = await generatedPlugin({
       console: { auth: "app", signInPage: "/sign-in" },
-      resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, method: "GET", route: `${mount}/api/_vitehub/console/**` }]),
+      resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, method: "GET", route: `${mount}/_vitehub/api/**` }]),
     }, "build", { base })
-    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/sign-in" })`)
+    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event), verify: vitehubVerifyConsoleJwt }, signInPage: "/sign-in" })`)
   })
 
   it.each(["/", "/portal/"])("registers the page sign-in middleware before app Auth below %s", async (base) => {
@@ -509,7 +524,7 @@ describe("generated Console access", () => {
     const config = { base, nitro: { handlers: [appHandler] } }
     await generatedPlugin({
       console: { auth: "app", signInPage: "/sign-in" },
-      resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, route: `${mount}/api/_vitehub/console/**` }]),
+      resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, route: `${mount}/_vitehub/api/**` }]),
     }, "build", config)
     expect(config.nitro.handlers.slice(0, 3)).toEqual([
       { handler: expect.stringMatching(/server\/mcp-discovery\.js$/), middleware: true },
@@ -526,29 +541,24 @@ describe("generated Console access", () => {
       sections: ["agents", "usage", "logs"],
       resolveAuthConfig: () => appAuth([
         { authorize: true, route: `${prefix}/_vitehub/**` },
-        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
-        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/usage` },
-        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/logs` },
+        { authorize: true, method: "GET", route: `${prefix}/_vitehub/api/status` },
+        { authorize: true, method: "GET", route: `${prefix}/_vitehub/api/usage` },
+        { authorize: true, method: "GET", route: `${prefix}/_vitehub/api/logs` },
       ]),
     }, "build", { base })
-    expect(plugin).toContain(`"authorize":true,"index":1,"method":"GET","route":"${prefix}/api/_vitehub/console/status"`)
-    expect(plugin).toContain(`"authorize":true,"index":2,"method":"GET","route":"${prefix}/api/_vitehub/console/usage"`)
-    expect(plugin).toContain(`"authorize":true,"index":3,"method":"GET","route":"${prefix}/api/_vitehub/console/logs"`)
+    expect(plugin).toContain(`"authorize":true,"index":1,"method":"GET","route":"${prefix}/_vitehub/api/status"`)
+    expect(plugin).toContain(`"authorize":true,"index":2,"method":"GET","route":"${prefix}/_vitehub/api/usage"`)
+    expect(plugin).toContain(`"authorize":true,"index":3,"method":"GET","route":"${prefix}/_vitehub/api/logs"`)
   })
 
-  it.each([undefined, "/portal/"])("requires Logs authorization only when Logs is registered with base %s", (base) => {
+  it.each([undefined, "/portal/"])("protects the Console API with the one /_vitehub/** rule with base %s", (base) => {
     const prefix = base?.replace(/\/$/, "") ?? ""
-    const options = {
-      auth: appAuth([
-        { authorize: true, route: `${prefix}/_vitehub/**` },
-        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
-      ]),
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
+      auth: appAuth([{ authorize: true, route: `${prefix}/_vitehub/**` }]),
       base,
       development: false,
-    }
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, { ...options, sections: [] })).not.toThrow()
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, { ...options, sections: ["logs"] }))
-      .toThrow(`${prefix}/api/_vitehub/console/logs`)
+      sections: ["agents", "usage", "logs"],
+    })).not.toThrow()
   })
 
   it.each([undefined, "/portal/"])("accepts exact status access with base %s when Usage is not registered", (base) => {
@@ -556,7 +566,7 @@ describe("generated Console access", () => {
     expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([
         { authorize: true, route: `${prefix}/_vitehub/**` },
-        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
+        { authorize: true, method: "GET", route: `${prefix}/_vitehub/api/status` },
       ]),
       base,
       development: false,
@@ -564,48 +574,11 @@ describe("generated Console access", () => {
     })).not.toThrow()
   })
 
-  it.each(["/", "/portal/"])("omits status authorization and generated access checks without Agents below %s", async (base) => {
-    const prefix = base.replace(/\/$/, "")
-    const plugin = await generatedPlugin({
-      console: { auth: "app" },
-      sections: ["env", "kv"],
-      resolveAuthConfig: () => appAuth([
-        { authorize: true, route: `${prefix}/_vitehub/**` },
-        { method: "GET", route: `${prefix}/api/_vitehub/console/status` },
-      ]),
-    }, "build", { base })
-    expect(plugin).toContain(`"authorize":true,"index":0,"route":"${prefix}/_vitehub/**"`)
-    expect(plugin).not.toContain(`"route":"${prefix}/api/_vitehub/console/status"`)
-  })
-
-  it.each([
-    { authorize: true, method: "POST", route: "/api/_vitehub/console/status" } as const,
-    { method: "GET", route: "/api/_vitehub/console/status" } as const,
-    { authorize: true, method: "GET", route: "/api/_vitehub/console/status/child" } as const,
-  ])("rejects a rule that does not authorize GET status: %j", (route) => {
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
-      auth: appAuth([{ authorize: true, route: "/_vitehub/**" }, route]),
-      development: false,
-      sections: ["agents"],
-    })).toThrow("/api/_vitehub/console/status")
-  })
-
-  it("requires separate Usage coverage when the Usage endpoint is registered", () => {
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
-      auth: appAuth([
-        { authorize: true, route: "/_vitehub/**" },
-        { authorize: true, method: "GET", route: "/api/_vitehub/console/status" },
-      ]),
-      development: false,
-      sections: ["agents", "usage"],
-    })).toThrow("/api/_vitehub/console/usage")
-  })
-
   it("does not treat an exact Console shell rule as recursive protection", () => {
     expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([
         { authorize: true, route: "/_vitehub" },
-        { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
+        { authorize: true, method: "GET", route: "/_vitehub/api/**" },
       ]),
       development: false,
     })).toThrow("/_vitehub/**")
@@ -635,7 +608,7 @@ describe("Realtime rooms from Console access", () => {
     installConsoleAccess({
       mode: "auth",
       check: async () => undefined,
-      user: async request => (request.req?.headers?.get("x-user") ? { id: "ana", name: "Ana", email: "ana@vitehub.dev" } : undefined),
+      user: async request => (request["~standard"].req?.headers?.get("x-user") ? { id: "ana", name: "Ana", email: "ana@vitehub.dev" } : undefined),
       authorize: ({ user }) => (user ? { sections: ["content"] } : { sections: ["kv"] }),
     })
     const content = consoleRealtimeAccess("content")
@@ -668,7 +641,7 @@ describe("Realtime rooms from Console access", () => {
 })
 
 describe("Console sign-in page", () => {
-  const visit = (path: string, method = "GET"): ConsoleRequestEvent => ({ method, req: new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" }, method }) })
+  const visit = (path: string, method = "GET"): Request => new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" }, method })
   const signedOut = async () => new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 })
 
   it("accepts a path on the app's origin for app Auth and open access only", () => {
@@ -698,31 +671,31 @@ describe("Console sign-in page", () => {
 
   it("sends a signed-out page visit to the sign-in page and back", async () => {
     installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/sign-in?from=console" })
-    const response = await consolePageHandler(visit("/_vitehub/auth?tab=users"))
+    const response = await consolePageHandler.fetch(visit("/_vitehub/auth?tab=users"))
     expect(response.status).toBe(302)
     expect(response.headers.get("location")).toBe("/sign-in?from=console&redirect=%2F_vitehub%2Fauth%3Ftab%3Dusers")
 
-    const mounted = await consolePageHandler(visit("/portal/_vitehub"))
+    const mounted = await consolePageHandler.fetch(visit("/portal/_vitehub"))
     expect(mounted.headers.get("location")).toBe("/portal/sign-in?from=console&redirect=%2Fportal%2F_vitehub")
   })
 
   it("serves the page with a link to the sign-in page to a signed-in visitor", async () => {
     installConsoleAccess({ mode: "open", authorize: () => true, signInPage: "/sign-in" })
-    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    const response = await consolePageHandler.fetch(visit("/_vitehub/auth"))
     expect(response.status).toBe(200)
     await expect(response.text()).resolves.toContain('<meta name="vitehub-console-sign-in" content="/sign-in">')
   })
 
   it("serves the page without a sign-in link when the policy names no sign-in page", async () => {
     installConsoleAccess({ mode: "auth", check: signedOut })
-    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    const response = await consolePageHandler.fetch(visit("/_vitehub/auth"))
     expect(response.status).toBe(200)
     await expect(response.text()).resolves.not.toContain("vitehub-console-sign-in")
   })
 })
 
 describe("Console pages and console.authorize", () => {
-  const visit = (path: string): ConsoleRequestEvent => ({ method: "GET", req: new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" } }) })
+  const visit = (path: string): Request => new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" } })
   const session = async () => undefined
   const user = async () => ({ id: "u1", email: "member@vitehub.dev" })
 
@@ -733,7 +706,7 @@ describe("Console pages and console.authorize", () => {
     for (const signInPage of [undefined, "/sign-in"]) {
       const authorize = vi.fn(result)
       installConsoleAccess({ mode: "auth", check: session, user, authorize, ...(signInPage ? { signInPage } : {}) })
-      const response = await consolePageHandler(visit("/_vitehub/auth"))
+      const response = await consolePageHandler.fetch(visit("/_vitehub/auth"))
       expect(response.status).toBe(403)
       expect(response.headers.get("x-frame-options")).toBe("DENY")
       const page = await response.text()
@@ -748,12 +721,12 @@ describe("Console pages and console.authorize", () => {
 
   it("rejects the page the same way with open access", async () => {
     installConsoleAccess({ mode: "open", authorize: () => false })
-    expect((await consolePageHandler(visit("/portal/_vitehub"))).status).toBe(403)
+    expect((await consolePageHandler.fetch(visit("/portal/_vitehub"))).status).toBe(403)
   })
 
   it("sends the Response that authorize returns, as data routes do", async () => {
     installConsoleAccess({ mode: "auth", check: session, user, authorize: () => new Response("Not found", { status: 404 }) })
-    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    const response = await consolePageHandler.fetch(visit("/_vitehub/auth"))
     expect(response.status).toBe(404)
     await expect(response.text()).resolves.toBe("Not found")
   })
@@ -768,7 +741,7 @@ describe("Console pages and console.authorize", () => {
     const authorize = vi.fn(() => custom)
     const policy = mode === "auth" ? { mode, check: session, user } : { mode }
     installConsoleAccess({ ...policy, authorize, ...(signInPage ? { signInPage } : {}) })
-    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    const response = await consolePageHandler.fetch(visit("/_vitehub/auth"))
     expect(response.status).toBe(401)
     expect(response).toBe(custom)
     expect(response.headers.get("www-authenticate")).toBe('Basic realm="Console"')
@@ -779,11 +752,11 @@ describe("Console pages and console.authorize", () => {
 
   it("keeps the signed-out state when the check answers 401 and there is no sign-in page", async () => {
     installConsoleAccess({ mode: "auth", check: async () => new Response(null, { status: 401 }), user, authorize: () => false })
-    expect((await consolePageHandler(visit("/_vitehub/auth"))).status).toBe(200)
+    expect((await consolePageHandler.fetch(visit("/_vitehub/auth"))).status).toBe(200)
   })
 
   it("serves the page to a visitor with some sections", async () => {
     installConsoleAccess({ mode: "auth", check: session, user, authorize: () => ({ sections: ["content"] }) })
-    expect((await consolePageHandler(visit("/_vitehub/content"))).status).toBe(200)
+    expect((await consolePageHandler.fetch(visit("/_vitehub/content"))).status).toBe(200)
   })
 })

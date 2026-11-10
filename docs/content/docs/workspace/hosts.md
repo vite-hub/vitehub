@@ -6,17 +6,17 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-This page covers generated Workspace output and the Cloudflare Artifacts Store. [Store providers](/docs/workspace/configure#store-providers) lists the default Store for each host.
+This page covers generated output and the Cloudflare Artifacts Store. A Store keeps Workspace files. [Store providers](/docs/workspace/configure#store-providers) lists each host's default.
 
 ## Provider output
 
-The Workspace package discovers definitions, generates Workspace name types, prepares build-time assets, and connects Workspace Stores. A Workspace Store can use Blob, but application code still uses Workspace for file operations.
+The Workspace package finds definitions, types Workspace names, prepares build assets, and connects Stores. A Store can use Blob, but your code still uses Workspace for files.
 
 ::note
-The Nuxt Workspace handoff is only for hosted Workspace runtime setup and generated registry transport. It does not create Nitro-specific Workspace discovery, public provider store constructors, or a second Workspace authoring model.
+The Nuxt Workspace handoff only sets up the hosted runtime and passes the generated registry. It does not add Nitro-specific discovery, public Store constructors, or a second way to define Workspaces.
 ::
 
-Add generated types when you want `useWorkspace()` to narrow discovered Workspace names.
+Add the generated types so `useWorkspace()` accepts only discovered Workspace names.
 
 ```json [tsconfig.json]
 {
@@ -30,7 +30,7 @@ Add generated types when you want `useWorkspace()` to narrow discovered Workspac
 
 ## Blob + Database history
 
-The [Blob + Database Store](/docs/workspace/configure#blob-database-store) uses the same history contract on D1, D1 HTTP, and local or hosted libSQL. Publication uses an atomic batch of conditional SQL statements. It does not use interactive transactions, which D1 does not support.
+The [Blob + Database Store](/docs/workspace/configure#blob-database-store) keeps history the same way on D1, D1 HTTP, and local or hosted libSQL. It publishes with one atomic batch of conditional SQL statements, not interactive transactions, which D1 does not support.
 
 | Table | Stores |
 | --- | --- |
@@ -40,42 +40,104 @@ The [Blob + Database Store](/docs/workspace/configure#blob-database-store) uses 
 | `workspace_history_objects` | Digests and sizes registered before upload, including interrupted publications. |
 | `workspace_history_metadata` | Workspace metadata used by Sources and lifecycle operations. |
 
-Blob keys are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>`. A digest is SHA-256 of the complete file bytes. Identical files at any path share one object within a workspace. Workspaces have separate namespaces. There are no cross-workspace reference counts, and deleting one workspace cannot remove another's bytes. MIME types and file metadata belong to each manifest entry.
+Blob keys are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>`. The digest is the SHA-256 of the full file bytes.
 
-Commits check object existence and upload only missing digests. Simultaneous writers can both observe a missing object and write identical bytes to its key. The Database batch creates the ref row on first use, inserts the candidate manifest, compares and updates the ref head, and marks only the winning revision as committed. A failed batch rolls back the head. Losing candidates do not appear in `list()` or `open()` and do not count toward `usage()`.
+- Identical files at any path share one object within a workspace.
+- Each workspace has its own namespace. There are no cross-workspace reference counts, so deleting one workspace cannot remove another's bytes.
+- MIME types and file metadata belong to each manifest entry.
 
-Historical `open()` reads the manifest without downloading the tree. `readFile()` downloads one object and checks its size and hash. Normal staged file operations load the current folder into instance memory. Use deliberately small folders, such as a document or a bounded app file set. Retained usage counts unique uncompressed file bytes, not provider billing. `maxBytes` limits one changed file, not retained history or account usage.
+A commit uploads only missing digests. Two writers can both write the same bytes to one key. The Database batch creates the ref row on first use, inserts the candidate manifest, compares and updates the ref head, and commits only the winning revision. A failed batch rolls back the head. Losing candidates are not in `list()`, `open()`, or `usage()`.
 
-Use a Blob backend with strong read-after-write consistency and atomic file-byte writes. R2 and filesystem Blob stores satisfy this requirement. Select strong consistency for Netlify Blobs. An eventually consistent backend can report an object missing immediately after publication. The Store writes the same Blob content type for every object and keeps per-file MIME types in the manifest, so filesystem payload and metadata renames cannot change historical file MIME types. Filesystem staging files left by a stopped process need [Blob maintenance](https://github.com/vite-hub/vitehub/tree/main/packages/blob#vite-integration).
+- `open()` on a revision reads the manifest without downloading the tree.
+- `readFile()` downloads one object and checks its size and hash.
+- Normal staged file operations load the current folder into instance memory. Keep folders small, such as one document or a bounded app file set.
+- Retained usage counts unique uncompressed file bytes, not provider billing.
+- `maxBytes` limits one changed file, not retained history or account usage.
 
-Deletion fences publishers with a permanent Database tombstone before removing bytes. Cleanup uses the object catalog and a paginated Blob sweep. Blob and Database do not share a transaction. A request that stops during upload can leave an unreferenced object; retry deletion after stopping abandoned requests to remove it. Live-history pruning and cross-workspace dedupe are not implemented.
+Use a Blob backend with strong read-after-write consistency and atomic file writes, such as R2 or filesystem Blob. For Netlify Blobs, select strong consistency. An eventually consistent backend can report an object missing right after publication. Each file's MIME type lives in the manifest, not the Blob, so filesystem renames cannot change old MIME types. Filesystem staging files left by a stopped process need [Blob maintenance](https://github.com/vite-hub/vitehub/tree/main/packages/blob#vite-integration).
+
+Deletion writes a permanent Database tombstone that blocks publishers, then removes bytes with the object catalog and a paginated Blob sweep. Blob and Database do not share a transaction. A request that stops during upload can leave an unreferenced object. Stop abandoned requests, then retry deletion to remove it. Live-history pruning and cross-workspace dedupe are not implemented.
 
 ## Cloudflare Artifacts
 
-Select Cloudflare Artifacts when a deployed Worker needs durable Workspace state:
+Select Cloudflare Artifacts when a deployed Worker must keep Workspace state:
 
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
-    store: {
-      provider: 'cloudflare-artifacts',
-      binding: 'WORKSPACE_ARTIFACTS',
-      namespace: 'vitehub',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    workspace: {
+      store: {
+        provider: 'cloudflare-artifacts',
+        binding: 'WORKSPACE_ARTIFACTS',
+        namespace: 'vitehub',
+      },
     },
   },
 })
 ```
+:::
 
-The Vite integration adds Artifacts Stores to generated Cloudflare config for the module and discovered definitions. It preserves application bindings and removes only bindings that Workspace generated when the provider changes. Reusing one binding name for different namespaces fails the build. Each named Workspace uses `<repoPrefix><encoded-workspace-name>` unless `repo` selects one repository, so names with repository-unsafe characters remain isolated.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-`workspace.snapshot()` commits and pushes the current file tree. Its snapshot id is the pushed Git commit SHA. File metadata is stored in the repository with the Workspace tree so Source-backed write protection and media types survive a fresh Worker instance.
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
 
-The Artifacts adapter does not yet implement `history.commit`, `head`, `list`, `open`, or `usage`. These methods throw the retained-history capability error. Its Git snapshots remain available through `history.checkpoint()`.
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
-Cloudflare Artifacts is in open beta and is not available on Workers Free, so the Cloudflare default remains the ephemeral `memory` Store. The Worker adapter clones into isolate memory; use it for deliberately small Workspaces rather than assuming the Artifacts repository limit is also a usable Worker checkout size. For large repositories in a sandbox, container, or VM, use Cloudflare's [ArtifactFS](https://developers.cloudflare.com/artifacts/guides/artifact-fs/) directly.
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
-Artifacts repositories are private Git storage. Use [Blob](/docs/blob) with R2 or another provider when an Agent needs a public delivery URL.
+The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
+
+`workspace.snapshot()` commits and pushes the current file tree. The snapshot id is the pushed Git commit SHA. File metadata lives in the repository with the tree, so Source write protection and media types survive a new Worker instance.
+
+The Artifacts adapter does not implement `history.commit`, `head`, `list`, `open`, or `usage` yet. They throw the retained-history capability error. Git snapshots stay available through `history.checkpoint()`.
+
+::warning
+Cloudflare Artifacts is in open beta and is not on Workers Free, so the Cloudflare default stays the ephemeral `memory` Store. The Worker adapter clones into isolate memory, so keep these Workspaces small. The Artifacts repository limit is not a usable Worker checkout size.
+::
+
+For large repositories in a sandbox, container, or VM, use Cloudflare's [ArtifactFS](https://developers.cloudflare.com/artifacts/guides/artifact-fs/) directly.
+
+Artifacts repositories are private Git storage. When an Agent needs a public URL, use [Blob](/docs/blob) with R2 or another provider.

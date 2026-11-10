@@ -54,12 +54,65 @@ export interface InvocationActivity {
   toolDisplay?: Pick<AgentToolInspection, "icon" | "label">;
   totalTokens?: number;
   truncated?: boolean;
+  /** Displayed attributes the journal shortened. Absent when the record does not name them. */
+  truncatedAttributes?: readonly string[];
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+const truncatedContentLabels: Readonly<Record<string, string>> = {
+  "approval.input": "Approval input",
+  "approval.reason": "Approval reason",
+  body: "Details",
+  "channel.effect.content": "Delivered text",
+  content: "Details",
+  "error.message": "Error",
+  input: "Input",
+  "input.messages": "Conversation history",
+  "input.prompt": "Conversation history",
+  "message.content": "Message",
+  output: "Output",
+  "result.text": "Message",
+  "tool.error": "Error",
+  "tool.input": "Input",
+  "tool.output": "Output",
+  "vitehub.activity.body": "Details",
+  "vitehub.activity.detail": "Details",
+  "vitehub.activity.progress": "Details",
+  "vitehub.activity.title": "Title",
+  "vitehub.payload.value": "Details",
+};
+
+/**
+ * The displayed attributes that an observation's truncation flag covers.
+ * `undefined` means the record is flagged but does not name its attributes, so any displayed value may be cut.
+ * Identity and accounting metadata are never displayed, so their truncation returns an empty list.
+ */
+function truncatedContent(observation: Pick<TraceEventLogEntry, "attributes">): readonly string[] | undefined {
+  const attributes = observation.attributes;
+  if (attributes?.["vitehub.observation.truncated"] !== true) return [];
+  const named = attributes["vitehub.observation.truncatedAttributes"];
+  if (!Array.isArray(named)) return undefined;
+  return named.filter((key): key is string => hasRuntimeType(key, "string") && key in truncatedContentLabels);
+}
+
+function cutsContent(observation: Pick<TraceEventLogEntry, "attributes">): boolean {
+  return truncatedContent(observation)?.length !== 0;
+}
+
+/** The note that says which displayed value of an activity was shortened. */
+export function invocationTruncationNotice(activity: InvocationActivity): string | undefined {
+  if (!activity.truncated) return;
+  const labels = [...new Set((activity.truncatedAttributes ?? []).map(key => truncatedContentLabels[key]!))];
+  if (!labels.length) return "Part of this activity was shortened when it was recorded.";
+  const subject = labels.length === 1
+    ? labels[0]!
+    : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)!.toLowerCase()}`;
+  return `${subject} shortened when recorded.`;
 }
 
 function messageText(value: unknown): string | undefined {
@@ -245,8 +298,10 @@ function payloadDetail(attributes: Record<string, unknown>): string | undefined 
 /** Sentences for common snake_case tool identifiers. Other identifiers keep their words with the underscores removed. */
 const toolTitles: Record<string, string> = {
   apply_patch: "Changed files",
+  command_execution: "Ran command",
   edit_file: "Changed files",
   exec_command: "Ran command",
+  file_change: "Changed files",
   grep_search: "Searched code",
   list_dir: "Listed directory",
   read_file: "Read file",
@@ -258,10 +313,22 @@ const toolTitles: Record<string, string> = {
 
 function normalizedTitle(value: string): string {
   const trimmed = value.replace(/\s+(?:complete|completed)$/i, "").trim();
-  const known = toolTitles[trimmed.toLocaleLowerCase()];
+  // Provider tools arrive as `<server>.<tool>`, and proxied MCP tools as `<server>.mcp_<service>_<tool>`.
+  const namespaced = /^[a-z0-9-]+\.[a-z0-9_]+$/i.test(trimmed);
+  const name = namespaced ? trimmed.slice(trimmed.indexOf(".") + 1).replace(/^mcp_(?=[a-z0-9]+_)/i, "") : trimmed;
+  const known = toolTitles[name.toLocaleLowerCase()];
   if (known) return known;
-  const title = /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(trimmed) ? trimmed.replaceAll("_", " ") : trimmed;
+  const title = namespaced || /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(name)
+    ? name.split("_").map(word => word.toLocaleLowerCase() === "mcp" ? "MCP" : word).join(" ")
+    : name;
   return title ? title[0]!.toUpperCase() + title.slice(1) : "Activity";
+}
+
+/** Shows the script that `sh -lc '<script>'` wrappers run, so the row reads as the command the agent typed. */
+function shellScript(command: string): string {
+  const match = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z|da)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/.exec(command.trim());
+  if (!match) return command;
+  return match[1] === "'" ? match[2]!.replaceAll("'\\''", "'") : match[2]!.replace(/\\(["\\$`])/g, "$1");
 }
 
 function activityPreview(
@@ -270,7 +337,7 @@ function activityPreview(
   paths: readonly string[],
   title: string,
 ): string | undefined {
-  const detail = command?.command ?? payloadDetail(attributes) ?? (paths.length
+  const detail = (command ? shellScript(command.command) : undefined) ?? payloadDetail(attributes) ?? (paths.length
     ? `${paths[0]}${paths.length > 1 ? ` +${paths.length - 1} more` : ""}`
     : undefined);
   if (!detail || normalizedTitle(detail).toLocaleLowerCase() === title.toLocaleLowerCase()) return;
@@ -368,12 +435,14 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ? originalAttributes["input.prompt"]
         : undefined;
     if (Array.isArray(inputMessages)) {
+      let lastInputKey: string | undefined;
       inputMessages.forEach((message, index) => {
         const value = record(message);
         const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
+        lastInputKey = key;
         groups.set(key, [{
           ...observation,
           attributes: {
@@ -381,14 +450,19 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.origin": "invocation-input",
             "message.id": value ? stringAttribute(value, "id") ?? key : key,
             "message.role": role,
-            ...(originalAttributes["vitehub.observation.truncated"] === true
-              ? { "vitehub.observation.truncated": true }
-              : {}),
           },
           name: "agent.input.message",
           sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
         }]);
       });
+      // One note after the history says it was shortened; repeating it on every message adds noise.
+      const historyTruncation = truncatedContent(observation) === undefined
+        ? { "vitehub.observation.truncated": true }
+        : truncatedContent(observation)!.some(key => key === "input.messages" || key === "input.prompt")
+          ? { "vitehub.observation.truncated": true, "vitehub.observation.truncatedAttributes": ["input.messages"] }
+          : undefined;
+      const lastInput = lastInputKey === undefined ? undefined : groups.get(lastInputKey)?.[0];
+      if (lastInput && historyTruncation) lastInput.attributes = { ...lastInput.attributes, ...historyTruncation };
     }
     const attributes = inputMessages === undefined
       ? originalAttributes
@@ -422,7 +496,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   }
   for (const observations of groups.values()) {
     if (Math.max(...observations.map(item => item.sequence)) !== latestMessageSequence) continue;
-    if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
+    if (observations.some(cutsContent)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
       && item.attributes?.["message.phase"] !== "commentary")) continue;
@@ -510,9 +584,14 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(Object.keys(toolDisplay).length ? { toolDisplay } : {}),
-        ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+        ...(sorted.some(cutsContent)
           && !(first.name === "agent.invocation.finish" && completeAssistantTexts.has(stringAttribute(attributes, "result.text") ?? ""))
-          ? { truncated: true }
+          ? {
+              truncated: true,
+              ...(sorted.every(item => truncatedContent(item) !== undefined)
+                ? { truncatedAttributes: [...new Set(sorted.flatMap(item => truncatedContent(item)!))] }
+                : {}),
+            }
           : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
@@ -588,7 +667,11 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
-  if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  if (activity.kind === "tool") {
+    // Codex records the script as tool.title; the command preview already shows it.
+    if (activity.attributes["tool.name"] === "command_execution") return normalizedTitle("command_execution");
+    return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  }
   if (activity.kind === "approval") {
     if (activity.attributes["approval.approved"] === true) return "Approval granted";
     if (activity.attributes["approval.approved"] === false) return "Approval denied";

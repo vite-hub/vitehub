@@ -15,7 +15,7 @@ export type {
   DatabaseNuxtIntegrationOptions,
   DatabaseRuntimeD1Options,
   DatabaseSchemaSource,
-  DBModulePublicOptions,
+  DatabaseOptions,
   DiscoveredDatabaseDefinition,
   DrizzleCasing,
   PostgresConnectionConfig,

@@ -1,12 +1,11 @@
-export interface RequestPayloadEvent {
-  req: {
-    json: () => Promise<unknown>
-  }
-}
+import { getStandardContext } from '@vite-hub/runtime/h3'
 
+import type { ViteHubContext } from '@vite-hub/runtime'
+
+/** Read the JSON body of the request in the event's Standard Context, or `fallback` when the body is not JSON. */
 export async function readRequestPayload(
-  event: RequestPayloadEvent,
+  event: ViteHubContext,
   fallback: unknown = {},
 ): Promise<unknown> {
-  return await event.req.json().catch(() => fallback)
+  return await getStandardContext(event).req.json().catch(() => fallback)
 }

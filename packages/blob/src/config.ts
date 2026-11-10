@@ -5,7 +5,7 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type {
-  BlobModuleOptions,
+  BlobOptions,
   BlobStoreConfig,
   BlobStoresConfig,
   CloudflareR2BlobStoreConfig,
@@ -14,6 +14,7 @@ import type {
   MinioBlobStoreConfig,
   NetlifyBlobsStoreConfig,
   ResolvedBlobModuleOptions,
+  ResolvedBlobStoreConfig,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
   ResolvedMinioBlobStoreConfig,
@@ -25,8 +26,12 @@ import type { BlobImagesOptions } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface BlobResolutionInput {
+  /** True for `vite dev`, where a store's `remote` switch applies. */
+  dev?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
+  /** The integration picked the `driver` from the deployment preset, so `vite dev` treats it like an inferred store. */
+  presetDriver?: boolean
 }
 
 export const MASKED_BLOB_RUNTIME_VALUE = "********"
@@ -83,11 +88,13 @@ function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedVercelBlobStoreConfig {
+  const token = resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE
   return {
     ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE,
+    token,
+    ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
   }
 }
 
@@ -262,18 +269,49 @@ function withoutModuleOptions(store: BlobStoreConfig): BlobStoreConfig {
   return copy
 }
 
-function hasStoresConfig(options: BlobModuleOptions | undefined): options is BlobStoresConfig {
+function hasStoresConfig(options: BlobOptions | undefined): options is BlobStoresConfig {
   if (!options || !Object.hasOwn(options, "stores")) return false
   // SAFETY: The own-property check above establishes that this read cannot come from an inherited prototype.
   return isPlainObject((options as { stores?: unknown }).stores)
 }
 
+// `BLOB_STORE_ID` marks a project connected to a store through Vercel OIDC.
 export function hasVercelBlobEnv(env: Record<string, string | undefined>): boolean {
-  return Boolean(readEnv(env, "BLOB_READ_WRITE_TOKEN"))
+  return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
+}
+
+function readRemote(value: unknown, path: string): boolean | undefined {
+  if (value === undefined || value === true || value === false) return value
+  throw blobErrorDiagnostics.BLOB_C0017({ message: `\`${path}\` must be true or false. Received ${JSON.stringify(value)}.` })
+}
+
+/**
+ * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob store that env or the
+ * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store of the Cloudflare preset keeps
+ * a dev runner's R2 binding, which is a local emulation, and uses `fs` without one. Netlify Blobs keeps the local sandbox
+ * of `netlify dev`. An explicit `driver` is used as configured. Builds ignore `remote`.
+ */
+function applyDevelopmentMode(
+  resolved: ResolvedBlobStoreConfig,
+  options: { dev: boolean, env: Record<string, string | undefined>, inferred: boolean, path: string, remote: boolean | undefined },
+): ResolvedBlobStoreConfig {
+  const { remote: _remote, ...local } = resolved
+  if (local.driver === "fs") {
+    if (options.remote && (options.dev || !options.inferred)) {
+      throw blobErrorDiagnostics.BLOB_C0018({ message: `\`${options.path}\` is true, but the store uses the local \`fs\` driver. Set a hosted \`driver\`, or remove \`remote\`.` })
+    }
+    return local
+  }
+  if (!options.dev) return local
+  if (options.remote) return { ...local, remote: true }
+  if (!options.inferred) return local
+  if (local.driver === "vercel-blob") return resolveFsStore({}, options.env)
+  if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
+  return local
 }
 
 export function normalizeBlobOptions(
-  options: BlobModuleOptions | undefined,
+  options: BlobOptions | undefined,
   input: BlobResolutionInput = {},
 ): ResolvedBlobModuleOptions | undefined {
   if (options === false) {
@@ -285,6 +323,7 @@ export function normalizeBlobOptions(
   }
 
   const env = input.env || process.env
+  const dev = input.dev === true
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
@@ -300,34 +339,41 @@ export function normalizeBlobOptions(
 
   if (hasStoresConfig(options)) {
     const resolvedStores = Object.fromEntries(
-      Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
+      Object.entries(options.stores).map(([name, store]) => {
+        const path = `blob.stores.${name}.remote`
+        const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
+        return [name, applyDevelopmentMode(resolveExplicitStore(store, env), { dev, env, inferred: false, path, remote })]
+      }),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw blobErrorDiagnostics.BLOB_C0008({ message: "`blob.stores.default` is required when using named Blob stores." })
     return createResolvedConfig(defaultStore, resolvedStores, serve, images)
   }
 
+  const remote = readRemote(explicit?.remote, "blob.remote")
+  const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
+
   if (explicit?.driver) {
-    return createResolvedConfig(resolveExplicitStore(withoutModuleOptions(explicit), env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveCloudflareStore(implicitCloudflare, env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(resolveNetlifyStore(), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveNetlifyStore(), mode), undefined, serve, images)
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
   }
 
-  return createResolvedConfig(resolveFsStore({}, env), undefined, serve, images)
+  return createResolvedConfig(applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
 }
 
 export function warnVercelBlobFallback(
@@ -338,29 +384,35 @@ export function warnVercelBlobFallback(
   if (!config || !normalizeHosting(hosting).includes("vercel")) return
   const stores = Object.values(config.stores || { default: config.store })
   if (!stores.some(store => store.driver === "fs")) return
-  target.logger?.error?.("Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.")
+  target.logger?.error?.("Vercel hosting requires Vercel Blob-backed storage. Connect a Blob store to the project (`BLOB_STORE_ID`) or set `BLOB_READ_WRITE_TOKEN`.")
 }
 
 export function isMaskedBlobRuntimeValue(value: string | undefined): boolean {
   return !value || value === MASKED_BLOB_RUNTIME_VALUE
 }
 
+/**
+ * Resolves Vercel Blob credentials at runtime, in the order that Vercel documents:
+ * a configured token, then OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`.
+ * For OIDC the store has no token, so `@vercel/blob` reads the OIDC token itself and
+ * falls back to `BLOB_READ_WRITE_TOKEN` when no OIDC token exists, for example off Vercel.
+ */
 export function resolveRuntimeVercelBlobStore(
   config: ResolvedVercelBlobStoreConfig,
   env: Record<string, string | undefined>,
 ): ResolvedVercelBlobStoreConfig {
-  const token = isMaskedBlobRuntimeValue(config.token)
-    ? readEnv(env, "BLOB_READ_WRITE_TOKEN") || config.token
-    : config.token
+  const { token: configuredToken, tokenFromConfig, ...store } = config
+  if (!isMaskedBlobRuntimeValue(configuredToken)) return config
+  if (!tokenFromConfig && readEnv(env, "BLOB_STORE_ID")) return store
 
-  if (isMaskedBlobRuntimeValue(token)) {
-    throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel Blob." })
+  const token = readEnv(env, "BLOB_READ_WRITE_TOKEN")
+  if (!token) {
+    if (tokenFromConfig) {
+      throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for the configured Vercel Blob token." })
+    }
+    throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing Vercel Blob credentials. Connect a Blob store to the Vercel project so it gets `BLOB_STORE_ID`, or set `BLOB_READ_WRITE_TOKEN` off Vercel." })
   }
-
-  return {
-    ...config,
-    token,
-  }
+  return { ...store, token }
 }
 
 export function resolveRuntimeMinioBlobStore(

@@ -9,7 +9,20 @@ icon: i-lucide-gauge
 ---
 
 ::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
-  :::product-files
+  :::code-tree{feature="rateLimit"}
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // On Node, counts stay in memory
+      rateLimit: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { vitehub } from 'vite-hub'
   import { defineConfig } from 'vite'
@@ -17,12 +30,32 @@ icon: i-lucide-gauge
 
   export default defineConfig({
     plugins: [
-      // On Node, counts stay in memory
-      vitehub({ preset: 'node', rateLimit: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, counts stay in memory
+        rateLimit: true,
+      }),
       nitro(),
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // On Node, counts stay in memory
+        rateLimit: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [server/api/upload.post.ts]
   import { defineEventHandler } from 'h3'
@@ -40,13 +73,13 @@ icon: i-lucide-gauge
   ```
 
   ```ts [server/api/messages.post.ts]
-  import { defineEventHandler } from 'h3'
+  import { defineEventHandler, type H3Event } from 'h3'
   import { withAuth } from 'vite-hub/auth/server'
   import { requireRateLimit } from 'vite-hub/rate-limit'
 
   // Count per signed-in user, not per address
   export default defineEventHandler(
-    withAuth(async (event, { user }) => {
+    withAuth(async (event: H3Event, { user }) => {
       await requireRateLimit(event, 'send-message', {
         key: user.id,
         limit: 10,
@@ -86,19 +119,19 @@ icon: i-lucide-gauge
   :::
 
   :::product-feature-item{title="Count per user or per team" icon="i-lucide-users" to="/docs/rate-limit/server-api#require-a-managed-rate-limit"}
-  Each client address has its own count. Pass `key` to count per user, account, or team.
+  Each client address has its own count. Pass `key` to count per user or team.
   :::
 
   :::product-feature-item{title="Choose your own response" icon="i-lucide-code-2" to="/docs/rate-limit/server-api#use-a-direct-driver"}
-  `limiter.consume()` returns the result and does not throw.
+  `limiter.consume()` returns the result without throwing.
   :::
 
   :::product-feature-item{title="Memory on Node, native on Cloudflare" icon="i-lucide-server" to="/docs/rate-limit/hosts#deploy-to-cloudflare"}
-  On Node, counts stay in memory. On Cloudflare, the limit uses Cloudflare Rate Limiting.
+  Node counts in memory. Cloudflare uses Cloudflare Rate Limiting.
   :::
 
   :::product-feature-item{title="See each limit before you deploy" icon="i-lucide-file-search" to="/docs/rate-limit/hosts#inspect-generated-guarantees"}
-  The build writes a file that lists each limit and what the host can promise.
+  The build writes a file with each limit and what the host promises.
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/rate-limit/limits-and-errors#limitations"}
