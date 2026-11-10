@@ -1,5 +1,5 @@
 import { installConsoleProjectRoot } from "./project-root.ts"
-import { installConsoleProjectNameScope, installConsoleSectionScope } from "../../internal.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -12,10 +12,12 @@ export { installConsoleDevelopment } from "./development.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 
 export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false): readonly ConsoleSectionId[] {
-  return installConsoleSectionScope(projectRoot, sections, undefined, independentAuth)
+  const state = consoleState()
+  state.auth = independentAuth
+  return state.sections = [...new Set(sections)]
 }
 
 export function installConsoleProjectName(projectRoot: string, projectName: string): string {
   installConsoleProjectRoot(projectRoot)
-  return installConsoleProjectNameScope(projectRoot, projectName)
+  return consoleState().projectName = projectName
 }
