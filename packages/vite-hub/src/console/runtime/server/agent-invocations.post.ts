@@ -9,6 +9,7 @@ import { console } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 
 import type { Message } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -19,7 +20,7 @@ const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
 function consoleError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }))
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

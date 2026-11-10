@@ -11,6 +11,22 @@ Read the installed manifest and exports, then open only the guide matching the p
 - [First Agent](https://vitehub.dev/raw/docs/getting-started/first-agent.md)
 - [File conventions](https://vitehub.dev/raw/docs/reference/file-conventions.md)
 
+## Create a new project with `vitehub init`
+
+Create a new app in one command, with no install first:
+
+```sh
+pnpm dlx vite-hub init <dir> --host <preset> --features <id,id,...> [--option feature.key=value]... --yes --json
+```
+
+- `--host` is the host preset: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. `--features` takes the ids that `catalog` lists. Pass `--framework nuxt` for a Nuxt app.
+- Pass every input as a flag. Without a terminal, a missing flag exits with `2`, and the error names the flag and its choices. Add the flag and run the `rerun` command.
+- A feature that the host does not support exits with `3` before any file is written. Choose another host or another feature.
+- A saved selection of host, features, and options is a _stack_. `init` writes the command that reproduces the stack into the `README.md` stack block, and `vitehub status --json` returns it as `stack.command`. Run that command to make the same project again.
+- When the developer gives a `--console <pendingId>:sha256:<hex>` value from console.vitehub.dev, pass it to `init` unchanged. See [Link and deploy](sandboxes-hosts.md#link-and-deploy).
+
+See [Create a project](https://vitehub.dev/raw/docs/development/cli.md#create-a-project).
+
 ## Create the files with `vitehub add`
 
 Run `vitehub status --json`, then `vitehub add <feature> --dry-run` for each feature the shape needs, and apply with `--yes`. Pass `--name <name>` where the shape lists a Definition, so the starter file lands in the discovery path that the build reads. Write a file or config key by hand only when `add` prints a manual `snippet`, or for files that `add` does not create, such as application routes. See [Add a feature](https://vitehub.dev/raw/docs/development/cli.md#add-a-feature).
