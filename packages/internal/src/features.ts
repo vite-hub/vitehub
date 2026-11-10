@@ -18,6 +18,7 @@ export const featureIds = [
   "database",
   "email",
   "env",
+  "i18n",
   "kv",
   "logs",
   "observability",
@@ -333,6 +334,14 @@ export default defineDatabase({
     id: "env",
     summary: "Typed environment variables and secrets, validated at build and at runtime.",
     title: "Env",
+  }),
+  i18n: feature({
+    docs: "/docs/i18n",
+    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
+    id: "i18n",
+    packages: ["@vite-hub/i18n"],
+    summary: "Messages with translation records for each locale and a locale for each request.",
+    title: "I18n",
   }),
   kv: feature({
     developmentOverrides: ["netlify"],

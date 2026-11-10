@@ -51,9 +51,25 @@ A single page app whose `index.html` Vite serves or builds gets a short inline c
 
 Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
+By default the overlay comments on the page itself, `{ kind: "page", id: "/pricing" }`. `page` maps a page to a subject of your own. The server decides: the overlay reads the subject from the session route, and a thread that the overlay starts must be on that subject. `authorize` still runs on it. A `page` given to the API, as the `?page=` query of a route such as `GET /threads?page=/pricing` or in the body of `POST /threads`, means that same subject.
+
+```ts fragment
+import { defineCommentSubject, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+  page: async ({ url }) => {
+    const id = url.pathname.match(/^\/d\/([^/]+)/)?.[1]
+    return id ? { kind: "drop", id, revision: await latestRevision(id) } : undefined
+  },
+})
+```
+
+`url` has the origin and the normalized path, without query and hash. Return `undefined` or `null` for the page itself. With `revision`, new threads from the overlay start on the version that the person saw: the overlay sends the `revision` that `/session` gave for the page, and the server keeps it when it is not newer than the one `page` gives now. A missing or newer revision becomes the one from `page`.
+
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
-Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
+Press `C` and click the page to start a thread, or press `B` to highlight part of the page and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
 
 ```vue
 <script setup lang="ts">
@@ -124,7 +140,7 @@ Generated files under `.vitehub/nitro/comments` are inspectable build output, no
 
 Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
 
-With access to the Content page tool, selecting **Edit** and a marked field opens that document in the existing Content editor. Otherwise Comments keeps its plain-text inline editor. The Content write and publish rules do not change.
+Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text opens its document in the Console window. Without the Console tool, **Open Content** links to the Content page. The Content write and publish rules do not change.
 
 ## One model
 

@@ -4,7 +4,7 @@ import { basename, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import { realtimeDurableObjectKey } from "../src/durable-key.ts"
 
 const tempDirs: string[] = []
@@ -294,16 +294,20 @@ describe("hubRealtime", () => {
     expect(await readFile(busFile, "utf8")).toContain(`logRealtimeNodeAuthority("auto", { database: true, namespace: "my-app" })`)
   })
 
-  it("keeps rooms in memory on the dev server", async () => {
+  it.each([
+    { name: "the dev server", command: "serve", preset: "node-server", prepare: false, options: { authority: "postgres" as const } },
+    { name: "Nuxt prepare on Node", command: "build", preset: "node-server", prepare: true, options: {} },
+    { name: "Nuxt prepare on Vercel", command: "build", preset: "vercel", prepare: true, options: {} },
+  ])("keeps rooms in memory on $name", async ({ command, preset, prepare, options }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
     await mkdir(join(root, "server/realtime"), { recursive: true })
     await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
 
     const { hubRealtime } = await import("../src/vite.ts")
-    const config = { root, nitro: { preset: "node-server" } } as Record<string, unknown>
-    const hook = hubRealtime({ authority: "postgres" }).config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
-    await hook(config, { command: "serve" })
+    const config = { root, nitro: { preset }, [VITEHUB_PREPARE]: prepare } as Record<string, unknown>
+    const hook = hubRealtime(options).config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+    await hook(config, { command })
 
     const { readFile } = await import("node:fs/promises")
     expect(await readFile(join(root, ".vitehub/nitro/realtime/handler.ts"), "utf8")).toContain("export default createRealtimeHandler(registry)\n")

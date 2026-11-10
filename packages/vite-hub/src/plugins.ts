@@ -17,14 +17,14 @@ import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, isPackageInstalled, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
@@ -48,7 +48,7 @@ import { observabilityVitePlugin, type ObservabilityOptions } from "./observabil
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
-import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
+import type { AgentInvocationsDefault } from "./internal/agent-invocations.ts"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
@@ -60,9 +60,10 @@ import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
-import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
+import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/bundle-options"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
+import type { I18nOptions } from "@vite-hub/i18n"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
 import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
@@ -77,7 +78,7 @@ export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { LogsOptions, LogsEvlogOptions } from "./logs-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
-export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "./_internal/agent/invocations.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "./internal/agent-invocations.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies | keyof typeof frameworkPackageManifest.peerDependencies, `@vite-hub/${string}`>
 type DeploymentServicesManifest = Record<DeploymentService, object>
@@ -117,6 +118,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/env": true,
   "@vite-hub/forms": true,
   "@vite-hub/gateways": true,
+  "@vite-hub/i18n": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/presets": true,
@@ -174,7 +176,6 @@ const frameworkVirtualImporters = new Set([
 ])
 
 const frameworkPackageName = "vite-hub"
-const generatedImportBase = "vite-hub/_internal"
 function packageExportImportTarget(target: unknown): string | undefined {
   if (typeof target === "string") return target
   if (!target || typeof target !== "object" || Array.isArray(target)) return undefined
@@ -183,17 +184,46 @@ function packageExportImportTarget(target: unknown): string | undefined {
   return typeof importTarget === "string" ? importTarget : undefined
 }
 
-function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
+interface FrameworkWorkspaceDependencyRuntimeImports {
+  sandboxTask?: string
+  sandboxTaskRuntimeState?: string
+  shellWorkspace?: string
+}
+
+function frameworkWorkspaceDependencyRuntimeImports(sandboxTaskRuntimeState: string | undefined): FrameworkWorkspaceDependencyRuntimeImports {
   return {
-    ...(sandboxTask
+    ...(sandboxTaskRuntimeState
       ? {
           sandboxTask: "vite-hub/sandbox/task",
-          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox/task/runtime/state`,
+          sandboxTaskRuntimeState,
         }
       : {}),
     ...(isPackageInstalled("@vite-hub/shell") ? { shellWorkspace: "vite-hub/shell/workspace" } : {}),
   }
 }
+
+/**
+ * Workspace shell commands need `@vite-hub/shell`, an optional peer that the app installs. Its loader pulls just-bash
+ * (about 2 MB) into every Agent server, so keep it only when the app resolves the package from its own root. The Agent,
+ * Workflow, and Sandbox Task plugins read `imports` when they generate code. Code generated before this hook keeps
+ * the loader, as before.
+ */
+function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImports): Plugin {
+  return {
+    name: "vite-hub/workspace-shell",
+    enforce: "pre",
+    config: {
+      order: "pre",
+      handler(config) {
+        // SAFETY: ViteHub hosts add this private project-root key before plugins read the config.
+        const projectRoot = (config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string })[VITEHUB_PROJECT_ROOT]
+        const root = projectRoot ? resolve(projectRoot) : resolveViteHubProjectRoot(config.root ?? process.cwd())
+        if (!isPackageInstalledInApp(root, "@vite-hub/shell")) delete imports.shellWorkspace
+      },
+    },
+  }
+}
+
 // One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
 
@@ -270,9 +300,19 @@ function frameworkDependencyResolver(
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
+      // Many facades share a package, and each resolution of a package that is not installed walks every node_modules folder.
+      const installed = new Map<string, boolean>()
+      const isInstalled = (packageName: string) => {
+        let result = installed.get(packageName)
+        if (result === undefined) {
+          result = isPackageInstalled(packageName)
+          installed.set(packageName, result)
+        }
+        return result
+      }
       for (const specifier of Object.keys(aliases)) {
         const feature = ownerFacadeFeature(specifier)
-        if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
+        if (feature && !optionalFeaturePackages[feature].every(isInstalled)) delete aliases[specifier]
       }
       return {
         resolve: {
@@ -403,6 +443,13 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /**
+   * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
+   * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
+   * code. Translations are records in `locales/<locale>/`, and `vitehub i18n status` shows what is missing. Needs
+   * Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   */
+  i18n?: I18nOptions
   /**
    * Comments on the app's pages. `true`, or an object with the Database, the SQL dialect, or `overlay: false` (no page
    * tool), turns it on, with `server/comments.ts` or else the default `defineComments()`, and turns the Database on
@@ -896,7 +943,7 @@ function deploymentPlugins(
           if (options.cache) {
             // SAFETY: The KV integration reads this optional top-level Vite setting too.
             const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
-            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
+            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvNitroCacheDriver : undefined)
             const nitroVersion = (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 })[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
             nitro = applyCacheStorage(nitro, cacheStorage, nitroVersion)
           }
@@ -1124,6 +1171,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
     ["email", options.email],
+    ["i18n", options.i18n],
     // `cache: { driver: "kv" }` stores the cache in KV.
     ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
     ["queue", options.queue && plan.services.queue.supported],
@@ -1183,7 +1231,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const presetKV = options.kv ? requireOptionalOwner(kvVite, "kv").resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
   const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
-  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxTaskEnabled)
+  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(
+    sandboxTaskEnabled ? requireOptionalOwner(sandboxTaskVite, "sandboxTask").sandboxTaskRuntimeStateModule : undefined,
+  )
+  if (workspaceDependencyRuntimeImports.shellWorkspace && (options.agent || workflowEnabled || sandboxTaskEnabled)) {
+    plugins.push(workspaceShellPlugin(workspaceDependencyRuntimeImports))
+  }
 
   if (!options.database) {
     const databaseRuntimeImports = new Map<string, string>()
@@ -1219,13 +1272,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
-    blob: blobEnabled ? `${generatedImportBase}/blob` : false,
+    blob: blobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email/server" } : {},
-    ...kvVite ? { kv: `${generatedImportBase}/kv` } : {},
+    ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 
   plugins.push(operationsCheckPlugin())
@@ -1316,9 +1369,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     }
     plugins.push(requireOptionalOwner(ownerModules.agentVite, "agent").hubAgent({
       ...agentOptions,
-      cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
-      importBase: `${generatedImportBase}/agent`,
-      kvImport: `${generatedImportBase}/kv`,
+      kvImport: "vite-hub/kv",
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports: {
@@ -1326,9 +1377,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         // Present only with the Auth plugin. It reads users only for Actors that authenticated() resolved.
         auth: "vite-hub/auth/agent",
       },
-      workflowImportBase: `${generatedImportBase}/workflow`,
+      ...(workflowEnabled ? { workflowModules: { index: "vite-hub/workflow", state: requireOptionalOwner(workflowVite, "workflow").workflowRuntimeModule("state") } } : {}),
       workspaceDependencyRuntimeImports,
-      workspaceImportBase: `${generatedImportBase}/agent/internal/workspace`,
     } as AgentModuleOptions))
   }
   if (options.browser) plugins.push(requireOptionalOwner(browserVite, "browser").hubBrowser(options.browser === true ? undefined : options.browser))
@@ -1346,7 +1396,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())
   if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: "vite-hub/blob", presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1369,15 +1419,17 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
+  if (options.i18n) {
+    // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
+    plugins.push(requireOptionalOwner(ownerModules.i18nVite, "i18n").hubI18n({ ...options.i18n, importBase: "vite-hub/i18n" } as I18nOptions))
+  }
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
-    // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
-      importBase: `${generatedImportBase}/rate-limit`,
-    } as RateLimitModuleOptions)))
+    })))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
   // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
@@ -1431,23 +1483,22 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      importBase: `${generatedImportBase}/schedule`,
+      importBase: "vite-hub/schedule",
       providerImportAliases,
-      runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
   if (workflowEnabled) {
     plugins.push(requireOptionalOwner(workflowVite, "workflow").hubWorkflow(
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
-      agentImportBase: `${generatedImportBase}/agent`,
       hosting: plan.nitroPreset,
-      importBase: `${generatedImportBase}/workflow`,
+      importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
-      workspaceImportBase: options.agent ? `${generatedImportBase}/agent/internal/workspace` : `${generatedImportBase}/workspace`,
+      // With the Agent, Workspace may be installed only as an Agent dependency, so the Agent hands out its path.
+      workspaceRuntimeModule: options.agent ? requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("internal/workspace/runtime") : "vite-hub/workspace/runtime",
       },
     ))
   }
@@ -1456,7 +1507,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.workspaceVite, "workspace").hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
-      importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
   const sourcePlugin = hubSource({
@@ -1472,7 +1522,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: options.contentImportBase ?? "vite-hub/content" }))
+  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent())
   // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, and the user
   // with Auth. Inert without the folder, and absent without its package.
   if (ownerModules.formsVite) plugins.push(ownerModules.formsVite.hubForms({
@@ -1481,6 +1531,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     imports: {
       runtime: "vite-hub/forms/runtime",
+      operations: "vite-hub/forms/operations",
       database: "vite-hub/forms/database",
       databases: "vite-hub/database/drizzle",
       email: "vite-hub/email/server",

@@ -88,7 +88,7 @@ icon: i-lucide-radio
     modules: ['vite-hub/nuxt'],
     vitehub: {
       preset: 'node',
-      // Shares rooms through Redis (REDIS_URL) or a Postgres Default Database
+      // Share rooms through Redis (REDIS_URL) or a Postgres Default Database
       realtime: true,
       workspace: true,
     },
@@ -108,7 +108,7 @@ icon: i-lucide-radio
       nitro(),
       vitehub({
         preset: 'node',
-        // Shares rooms through Redis (REDIS_URL) or a Postgres Default Database
+        // Share rooms through Redis (REDIS_URL) or a Postgres Default Database
         realtime: true,
         workspace: true,
       }),
@@ -127,7 +127,7 @@ icon: i-lucide-radio
       vue(),
       vitehub({
         preset: 'node',
-        // Shares rooms through Redis (REDIS_URL) or a Postgres Default Database
+        // Share rooms through Redis (REDIS_URL) or a Postgres Default Database
         realtime: true,
         workspace: true,
       }),

@@ -41,6 +41,42 @@ Run several Node instances behind one load balancer, with a Postgres Default
 Database or `REDIS_URL` on each of them. A client on instance A and a client
 on instance B then edit the same document and see each other.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    // `server/databases/config.ts` defines the Default Database with `dialect: 'postgresql'`
+    database: true,
+    realtime: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      // `server/databases/config.ts` defines the Default Database with `dialect: 'postgresql'`
+      database: true,
+      realtime: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -56,6 +92,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 How it works:
 

@@ -56,6 +56,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Connections | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
 | Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
+| I18n | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 |
 | Logs | Nitro | Nitro | Nitro | Nitro | Nitro | Host source | Nitro |
 | Observability | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog |
 <!-- support-matrix:application-features:end -->
@@ -79,7 +80,7 @@ The table names built-in providers or adapters.
 
 - **Browser:** Browser Definitions require the Cloudflare preset. Local Wrangler can reach Browser Run in remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider.
 - **Email:** `email: true` selects Cloudflare Email only on the Cloudflare preset; every other host requires the explicit built-in Resend driver or a programmatic custom driver.
-- **Realtime:** Production uses Cloudflare Durable Objects. Node instances share rooms through Redis (`REDIS_URL`) or Postgres (the connection of a Postgres Default Database), and keep them in one process without either. Vercel, Netlify, and Deno have no room authority.
+- **Realtime:** Production uses Cloudflare Durable Objects. Node instances share rooms through Redis (`REDIS_URL`) or Postgres (the connection of a Postgres Default Database), and keep them in one process without either; distributed Vercel, Netlify, and Deno presets reject memory and have no room authority.
 
 Local Vite delivers Queue Jobs in the dev server through the local provider, which stores jobs in `.vitehub/data/queue`. For every Queue Provider, development follows the retry, delay, and size rules of the provider of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted provider output. `vitehub({ queue: true })` fails on Netlify because `queue` has no provider option. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node presets. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials. Do not use Cloudflare Sandbox there: the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
 

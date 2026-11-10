@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { basename, dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -237,7 +237,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const provider = getHostingProvider(deploymentPreset)
       const authority = options.authority || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
-      const build = environment?.command === "build"
+      const build = isProductionBuild(config, environment)
       const node = !deploymentPreset || deploymentPreset === "node"
       // A Node build shares its rooms with the other instances through Postgres or Redis. `vite dev` keeps them in memory.
       const nodeAuthority = !build || !node ? undefined

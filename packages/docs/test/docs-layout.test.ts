@@ -32,7 +32,9 @@ function middleware(client = true) {
       if (id === "#docs/navigation") return navigation
       if (id === "#imports") return {
         defineNuxtRouteMiddleware: (callback: Middleware) => callback,
+        isDocsStartLink: () => false,
         navigateTo,
+        useDocsConfig: () => ({}),
         useRuntimeConfig: () => config,
       }
       throw new Error(`Unexpected middleware import: ${id}`)
