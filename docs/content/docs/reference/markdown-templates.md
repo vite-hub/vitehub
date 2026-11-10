@@ -74,7 +74,7 @@ To share a section, render its template in TypeScript and pass the result as a M
 `renderMarkdownTemplate()` returns Markdown. Pass values in `data`. The template reads them with Comark bindings such as `{{ data.title }}`.
 
 ```ts
-import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
+import { renderMarkdownTemplate } from 'vite-hub/markdown-template'
 
 const template = `# Review {{ data.number }}
 
