@@ -132,7 +132,7 @@ const agentsInvoke = defineConsoleOperation({
 })
 
 const databasesBrowse = defineConsoleOperation({
-  cli: { namespace: "db", command: "rows", positional: ["table"] },
+  cli: { namespace: "database", command: "rows", positional: ["table"] },
   description: "Read the rows of a database table, one page at a time. Without a table it reads the tables only.",
   input: v.strictObject({
     database: optionalText,
@@ -158,7 +158,7 @@ const databasesBrowse = defineConsoleOperation({
 })
 
 const databasesTables = defineConsoleOperation({
-  cli: { namespace: "db", command: "tables" },
+  cli: { namespace: "database", command: "tables" },
   description: "List the tables of a database with their columns and relationships.",
   input: v.strictObject({ database: optionalText }),
   kind: "read",
@@ -282,7 +282,7 @@ const logsList = defineConsoleOperation({
   input: v.strictObject({ text: optionalText, level: v.optional(v.picklist(["debug", "info", "warn", "error"])), service: optionalText, cursor: optionalText, limit: optionalCount }),
   kind: "read",
   name: "logs.list",
-  run: async (input, context) => (await import("./logs.get.ts")).default(legacyEvent("logs", "GET", { query: input }, context)),
+  run: async (input, context) => (await import("./logs.get.ts")).readConsoleLogs(legacyEvent("logs", "GET", { query: input }, context)),
   section: "logs",
 })
 
@@ -348,17 +348,17 @@ const statusGet = defineConsoleOperation({
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
   name: "status.get",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./status.get.ts"))).default(legacyEvent("status", "GET", { query: input }, context)),
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./status.get.ts"))).readConsoleStatus(legacyEvent("status", "GET", { query: input }, context)),
   section: "agents",
 })
 
 const usageGet = defineConsoleOperation({
-  cli: { default: true },
+  cli: { command: "usage", namespace: "agent" },
   description: "Read token use and cost evidence of Agent Invocations.",
   input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
   kind: "read",
   name: "usage.get",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).default(legacyEvent("usage", "GET", { query: input }, context)),
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).readConsoleUsage(legacyEvent("usage", "GET", { query: input }, context)),
   section: "usage",
 })
 

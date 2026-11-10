@@ -62,6 +62,7 @@ import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import { namedAgentChannels } from "./internal/named-channels.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
@@ -84,7 +85,8 @@ import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setCha
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
+import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
 import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -288,6 +290,8 @@ export type {
   AgentInvocationStore,
 } from "./invocations.ts"
 export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
+export { getAgentInvocations } from "./invocations/app.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal, AgentInvocationsSetting, AgentInvocationsStoreName, AgentInvocationsStoreOptions } from "./invocations/app.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -459,7 +463,6 @@ export type {
   AgentInputHook,
   AgentInterceptContext,
   AgentInterceptHandler,
-  AgentIntegrationOption,
   AgentHookObserver,
   AgentHookObserverEvent,
   AgentHookObserverHooks,
@@ -472,9 +475,6 @@ export type {
   AgentInvocationContextValues,
   AgentInvocationHooks,
   AgentInvocationReference,
-  AgentInvocationsHostSettings,
-  AgentInvocationsInput,
-  AgentIntegrationsOptions,
   AgentInvoker,
   AgentInvokerMeta,
   AgentInvokerOptions,
@@ -497,7 +497,7 @@ export type {
   AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentChannelsOptions,
-  AgentModuleOptions,
+  AgentOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
   AgentOutputRenderer,
@@ -531,8 +531,6 @@ export type {
   AgentWebhookRegistrationDefinition,
   AgentChannelWebhookRegistrationDefinition,
   AgentWorkflowRuntimeBinding,
-  AgentSandboxProviderOptions,
-  AgentSchedulerProviderOptions,
   AgentSettings,
   AgentShutdownOptions,
   AgentSourceProvenance,
@@ -993,7 +991,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\")." })
 }
 
-async function deferAgentWorkflowRecovery<TPayload, TResult>(
+async function startAgentWorkflowRecovery<TPayload, TResult>(
   handle: WorkflowHandle<TPayload, TResult>,
   payload: TPayload,
   options: { id?: string },
@@ -1001,7 +999,7 @@ async function deferAgentWorkflowRecovery<TPayload, TResult>(
   let failure: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await handle.defer(payload, options)
+      await handle.start(payload, options)
       return
     }
     catch (error) {
@@ -1045,7 +1043,7 @@ async function getAgentWorkflowHandle<
   if (!registered && recovery) {
     registerInlineWorkflowDefinition(name, {
       internalAgentInvocationRecovery: true,
-      handler: async (workflowContext) => {
+      handler: async (_payload, workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
@@ -1056,7 +1054,7 @@ async function getAgentWorkflowHandle<
   const handle = registered || recovery
     // SAFETY: The Agent Workflow registry and recovery registration above own this exact payload and output contract.
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>>(name) as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
-    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
+    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (_payload, workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
@@ -1390,7 +1388,7 @@ async function runAgentAsWorkflow<
         hostDiscovered(context),
         true,
       )
-      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
+      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => startAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agentInvocationName(agent, context) ? { agentName: agentInvocationName(agent, context) } : {}),
           runId,
@@ -1429,7 +1427,7 @@ async function runAgentAsWorkflow<
     // journal signal at the last possible point before accepting the run.
     replayJournal?.abortSignal.throwIfAborted()
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
@@ -2094,7 +2092,7 @@ export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runti
 export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
-export { activeProviderSandbox, agentSettings, withoutForgeAccess } from "./composition.ts"
+export { activeProviderSandbox, agentSettings, recordProviderCheckout, withoutForgeAccess } from "./composition.ts"
 export type { ProviderSandboxSession } from "./composition.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
@@ -2124,9 +2122,21 @@ function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli">
 }
 
 function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
-  inputs: AgentChannelInputs<TRuntimeConfig> | undefined,
+  inputs: AgentChannelInputs<TRuntimeConfig> | readonly string[] | undefined,
 ): AgentChannels<TRuntimeConfig> | undefined {
-  if (!inputs) return inputs
+  if (!inputs) return undefined
+  if (Array.isArray(inputs)) {
+    return namedAgentChannels<TRuntimeConfig>(inputs, (value, name) => {
+      const channel = normalizeAgentChannelInput<TRuntimeConfig>(value)
+      if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] server/channels/${name} must default-export defineChannel() from vite-hub/channels.` })
+      }
+      if (capabilitiesContributeWorkspace(channel.capabilities)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] The Channel "${name}" adds an Agent Workspace, which ViteHub must see in the Agent file. List it inline: channels: { ${name}: channel }.` })
+      }
+      return channel
+    })
+  }
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
@@ -3247,10 +3257,14 @@ function createWorkspaceAgentDefinition<
 }
 
 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-export const defineAgent: DefineAgent = ((options: unknown) => {
+const defineAgentDefinition: DefineAgent = ((options: unknown) => {
   // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
-  const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
+  const configured = createConfiguredAgentDefinition(options, settings => defineAgentDefinition(settings as never))
   if (configured) return configured
+  // Named lists follow the same per-key layering rules as inline Channel records.
+  if (isRuntimeRecord(options) && Array.isArray(options.channels)) {
+    options = { ...options, channels: normalizeAgentChannels(options.channels) }
+  }
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options, settings => {
     const channels = normalizeAgentChannels(settings.channels)
@@ -3259,11 +3273,6 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   }, name => {
     throw new TypeError(`[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`)
   }) as AgentSettings
-  const invocations: unknown = agentOptions.invocations
-  // Host settings, such as a journal name, must be resolved by the host's defineAgent().
-  if (hasRuntimeType(invocations, "string") || hasRuntimeType(invocations, "boolean") || (isRuntimeRecord(invocations) && "store" in invocations)) {
-    throw new TypeError("[vitehub] Agent invocations must be a journal from defineAgentInvocations(). Import defineAgent from vite-hub/agent to select a journal by name.")
-  }
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
@@ -3294,6 +3303,52 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : defineBaseAgent(normalizedOptions as never)
   return rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
+}) as DefineAgent
+
+function inheritsDisabledInvocations(parent: unknown): boolean {
+  return Object(parent) === parent && Reflect.get(Object(parent), agentInvocationsDisabledKey) === true
+}
+
+// SAFETY: The journal setting is resolved before the Agent definition normalization above.
+export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) => {
+  const setting: AgentInvocationsSetting | undefined = options.invocations
+  const invocations = resolveAgentInvocationsSetting(setting)
+  let agentOptions = options
+  if (setting !== invocations) {
+    const { invocations: _setting, ...rest } = options
+    agentOptions = invocations ? { ...rest, invocations } : rest
+  }
+  const agent = defineAgentDefinition(agentOptions as never)
+  const disabled = setting === false || (setting === undefined && agent.invocations === undefined
+    && (inheritsDisabledInvocations(agent) || ("extends" in options && inheritsDisabledInvocations(options.extends))))
+  if (!disabled) Reflect.deleteProperty(agent, agentInvocationsDisabledKey)
+  if (!disabled && agent.invocations !== undefined) {
+    Reflect.deleteProperty(agent, agentInvocationsFallbackKey)
+    return agent
+  }
+
+  // Without its own journal, the Agent records in the app-wide journal that the generated server installs.
+  let assignedInvocations: AgentInvocations | undefined
+  if (disabled) Object.defineProperty(agent, agentInvocationsDisabledKey, { configurable: true, enumerable: false, value: true })
+  Object.defineProperty(agent, agentInvocationsFallbackKey, {
+    configurable: true,
+    enumerable: false,
+    get() {
+      return assignedInvocations === undefined
+    },
+  })
+  Object.defineProperty(agent, "invocations", {
+    configurable: true,
+    enumerable: false,
+    get() {
+      if (assignedInvocations || disabled) return assignedInvocations
+      return resolveFallbackAgentInvocations()
+    },
+    set(value: AgentInvocations | undefined) {
+      assignedInvocations = value
+    },
+  })
+  return agent
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {

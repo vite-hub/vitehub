@@ -88,7 +88,15 @@ Each Console build has an id, which changes only when the Console catalog or cli
 
 ## Enable the Console
 
-Set `console` in the ViteHub options. `console.auth` chooses who can open it, and every environment must set it:
+The Console app is its own package, `@vite-hub/console-client`, so an app without the Console does not install it. Add it before you turn the Console on:
+
+```bash [commands/install-console]
+pnpm add @vite-hub/console-client
+```
+
+`vitehub add console` adds it for you. If it is missing, the build stops and prints the same install command.
+
+Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:
 
 | `auth` | Who can open the Console |
 | --- | --- |
@@ -97,7 +105,7 @@ Set `console` in the ViteHub options. `console.auth` chooses who can open it, an
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
-The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub db generate` and `vitehub db migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
+The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub database generate` and `vitehub database migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
 The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
 
@@ -161,7 +169,7 @@ export default defineConfig({
 :::
 ::
 
-A standalone Nitro 3 app adds Nitro after ViteHub. The Console and its UI ship inside `vite-hub`, so you install no other package.
+A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies are prebuilt inside `@vite-hub/console-client`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -645,7 +653,7 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 - Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
 - Another browser or another Console origin has its own list. Link the projects again there.
 - When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
-- To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
+- To revoke access, remove the token's hash from `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. A Console that used that token then asks for a new one. See [Give each caller its own token](#give-each-caller-its-own-token).
 
 A project that signs in with the app keeps OAuth tokens in the same entry: an access token that is valid for 15 minutes, and a refresh token that is valid for 7 days. Each refresh gives a new refresh token. The Console refreshes the access token before a request when it expires within a minute. Requests that start at the same time wait for one refresh, and tabs take turns with the Web Locks API so they do not use the same refresh token. In browsers without Web Locks, a short lease in `localStorage` coordinates active tabs. This fallback is best effort: a suspended tab can miss lease renewal and overlap another tab's refresh. When the app refuses a refresh token that another tab already rotated, the Console uses the tokens that the other tab saved. When the project refuses an access token with `error="invalid_token"`, the Console refreshes once and sends the request again. When the refresh fails, the Console removes the tokens and asks you to sign in again. While a sign-in runs, the PKCE verifier and the `state` stay in `sessionStorage` of the tab, under `vitehub-console:oauth-sign-ins`. Each `state` works once. A browser that blocks site data for the Console keeps nothing across the redirect to the app, so the Console does not start a sign-in there and says `This browser blocks site data`. Allow site data for the Console origin, or use `auth: "token"`.
 
@@ -1124,7 +1132,7 @@ VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
 wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
 ```
 
-Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set or is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When no token hash variable is set, or one of them is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
 
 The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
 
@@ -1145,8 +1153,22 @@ export default defineConsoleAuthorize(({ via }) => {
 ```
 
 ::warning
-The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or redeploy the server. The old token stops working at once.
+The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles.
 ::
+
+### Give each caller its own token
+
+Next to `VITEHUB_CONSOLE_TOKEN_SHA256`, the server reads every variable named `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>`, where `<NAME>` has capital letters, digits, and underscores. Give each caller its own token and its own variable, such as one for a Console and one for the CLI in CI:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE=<console hash> \
+VITEHUB_CONSOLE_TOKEN_SHA256_CI=<ci hash> \
+node .output/server/index.mjs
+```
+
+Hosts never give a secret back, so a command can add or remove its own variable without reading the others. Removing one variable revokes only that caller. The server compares the token with every hash, so the time of the check does not show which one matched. A variable that is not 64 hex characters refuses every request with `CONSOLE_TOKEN_NOT_CONFIGURED`, and the message names it.
+
+To rotate a token with no downtime, add a variable with the hash of the new token and deploy. Give the new token to the caller, then remove the old variable and deploy again. The old token stops working at once.
 
 The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
 
@@ -1679,7 +1701,7 @@ Read [Auth](/docs/auth/server-api#authorize-access-routes) for sign-in redirects
 
 The Console does not store Agent Invocations. It reads the app-wide journal that `@vite-hub/agent` installs, with the Console on or off. When Agents are configured and no journal is set, that is the default journal at `.vitehub/data/agent-invocations.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. See [the default journal](/docs/agents/invocation-storage#use-the-default-journal) for its options, location, and retention. A KV-only Console does not read an Agent journal or install Agent read endpoints.
 
-Earlier releases stored this journal at `.vitehub/data/console.sqlite` and read `console.databaseUrl`, `console.observations`, `console.retention`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed. A build that sets one of them fails with `VITE_HUB_B0020`, and a server that sets `VITEHUB_CONSOLE_DATABASE_URL` fails with `VITE_HUB_R0139`. Set `agent: { invocations: { databaseUrl, observations, retention } }` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` instead. ViteHub does not move records from `console.sqlite`. To keep them, set `databaseUrl` to the old file, or pass it to [`vitehub agent invocations`](/docs/agents/invocation-storage#inspect-and-maintain-from-the-cli) with `--database`.
+Earlier releases stored this journal at `.vitehub/data/console.sqlite` and read `console.databaseUrl`, `console.observations`, `console.retention`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed. A build that sets one of them fails with `VITE_HUB_B0020`, and a server that sets `VITEHUB_CONSOLE_DATABASE_URL` fails with `AGENT_R1032`. Set `agent: { invocations: { databaseUrl, observations, retention } }` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` instead. ViteHub does not move records from `console.sqlite`. To keep them, set `databaseUrl` to the old file, or pass it to [`vitehub agent invocations`](/docs/agents/invocation-storage#inspect-and-maintain-from-the-cli) with `--database`.
 
 Console image uploads use the configured Blob store. Before each new upload, the Console retries at most 100 pending rollback records. Malformed batch records move unchanged to `_vitehub/console/quarantine/batch/<id>`. New uploads continue, but stored attachment references stay unavailable while any quarantine record exists, because their delete owner is unknown. Quarantine deletes no image bytes.
 
@@ -1695,7 +1717,7 @@ In production, the operator must still decide how long to keep records that may 
 
 A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option replaces the default journal. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions. With `agent: { invocations: false }`, the Console lists no sessions.
 
-The default journal requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store.
+An Agent records in the default journal whether you import `defineAgent` from `vite-hub/agent` or from `@vite-hub/agent`, because both paths export the same function.
 
 The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Set [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent) to give all of them the same journal. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
 
@@ -1747,7 +1769,6 @@ The Console does not fill in missing provider data. Token counts, model metadata
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal, not a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
-| A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
 | `console: true` reports missing app Auth or Console access policy | Set `auth: true` and allow the Console routes in the app Auth Definition. Use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub says `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object: `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition, such as `server/auth.ts`. |
@@ -1794,7 +1815,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_MCP_KEY_INVALID` | `500` | Set `VITEHUB_CONSOLE_MCP_KEY` to 32 random bytes as base64 or hex, such as the output of `openssl rand -base64 32`. |
 | `CONSOLE_MCP_KV_REQUIRED` | `500` | Turn on the default KV store with `kv: true` or an explicit default KV configuration, then rebuild. |
 
-A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs`.
+A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0114`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs`.
 
 See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page instead of the full Console, use [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
 
@@ -1817,14 +1838,9 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 
 After you open the Console, go back to any app page. The ViteHub pill stays while its hint cookie is set, or when you open a page with `?vitehub`. The server checks each tool's access, because the cookie grants nothing. Signed-out visitors do not get the editor.
 
-Choose **Console** to open it in a floating window. **Content** shows only when Content is installed and you have the full `content` grant. With `content:read`, use Content through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the Content editor.
+Choose **Console** to open it in a floating window. Content lives in the Console's Content section, so the pill has no separate Content button. To change text on the page itself, use **Edit** in the [Comments](/docs/comments/configure#mark-content-fields) segment: a click on a field marked with `contentField()` edits its text in place, and a field that is not plain text opens its document in the Console window. Content's own read, write, and publish policies still apply.
 
-- While you select, an open Content window moves aside. <kbd>Esc</kbd>, a second **Select field**, or a click outside a field cancels and brings it back.
-- A click while you select never follows a link.
-- A minimized window stays minimized until you pick a field.
-- You can browse collections with the keyboard in the Content window. Content's read, write, and publish policies still apply.
-
-When the page belongs to a document with an unpublished saved draft, the Content segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
+When the page belongs to a document with an unpublished saved draft, the Console segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
 
 On the draft page, a **Draft** tab sits on the pill, on the side facing the page, and the page has no banner. The tab marks text blocks that differ from the live page, such as headings, paragraphs, and list items. **N changes** turns the marks off and on. The pill compares the text of each block with the live page in a hidden frame, so a moved paragraph is not a change. Images, links, and styles are not compared. Removed blocks are counted. The tab hides while the pill is collapsed. **Back to live** shows the page as guests see it. Client-side navigation shows the next page live and checks it for a draft. The draft view shows the saved draft, not unsaved text.
 
@@ -1837,7 +1853,7 @@ Expanding or minimizing the window keeps the document and unsaved text.
 
 The editor loads on first use. In production it uses a same-origin iframe and needs an accepted Console session. A normal Console page still refuses framing. `?embed=1` allows same-origin framing only after the access check. Your Content Security Policy must allow the same-origin frame.
 
-Comments uses the same window for the page's threads and replies, without **Open in new tab**. When the Content editing tool is available, the Comments **Edit** action opens the document editor. Otherwise, plain-text field editing stays available as the Comments and Content policies allow.
+Comments uses the same window for the page's threads and replies, without **Open in new tab**. Its **Edit** action edits plain-text fields in place. A field that is not plain text opens its document in Console. Without the Console tool, **Open Content** links to the Content page. The Comments and Content policies still apply.
 
 ## Inspect logs
 

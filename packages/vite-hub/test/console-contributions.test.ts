@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -6,7 +7,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 
-import { consoleContributedSections, consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
+import { consoleContributedSections, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
 import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 
@@ -50,16 +51,13 @@ describe("Console section contributions", () => {
     expect(consoleSectionRouteName("queues")).toBe("vitehub-console-queues")
   })
 
-  it("maps request-time readers to vite-hub exports", async () => {
-    const manifest: { exports: Record<string, unknown> } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-
-    expect(consoleRuntimeReaderModule("@vite-hub/email/runtime/console")).toBe("vite-hub/_internal/email/runtime/console")
+  it("imports request-time readers from their owner files by path", async () => {
     expect(describeConsoleRuntimeReaders(["agents", "email", "queues", "schedules"])).toEqual([
-      { export: "readEmailOutboxConsoleRecords", module: "vite-hub/_internal/email/runtime/console", section: "email" },
-      { export: "readScheduleConsoleRecords", module: "vite-hub/_internal/schedule/runtime/console", section: "schedules" },
+      { export: "readEmailOutboxConsoleRecords", module: expect.stringMatching(/[\\/]email[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/), section: "email" },
+      { export: "readScheduleConsoleRecords", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/), section: "schedules" },
     ])
     for (const reader of describeConsoleRuntimeReaders([...consoleContributedSections.keys()])) {
-      expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)
+      expect(existsSync(reader.module), reader.module).toBe(true)
     }
   })
 
@@ -149,12 +147,12 @@ describe("Console primitive catalog", () => {
     }
   })
 
-  it("maps document editor actions to vite-hub exports", async () => {
+  it("imports document editor actions from the owner file by path", async () => {
     const manifest: { exports: Record<string, unknown> } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const content = consoleContributedSections.get("content")
     expect(content?.descriptor.view).toEqual({ kind: "document-editor", notice: expect.any(String) })
-    expect(content?.documents?.actions).toEqual({ export: "createContentConsoleActions", module: "vite-hub/_internal/content/runtime/console" })
-    expect(Object.hasOwn(manifest.exports, "./_internal/content/runtime/console")).toBe(true)
+    expect(content?.documents?.actions).toEqual({ export: "createContentConsoleActions", module: expect.stringMatching(/[\\/]content[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) })
+    expect(existsSync(content!.documents!.actions.module)).toBe(true)
     expect(Object.hasOwn(manifest.exports, "./console/documents")).toBe(true)
     // A document editor has no request-time record reader.
     expect(content?.runtime).toBeUndefined()

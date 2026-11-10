@@ -43,7 +43,7 @@ it("shows the eyebrow and tagline, ends the page with its credits, and searches 
       devtools: { enabled: false },
       modules: [[docs, { mcp: false, ogImage: false, linkChecker: false, site: { name: "Lumen", url: "https://lumen.example.com" } }]],
     }
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true, nitro: { static: true } }), ready: true })
     await build(nuxt)
     const output = (path: string) => readFile(join(root, ".output/public", path), "utf8")
     const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
