@@ -93,6 +93,7 @@ export default defineConfig({
       "src/drivers/vercel.ts",
       "src/drivers/vercel-bundled.ts",
       "src/index.ts",
+      "src/internal/vercel-blob.ts",
       "src/media.ts",
       "src/operations.ts",
       "src/reference.ts",
