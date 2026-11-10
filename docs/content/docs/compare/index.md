@@ -36,7 +36,7 @@ You can use the others with ViteHub.
 ## When ViteHub is the wrong choice
 
 - **Your framework has no ViteHub integration.** ViteHub works with Vite
-  (through `vitehub()` and Nitro) and Nuxt 4.5.2 or newer. Next.js and other
+  (through `vitehub()` and Nitro) and Nuxt 5. Next.js and other
   frameworks with their own server build do not work. Read
   [Frameworks and hosts](/docs/frameworks-hosts#choose-a-framework).
 - **You need a stable API today.** ViteHub releases can change the public API.
