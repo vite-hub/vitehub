@@ -1,7 +1,6 @@
 import { discoveredAgentName, discoveredAgentWorkspace } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { resolveAgentPresetExtension } from "./agent-presets.ts"
 import { mergeAgentChannels } from "./internal/named-channels.ts"
 import type { AgentDefinition, AgentInterceptOutputCarrier, AgentSettings } from "./types.ts"
@@ -26,7 +25,7 @@ export const agentLayerMetadata: unique symbol = Symbol("vitehub.agent.layer")
 const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
 
 function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   // SAFETY: This private symbol is attached only by this module.
   return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
 }
@@ -47,22 +46,22 @@ function inheritColocatedSkills(parent: Record<string, unknown>, child: Record<s
 }
 
 function nativePrototype(value: unknown, constructor: { readonly prototype: object }): boolean {
-  if (value === null || !hasRuntimeType(value, "object")) return false
+  if (value === null || typeof value !== "object") return false
   const prototype = Object.getPrototypeOf(value)
   if (prototype === constructor.prototype) return true
-  if (prototype === null || !hasRuntimeType(prototype, "object")) return false
+  if (prototype === null || typeof prototype !== "object") return false
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-  if (!descriptor || !("value" in descriptor) || !hasRuntimeType(descriptor.value, "function")) return false
+  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "function") return false
   return Function.prototype.toString.call(descriptor.value) === Function.prototype.toString.call(constructor)
     && Object.getOwnPropertyDescriptor(descriptor.value, "prototype")?.value === prototype
 }
 
 function nativeBuffer(value: unknown): boolean {
-  if (globalThis.Buffer === undefined || value === null || !hasRuntimeType(value, "object")) return false
+  if (globalThis.Buffer === undefined || value === null || typeof value !== "object") return false
   const prototype = Object.getPrototypeOf(value)
-  if (!prototype || !hasRuntimeType(prototype, "object")) return false
+  if (!prototype || typeof prototype !== "object") return false
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-  if (!descriptor || !("value" in descriptor) || !hasRuntimeType(descriptor.value, "function")) return false
+  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "function") return false
   // A subclass inherits Buffer's static helpers, while each native Buffer
   // constructor owns them. This also works when the constructor is foreign.
   return Function.prototype.toString.call(descriptor.value) === Function.prototype.toString.call(Buffer)
@@ -73,7 +72,7 @@ function nativeBuffer(value: unknown): boolean {
 }
 
 function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && hasRuntimeType(value, "object")
+  return value !== null && typeof value === "object"
     && !Array.isArray(value)
     && (Object.getPrototypeOf(value) === null || nativePrototype(value, Object))
 }
@@ -86,7 +85,7 @@ type RequirementsExtension = (inherited: readonly string[]) => unknown
 
 function requirementsExtension(value: unknown): RequirementsExtension | undefined {
   // SAFETY: Driver validation checks the list that the function returns.
-  return hasRuntimeType(value, "function") ? value as RequirementsExtension : undefined
+  return typeof value === "function" ? value as RequirementsExtension : undefined
 }
 
 // A function in `driver.requirements` receives the inherited list. An array replaces it.
@@ -122,12 +121,12 @@ interface ExtensibleCapability {
 }
 
 function extensibleCapability(value: unknown): value is ExtensibleCapability {
-  return record(value) && hasRuntimeType(value.id, "string")
+  return record(value) && typeof value.id === "string"
 }
 
 // A child Capability with `extend()` combines with the parent's Capability of the same `id`.
 function extendCapability(inherited: unknown, capability: ExtensibleCapability): unknown {
-  if (inherited === undefined || inherited === capability || !hasRuntimeType(capability.extend, "function")) return capability
+  if (inherited === undefined || inherited === capability || typeof capability.extend !== "function") return capability
   const extended: unknown = Reflect.apply(capability.extend, capability, [inherited])
   if (!extensibleCapability(extended) || extended.id !== capability.id) {
     throw new TypeError(`[vitehub] Capability "${capability.id}" extend() must return a Capability with the same id.`)
@@ -148,7 +147,7 @@ function composeHooks(parent: Record<string, unknown>, child: Record<string, unk
 
 function composeHook(name: string, parent: unknown, child: unknown): unknown {
   if (name === "hook:observe") return [...hookList(parent), ...hookList(child)]
-  if (!hasRuntimeType(parent, "function") || !hasRuntimeType(child, "function")) return child
+  if (typeof parent !== "function" || typeof child !== "function") return child
   return async (...args: unknown[]) => {
     const inherited: unknown = await Reflect.apply(parent, undefined, args)
     const own: unknown = await Reflect.apply(child, undefined, args)
@@ -171,7 +170,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   if (path === "driver") {
     if (record(child)) child = inheritRequirements(parent, child)
     if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
-      && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
+      && "model" in parent && typeof child.model === "object" && !("run" in child)) {
       return {
         ...parent,
         ...child,
@@ -188,12 +187,12 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
       }
       return child
     }
-    if (record(child) && hasRuntimeType(child.model, "object")) return child
+    if (record(child) && typeof child.model === "object") return child
   }
-  if (path === "workspace" && parent && child && hasRuntimeType(parent, "object") && hasRuntimeType(child, "object")
+  if (path === "workspace" && parent && child && typeof parent === "object" && typeof child === "object"
     && !Array.isArray(parent) && !Array.isArray(child)) {
-    const parentIsReference = Object.hasOwn(parent, "name") && hasRuntimeType((parent as Record<string, unknown>).name, "string")
-    const childIsReference = Object.hasOwn(child, "name") && hasRuntimeType((child as Record<string, unknown>).name, "string")
+    const parentIsReference = Object.hasOwn(parent, "name") && typeof (parent as Record<string, unknown>).name === "string"
+    const childIsReference = Object.hasOwn(child, "name") && typeof (child as Record<string, unknown>).name === "string"
     if (parentIsReference !== childIsReference) return child
     parent = { ...parent }
     child = { ...child }
@@ -243,7 +242,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
     return resolveRequirements(input)
   }
   const { extends: parent, options: presetOptions, ...overrides } = input
-  if (!parent || !hasRuntimeType(parent, "object") || !layerMetadata(parent)) {
+  if (!parent || typeof parent !== "object" || !layerMetadata(parent)) {
     throw new TypeError("[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().")
   }
   const inherited = layerMetadata(parent)!
@@ -333,7 +332,7 @@ export function rememberAgentLayerOptions<T extends LayerAgentDefinition>(defini
 }
 
 function assertLayerDefinition(value: unknown): asserts value is LayerAgentDefinition {
-  if (!value || !hasRuntimeType(value, "object") || !layerMetadata(value)) {
+  if (!value || typeof value !== "object" || !layerMetadata(value)) {
     throw new TypeError("[vitehub] Agent configure must return an Agent Definition created by defineAgent().")
   }
 }
@@ -426,7 +425,7 @@ function clonePresetBacking(value: ArrayBufferLike, shared: boolean): ArrayBuffe
 }
 
 function presetBackingKind(value: unknown): "array" | "shared" | undefined {
-  if (value === null || !hasRuntimeType(value, "object")) return
+  if (value === null || typeof value !== "object") return
   try {
     Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
     return "array"
@@ -444,7 +443,7 @@ function presetBackingKind(value: unknown): "array" | "shared" | undefined {
 }
 
 function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>(), active = new WeakMap<object, unknown>()): unknown {
-  if (value === null || !hasRuntimeType(value, "object")) return value
+  if (value === null || typeof value !== "object") return value
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
   const finish = (clone: object) => {
@@ -551,15 +550,15 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
 
 export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => LayerAgentDefinition): LayerAgentDefinition | undefined {
   if (!record(input) || !("configure" in input)) return undefined
-  if (!record(input.options) || !hasRuntimeType(input.configure, "function")
+  if (!record(input.options) || typeof input.configure !== "function"
     || Object.keys(input).some(key => key !== "options" && key !== "configure" && key !== "configKey")) {
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
-  if (input.configKey !== undefined && (!hasRuntimeType(input.configKey, "string") || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
+  if (input.configKey !== undefined && (typeof input.configKey !== "string" || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
     || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "sandbox", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
     throw new TypeError("[vitehub] Agent configKey must be a non-reserved configuration key.")
   }
-  const configKey = hasRuntimeType(input.configKey, "string") ? input.configKey : undefined
+  const configKey = typeof input.configKey === "string" ? input.configKey : undefined
   const callback = input.configure
   const configure = (options: Record<string, unknown>): unknown => callback(options)
   const options = mergePresetOptions({}, input.options)
@@ -611,7 +610,7 @@ export function agentLayerParents(definition: unknown): object[] {
 /** Keep discovery defaults available without pinning configured values on future extensions. */
 export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaults?: Partial<AgentSettings>): void {
   const metadata = layerMetadata(parent)
-  if (!metadata || !child || !hasRuntimeType(child, "object")) return
+  if (!metadata || !child || typeof child !== "object") return
   // SAFETY: Discovery supplies typed defaults for settings of a registered definition.
   rememberLayerMetadata(child as Record<string, unknown>, {
     // SAFETY: merge preserves the AgentSettings shape from typed metadata and defaults.

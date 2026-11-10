@@ -1,5 +1,6 @@
 import ui from "@vite-hub/ui/vite";
 import vue from "@vitejs/plugin-vue";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
@@ -24,6 +25,21 @@ export default defineConfig({
     dedupe: ["vue", "vue-router"],
   },
   plugins: [
+    {
+      // `vite-hub` reads the hashed entry names from `manifest.json` when it serves the Console page. This build writes
+      // `script` and `style`; page-tool.vite.config.ts reads the file and adds `pageTool`. Writing them here keeps the
+      // file in step with this build when the task cache replays the page tool build.
+      name: "vitehub-console-client-manifest",
+      writeBundle(options, bundle) {
+        // console.hosted.vite.config.ts reuses these plugins for a site with its own output folder and no manifest.
+        if (options.dir !== consoleClientOutDir) return
+        const files = Object.values(bundle)
+        const script = files.find(file => file.type === "chunk" && file.isEntry)?.fileName
+        const style = files.find(file => file.type === "asset" && file.names.includes("main.css"))?.fileName
+        if (!script || !style) throw new TypeError("The Console build wrote no entry script or stylesheet.")
+        writeFileSync(resolve(consoleClientOutDir, "../manifest.json"), `${JSON.stringify({ script, style }, null, 2)}\n`)
+      },
+    },
     {
       // KaTeX is loaded after the first render. Keep its embedded fonts out of the blocking stylesheet.
       name: "vitehub-console-deferred-katex-styles",
