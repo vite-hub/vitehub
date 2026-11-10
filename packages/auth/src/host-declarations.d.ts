@@ -1,6 +1,7 @@
 /// <reference types="node" />
+/// <reference path="./bun-sqlite.d.ts" />
 
-import "bun-types/sqlite.d.ts"
+export {}
 
 declare global {
   interface Timer {
