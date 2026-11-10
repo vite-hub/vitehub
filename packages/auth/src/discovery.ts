@@ -59,15 +59,18 @@ export function discoverAuthDefinition(rootDir: string, options: { serverDirs?: 
 
 const abilitiesExtensions = [".ts", ".mts", ".js", ".mjs"]
 
-/**
- * Finds the app's rules: `shared/abilities.ts` next to the server directory, which is the Nuxt `shared/` folder. Without
- * a server directory, `shared/abilities.ts` in the root. Two files with different extensions fail discovery.
- */
+/** The app's candidates come first; the remaining candidates belong to Nuxt layers. */
+export function authAbilitiesCandidates(rootDir: string, options: { serverDirs?: string[] } = {}) {
+  const [appServerDir = resolve(rootDir, "server"), ...layerServerDirs] = options.serverDirs ?? []
+  const candidates = (serverDir: string) => abilitiesExtensions.map(extension => resolve(dirname(serverDir), "shared", `abilities${extension}`))
+  return { app: candidates(appServerDir), layers: layerServerDirs.flatMap(candidates) }
+}
+
+/** The app replaces layer rules. Without app rules, exactly one layer may provide them. */
 export function discoverAuthAbilities(rootDir: string, options: { serverDirs?: string[] } = {}): string | undefined {
-  const serverDir = options.serverDirs?.[0] ?? resolve(rootDir, "server")
-  const found = abilitiesExtensions
-    .map(extension => resolve(dirname(serverDir), "shared", `abilities${extension}`))
-    .filter(file => existsSync(file))
+  const candidates = authAbilitiesCandidates(rootDir, options)
+  const app = candidates.app.filter(file => existsSync(file))
+  const found = app.length ? app : candidates.layers.filter(file => existsSync(file))
   if (found.length > 1) {
     throw authErrorDiagnostics.AUTH_C0060({ message: ["[vitehub] Only one abilities file is allowed. Found:", ...found.map(file => `  - ${file}`)].join("\n") })
   }

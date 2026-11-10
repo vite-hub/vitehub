@@ -72,9 +72,11 @@ the same behavior.
 | `vite-hub/console/operations` | Console operation registration. The generated Console plugin loads it on the first Console request or Agent operation tool, not when the server starts. |
 | `vite-hub/console/sections` | Registers the Console section manifest for framework servers. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
+| `vite-hub/console/setup` | The Console setters that the generated Console plugin calls when the server starts, without the access checks and sign-in pages of `vite-hub/console/sections`. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
+| `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
 | `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` preset's Workspace, its tables, and a Database when the app has none. `vitehub()` registers it. |
@@ -210,6 +212,7 @@ You can install each package on its own. These paths are stable for libraries, s
 | `@vite-hub/connections/server` and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, and the Agent primitive handle. `createConnectionsHandler()` comes from `@vite-hub/connections`. |
 | `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, and `@vite-hub/comments/database/postgres` | Comments Package | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
+| `@vite-hub/content/preview` | Content Package | The Content preview API and `defineContentPreviewPlugin()`, with a runtime or a loader. |
 | `@vite-hub/cms` and `@vite-hub/cms/vite` | CMS Package | The `cms` preset that stores document collections on a contributed Workspace, and `hubCms()`, the Vite plugin that adds that Workspace, its tables, and a Database when the app has none. |
 | `@vite-hub/cms/access` | CMS Package | The CMS roles for the Better Auth `admin` plugin and the policies from those roles. It needs `better-auth`. |
 | `@vite-hub/docs/nuxt` | Docs Package | The Nuxt module of a [docs site](/docs/docs-site). |

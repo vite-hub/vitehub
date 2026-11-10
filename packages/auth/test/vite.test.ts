@@ -4,7 +4,8 @@ import { dirname, join, resolve } from "node:path"
 
 import ts from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
-import { mergeConfig, resolveConfig } from "vite"
+import { createServer, mergeConfig, resolveConfig } from "vite"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { AUTH_ABILITIES_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
@@ -112,6 +113,44 @@ describe("hubAuth", () => {
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default; abilities: typeof import(\"../../shared/abilities.js\").default }")
   })
+
+  it.each(["shared/abilities.ts", "shared/abilities.mts", "layers/base/shared/abilities.ts"])("reloads added and removed rules from %s in dev", async (path) => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const abilities = join(root, path)
+    await mkdir(dirname(abilities), { recursive: true })
+    const plugin = hubAuth()
+    const discovery = { [VITEHUB_SERVER_DIRS]: [join(root, "server"), join(root, "layers/base/server")] }
+    const server = await createServer({
+      ...discovery,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [plugin],
+      root,
+      // Deliver notifications directly so watcher startup does not affect this regression test.
+      server: { watch: null },
+    })
+    try {
+      expect((await server.ssrLoadModule(AUTH_ABILITIES_ID)).default).toEqual({})
+      const snapshot = async () => ({
+        rules: Object.keys((await server.ssrLoadModule(AUTH_ABILITIES_ID)).default),
+        typed: (await readFile(join(root, ".vitehub/types/auth.d.ts"), "utf8")).includes("; abilities:"),
+      })
+
+      await writeFile(abilities, 'export default { "posts.edit": () => true }\n')
+      server.watcher.emit("add", abilities)
+      await expect.poll(snapshot, { timeout: 5000 }).toEqual({ rules: ["posts.edit"], typed: true })
+      expect(plugin.api.getConfig()?.abilities).toBe(abilities)
+
+      await rm(abilities)
+      server.watcher.emit("unlink", abilities)
+      await expect.poll(snapshot, { timeout: 5000 }).toEqual({ rules: [], typed: false })
+      expect(plugin.api.getConfig()?.abilities).toBeUndefined()
+    }
+    finally {
+      await server.close()
+    }
+  }, 15_000)
 
   it("serves no rules without shared/abilities.ts or without an Auth Definition", async () => {
     const withoutRules = await createTempProject()
@@ -429,16 +468,18 @@ describe("hubAuth", () => {
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
       file: string
       server: {
+        config: { root: string }
         moduleGraph: {
           getModuleById: (id: string) => { id: string } | undefined
           invalidateModule: (module: { id: string }) => void
         }
       }
-    }) => void
+    }) => Promise<void>
 
-    handleHotUpdate({
+    await handleHotUpdate({
       file: definition,
       server: {
+        config: { root },
         moduleGraph: {
           getModuleById(id) {
             if (id === `\0${AUTH_DEFINITION_ID}`) return { id }

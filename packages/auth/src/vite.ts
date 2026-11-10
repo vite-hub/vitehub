@@ -7,7 +7,7 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { resolveAuthViteConfig } from "./config.ts"
-import { discoverAuthDefinitions } from "./discovery.ts"
+import { authAbilitiesCandidates, discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { authTableNames } from "./table-names.ts"
 
@@ -388,6 +388,33 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       const runtimeConfig = refreshRuntimeConfig()
       await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(config.root), runtimeConfig, { importBase, serverEnv })
     },
+    configureServer(server) {
+      const root = server.config.root
+      const projectRoot = resolveViteHubProjectRoot(root)
+      const candidates = new Set([root, projectRoot].flatMap((directory) => {
+        const files = authAbilitiesCandidates(directory, { serverDirs })
+        return [...files.app, ...files.layers]
+      }))
+      // Watch directories so new files also emit add events, including layers outside the Vite root.
+      server.watcher.add([...new Set([...candidates].map(dirname))])
+      let refresh = Promise.resolve()
+      const onAbilitiesFile = (file: string) => {
+        if (!candidates.has(resolve(file))) return
+        refresh = refresh.then(async () => {
+          const config = refreshRuntimeConfig()
+          await refreshAuthGeneratedFiles(projectRoot, config, { importBase, serverEnv })
+          for (const environment of Object.values(server.environments)) {
+            for (const id of [RESOLVED_AUTH_ABILITIES_ID, RESOLVED_AUTH_DEFINITION_ID, RESOLVED_AUTH_SERVER_ID]) {
+              const module = environment.moduleGraph.getModuleById(id)
+              if (module) environment.moduleGraph.invalidateModule(module)
+            }
+          }
+          server.ws.send({ type: "full-reload" })
+        }).catch(error => server.config.logger.error(String(error)))
+      }
+      server.watcher.on("add", onAbilitiesFile)
+      server.watcher.on("unlink", onAbilitiesFile)
+    },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
         return
@@ -396,22 +423,18 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    handleHotUpdate(context) {
+    async handleHotUpdate(context) {
       const changed = context.file.replace(/\\/g, "/")
       const authDefinition = runtimeConfig?.definition.handler.replace(/\\/g, "/")
       if (changed !== authDefinition && !/\/?server\.auth\.(?:c|m)?[jt]s$/i.test(changed) && !/\/server\/auth\.(?:c|m)?[jt]s$/i.test(changed)) {
         return
       }
 
-      refreshRuntimeConfig()
-
-      const definitionModule = context.server.moduleGraph.getModuleById(RESOLVED_AUTH_DEFINITION_ID)
-      if (definitionModule) {
-        context.server.moduleGraph.invalidateModule(definitionModule)
-      }
-      const serverModule = context.server.moduleGraph.getModuleById(RESOLVED_AUTH_SERVER_ID)
-      if (serverModule) {
-        context.server.moduleGraph.invalidateModule(serverModule)
+      const config = refreshRuntimeConfig()
+      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(context.server.config.root), config, { importBase, serverEnv })
+      for (const id of [RESOLVED_AUTH_ABILITIES_ID, RESOLVED_AUTH_DEFINITION_ID, RESOLVED_AUTH_SERVER_ID]) {
+        const module = context.server.moduleGraph.getModuleById(id)
+        if (module) context.server.moduleGraph.invalidateModule(module)
       }
     },
     resolveId: {

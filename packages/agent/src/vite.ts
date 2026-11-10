@@ -45,7 +45,6 @@ import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteCon
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
 import { discoverAgentChannelModules, discoverStandaloneChannels, standaloneChannelWebhookAliases } from "./vite/standalone-channels.ts"
@@ -281,7 +280,7 @@ interface GeneratedAgentRuntimeCapabilityDefinition extends GeneratedAgentRuntim
 /** The project root that ViteHub plugins key generated state by. Nuxt sets it explicitly. */
 function viteHubProjectRoot(config: { root?: string }): string {
   const configured: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
-  return hasRuntimeType(configured, "string") && configured ? resolve(configured) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
+  return typeof configured === "string" && configured ? resolve(configured) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
 }
 
 /** The Content runtime is the `content` export of the `server/content.ts` file that the Source plugin discovered. */
@@ -291,7 +290,7 @@ function contentDefinitionPath(plugin: Plugin, projectRoot: string | undefined):
   if (!(getContentDefinition instanceof Function)) return
   const definition: unknown = getContentDefinition(projectRoot)
   const handler: unknown = Reflect.get(Object(definition), "handler")
-  return hasRuntimeType(handler, "string") && handler ? handler.replace(/\\/g, "/") : undefined
+  return typeof handler === "string" && handler ? handler.replace(/\\/g, "/") : undefined
 }
 
 async function prepareSourceDefinitions(config: ResolvedConfig, projectRoot: string, serverDirs: string[] | undefined): Promise<void> {
@@ -310,6 +309,7 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "content", modulePath: contentDefinitionPath, name: "content", packageName: false, pluginName: "@vite-hub/source/vite" },
   { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle", pluginName: "@vite-hub/database/vite" },
   { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
+  { importName: "agentI18n", name: "i18n", packageName: "@vite-hub/i18n/server", pluginName: "@vite-hub/i18n/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
@@ -883,7 +883,7 @@ function guardAgentDevelopmentRoutes(nitro: NitroConfig, handlers: Array<{ route
       }) {
         runtime.hooks.hook("build:before", () => {
           const scanned = runtime.scannedHandlers.flatMap(handler =>
-            hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware }] : [])
+            typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware }] : [])
           for (const handler of handlers) validateAgentStaticRoute(handler.route, scanned, "development invocation", agentInvocationsDevRuntimeNamespace)
         })
       },
@@ -1141,7 +1141,7 @@ function decorateDiscoveredAgentExport(
     if (statement.type !== "ExportNamedDeclaration" || !Array.isArray(statement.specifiers)) continue
     for (const specifier of statement.specifiers) {
       if (!isPositionedNode(specifier) || !isPositionedNode(specifier.exported) || !isPositionedNode(specifier.local)) continue
-      if (specifier.exported.name !== "default" || !hasRuntimeType(specifier.local.name, "string")) continue
+      if (specifier.exported.name !== "default" || typeof specifier.local.name !== "string") continue
       if (isPositionedNode(statement.source)) {
         const source = code.slice(statement.source.start, statement.source.end)
         return [
@@ -1835,10 +1835,10 @@ async function resolveEveExtensionPackage(
       const packageName = isRecord(packageJson) ? packageJson.name : undefined
       const eve = isRecord(packageJson) && isRecord(packageJson.eve) ? packageJson.eve : undefined
       const extension = eve && isRecord(eve.extension) ? eve.extension : undefined
-      if (hasRuntimeType(packageName, "string") && extension) {
+      if (typeof packageName === "string" && extension) {
         if (!validate) return packageName
         const dist = extension.dist
-        if (!hasRuntimeType(dist, "string")) return false
+        if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
         const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"))
         const formatVersion = isRecord(manifest) ? manifest.formatVersion : undefined
@@ -1850,7 +1850,7 @@ async function resolveEveExtensionPackage(
         const contracts = supportedEveExtensionContracts[formatVersion]
         for (const [contract, version] of Object.entries(requires)) {
           const versions = Object.entries(contracts).find(([name]) => name === contract)?.[1]
-          if (!hasRuntimeType(version, "number") || !Number.isInteger(version) || version < 1 || !versions?.includes(version)) {
+          if (typeof version !== "number" || !Number.isInteger(version) || version < 1 || !versions?.includes(version)) {
             throw agentDiagnostics.AGENT_B0015({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.` })
           }
         }
@@ -3477,7 +3477,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         nitroBaseURL: () => {
           // SAFETY: Vite keeps unknown user config keys on the resolved config. Nitro reads the same `nitro` key.
           const baseURL = (resolved as (ResolvedConfig & { nitro?: { baseURL?: unknown } }) | undefined)?.nitro?.baseURL
-          return hasRuntimeType(baseURL, "string") ? baseURL : process.env.NITRO_APP_BASE_URL
+          return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
         },
         route: agentInvocationsDevRoute,
         runtimeRoute: agentInvocationsDevRuntimeRoute,
@@ -3760,9 +3760,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
       if (resolved && hasHostedAgents && !denoOutput && Object.keys(webhookAliases).length) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
-        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         for (const [path, target] of Object.entries(webhookAliases)) {
-          if (!hasRuntimeType(target?.agent, "string") || !target.agent.trim() || !hasRuntimeType(target?.webhook, "string") || !target.webhook.trim()) {
+          if (typeof target?.agent !== "string" || !target.agent.trim() || typeof target?.webhook !== "string" || !target.webhook.trim()) {
             throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases require an Agent name and webhook name." })
           }
           const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias")
@@ -3771,7 +3771,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       if (installPreparation && resolved && resolved.preparation) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
-        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         const preparationHandler = nitroHandlers.find(handler => handler.handler === join(generatedRoot, generatedAgentPreparationHandler))!
         preparationHandler.route = validateAgentStaticRoute(preparationHandler.route, [
           ...routes,
@@ -3781,7 +3781,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       if (devNitroHandlers.length) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
-        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         for (const handler of devNitroHandlers) {
           handler.route = validateAgentStaticRoute(handler.route, [
             ...routes,

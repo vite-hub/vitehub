@@ -135,6 +135,35 @@ describe("Auth Nuxt integration", () => {
     expect(own).toHaveLength(1)
   })
 
+  it("restarts Nuxt when app or layer abilities are added or removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-auth-nuxt-watch-"))
+    try {
+      const hooks = new Map<string, (event: string, path: string) => Promise<void>>()
+      const nuxt = {
+        callHook: vi.fn(async (_name: "restart") => {}),
+        hook: (name: string, handler: (event: string, path: string) => Promise<void>) => hooks.set(name, handler),
+        options: {
+          dev: true,
+          rootDir: root,
+          _layers: [{ cwd: join(root, "layers/base"), config: { rootDir: join(root, "layers/base") } }],
+        },
+      }
+      hubAuthNuxt({ env: false }, nuxt as never)
+      expect(Reflect.get(nuxt.options, "watch")).toEqual([join(root, "shared"), join(root, "layers/base/shared")])
+      const watch = hooks.get("builder:watch")!
+      await watch("change", "shared/abilities.ts")
+      await watch("add", "shared/other.ts")
+      expect(nuxt.callHook).not.toHaveBeenCalled()
+
+      await watch("add", "shared/abilities.ts")
+      await watch("unlink", join(root, "layers/base/shared/abilities.mjs"))
+      expect(nuxt.callHook.mock.calls).toEqual([["restart"], ["restart"]])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("keeps Auth enabled when Env is disabled", () => {
     const nuxt = {
       options: {

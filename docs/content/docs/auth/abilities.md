@@ -34,6 +34,8 @@ A rule gets the signed-in user, then its arguments:
 - A signed-out visitor gets `401` with the code `signed-out`, and the rule does not run. Wrap a rule in `guest()` to run it for signed-out visitors too, with `user` set to `null`.
 - A rule must return at once, because it also runs in the browser. Load the data first and pass it in. Do not import server-only code into this file.
 
+In Nuxt, the app's file replaces the layer files. Without an app file, one layer may provide the rules. Two layers with rules fail with `AUTH_C0060`; add an app file to choose the rules.
+
 The Auth Vite plugin finds the file and registers its type in `.vitehub/types/auth.d.ts`. The ability names, the argument types, and the user type come from TypeScript inference. A wrong name or a wrong argument fails to compile.
 
 ## Check a rule on the server

@@ -123,6 +123,7 @@ const inspectionSchema = v.object({
   connectedAt: v.optional(v.string()),
   refreshedAt: v.optional(v.string()),
   mcp: v.optional(v.string()),
+  docs: v.optional(v.string()),
   expiresAt: v.optional(v.string()),
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
@@ -343,7 +344,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     },
   },
   inspect: {
-    description: "Show one Connection: account, scopes, and actions.",
+    description: "Show one Connection: account, scopes, actions, and its docs.",
     usage: "vitehub connections inspect <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
       const { connection } = await request(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") }, connectionResponse)
@@ -352,6 +353,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         describeConnection(connection),
         `  granted scopes: ${connection.scopes.granted.join(" ") || "none"}`,
         ...connection.actions.map(action => `  ${action.write ? "write" : "read "}  ${action.id}${action.highRisk ? "  high risk" : ""}`),
+        ...(connection.docs ? ["", connection.docs.trim()] : []),
       ].join("\n"))
     },
   },

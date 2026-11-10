@@ -2,8 +2,8 @@ import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/inte
 
 import type { ViteHubPageToolsInstallOptions } from "@vite-hub/internal/runtime/page-tools"
 
+import { resolveConsoleSections } from "../../internal.ts"
 import { consoleClientAssets } from "./client-assets.ts"
-import { getConsoleSections } from "./sections.ts"
 
 import type { ConsoleSectionId } from "../sections.ts"
 
@@ -26,7 +26,7 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
       label: "Console",
       icon: "i-lucide-square-terminal",
       script,
-      ...getConsoleSections().includes("content") ? {} : { lazy: true },
+      ...resolveConsoleSections().includes("content") ? {} : { lazy: true },
       allowed: ({ request }) => consoleAllowsRequest(request),
     })
   }
