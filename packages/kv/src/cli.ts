@@ -5,6 +5,7 @@ import * as v from "valibot"
 
 import { askOnTerminal, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "./results.ts"
@@ -219,10 +220,6 @@ async function readValue(parsed: ParsedKVArgs, cwd: string): Promise<unknown> {
   catch (error) {
     throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `The value is not valid JSON: ${error instanceof Error ? error.message : String(error)}` })
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !Array.isArray(value) && v.is(v.record(v.string(), v.unknown()), value)
 }
 
 function formatValue(result: KVDevGetResult): string | Uint8Array {

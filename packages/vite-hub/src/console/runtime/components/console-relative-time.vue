@@ -21,7 +21,7 @@ function useNow() {
 <script setup lang="ts">
 import { computed, watch } from "vue";
 
-import { exactTimestamps, recentTimestamp } from "../client/time";
+import { exactTimestamps, recentTimestamp } from "../client/format";
 
 /**
  * A relative time such as `just now`, `5m ago`, or `Oct 12`, with the exact UTC and local time in a tooltip (Geist

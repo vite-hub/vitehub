@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
+import { existsSync } from "node:fs"
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -10,7 +12,8 @@ import { describe, expect, it } from "vitest"
 // Generated server modules also import the package, so use one built module graph for request grants.
 import { vitehub } from "vite-hub"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+
+const token = "plugin-order-console-token-0123456789abcdef"
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -24,7 +27,7 @@ async function freePort(): Promise<number> {
 async function withBuiltServer<T>(root: string, run: (fetchServer: (path: string, init?: RequestInit) => Promise<Response>) => Promise<T>): Promise<T> {
   const port = await freePort()
   const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
-    env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port) },
+    env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") },
     stdio: "ignore",
   })
   const fetchServer = async (path: string, init?: RequestInit): Promise<Response> => {
@@ -55,21 +58,23 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-      const hub = vitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } })
+      const hub = vitehub({ preset: "node", console: { auth: "token" } })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
         root,
       })
       await builder.buildApp()
+      expect(existsSync(join(root, ".output/public/_vitehub/assets"))).toBe(false)
 
       await withBuiltServer(root, async (fetchServer) => {
+        // Apps no longer serve the Console page; this SPA serves its own fallback instead.
         const page = await fetchServer("/_vitehub")
         expect(page.status).toBe(200)
-        expect(await page.text()).toContain("<html")
+        expect(await page.text()).not.toContain("ViteHub Console")
         const rpc = await fetchServer("/_vitehub/rpc/__call", {
           body: JSON.stringify({ operation: "sections.list", input: {} }),
-          headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", [consoleRpcHeader]: "1" },
           method: "POST",
         })
         expect(rpc.status, await rpc.clone().text()).toBe(200)

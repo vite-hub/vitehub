@@ -24,6 +24,7 @@ import type { DeploymentPreset } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+import { isRecord } from "@vite-hub/internal/object"
 
 export const schedulePackageName = "@vite-hub/schedule"
 // Deno cron output keeps npm packages external, so it imports the static runtime from the deployed package.
@@ -36,11 +37,6 @@ const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
 type ImportResolver = (specifier: string) => string
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config is parsed as unknown and must be narrowed before reading fields.
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function readStringArray(value: unknown): string[] {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.

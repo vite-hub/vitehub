@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import nuxtUi from "@nuxt/ui/vite"
 import vue from "@vitejs/plugin-vue"
 import { hubWebContainer } from "@vite-hub/web-container/vite"
 import { chromium } from "playwright-core"
@@ -35,7 +36,8 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
-    plugins: [vue(), hubWebContainer({ routes: ["/**"] })],
+    // The tab strip and the fields are Nuxt UI components, so the page builds with Nuxt UI like an app does.
+    plugins: [vue(), nuxtUi({ dts: false }), hubWebContainer({ routes: ["/**"] })],
     resolve: {
       alias: [
         { find: "@vite-hub/ui/styles.css", replacement: join(dist, "styles.css") },
@@ -72,9 +74,9 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
 
   const frame = await waitForFrame(page, new URL(previewUrl).origin)
   await frame.waitForFunction(() => document.body?.textContent?.includes("Hello from /"), undefined, { timeout: 60_000 })
-  // CodeMirror replaced the fallback text, and the tabs are 44px high.
+  // CodeMirror replaced the fallback text, and UTabs shows the panel tabs.
   await page.waitForSelector(".vh-ws-editor .cm-content")
-  assert.ok((await page.locator("[role='tab']").first().boundingBox()).height >= 44)
+  assert.equal(await page.locator("[role='tab']").count(), 3)
 
   // Edit through the editor, then restart the server and reload the preview.
   await page.locator(".vh-ws-file-tree").evaluate(element => element.shadowRoot.querySelector("[data-item-path='lib/greeting.js'], [data-item-path='lib/greeting.js/']")?.click())

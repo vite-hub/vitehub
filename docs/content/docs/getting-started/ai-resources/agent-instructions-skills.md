@@ -63,7 +63,7 @@ Run the command from the project root. The index lists other skills too, so `--s
 
 ### Install from your app
 
-An app with the [Console](/docs/development/console) also serves the skill at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the app's version. Pass the Console URL of the dev server or the deployed app:
+An app with the [Console](/docs/development/console) endpoint also serves the skill at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the app's version. Pass the `/_vitehub` URL of the dev server or the deployed app:
 
 ```bash [Terminal]
 npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code

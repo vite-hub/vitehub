@@ -91,6 +91,7 @@ Some rules read the whole project:
 | [`VHUB0033`](#vhub0033) | `vitehub/no-removed-apis` | Error |
 | [`VHUB0034`](#vhub0034) | `vitehub/markdown-file-path` | Warning |
 | [`VHUB0035`](#vhub0035) | `vitehub/comments-entry` | Error |
+| [`VHUB0036`](#vhub0036) | `vitehub/prefer-vite-hub-imports` | Warning |
 
 ## VHUB0001
 
@@ -233,7 +234,26 @@ The rule reads secret paths from `.vitehub/env/description.mjs`, which ViteHub w
 
 It skips a secret passed to `console.*()` or a logger call such as `logger.info()`, where `<redacted>` is wanted. It still reports a secret that another call uses first, as in `logger.info(await fetch(url, { headers }))`.
 
+The examples read this secret:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    env: {
+      server: {
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+      },
+    },
+  })],
+})
+```
+
 ```ts [server/api/issues.get.ts]
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -246,6 +266,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/issues.get.ts]
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -283,7 +304,7 @@ export default defineConfig({
     env: {
       server: {
         // Invalid: the token is in the build output.
-        githubToken: env({ secret: true, default: 'ghp_123' }),
+        slackToken: env({ secret: true, default: 'xoxb-123' }),
         airtableToken: process.env.AIRTABLE_TOKEN,
       },
     },
@@ -301,7 +322,7 @@ export default defineConfig({
     env: {
       server: {
         // Valid
-        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        slackToken: env({ secret: true, source: env.source('SLACK_TOKEN') }),
         airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
       },
     },
@@ -349,7 +370,26 @@ A Server Env value with `source: env.provider(...)` comes from an Env provider, 
 
 The rule reads provider-backed paths from `.vitehub/env/description.mjs`, and does not run before that file exists. It reports property reads and destructuring of those paths from `useServerEnv()`.
 
+The examples read this key from a `crm` Env provider:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    env: {
+      server: {
+        crm: { key: env({ secret: true, source: env.provider('crm', 'api-key') }) },
+      },
+    },
+  })],
+})
+```
+
 ```ts [server/api/crm.get.ts]
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler((event) => {
@@ -360,6 +400,7 @@ export default defineEventHandler((event) => {
 ```
 
 ```ts [server/api/crm.get.ts]
+import { defineEventHandler } from 'h3'
 import { loadServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -406,12 +447,12 @@ Use `requireRateLimit()` when the request must fail with status 429. Read [Rate 
 
 `memoryRateLimitDriver()` keeps its counters in the driver object. A driver created in a route handler gets new counters on each request, so the limit is never reached.
 
-The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler (see [VHUB0003](#vhub0003)). It skips a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and test files.
+The rule reports `memoryRateLimitDriver()` from `vite-hub/rate-limit/drivers/memory` inside a route handler (see [VHUB0003](#vhub0003)). It skips a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and test files.
 
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
 import { createRateLimiter } from 'vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 export default defineEventHandler(async () => {
   // Invalid: every request gets new counters.
@@ -423,7 +464,7 @@ export default defineEventHandler(async () => {
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
 import { createRateLimiter } from 'vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 // Valid
 const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: '1m' })
@@ -437,7 +478,7 @@ export default defineEventHandler(async () => await limiter.consume({ key: 'sear
 
 `defineAuth()` resolves `baseURL`, `secret`, and `secrets` at runtime. The build accepts them in the static options, then `defineAuth()` throws `AUTH_C0037` when the server loads the Auth Definition.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fails=TS2769
 import { defineAuth } from 'vite-hub/auth'
 
 // Invalid
@@ -460,9 +501,20 @@ Read [Configure Auth](/docs/auth/configure).
 
 **Do not claim an Agent actor in `useConnection()`.** Rule `vitehub/no-agent-connection-actor`.
 
-Only the Agent runtime can act as an Agent. `useConnection(name, { actor: 'agent:…' })` throws `CONNECTIONS_INVALID_ACTOR` on its first call.
+Only the Agent runtime can act as an Agent. `useConnection(name, { actor: 'agent:…' })` throws `CONNECTIONS_INVALID_ACTOR` on its first call. The examples use this `google` Connection:
+
+```ts [server/connections/google.ts]
+import { defineConnection } from 'vite-hub/connections'
+import { google } from 'vite-hub/connections/google'
+
+export default defineConnection({
+  provider: google({ clientId: 'gmail-client-id', clientSecret: () => process.env.GOOGLE_CLIENT_SECRET! }),
+  scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+})
+```
 
 ```ts [server/api/labels.get.ts]
+import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
 // Invalid
@@ -470,6 +522,7 @@ export default defineEventHandler(() => useConnection('google', { actor: 'agent:
 ```
 
 ```ts [server/api/labels.get.ts]
+import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
 // Valid
@@ -486,7 +539,7 @@ Give the Agent the Connection through its Connection Capability. Read [Connectio
 
 The rule reports them as entries of `object()`, `looseObject()`, `strictObject()`, and `objectWithRest()` from `valibot`. It skips Zod, because `z.object()` already throws.
 
-```ts [server/schemas.ts]
+```ts [server/schemas.ts] fails=TS2322
 import * as v from 'valibot'
 import { image } from 'vite-hub/blob'
 
@@ -512,16 +565,22 @@ A Runtime Helper gets a literal name that matches no discovered Definition. The 
 
 The rule checks the first argument of `sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` always passes. The rule skips `runSchedule(name, { registry })`, which reads its own registry, and cannot see Workflows that another file registers with `createWorkflow()`.
 
-This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
-
-```ts [server/api/signup.post.ts] fragment
+```ts [server/utils/signup.ts] fails=TS2345
 import { sendQueue } from 'vite-hub/queue'
 
-// Invalid: the file is server/queues/welcome-email.ts
-const [typoError] = await sendQueue('welcom-email', { email })
+export async function signUp(email: string) {
+  // Invalid: the file is server/queues/welcome-email.ts
+  await sendQueue('welcom-email', { email })
+}
+```
 
-// Valid
-const [error] = await sendQueue('welcome-email', { email })
+```ts [server/utils/signup.ts]
+import { sendQueue } from 'vite-hub/queue'
+
+export async function signUp(email: string) {
+  // Valid
+  await sendQueue('welcome-email', { email })
+}
 ```
 
 Doctor runs each package's discovery. It skips a kind with no Definition files, because plugins can add Definitions that Doctor cannot see. It skips names that are not string literals.
@@ -545,7 +604,9 @@ Move helpers out, for example to `server/utils/`, and default-export each Defini
 // Valid
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue(async ({ payload }) => {})
+export default defineQueue<{ email: string }>(async ({ payload }) => {
+  console.log(`Welcome ${payload.email}`)
+})
 ```
 
 ## VHUB0015
@@ -578,16 +639,22 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
 
-This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
-
-```ts [server/api/signup.post.ts] fragment
+```ts [server/utils/signup.ts] fails=TS2353
 import { sendQueue } from 'vite-hub/queue'
 
-// Invalid
-const [wrappedError] = await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+export async function signUp(email: string) {
+  // Invalid
+  await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+}
+```
 
-// Valid
-const [error] = await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
+```ts [server/utils/signup.ts]
+import { sendQueue } from 'vite-hub/queue'
+
+export async function signUp(email: string) {
+  // Valid
+  await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
+}
 ```
 
 The rule accepts a `payload` field with no option keys, because that is app data.
@@ -596,7 +663,15 @@ The rule accepts a `payload` field with no option keys, because that is app data
 
 **Dispatch jobs inside a request.** Rule `vitehub/no-module-scope-dispatch`.
 
-`sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, or `runBrowser()` runs at module scope, once, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so on Cloudflare and Vercel the call can fail or the job can be dropped.
+`sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, or `runBrowser()` runs at module scope, once, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so on Cloudflare and Vercel the call can fail or the job can be dropped. The examples enqueue this `warmup` Queue:
+
+```ts [server/queues/warmup.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue(async () => {
+  console.log('Warming the cache')
+})
+```
 
 ```ts [server/plugins/warmup.ts]
 import { sendQueue } from 'vite-hub/queue'
@@ -606,6 +681,7 @@ await sendQueue('warmup', {})
 ```
 
 ```ts [server/api/warmup.post.ts]
+import { defineEventHandler } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 // Valid
@@ -731,12 +807,12 @@ export default defineSchedule({ cron: '0 8 * * *', manual: true, handler })
 
 `defineChannel()` throws when its module loads if it has no `adapter` or the adapter has no `kind` (`CHANNELS_C0007`), or if an `on` handler sits on an adapter that does not receive webhooks (`CHANNELS_C0010`). Handlers need `webhook()` or `stripe()`. A chat adapter such as `slack()` sends its messages to the Agent that lists the Channel. The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
 
-```ts [server/channels/alerts.ts] fragment
+```ts [server/channels/alerts.ts] fails=TS2741
 import { defineChannel } from 'vite-hub/channels'
 
 // Invalid
 export default defineChannel({
-  adapter: { send: async text => sendToSlack(text) },
+  adapter: { send: async () => ({}) },
   on: { webhook: event => console.log(event) },
 })
 ```
@@ -861,8 +937,8 @@ capabilities: [rateLimit({ limit: 20, window: '1m' })]
 import { rateLimit } from 'vite-hub/agent/capabilities'
 
 // Valid
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: '1m' })
 
@@ -906,7 +982,11 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `contentImportBase` was removed.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
-```ts [vite.config.ts] fragment
+```ts [vite.config.ts] fails=TS2769
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
 // Invalid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
@@ -939,13 +1019,15 @@ An app that uses ViteHub still has NuxtHub parts:
 - Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
 - `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
-```ts [nuxt.config.ts]
+```ts [nuxt.config.ts] fails=TS2353
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   hub: { kv: true },
 })
+```
 
+```ts [nuxt.config.ts]
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
@@ -1023,6 +1105,31 @@ export const comments = defineComments({ database: 'analytics' })
 ```
 
 Read [Comments server API](/docs/comments/server-api).
+
+## VHUB0036
+
+**Import ViteHub features from `vite-hub/*`.** Rule `vitehub/prefer-vite-hub-imports`.
+
+An app that depends on `vite-hub` imports an owner package path, such as `@vite-hub/blob`, and `vite-hub` has the same path, such as `vite-hub/blob`. Each `vite-hub/*` path re-exports its owner path. Apps use one import family, so the docs, the types, and the code show the same paths.
+
+```ts [server/api/upload.post.ts] fragment
+// Invalid
+import { blob } from '@vite-hub/blob'
+import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+
+// Valid
+import { blob } from 'vite-hub/blob'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
+```
+
+The fix names the `vite-hub/*` path. The rule reads the dependencies in the project `package.json`. It does not report:
+
+- an owner path that `vite-hub` does not export, such as `@vite-hub/blob/vite` or `@vite-hub/database/connect`
+- an app that installs owner packages without `vite-hub`, such as a docs site on `@vite-hub/docs` or Comments alone
+- the source of `vite-hub` and of the `@vite-hub/*` packages
+- generated files under `.vitehub/`
+
+[Import paths](/docs/reference/import-paths) lists every `vite-hub/*` path.
 
 ## Related
 
