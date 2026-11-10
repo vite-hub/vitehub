@@ -9,7 +9,7 @@ import {
   resolveConsoleInvocations,
   resolveConsoleInvocationsIdentity,
 } from "../../internal.ts"
-import { resolveDefaultAgentInvocations } from "../../../_internal/agent/invocations.ts"
+import { resolveDefaultAgentInvocations } from "../../../internal/agent-invocations.ts"
 
 import type { Value } from "@libsql/client"
 import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/invocations/default"

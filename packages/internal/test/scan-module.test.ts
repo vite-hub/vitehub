@@ -96,6 +96,13 @@ describe("maskLiterals", () => {
 })
 
 describe("moduleTokens", () => {
+  it("keeps source offsets before decoding escaped identifiers", () => {
+    const source = "// note\nconst \\u0061b = 'text'; ab()"
+    const { starts, tokens } = moduleTokens(scanModule(source))
+    expect(starts.map(start => source.slice(start, start + 2))).toEqual(["co", "\\u", "= ", "'t", "; ", "ab", "()", ")"])
+    expect(tokens[1]).toBe("ab")
+  })
+
   it("keeps literals whole and splits division from regular expressions", () => {
     const { lineBreaks, tokens } = moduleTokens(scanModule("const a = b / c / d\nconst r = /x\\/y/g // note\nconst t = `a${`b${c}`}`\nconst \\u0061b = 1"))
     expect(tokens).toEqual([

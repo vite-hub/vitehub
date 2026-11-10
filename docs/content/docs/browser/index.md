@@ -109,7 +109,7 @@ icon: i-lucide-monitor
   :::
 
   :::product-feature-item{title="Several steps on one page" icon="i-lucide-mouse-pointer-click" to="/docs/browser/server-api#keep-a-page-session-open"}
-  `browser.open()` keeps a page open to go to links, click, and fill in forms. ViteHub closes it for you.
+  `browser.open()` keeps a page open to follow links, click, and fill in forms. ViteHub closes it.
   :::
 
   :::product-feature-item{title="Quick calls without a file" icon="i-lucide-zap" to="/docs/browser/server-api#browser-actions"}
@@ -117,7 +117,7 @@ icon: i-lucide-monitor
   :::
 
   :::product-feature-item{title="No browser setup in your app" icon="i-lucide-cloud-cog" to="/docs/browser/configure#configuration"}
-  `browser: true` adds the Cloudflare setting at build time. Your routes do not import Cloudflare code.
+  `browser: true` adds the Cloudflare binding at build time. Routes import no Cloudflare code.
   :::
 
   :::product-feature-item{title="Full control when you need it" icon="i-lucide-sliders-horizontal" to="/docs/browser/server-api#low-level-sessions"}
@@ -125,7 +125,7 @@ icon: i-lucide-monitor
   :::
 
   :::product-feature-item{title="Check the URLs you open" icon="i-lucide-shield-check" to="/docs/browser/limits-and-errors#production-checks"}
-  Check every URL that users send you. Treat the content of each page as untrusted.
+  Check every URL that users send. Treat page content as untrusted.
   :::
 ::
 
