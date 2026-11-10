@@ -20,7 +20,7 @@ Cloudflare Queues and deploy the generated Worker with its bindings.
 Follow https://vitehub.dev/docs/frameworks-hosts/cloudflare for credentials,
 provisioning, and deployment. A build alone does not deliver jobs.
 
-Use runQueue("welcome-email", { email: "ada@example.com" }) from vite-hub/queue
+Use sendQueue("welcome-email", { email: "ada@example.com" }) from vite-hub/queue
 inside a deployed server request to enqueue a job. It returns [error, result]:
 check error first. Successful enqueue means provider acceptance, not
 completion. Providers can retry a delivery.`,
@@ -34,10 +34,11 @@ function packageFile(framework: "vite" | "nitro" | "nuxt"): PrimitiveProjectFile
       name: "queue-starter",
       private: true,
       type: "module",
+      ...(framework === "nuxt" ? { engines: { pnpm: ">=11.5.0" } } : {}),
       scripts: { build: framework === "nuxt" ? "nuxt build" : "vite build" },
       dependencies: { "vite-hub": "latest" },
       devDependencies: framework === "nuxt"
-        ? { nuxt: "^4.5.2", typescript: "^6.0.3" }
+        ? { nuxt: "npm:nuxt-nightly@5x", typescript: "^6.0.3" }
         : { vite: "^8.2.2", "@types/node": "^24.0.0", typescript: "^6.0.3", ...(framework === "nitro" ? { nitro: "3.0.261102-rc" } : {}) },
     }, null, 2),
   };

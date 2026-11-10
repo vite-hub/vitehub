@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
 function hookAgent() {
   const agent = defineAgent({ driver: { run: () => "unused" } })
   const channels = {
-    hook: defineChannel("hook", {
+    hook: channelAdapter("hook", {
       messages: false,
       triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
       webhooks: { aliases: ["/old-hook/"], path: "hook/", provider: "hook" },

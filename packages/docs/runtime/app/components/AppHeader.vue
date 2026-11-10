@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { docsHomePath, isDocsPath } from "#docs/navigation"
+import { useMediaQuery } from "@vueuse/core"
+import { docsHomePath, isDocsPath, normalizeDocsPath } from "#docs/navigation"
+import { useDocsHeaderActionsTarget } from "../composables/headerActions"
 
 const route = useRoute()
 const { base, github, site, socials, start } = useDocsConfig()
-const docsHome = docsHomePath(useDocsManifest())
+const docsHome = docsHomePath(useDocsManifest(), start)
 // Docs routes and the start links use the docs shell. There the brand opens the docs home, like a docs site logo,
 // and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
 // The header is the same on every page: the brand, search in the middle, and the site's links and controls.
@@ -11,13 +13,16 @@ const shell = useDocsShell()
 const error = useError()
 const isDocsRoute = computed(() => shell.value && !error.value)
 const menuOpen = ref(false)
+const wide = useMediaQuery("(min-width: 64rem)", { ssrWidth: 0 })
+const actionsTargetId = useDocsHeaderActionsTarget()
+const actionsTarget = computed(() => wide.value && actionsTargetId.value ? document.getElementById(actionsTargetId.value) : null)
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
 
-// A site without docs pages has no "Docs" link.
+// A site without docs pages has no "Docs" link. A start link that "Docs" already opens would repeat it.
 const navLinks = [
   ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
-  ...(start?.links ?? []).filter(link => link.to !== base).map(link => ({ label: link.label, to: link.to })),
+  ...(start?.links ?? []).filter(link => link.to !== base && normalizeDocsPath(link.to) !== docsHome).map(link => ({ label: link.label, to: link.to })),
 ]
 
 const mobileLinks = [
@@ -37,7 +42,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 </script>
 
 <template>
-  <div class="sticky top-0 z-50">
+  <div class="vh-docs-header sticky top-0 z-50">
     <UHeader
       v-model:open="menuOpen"
       :ui="{
@@ -57,7 +62,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
         >
           <ULink :to="isDocsRoute && docsHome ? docsHome : '/'" class="vh-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
-            <span v-if="site.logo" class="vh-brand-mark" :style="{ '--vh-docs-logo': `url(${site.logo})` }" aria-hidden="true" />
+            <DocsBrandMark class="vh-brand-mark" />
             <span class="vh-brand-name">
               <span>{{ site.name }}</span>
               <span v-if="site.badge" class="vh-brand-alpha">{{ site.badge.label }}</span>
@@ -92,7 +97,10 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 
       <template #right>
         <!-- Empty here: an app adds its own items with a `DocsHeaderActions` component, such as the package a page documents. -->
-        <DocsHeaderActions />
+        <!-- Move one instance between shells so app state, IDs, and subscriptions stay unique. -->
+        <Teleport :to="actionsTarget || '#teleports'" :disabled="!actionsTarget">
+          <DocsHeaderActions />
+        </Teleport>
         <UContentSearchButton
           collapsed
           :kbds="[]"
@@ -198,6 +206,13 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 </template>
 
 <style scoped>
+/* A replacement layout or sidebar keeps the header until it supplies the sidebar controls. */
+@media (min-width: 64rem) {
+  :global(body:has([data-docs-sidebar-head]) .vh-docs-header) {
+    display: none;
+  }
+}
+
 /*
  * In the mobile menu the rail and the page panel sit side by side, as on wide screens.
  * The menu fills the visible body of the fullscreen menu (its padding minus this block's negative margin),
@@ -227,6 +242,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 }
 
 .vh-brand {
+  --vh-docs-mark-size: 1.5rem;
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -249,15 +265,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
     inset: -0.75rem -0.25rem;
     content: "";
   }
-}
-
-/* Like the docs rail, the mark is a mask filled with the text color, so it follows light and dark mode without a frame. */
-.vh-brand-mark {
-  display: block;
-  width: 1.5rem;
-  height: 1.5rem;
-  background-color: var(--ui-text-highlighted);
-  mask: var(--vh-docs-logo) center / contain no-repeat;
 }
 
 .vh-brand-name {
