@@ -10,16 +10,20 @@ import type { ComarkContent, ContentFile, Manifest, ParsedSource, Source as Coma
  * and a full load, such as the first search, reads every shard.
  */
 
-/** The index of a snapshot, as JSON text in the bundle. */
+/** The index of a snapshot. */
 export interface ContentSnapshotIndex {
-  /** The Source keys the snapshot was parsed from. A Source with other keys parses again. */
+  /** The keys of the Source definition the snapshot was parsed from. A Source with other keys parses again. */
   keys: string[]
   manifest: Manifest
   /** The shard of each document, by its key in the Source. */
   shards: Record<string, number>
 }
 
-/** One Content instance's snapshot: the index, and a loader for each shard of parsed documents. Both are JSON text. */
+/**
+ * One Content instance's snapshot: the index, and a loader for each shard of parsed documents. Each is JSON text,
+ * gzipped and in base64. A server compiles that short string at start, and Cloudflare Workers compile every module of
+ * the bundle when an isolate starts, so the snapshot costs startup by its gzip size, not its JSON size.
+ */
 export interface ContentSnapshot {
   index: string
   shards: Array<() => Promise<string>>
@@ -31,6 +35,8 @@ export type ContentSnapshotLoader = () => Promise<ContentSnapshot>
 export interface ContentSnapshotTarget {
   name: string
   instance: ComarkContent
+  /** The keys of the instance's Source definition. */
+  keys: () => Promise<string[]>
 }
 
 /** Bodies per shard, in JSON characters. A `get()` on a cold server parses one shard of about this size. */
@@ -60,6 +66,19 @@ export function setContentSnapshotTargets(runtime: object, list: ContentSnapshot
   targets.set(runtime, list)
 }
 
+/** JSON text gzipped in base64, as the build writes it into the bundle. */
+async function readSnapshotJson<T>(base64: string): Promise<T> {
+  // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib and node:buffer. On Node they decode about 5 times faster than atob() and DecompressionStream.
+  const zlib = globalThis.process?.getBuiltinModule?.("node:zlib")
+  const buffer = globalThis.process?.getBuiltinModule?.("node:buffer")
+  if (zlib && buffer) return JSON.parse(zlib.gunzipSync(buffer.Buffer.from(base64, "base64")).toString()) as T
+  // A loop, because Uint8Array.from() with a map function takes about 75 ms for 1.5 MB of base64.
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+  return await new Response(new Response(bytes).body!.pipeThrough(new DecompressionStream("gzip"))).json() as T
+}
+
 function sameKeys(left: string[], right: string[]): boolean {
   const a = left.slice().sort()
   const b = right.slice().sort()
@@ -68,20 +87,20 @@ function sameKeys(left: string[], right: string[]): boolean {
 
 /**
  * A Comark parsed Source that reads the build-time snapshot and keeps `origin` as its raw Source, so `refresh()` parses
- * the origin again. When the snapshot holds other keys than the origin, every loader returns null and Comark parses
- * the origin, as it would without a snapshot.
+ * the origin again. `keys` lists the keys of the Source definition without reading files. When the snapshot holds
+ * other keys, every loader returns null and Comark parses the origin, as it would without a snapshot.
  */
-export function withContentSnapshot(origin: ComarkContentSource, load: ContentSnapshotLoader): ParsedSource {
+export function withContentSnapshot(origin: ComarkContentSource, load: ContentSnapshotLoader, keys: () => Promise<string[]>): ParsedSource {
   let opened: Promise<{ index: ContentSnapshotIndex, shard: (index: number) => Promise<ContentFile[]> } | null> | undefined
   const open = () => opened ??= (async () => {
     const snapshot = await load()
-    const index: ContentSnapshotIndex = JSON.parse(snapshot.index)
-    if (!sameKeys(index.keys, await origin.keys())) return null
+    const [index, sourceKeys] = await Promise.all([readSnapshotJson<ContentSnapshotIndex>(snapshot.index), keys()])
+    if (!sameKeys(index.keys, sourceKeys)) return null
     const shards = new Map<number, Promise<ContentFile[]>>()
     const shard = (number: number) => {
       let items = shards.get(number)
       if (!items) {
-        items = snapshot.shards[number]!().then(text => JSON.parse(text) as ContentFile[])
+        items = snapshot.shards[number]!().then(text => readSnapshotJson<ContentFile[]>(text))
         shards.set(number, items)
       }
       return items
@@ -123,7 +142,7 @@ export interface BuiltContentSnapshot {
 export async function buildContentSnapshots(runtime: object): Promise<{ snapshots: Record<string, BuiltContentSnapshot>, skipped: Record<string, string> }> {
   const snapshots: Record<string, BuiltContentSnapshot> = {}
   const skipped: Record<string, string> = {}
-  for (const { name, instance } of targets.get(runtime) ?? []) {
+  for (const { name, instance, keys: sourceKeys } of targets.get(runtime) ?? []) {
     const { hooks } = instance
     const callHook = hooks.callHook
     // Index plugins, such as `sql-query`, build their tables from `file:bulk:load`. The build only parses, so they do not
@@ -131,7 +150,7 @@ export async function buildContentSnapshots(runtime: object): Promise<{ snapshot
     hooks.callHook = ((hook: string, ...args: unknown[]) => hook === "file:bulk:load" ? Promise.resolve() : Reflect.apply(callHook, hooks, [hook, ...args])) as typeof callHook
     try {
       await instance.init({ partial: false, ignoreCache: true })
-      const keys = await instance.getSource(name)!.keys()
+      const keys = await sourceKeys()
       const { items } = await instance.snapshot()
       const shards: string[] = []
       const shardOf: Record<string, number> = {}

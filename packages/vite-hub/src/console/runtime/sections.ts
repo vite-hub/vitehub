@@ -85,6 +85,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   blob: "data",
   content: "data",
   comments: "data",
+  forms: "data",
   workspaces: "data",
   workflows: "runtime",
   queues: "runtime",
