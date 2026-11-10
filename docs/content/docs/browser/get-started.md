@@ -25,8 +25,37 @@ pnpm add @vite-hub/browser valibot
 pnpm add -D wrangler
 ```
 
-Then, in `vite.config.ts`, set `preset: 'cloudflare'` and turn on Browser. Keep the other options of your app.
+Then, in the ViteHub options of your app, set `preset: 'cloudflare'` and turn on Browser. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    browser: { remote: true },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    browser: { remote: true },
+  }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -38,6 +67,8 @@ export default defineConfig({
   })],
 })
 ```
+::::
+:::
 
 - `preset: 'cloudflare'` builds your app for Cloudflare. Browser works only with this preset.
 - `remote: true` lets your app call the browser on Cloudflare while you test on your computer.
