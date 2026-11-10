@@ -675,6 +675,8 @@ export async function callOperation(target: OperationTarget, name: string, input
       if (text(json.fix)) failure.fix = text(json.fix)
       if (text(json.docs)) failure.docs = text(json.docs)
       if (isObject(json.details)) failure.details = json.details
+      // A found dev server gets no credentials, so the fix that it sends for a 401 works only with --url.
+      if (target.roots?.length && failure.status === 401) failure.fix = `Pass --url ${base.href.slice(0, -1)} to send credentials. A command sends none to the dev server that it finds. ${failure.fix ?? operationCredentialHint}`
       if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
       return failure
     }
