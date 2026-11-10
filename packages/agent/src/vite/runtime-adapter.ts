@@ -9,7 +9,6 @@ import { createAgentRuntimeContext } from "../runtime/context.ts"
 import {
   workspaceAgentWithSourceRoot,
 } from "../workspace-agent.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
@@ -93,7 +92,7 @@ export function createViteWorkspaceAgentLoader(
       // journal and Console configuration in this runner before resolving the journal.
       // SAFETY: Nitro extends Vite's open config with its registered runtime plugins.
       const nitro = (server.config as typeof server.config & { nitro?: { plugins?: unknown[] } }).nitro
-      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => hasRuntimeType(plugin, "string") && pattern.test(plugin))
+      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => typeof plugin === "string" && pattern.test(plugin))
       const journal = usesJournal ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]agent[\\/]invocations\.mjs$/) : undefined
       const bootstrap = usesConsole ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]console[\\/]plugin(?:-[^\\/]+)?\.mjs$/) : undefined
       if (journal) await server.ssrLoadModule(journal)

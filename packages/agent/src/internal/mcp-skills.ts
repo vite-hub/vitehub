@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 import type { AgentCapabilityWorkspaceContribution } from "../types.ts"
 import type { WorkspaceDefinition, WorkspaceSourceInput } from "@vite-hub/workspace"
@@ -29,8 +29,8 @@ interface McpResourceClient {
 }
 
 function hasResourceMethods(client: object): client is McpResourceClient {
-  return "listResources" in client && hasRuntimeType(client.listResources, "function")
-    && "readResource" in client && hasRuntimeType(client.readResource, "function")
+  return "listResources" in client && typeof client.listResources === "function"
+    && "readResource" in client && typeof client.readResource === "function"
 }
 
 function unsafeSegment(segment: string): boolean {
@@ -44,7 +44,7 @@ function unsafeSegment(segment: string): boolean {
 
 /** The Skill name and file path of a `skill://<name>/<path>` resource URI, or nothing for any other or unsafe URI. */
 function skillFile(uri: unknown, normalizeSafeWorkspacePath: (path: string) => string): { name: string, path: string, uri: string } | undefined {
-  if (!hasRuntimeType(uri, "string")) return
+  if (typeof uri !== "string") return
   const match = /^skill:\/\/([^/]+)\/(.+)$/.exec(uri)
   const name = match?.[1]
   const path = match?.[2]
@@ -64,15 +64,15 @@ function skillFile(uri: unknown, normalizeSafeWorkspacePath: (path: string) => s
 function isUnsupportedResources(error: unknown): boolean {
   if (!isRuntimeRecord(error)) return false
   return error.code === -32601
-    || (hasRuntimeType(error.message, "string") && error.message === "Server does not support resources")
+    || (typeof error.message === "string" && error.message === "Server does not support resources")
 }
 
 async function readText(client: McpResourceClient, uri: string, signal: AbortSignal | undefined): Promise<{ text: string, mimeType?: string } | undefined> {
   const result = await client.readResource({ uri, ...(signal ? { options: { signal } } : {}) })
   const contents = isRuntimeRecord(result) && Array.isArray(result.contents) ? result.contents : []
   for (const item of contents) {
-    if (isRuntimeRecord(item) && item.uri === uri && hasRuntimeType(item.text, "string")) {
-      return { text: item.text, ...(hasRuntimeType(item.mimeType, "string") ? { mimeType: item.mimeType } : {}) }
+    if (isRuntimeRecord(item) && item.uri === uri && typeof item.text === "string") {
+      return { text: item.text, ...(typeof item.mimeType === "string" ? { mimeType: item.mimeType } : {}) }
     }
   }
 }
@@ -99,7 +99,7 @@ export async function readMcpSkills(client: object, signal?: AbortSignal): Promi
         const file = skillFile(isRuntimeRecord(resource) ? resource.uri : undefined, normalizeSafeWorkspacePath)
         if (file) listed.push(file)
       }
-      cursor = isRuntimeRecord(result) && hasRuntimeType(result.nextCursor, "string") && result.nextCursor ? result.nextCursor : undefined
+      cursor = isRuntimeRecord(result) && typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : undefined
       if (!cursor) break
     }
   }
@@ -200,7 +200,7 @@ export function mcpSkillsInspectionValue(result: McpSkill[] | { error: unknown }
   if (result === "no-workspace") return "No Workspace"
   if (!Array.isArray(result)) {
     const error = result.error
-    const message = isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error)
+    const message = isRuntimeRecord(error) && typeof error.message === "string" ? error.message : String(error)
     return `Discovery failed: ${message.slice(0, 200)}`
   }
   return result.map(skill => skill.name).join(", ") || "None"
