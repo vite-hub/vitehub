@@ -226,7 +226,6 @@
   "packages/codemods/test/fixtures/valibot-schema/output/nuxt.config.ts": "ok",
   "packages/codemods/test/fixtures/zod-schema-module/output/nuxt.config.ts": "ok",
   "packages/env/examples/schema-lab/vite.config.ts": "no-vitehub",
-  "packages/vite-hub/test/fixtures/comments-demo/vite.config.mjs": "ok",
   "playground/chatgpt/vite.config.ts": "ok",
   "playground/console/vite.config.ts": "no-vitehub",
   "playground/content/vite.config.ts": "ok",

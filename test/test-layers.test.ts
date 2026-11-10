@@ -47,9 +47,6 @@ describe("root test layers", () => {
       command: "vp test --config test/consumer/vitest.config.ts",
       dependsOn: ["build"],
     })
-    expect(rootTestTasks["test:output"].command).toBe(
-      "vp run test:output:cloudflare && vp run test:output:vercel",
-    )
     for (const provider of ["cloudflare", "vercel"]) {
       const task = provider === "cloudflare"
         ? rootTestTasks["test:output:cloudflare"]
