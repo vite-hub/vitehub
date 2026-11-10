@@ -32,3 +32,9 @@ runs:
       env:
         VITEHUB_SKIP_DOCS_PREPARE: ${{ inputs.prepare-docs == 'false' && '1' || '' }}
       run: vp install --frozen-lockfile
+
+    # Without this, every package build misses the restored task cache with
+    # "'node_modules/.modules.yaml' modified". See the script for why.
+    - name: Make the pnpm install state stable for the task cache
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/stable-pnpm-modules.mjs"
