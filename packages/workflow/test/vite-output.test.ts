@@ -651,6 +651,46 @@ export async function linkWorkflow() {
   }
 })
 
+it("keeps native Workflow and step IDs stable across staged builds", { timeout: buildOutputTestTimeout * 2 }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-stable-ids-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  const nativeSource = (label: string) => `export async function greet(name: string) {\n  "use step"\n  return "${label} " + name\n}\nexport async function durable(name: string) {\n  "use workflow"\n  return await greet(name)\n}\n`
+  await writeFile(join(workflowDir, "durable.ts"), nativeSource("hello"))
+  await writeFile(join(workflowDir, "farewell.ts"), nativeSource("bye"))
+  await writeFile(join(workflowDir, "welcome.ts"), 'import { durable } from "./durable.ts"\nexport default { handler: async () => undefined, options: { native: durable } }\n')
+
+  const buildGeneration = async (generation: string) => {
+    const artifactDir = join(rootDir, ".vitehub", "workflow-generations", generation)
+    const retained = await retainProviderOutputSources({
+      artifactDir: join(artifactDir, "sources"),
+      paths: discoverWorkflowProviderSourcePaths(rootDir),
+      roots: [rootDir],
+    })
+    const definitionRootDir = retained.resolve(rootDir)
+    const workflow = { provider: "vercel" as const }
+    const artifacts = await writeProviderEntries(rootDir, workflow, {}, undefined, false, undefined, definitionRootDir, join(artifactDir, "output"))
+    await generateWorkflowProviderOutputs({ artifacts, clientOutDir: join(rootDir, "dist"), definitionRootDir, rootDir, sourceRootDir: retained.resolve(rootDir), workflow })
+    const manifest = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/manifest.json"), "utf8")
+    const ids = [...new Set(manifest.match(/(?:workflow|step)\/\/\.\/[^"]+/g))].sort()
+    const server = await readFile(join(rootDir, ".vercel/output/functions/__server.func/index.mjs"), "utf8")
+    return { ids, server }
+  }
+
+  const first = await buildGeneration("first")
+  const second = await buildGeneration("second")
+  expect(first.ids).toHaveLength(4)
+  expect(second.ids).toEqual(first.ids)
+  expect(first.ids.join("\n")).not.toContain("workflow-generations")
+  const durableIds = first.ids.filter(id => id.includes("/durable//"))
+  const farewellIds = first.ids.filter(id => id.includes("/farewell//"))
+  expect(durableIds).toHaveLength(2)
+  expect(farewellIds).toHaveLength(2)
+  const durableWorkflowId = durableIds.find(id => id.startsWith("workflow//"))
+  expect(durableWorkflowId).toBeDefined()
+  expect(second.server).toContain(durableWorkflowId)
+})
+
 it("restores prior owned native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-rollback-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")
