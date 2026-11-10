@@ -150,7 +150,7 @@ const response = await handler.fetch(new Request("https://site.test/api/_vitehub
 
 Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
 
-Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text opens its document in the Console window. Without the Console tool, **Open Content** links to the Content page. The Content write and publish rules do not change.
+Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text says to edit it in the Console at console.vitehub.dev. The Content write and publish rules do not change.
 
 ## One model
 

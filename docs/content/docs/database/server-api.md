@@ -10,21 +10,32 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `@vite-hub/database/drizzle` | Get a Drizzle database and its schema by name. |
-| `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
+| `defineDatabase` from `vite-hub/database` | Declare a Database Definition. |
+| `useDatabase` from `vite-hub/database/drizzle` | Select a generated Drizzle database and its schema, by name or the only one. |
+| `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
 | `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 
-`@vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
+`vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`. This route reads the `notes` table of the default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
+
+| Call | App Databases | Result |
+| --- | --- | --- |
+| `useDatabase()` | A Default Database, or one Named Database | That Database |
+| `useDatabase()` | Several Named Databases | Throws [`DATABASE_NAME_REQUIRED`](/docs/database/limits-and-errors#database_name_required) |
+| `useDatabase(name)` | A Definition with this name | That Database |
+| `useDatabase(name)` or `useDatabase()` | No Definition with this name, or no Database | Throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found) |
+
+Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
+
+This route reads the `notes` table of the Default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
 
 ```ts [src/database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({
@@ -44,7 +55,7 @@ export default defineDatabase({
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('default')
@@ -52,7 +63,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-ViteHub resolves `@vite-hub/database/drizzle` only in server code that Nitro builds. Do not run files that import it with plain `node`. Run your Nitro server output.
+ViteHub resolves `vite-hub/database/drizzle` only in server code that Nitro builds. Do not run files that import it with plain `node`. Run your Nitro server output.
 
 ### Use Named Databases
 
@@ -61,7 +72,7 @@ Use named databases when the app needs more than one separate database. Split fo
 The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts`, `server/api/notes.get.ts`, and `server/utils/files.ts` (shown below) before using it. An app cannot combine Default and Named Database Definitions.
 
 ```ts [src/analytics.database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const events = sqliteTable('events', {
@@ -77,7 +88,7 @@ export default defineDatabase({
 
 ```ts [server/api/events.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('analytics')
@@ -91,7 +102,7 @@ D1 binds at most 100 parameters per statement. A longer `inArray()` list or a mu
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
-import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
+import { chunkParameters, useDatabase } from 'vite-hub/database/drizzle'
 
 const { db, schema } = useDatabase('default')
 

@@ -142,8 +142,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
           <template #fallback>
             <span :class="['inline-flex size-8 items-center justify-center text-default', touchIconButton]" aria-hidden="true">
-              <UIcon name="i-ph-sun-light" class="size-5 dark:hidden" />
-              <UIcon name="i-ph-moon-light" class="hidden size-5 dark:block" />
+              <UIcon name="i-lucide-sun" class="size-5 dark:hidden" />
+              <UIcon name="i-lucide-moon" class="hidden size-5 dark:block" />
             </span>
           </template>
         </ClientOnly>

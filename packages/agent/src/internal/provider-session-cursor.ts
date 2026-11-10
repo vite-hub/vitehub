@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 /** Marks a provider session cursor that ViteHub stored, so an invalidated cursor is not resumed. */
 export const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
@@ -20,5 +20,5 @@ export function providerNativeThreadId(cursor: unknown): string | undefined {
   const value = isProviderSessionCursorRecord(cursor) ? cursor.value : cursor
   if (!isRuntimeRecord(value) || !isRuntimeRecord(value.providerThread)) return undefined
   const ref = value.providerThread.nativeThreadRef
-  return isRuntimeRecord(ref) && hasRuntimeType(ref.nativeId, "string") ? ref.nativeId : undefined
+  return isRuntimeRecord(ref) && typeof ref.nativeId === "string" ? ref.nativeId : undefined
 }

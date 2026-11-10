@@ -47,7 +47,7 @@ export default defineAgent({
 ```
 
 ```ts [server/schedules/weekly-report.ts]
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 import { defineAgent, runAgent } from 'vite-hub/agent'
 import { channelDelivery } from 'vite-hub/agent/capabilities'
 import { useChannel } from 'vite-hub/channels/server'
