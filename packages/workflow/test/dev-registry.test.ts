@@ -14,7 +14,7 @@ import * as devRegistry from "../src/internal/dev-registry.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "../src/types.ts"
+import type { ResolvedWorkflowOptions, WorkflowOptions } from "../src/types.ts"
 
 let root: string | undefined
 
@@ -43,7 +43,7 @@ async function createApp(): Promise<string> {
 
 type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 
-function configHook(options?: WorkflowModuleOptions): ConfigHook {
+function configHook(options?: WorkflowOptions): ConfigHook {
   const hook = hubWorkflow(options).config
   if (!hook || typeof hook === "function") throw new TypeError("Expected the hubWorkflow config hook to be an object hook.")
   expect(hook.order).toBe("pre")
@@ -97,17 +97,6 @@ describe("Workflow dev registry", () => {
     const state = await import(/* @vite-ignore */ pathToFileURL(workflowRuntimeModule("state")).href) as typeof import("../src/runtime/state.ts")
     expect(state.getWorkflowRuntimeConfig()).toEqual(workflow)
     expect(state.getWorkflowRuntimeRegistry()).toHaveProperty("welcome")
-  })
-
-  it("uses the config hook override when resolving runtime options", async () => {
-    const projectRoot = await createApp()
-    await configHook({ provider: "vercel" })({
-      root: projectRoot,
-      workflow: { provider: "openworkflow", sqlite: { path: ".data/override.sqlite" } },
-    }, { command: "serve", mode: "development" })
-    const plugin = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(plugin).toContain('"provider":"openworkflow"')
-    expect(plugin).toContain('"path":".data/override.sqlite"')
   })
 
   it("adds the registry plugin before Nitro reads its config in development", async () => {
@@ -217,42 +206,26 @@ describe("Workflow dev registry", () => {
     await configHook({ provider: "vercel" })(build, { command: "build", mode: "production" })
     expect(build.nitro).toBeUndefined()
 
-    const disabled: Record<string, unknown> = { root: projectRoot, workflow: false }
-    await configHook()(disabled, { command: "serve", mode: "development" })
+    const disabled: Record<string, unknown> = { root: projectRoot }
+    await configHook(false)(disabled, { command: "serve", mode: "development" })
     expect(disabled.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain("setWorkflowRuntimeConfig(false)")
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain("welcome")
   })
 
-  it("installs the final enabled registry after an initially disabled config", async () => {
+  it.each<{ workflow: WorkflowOptions, provider: string }>([
+    { workflow: { provider: "vercel" }, provider: "vercel" },
+    { workflow: { provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, provider: "openworkflow" },
+  ])("reserves the Node build bootstrap for $provider", async ({ workflow, provider }) => {
     const projectRoot = await createApp()
-    const plugin = hubWorkflow(false)
-    const hook = plugin.config
-    if (!hook || typeof hook !== "object") throw new TypeError("Expected config hook")
-    type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<void>
-    const config: Record<string, unknown> = { root: projectRoot, workflow: false }
-    await (hook.handler as unknown as ConfigHook)(config, { command: "serve", mode: "development" })
-    expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: { provider: "vercel" } })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain('"provider":"vercel"')
-    expect(generated).not.toContain("setWorkflowRuntimeConfig(false)")
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
-  })
-
-  it.each<{ initial: WorkflowModuleOptions, final: WorkflowModuleOptions, provider: string }>([
-    { initial: false, final: { provider: "vercel" }, provider: "vercel" },
-    { initial: { provider: "cloudflare" }, final: { provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, provider: "openworkflow" },
-  ])("reserves the Node build bootstrap for a final $provider override", async ({ initial, final, provider }) => {
-    const projectRoot = await createApp()
-    const plugin = hubWorkflow(initial, { hosting: "node" })
+    const plugin = hubWorkflow(workflow, { hosting: "node" })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     const config: Record<string, unknown> = { root: projectRoot }
     await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
     expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: final })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain(`"provider":"${provider}"`)
     // A build never records runs, so the bootstrap does not import the history.
@@ -291,11 +264,11 @@ describe("Workflow dev registry", () => {
     { hosting: "node", workflow: false },
   ] as const)("leaves the reserved build bootstrap inert for $hosting with $workflow", async ({ hosting, workflow }) => {
     const projectRoot = await createApp()
-    const plugin = hubWorkflow({}, { hosting })
+    const plugin = hubWorkflow(workflow, { hosting })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).not.toContain("setWorkflowRuntimeConfig")
     expect(generated).not.toContain("dev-registry.mjs")
@@ -312,32 +285,6 @@ describe("Workflow dev registry", () => {
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain('"provider":"vercel"')
     expect(generated).not.toContain("setWorkflowRuntimeConfig(false)")
-  })
-
-  it("disables the generated startup registry after a final Workflow override", async () => {
-    const projectRoot = await createApp()
-    const plugin = hubWorkflow({ provider: "vercel" })
-    const hook = plugin.config
-    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
-    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "serve", mode: "development" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: false })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain("setWorkflowRuntimeConfig(false)")
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain('"welcome"')
-  })
-
-  it("uses final Workflow config from later config hooks", async () => {
-    const projectRoot = await createApp()
-    const plugin = hubWorkflow({ provider: "vercel" })
-    const hook = plugin.config
-    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
-    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "serve", mode: "development" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({
-      root: projectRoot, workflow: { provider: "openworkflow", sqlite: { path: "./final-workflow.sqlite" } },
-    })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain('"provider":"openworkflow"')
-    expect(generated).toContain("./final-workflow.sqlite")
   })
 
   it.each(["nested", "external"])("watches Workflow additions and deletions in %s roots", async (layout) => {

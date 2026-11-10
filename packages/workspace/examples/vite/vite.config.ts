@@ -10,6 +10,5 @@ export default defineConfig({
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },
-  plugins: [hubWorkspace()],
-  workspace: {},
+  plugins: [hubWorkspace({})],
 })
