@@ -18,6 +18,15 @@ runs:
         # install here would run every postinstall build a second time.
         run-install: false
 
+    # The Vite+ task cache keeps one build output per package, keyed by the
+    # files the build reads, so an entry from another commit is a miss, never
+    # a wrong build. The docs snippets job saves it once per run.
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: node_modules/.vite/task-cache
+        key: vp-task-cache-${{ runner.os }}-${{ github.sha }}
+        restore-keys: vp-task-cache-${{ runner.os }}-
+
     - name: Install dependencies
       shell: bash
       env:
