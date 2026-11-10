@@ -120,9 +120,10 @@ export function forgetPackageChecks(): void {
 let startedPackageChecks = false
 
 /**
- * Forgets the results of an earlier start. `vitehub()` calls it each time Vite loads the app config. A Vite restart
- * creates the new server before it closes the old one, so `closeBundle` comes after the config hooks of the new server.
- * The first start keeps the results of the checks that the import of `vite-hub` made.
+ * Forgets the results of an earlier start. `vitehub()` calls it each time Vite loads the app config, and the Nuxt module
+ * calls it when Nuxt asks for its dependencies, first on each start. A Vite restart creates the new server before it
+ * closes the old one, so `closeBundle` comes after the config hooks of the new server. A Nuxt start that fails before
+ * Vite starts closes no plugin. The first start keeps the results of the checks that the import of `vite-hub` made.
  */
 export function startPackageChecks(): void {
   if (startedPackageChecks) forgetPackageChecks()

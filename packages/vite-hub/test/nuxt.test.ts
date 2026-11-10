@@ -627,6 +627,30 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("sees Nuxt UI that the app installed after a Nuxt start that failed before Vite", async () => {
+    let hidden = true
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (hidden && (specifier === "@nuxt/ui" || specifier.startsWith("@nuxt/ui/"))) throw new Error(`Cannot find package '${specifier}'`)
+        return nextResolve(specifier, context)
+      },
+    })
+    forgetPackageChecks()
+    try {
+      expect(await viteHubNuxtModule.getModuleDependencies()).toEqual({})
+      // The setup fails before Vite starts, so no Vite plugin closes. The developer installs Nuxt UI, and Nuxt reloads.
+      const failed = createNuxt()
+      failed.nuxt.options.nitro = { preset: "vercel" }
+      await expect(viteHubNuxtModule({ console: false, env: false, preset: "node" }, failed.nuxt)).rejects.toMatchObject({ code: "VITE_HUB_B0009" })
+      hidden = false
+      expect(await viteHubNuxtModule.getModuleDependencies()).not.toEqual({})
+    }
+    finally {
+      hooks.deregister()
+      forgetPackageChecks()
+    }
+  })
+
   it("skips the styled runtime when Nuxt UI is installed but its module is not enabled", async () => {
     const { componentsExtendHooks, nuxt, runIconHook, runModulesDoneHook } = createNuxt()
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
