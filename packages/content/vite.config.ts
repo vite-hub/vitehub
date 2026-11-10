@@ -25,6 +25,8 @@ export default defineConfig({
       "vite": "src/vite.ts",
     },
     exports: {
+      // Generated code imports these modules by path. They are not public API.
+      exclude: ["operations", "runtime/console"],
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
             if (String(value) !== value || !value.endsWith(".js")) return [key, value]

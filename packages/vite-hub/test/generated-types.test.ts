@@ -1,13 +1,10 @@
 import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { IncomingMessage, ServerResponse } from "node:http"
-import { Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createEvent } from "h3-v1"
 
 const generatedHandlerReadGate = vi.hoisted<{
   path: string | undefined
@@ -785,21 +782,13 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types/content.d.ts"), "utf8")).resolves.toBe("export {}\n")
     const generatedModule: unknown = await import(pathToFileURL(handlers[2]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
-    if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
-    const nodeRequest = new IncomingMessage(new Socket())
-    nodeRequest.url = "/api/content/custom"
-    nodeRequest.method = "POST"
-    nodeRequest.headers = {
-      host: "internal.test",
-      "x-content-test": "preserved",
-      "x-forwarded-host": "example.test",
-      "x-forwarded-proto": "https",
-    }
-    nodeRequest.push("content body")
-    nodeRequest.push(null)
-    // SAFETY: This fixture models the state Node's HTTP parser sets before emitting the completed request body.
-    Object.defineProperty(nodeRequest, "complete", { value: true })
-    const response: unknown = await generatedHandler(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
+    const fetchHandler: unknown = Reflect.get(Object(generatedHandler), "fetch")
+    if (!(fetchHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
+    const response: unknown = await fetchHandler(new Request("https://example.test/api/content/custom", {
+      body: "content body",
+      headers: { "x-content-test": "preserved" },
+      method: "POST",
+    }))
     if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
     await expect(response.json()).resolves.toEqual({
       aborted: false,
@@ -809,13 +798,9 @@ describe("framework generated types", () => {
       url: "https://example.test/api/content/custom",
     })
 
-    const abortedRequest = new IncomingMessage(new Socket())
-    abortedRequest.url = "/api/content/aborted"
-    abortedRequest.headers = { host: "example.test" }
-    Object.defineProperty(abortedRequest, "aborted", { value: true })
-    const abortedResponse: unknown = await generatedHandler(
-      createEvent(abortedRequest, new ServerResponse(abortedRequest)),
-    )
+    const abort = new AbortController()
+    abort.abort()
+    const abortedResponse: unknown = await fetchHandler(new Request("https://example.test/api/content/aborted", { signal: abort.signal }))
     if (!(abortedResponse instanceof Response)) throw new TypeError("Expected an aborted Content response.")
     await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
   })
@@ -883,18 +868,14 @@ export const content = defineContent(${options})
     const load = async (name: string) => {
       const module: unknown = await import(`${pathToFileURL(join(root, `.vitehub/content/${name}.mjs`)).href}?t=${Date.now()}`)
       const handler = Reflect.get(Object(module), "default")
-      if (!(handler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
-      return handler
+      const fetchHandler: unknown = Reflect.get(Object(handler), "fetch")
+      if (!(fetchHandler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
+      return { fetch: (request: Request): Promise<Response> => fetchHandler.call(handler, request) }
     }
-    // Nitro 2 passes an H3 v1 event over a Node request; the request origin fills in the site.
-    const nodeRequest = new IncomingMessage(new Socket())
-    nodeRequest.url = "/robots.txt"
-    nodeRequest.headers = { host: "internal.test", "x-forwarded-host": "example.test", "x-forwarded-proto": "https" }
-    const robots: unknown = await (await load("robots"))(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
-    if (!(robots instanceof Response)) throw new TypeError("Expected a robots.txt response.")
+    // Nitro 3 passes the Web request; the request origin fills in the site.
+    const robots = await (await load("robots")).fetch(new Request("https://example.test/robots.txt"))
     expect(robots.headers.get("content-type")).toBe("text/plain; charset=utf-8")
     await expect(robots.text()).resolves.toBe("User-agent: *\nDisallow: /admin\n\nSitemap: https://example.test/sitemap.xml\n")
-    // Nitro 3 passes an H3 v2 event over a Web request.
     const sitemap = await (await load("sitemap")).fetch(new Request("https://site.test/sitemap.xml"))
     expect(sitemap.headers.get("content-type")).toBe("application/xml; charset=utf-8")
     await expect(sitemap.text()).resolves.toContain("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
@@ -932,10 +913,7 @@ export const content = defineContent(${options})
     const middleware = Reflect.get(Object(module), "default")
     if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
     // Without a published Markdown document at the path, the request passes through to the app.
-    const nodeRequest = new IncomingMessage(new Socket())
-    nodeRequest.url = "/guide.md"
-    nodeRequest.headers = { host: "example.test" }
-    await expect(middleware(createEvent(nodeRequest, new ServerResponse(nodeRequest)))).resolves.toBeUndefined()
+    await expect(middleware({ req: new Request("https://example.test/guide.md") })).resolves.toBeUndefined()
 
     await write(`{ markdown: false }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).some((handler: { route?: string }) => handler.route === "/**")).toBe(false)

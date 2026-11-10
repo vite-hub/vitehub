@@ -82,6 +82,7 @@ async function navigate(path: string, layout = "docs", isHydrating = false) {
     useRoute: () => route,
     useDocsManifest: () => manifest,
     useDocsConfig: () => ({ site: { url: "https://docs.example.com" }, appBase: "/portal/" }),
+    isDocsStartLink: () => false,
     useNuxtApp: () => ({ isHydrating }),
     onNuxtReady: (callback: () => void) => ready.push(callback),
     useFetch,

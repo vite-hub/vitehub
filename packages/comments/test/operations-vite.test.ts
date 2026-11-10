@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -104,7 +105,7 @@ describe("hubComments", () => {
     expect(await plugin.vitehub.databases(unused)).toEqual([{ database: "main", definition: { export: "commentsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", name: "comments", reason: expect.stringContaining("comment threads"), tables: commentsTableNames }])
     const operations = plugin.vitehub.operations
     const entries = operations instanceof Function ? await operations() : operations
-    expect(entries).toEqual([expect.objectContaining({ export: "commentsOperations", module: "@vite-hub/comments/operations" })])
+    expect(entries).toEqual([expect.objectContaining({ export: "commentsOperations", module: ownModule(import.meta.url, "operations") })])
     expect(await entries[0]!.load!()).toBe(commentsOperations)
   })
 

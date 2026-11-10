@@ -1096,6 +1096,8 @@ describe("published reads with a whole-site preview cookie", { timeout: 30_000 }
     expect(await titleOf(await api("https://site.test/page"))).toBe("B draft")
     // Another origin cannot change what this site reads.
     expect(await titleOf(await api(`https://other.test/page?${contentPreviewPublishedParameter}`))).toBe("B draft")
+    // A percent-encoded parameter name still counts.
+    expect(await titleOf(await api(`https://site.test/page?${encodeURIComponent(contentPreviewPublishedParameter).replaceAll("-", "%2D")}`))).toBe("B published")
   })
 
   it("keeps redirects of a published request published, and leaves redirects of the cookie session as they are", async () => {
