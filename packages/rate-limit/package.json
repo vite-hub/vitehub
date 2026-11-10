@@ -62,6 +62,7 @@
     "test": "vp run -t @vite-hub/rate-limit#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
