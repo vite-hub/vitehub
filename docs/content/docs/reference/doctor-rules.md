@@ -99,7 +99,7 @@ Some rules read the whole project:
 
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
-- `vite-hub/_internal/*` is for generated ViteHub code only.
+- `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
 - `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
 - `.vitehub/**` and `.nuxt/vitehub/**` files are build output. ViteHub writes them again on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub runtime code, for example `#vitehub/agent/registry`.
