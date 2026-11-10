@@ -13,15 +13,12 @@ export default defineConfig({
     entry: ["src/index.ts", "src/setup/index.ts"],
     exports: {
       customExports: normalizePackageExports,
-      bin: {
-        vitehub: "src/index.ts",
-      },
       inlinedDependencies: false,
     },
     outExtensions: () => ({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

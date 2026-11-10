@@ -17,8 +17,7 @@ pnpm add @vite-hub/source
 ## Open a Source
 
 ```ts
-import { createSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, glob } from "@vite-hub/source"
 
 export const docs = glob({ cwd: "docs", include: "**/*.md" })
 
@@ -91,7 +90,7 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 wildcard are `cwd`, so keys are the paths below them:
 
 ```ts
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 
 export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 ```
@@ -99,7 +98,11 @@ export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 Under `vite dev` it reads the files from disk. A server build with `hubSource()`
 bundles the files of a call whose options are literals, through `files()`, so
 hosts without a runtime file system, such as Cloudflare Workers, serve them.
-`files(entries, { base, prefix })` serves files the server already holds.
+`files(entries, { base, prefix })` serves files the server already holds. An
+entry can be the content or a function that loads it, such as an
+`import.meta.glob()` loader. After removing `base`, a leading `./` is removed
+from each key: `./content/a.md` becomes `content/a.md`, or `a.md` with
+`base: "./content"`.
 
 ## Reuse a definition
 
@@ -155,8 +158,7 @@ for Collections and Content does not generate `ViteHubSourceMap`.
 sections of a Markdown file. Each part key is `<parent key>#<part key>`:
 
 ```ts
-import { createSource, splitSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, splitSource, glob } from "@vite-hub/source"
 
 const sections = splitSource({
   source: glob({ cwd: "docs", include: "**/*.md" }),

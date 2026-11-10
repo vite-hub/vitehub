@@ -283,13 +283,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     }
     return statements
   }
-  /** Reads the observation rows of one invocation in the order that they extend its record. */
+  // Unary + sorts the selected rows instead of scanning payloads through the position index.
   const observationRowsStatement = (id: string, observationNames?: string): InStatement => ({
     args: observationNames === undefined ? [id] : [id, observationNames],
     sql: `SELECT position, observation FROM ${observationTable}
       WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === undefined
         ? ""
-        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`,
+        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === undefined ? "position" : "+position"}`,
   })
   let initialized: Promise<void> | undefined
   /** The database file. Set by initialize() when maxSize is set. */
@@ -525,7 +525,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         }
         storePath = file
       }
-      await client.execute(`CREATE TABLE IF NOT EXISTS ${table} (
+      const executeSchema = async (sql: string) => {
+        if (synchronousNormal) {
+          // executeMultiple keeps the connection-local pragma and DDL on one borrowed connection, outside a transaction.
+          await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${sql}`)
+        }
+        else {
+          await client.execute(sql)
+        }
+      }
+      await executeSchema(`CREATE TABLE IF NOT EXISTS ${table} (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
@@ -540,7 +549,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       const columns = await client.execute(`PRAGMA table_info(${table})`)
       if (!columns.rows.some(row => row.name === "search")) {
         try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
+          await executeSchema(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
@@ -549,7 +558,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       if (!columns.rows.some(row => row.name === "agent_name")) {
         try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN agent_name TEXT`)
+          await executeSchema(`ALTER TABLE ${table} ADD COLUMN agent_name TEXT`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
@@ -558,7 +567,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       if (!columns.rows.some(row => row.name === "search_version")) {
         try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`)
+          await executeSchema(`ALTER TABLE ${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
@@ -567,7 +576,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       if (!columns.rows.some(row => row.name === "summary")) {
         try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN summary TEXT`)
+          await executeSchema(`ALTER TABLE ${table} ADD COLUMN summary TEXT`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
@@ -576,7 +585,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       if (!columns.rows.some(row => row.name === "capability_ids")) {
         try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN capability_ids TEXT`)
+          await executeSchema(`ALTER TABLE ${table} ADD COLUMN capability_ids TEXT`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
@@ -585,29 +594,29 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       // Updates clear capability_ids in the same statement. The trigger clears it only for
       // writers that change record alone, so it does not rewrite the row a second time.
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
         AFTER UPDATE OF record ON ${table}
         WHEN NEW.capability_ids IS NOT NULL
         BEGIN
           UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_capability_ids_update`)
+      await executeSchema(`DROP TRIGGER IF EXISTS ${table}_capability_ids_update`)
       if (!columns.rows.some(row => row.name === "updated_at")) {
         try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
+          await executeSchema(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
           if (!currentColumns.rows.some(row => row.name === "updated_at")) throw error
         }
       }
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
         AFTER INSERT ON ${table}
         WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
         BEGIN
           UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
         AFTER UPDATE OF record ON ${table}
         WHEN NEW.updated_at IS OLD.updated_at
         BEGIN
@@ -616,30 +625,30 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
           WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
+      await executeSchema(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
       // Version 0 is already stale, so marking it stale again would only rewrite the row.
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
         AFTER UPDATE OF search, record ON ${table}
         WHEN NEW.search_version = OLD.search_version AND NEW.search_version <> 0
         BEGIN
           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
+      await executeSchema(`DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`)
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
         AFTER INSERT ON ${table}
         WHEN NEW.summary IS NULL
         BEGIN
           UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
             THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
         AFTER UPDATE OF record ON ${table}
         WHEN NEW.summary IS OLD.summary
         BEGIN
           UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
             THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
         ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
       let backfillSequence = 0
       while (true) {
@@ -678,21 +687,21 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         await client.batch(updatedAtBackfill, "write")
       }
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`)
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
         ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
         WHERE agent_name IS NULL OR agent_name = ''`)
       // Tables from older versions store summary and capability_ids after the large record column.
       // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
         ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
         ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
         ON ${table} (${triggeredByProjection()}, agent_name)`)
-      await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
+      await executeSchema(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
         claimed_at INTEGER NOT NULL DEFAULT 0,
@@ -702,7 +711,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
       if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
         try {
-          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+          await executeSchema(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
@@ -713,14 +722,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       if (!claimColumns.rows.some(row => row.name === "claim_token")) {
         try {
-          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
+          await executeSchema(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
         }
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
           if (!currentColumns.rows.some(row => row.name === "claim_token")) throw error
         }
       }
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
         AFTER UPDATE OF expires_at ON ${table}_claims
         WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
         BEGIN
@@ -731,15 +740,17 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       // Observations appended to a running Invocation. They follow the observations in its record column
       // in position order. The terminal update moves them back into the record column.
       // AUTOINCREMENT keeps positions unique over time, so a position identifies one row version.
-      await client.execute(`CREATE TABLE IF NOT EXISTS ${observationTable} (
+      await executeSchema(`CREATE TABLE IF NOT EXISTS ${observationTable} (
         position INTEGER PRIMARY KEY AUTOINCREMENT,
         invocation_sequence INTEGER NOT NULL,
         observation TEXT NOT NULL
       )`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
         ON ${observationTable} (invocation_sequence, position)`)
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`)
       // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
         AFTER DELETE ON ${table}
         BEGIN
           DELETE FROM ${observationTable} WHERE invocation_sequence = OLD.sequence;
@@ -962,6 +973,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     return result
   }
   return {
+    open: initialize,
     async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()

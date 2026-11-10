@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -10,6 +10,7 @@ type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
 const handlers: Array<{ route: string, method?: string }> = []
+const updateTemplates = vi.hoisted(() => vi.fn<(options: { filter: (template: { filename: string }) => boolean }) => Promise<void>>())
 const logger = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() }))
 vi.mock("@nuxt/kit", () => ({
   defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
@@ -26,6 +27,7 @@ vi.mock("@nuxt/kit", () => ({
   addRouteMiddleware: vi.fn(),
   extendPages: vi.fn(),
   useLogger: () => logger,
+  updateTemplates,
 }))
 const watchContent = vi.hoisted(() => vi.fn((_dir: string, _options: { recursive: boolean }, _listener: (event: string, file: string | null) => void) => ({ close: vi.fn() })))
 vi.mock("node:fs", async (importOriginal) => ({
@@ -58,21 +60,23 @@ afterEach(async () => {
   for (const hook of hooks.get("close") ?? []) await hook()
   vi.useRealTimers()
   watchContent.mockClear()
+  updateTemplates.mockReset()
   hooks.clear()
   templates.clear()
   handlers.length = 0
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ config: Record<string, unknown> }> = []) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
-    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
+    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: layers,
+    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } } },
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
-    imports: { dirs: [] }, docs,
+    imports: { dirs: [] }, watch: [] as string[], docs,
   }
   const nuxt = {
     options,
@@ -117,6 +121,17 @@ describe("docs Nuxt setup", () => {
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true })
     for (const hook of hooks.get("build:before") ?? []) await hook()
     expect(readdirSync(stylesDir)).toEqual([file])
+  })
+
+  it("prefetches a link when the reader points at it or focuses it, not when it scrolls into view", async () => {
+    const options = await setupDocs({})
+    expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
+  })
+
+  it("keeps the app's own choice of when links prefetch", async () => {
+    const prefetchOn = { visibility: true }
+    const options = await setupDocs({}, "/", false, [{ config: { srcDir: "/app", experimental: { defaults: { nuxtLink: { prefetchOn } } } } }])
+    expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual(prefetchOn)
   })
 
   it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
@@ -223,6 +238,7 @@ describe("docs Nuxt setup", () => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
+    expect(templates.get("docs/manifest.d.ts")?.()).toContain("declare const manifest: DocsManifest\n")
     expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })
@@ -329,6 +345,51 @@ describe("docs Nuxt setup", () => {
     expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
   })
 
+  it("loads each Vue file of the examples folder in the page and gives its source to the parser", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-"))
+    writeFileSync(join(dir, "ButtonExample.vue"), "<template><UButton /></template>\n")
+    writeFileSync(join(dir, "notes.md"), "Not an example.\n")
+    const options = await setupDocs({ examples: dir })
+    expect(options.watch).not.toContain(dir)
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    expect(templates.get("docs/examples.mjs")?.()).toBe(`export default {\n  "ButtonExample": () => import(${JSON.stringify(join(dir, "ButtonExample.vue"))}),\n}\n`)
+    expect(templates.get("docs/example-sources.mjs")?.()).toBe(`export default {"ButtonExample":"<template><UButton /></template>\\n"}\n`)
+    expect(nitro.alias?.["#docs/example-sources"]).toBe("/build/docs/example-sources.mjs")
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it.each(["absolute", "relative"])("watches external examples and refreshes both maps on %s events", async (pathKind) => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-watch-"))
+    roots.push(dir)
+    const file = join(dir, "ButtonExample.vue")
+    const options = await setupDocs({ examples: dir }, "/", true)
+    expect(options.watch).toContain(dir)
+
+    const generated = new Map<string, string>()
+    updateTemplates.mockImplementation(async ({ filter }) => {
+      for (const [filename, contents] of templates) {
+        if (filter({ filename })) generated.set(filename, contents())
+      }
+    })
+    const notify = async (event: string) => {
+      const path = pathKind === "absolute" ? file : relative(options.srcDir, file)
+      for (const hook of hooks.get("builder:watch") ?? []) await hook(event as never, path as never)
+    }
+
+    for (const [event, source] of [["add", "<template>First</template>"], ["change", "<template>Edited</template>"]] as const) {
+      writeFileSync(file, source)
+      await notify(event)
+      expect(generated.get("docs/examples.mjs")).toContain(JSON.stringify(file))
+      expect(generated.get("docs/example-sources.mjs")).toBe(`export default ${JSON.stringify({ ButtonExample: source })}\n`)
+    }
+    rmSync(file)
+    await notify("unlink")
+    expect(generated.get("docs/examples.mjs")).toBe("export default {\n\n}\n")
+    expect(generated.get("docs/example-sources.mjs")).toBe("export default {}\n")
+  })
+
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
     expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\nexport const githubRepo = null\n")
@@ -351,11 +412,16 @@ describe("docs Nuxt setup", () => {
     expect(raw.endsWith("\n\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
   })
 
+  it("shows a colored logo as it is, with its dark version", async () => {
+    const options = await setupDocs({ site: { logo: { light: "/logo.svg", dark: "/logo-dark.svg" } } }, "/portal/")
+    expect(options.runtimeConfig.public.docs.site.logo).toEqual({ src: "/portal/logo.svg", dark: "/portal/logo-dark.svg", mask: false })
+  })
+
   it("keeps manifest and Nitro resources app-relative and advertises public URLs below the app base", async () => {
     const options = await setupDocs({ site: { url: "https://docs.example.com", logo: "/logo.svg" } }, "/portal/")
     expect(options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs",
-      site: { url: "https://docs.example.com", logo: "/portal/logo.svg" },
+      site: { url: "https://docs.example.com", logo: { src: "/portal/logo.svg", dark: null, mask: true } },
       mcp: { url: "https://docs.example.com/portal/mcp" },
     })
     expect(options.agentDiscovery.siteUrl).toBe("https://docs.example.com")

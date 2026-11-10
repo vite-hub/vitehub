@@ -48,19 +48,19 @@ async function resolvePluginConfig(plugin: ReturnType<typeof hubAuth>, root: str
 }
 
 function resolveAuthDefinition(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.resolveId as (id: string) => string | undefined)(AUTH_DEFINITION_ID)
+  return (plugin.resolveId as { handler: (id: string) => string | undefined }).handler(AUTH_DEFINITION_ID)
 }
 
 function resolveAuthServer(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.resolveId as (id: string) => string | undefined)(AUTH_SERVER_ID)
+  return (plugin.resolveId as { handler: (id: string) => string | undefined }).handler(AUTH_SERVER_ID)
 }
 
 function loadAuthDefinition(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.load as (id: string) => string | undefined)(`\0${AUTH_DEFINITION_ID}`)
+  return (plugin.load as { handler: (id: string) => string | undefined }).handler(`\0${AUTH_DEFINITION_ID}`)
 }
 
 function loadAuthServer(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.load as (id: string) => string | undefined)(`\0${AUTH_SERVER_ID}`)
+  return (plugin.load as { handler: (id: string) => string | undefined }).handler(`\0${AUTH_SERVER_ID}`)
 }
 
 afterEach(async () => {
@@ -68,6 +68,15 @@ afterEach(async () => {
 })
 
 describe("hubAuth", () => {
+  it("filters resolveId and load to the Auth virtual modules", () => {
+    const plugin = hubAuth()
+    const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id
+    const loadFilter = (plugin.load as { filter: { id: RegExp } }).filter.id
+
+    expect([AUTH_DEFINITION_ID, AUTH_SERVER_ID, "#vitehub/auth/other", "/app/server/auth.ts"].map(id => resolveFilter.test(id))).toEqual([true, true, false, false])
+    expect([`\0${AUTH_DEFINITION_ID}`, `\0${AUTH_SERVER_ID}`, AUTH_SERVER_ID, "/app/server/auth.ts"].map(id => loadFilter.test(id))).toEqual([true, true, false, false])
+  })
+
   it("serves a stable virtual Auth Definition module", async () => {
     const root = await createTempProject()
     const definition = await writeAuth(root)
@@ -96,7 +105,7 @@ describe("hubAuth", () => {
 
     expect(resolveAuthServer(plugin)).toBe(`\0${AUTH_SERVER_ID}`)
     expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
-    expect(loadAuthServer(plugin)).toContain(`export { handleAuth as default } from "@vite-hub/auth/server"`)
+    expect(loadAuthServer(plugin)).toContain(`export { default } from "@vite-hub/auth/server"`)
     await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
   })
 
@@ -184,7 +193,7 @@ describe("hubAuth", () => {
     await mkdir(join(root, "node_modules/@vite-hub/auth"), { recursive: true })
     await writeFile(join(root, "node_modules/@vite-hub/auth/package.json"), JSON.stringify({ name: "@vite-hub/auth", exports: { ".": { types: "./index.d.ts" }, "./server": { types: "./server.d.ts" } } }))
     await writeFile(join(root, "node_modules/@vite-hub/auth/index.d.ts"), "export declare function defineAuth<T>(options: T): T\n")
-    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "export declare const marker: \"ok\"\nexport declare function handleAuth(): number\n")
+    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "export declare const marker: \"ok\"\ndeclare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\n")
     await mkdir(join(root, ".vitehub/env"), { recursive: true })
     await writeFile(join(root, ".vitehub/env/server.d.ts"), "export interface ServerEnv {}\n")
 
@@ -205,12 +214,12 @@ describe("hubAuth", () => {
     expect(diagnostics).toEqual([])
   })
 
-  it("lets top-level config disable the auth plugin", async () => {
+  it("disables the auth plugin with false", async () => {
     const root = await createTempProject()
     await writeAuth(root)
 
-    const plugin = hubAuth()
-    await (plugin.configResolved as (config: { auth: false; root: string }) => Promise<void>)({ auth: false, root })
+    const plugin = hubAuth(false)
+    await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 
     expect(plugin.api.getConfig()).toBeUndefined()
     expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")

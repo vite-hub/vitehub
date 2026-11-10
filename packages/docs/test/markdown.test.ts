@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 
+import { textContent } from "comark/utils"
+
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
 
 import type { ComarkPlugin, Node as ComarkNode } from "comark"
@@ -161,9 +163,9 @@ describe("comark-ui blocks", () => {
     expect(JSON.stringify(source)).toContain("Keep a backup.")
   })
 
-  it("preserves a preview supplied by the site's plugin", async () => {
+  it.each(["site-examples", "docs-examples"])("preserves a preview supplied by the site's %s plugin", async (name) => {
     const plugin: ComarkPlugin = {
-      name: "site-examples",
+      name,
       post({ tree }) {
         find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {}, ["p", {}, "Site preview"]])
       },
@@ -231,6 +233,25 @@ describe("examples", () => {
     expect(tagOf(find(nodes, "correct")?.[2])).toBe("example-preview")
   })
 
+  it("keeps named Vue sources with configured preview tags and playground links", async () => {
+    const withExamples = createDocsParser({
+      exampleSources: { ButtonExample: "<template><button>Save</button></template>" },
+      examples: { tags: ["example", "demo"], play: (source, tag) => `/play?tag=${tag}#${encodeURIComponent(source)}` },
+    })
+    const { nodes } = await withExamples('::example{name="ButtonExample"}\n::\n\n:::demo\n```md\n**Bold**\n```\n:::\n')
+
+    expect(textContent(find(nodes, "pre")!)).toContain("<button>Save</button>")
+    expect(tagOf(find(nodes, "demo")?.[2])).toBe("example-preview")
+    expect(find(nodes, "demo")?.[1].play).toBe(`/play?tag=demo#${encodeURIComponent("**Bold**")}`)
+  })
+
+  it("keeps the playground link for deliberately invalid frontmatter", async () => {
+    const { nodes } = await createDocsParser({ examples: { play: () => "/play" } })(example("---\ntitle: [\n---"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+    expect(find(nodes, "example")?.[1].play).toBe("/play")
+  })
+
   it("shows only the source of Markdown that doesn't parse", async () => {
     const { nodes } = await parse(example("---\ntitle: [\n---\n# Broken"))
     const node = find(nodes, "example")
@@ -287,5 +308,97 @@ describe("comark-ui options", () => {
 
     expect(linked?.[1].href).toBe("https://github.com/vite-hub/vitehub/issues/12")
     expect(find((await parse("Fixed in #12.\n")).nodes, "a")).toBeUndefined()
+  })
+})
+
+describe("docs examples", () => {
+  const example = ["::example{label=\"Bold\"}", "```md", "Some **bold** text.", "```", "::"].join("\n")
+
+  it("renders the Markdown of an example before its source", async () => {
+    const { nodes } = await parse(example)
+    const block = find(nodes, "example")
+    const [preview, pre] = (block?.slice(2) ?? []) as Array<Extract<ComarkNode, unknown[]>>
+
+    expect(block?.[1]).toMatchObject({ label: "Bold" })
+    expect(preview?.[0]).toBe("example-preview")
+    expect(find(preview?.slice(2) as ComarkNode[], "strong")?.[2]).toBe("bold")
+    expect(pre?.[0]).toBe("pre")
+    expect(pre?.[1]).toMatchObject({ language: "md" })
+  })
+
+  it("parses the preview with the page's own plugins", async () => {
+    const withPlugin = createDocsParser({
+      plugins: [{ name: "shout", post: (state) => { state.tree.nodes.push(["p", {}, "added"]) } }],
+    })
+    const { nodes } = await withPlugin(example)
+
+    expect(JSON.stringify(find(nodes, "example-preview"))).toContain("added")
+  })
+
+  it("leaves an example of another language as its code alone", async () => {
+    const { nodes } = await parse(["::example", "```ts", "export const answer = 42", "```", "::"].join("\n"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+  })
+
+  it("gives a named example the highlighted source of its Vue file", async () => {
+    const withExamples = createDocsParser({ examples: { ButtonExample: "<template>\n  <UButton label=\"Save\" />\n</template>\n" } })
+    const { nodes } = await withExamples("::example{name=\"ButtonExample\"}\n::")
+    const pre = find(nodes, "pre")
+
+    expect(find(nodes, "example")?.[1]).toMatchObject({ name: "ButtonExample" })
+    expect(pre?.[1]).toMatchObject({ language: "vue" })
+    expect(JSON.stringify(pre)).toContain("UButton")
+  })
+
+  it("keeps a named example whole when its source has a code fence", async () => {
+    const source = "<template>\n  <Markdown :value=\"'```ts\\nconst a = 1\\n```'\" />\n</template>"
+    const { nodes } = await createDocsParser({ examples: { FenceExample: source } })("::example{name=\"FenceExample\"}\n::")
+
+    expect(textContent(find(nodes, "pre")!)).toBe(source)
+  })
+
+  it("renders a lint rule's correct and incorrect examples like an example", async () => {
+    const { nodes } = await parse(["::incorrect", "```md", "A [link](./missing.md).", "```", "::", "", "::correct", "```md", "A [link](./ducks.md).", "```", "::"].join("\n"))
+
+    expect(find(find(nodes, "incorrect")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+    expect(find(find(nodes, "correct")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+  })
+
+  it("shows only the source of an example whose Markdown doesn't parse", async () => {
+    const { nodes } = await parse(["::incorrect", "````md", "---", "title: [unclosed", "---", "````", "::"].join("\n"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+    expect(find(nodes, "pre")).toBeDefined()
+  })
+
+  it.each(["example", "correct", "incorrect"])("reports a missing named example inside a %s preview", async (tag) => {
+    const markdown = [`::${tag}`, "```md", '::example{name="MissingExample"}', "::", "```", "::"].join("\n")
+
+    await expect(parse(markdown)).rejects.toThrow("no MissingExample.vue")
+  })
+
+  it.each(["example", "correct", "incorrect"])("keeps a parser plugin's original error inside a %s preview", async (tag) => {
+    const error = new Error("Preview plugin failed")
+    const withPlugin = createDocsParser({ plugins: [{
+      name: "failing-preview",
+      pre(state) {
+        if (state.markdown.trim() === "Preview content") throw error
+      },
+    }] })
+    const markdown = [`::${tag}`, "```md", "Preview content", "```", "::"].join("\n")
+
+    await expect(withPlugin(markdown)).rejects.toBe(error)
+  })
+
+  it("names the missing file of an unknown example", async () => {
+    await expect(parse("::example{name=\"MissingExample\"}\n::")).rejects.toThrow("no MissingExample.vue")
+  })
+
+  it("leaves an example's preview out of search, which reads its source", async () => {
+    const { nodes } = await parse(example)
+    const [page] = docsSearchSections("/docs/bold", "Bold", nodes)
+
+    expect(page?.content).toBe("Some **bold** text.")
   })
 })

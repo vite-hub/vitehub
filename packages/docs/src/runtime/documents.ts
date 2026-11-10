@@ -1,12 +1,13 @@
 import { useStorage } from "#imports"
+import examples from "#docs/example-sources"
 import parser, { githubRepo } from "#docs/parser"
 import { defu } from "defu"
 import { createDocsParser } from "../markdown.ts"
 import type { DocsDocument } from "../markdown.ts"
 
-// `#123` in a page links to an issue in the site's repository, unless the parser options name another or turn it off.
+// `#123` links to the site's issues unless the parser names another repository or turns references off.
 const references = githubRepo ? { github: { references: { repo: githubRepo } } } : {}
-export const parseDocsDocument = createDocsParser({ ...parser, comarkUi: defu(parser.comarkUi, references) })
+export const parseDocsDocument = createDocsParser({ exampleSources: examples, ...parser, comarkUi: defu(parser.comarkUi, references) })
 const parsed = new Map<string, Promise<DocsDocument | null>>()
 const pending = new Map<string, Promise<DocsDocument | null>>()
 

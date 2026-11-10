@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
@@ -15,6 +15,7 @@ import {
   createResolver,
   defineNuxtModule,
   extendPages,
+  updateTemplates,
   useLogger,
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
@@ -25,7 +26,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { createDocsManifest } from "./manifest.ts"
+import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
@@ -49,9 +50,12 @@ export interface DocsSiteOptions {
   /** Canonical origin, such as `https://vitehub.dev`. Raw Markdown links, canonical links, and the sitemap use it. */
   url?: string
   description?: string
-  /** Path of a one-color SVG mark beside the name. The theme fills it with the text color. */
-  logo?: string
-  /** A short label after the name, such as `beta`, with an optional tooltip on the header brand. */
+  /**
+   * The mark beside the name. A path is a one-color SVG that the theme fills with the text color, so it follows light and
+   * dark mode. `{ light, dark? }` shows images as they are, such as a colored logo, with `dark` in dark mode.
+   */
+  logo?: string | { light: string, dark?: string }
+  /** A short label after the name, such as `beta`, with an optional tooltip on the site brand. */
   badge?: { label: string, tooltip?: string }
 }
 
@@ -146,13 +150,25 @@ export interface DocsModuleOptions {
    * through this config. The page route, search, and Console drafts parse with it.
    */
   parser?: string
+  /**
+   * The folder, relative to the app's source folder, of the Vue files that `::example{name}` shows. Defaults to
+   * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
+   */
+  examples?: string
+}
+
+/** The site mark: `mask` fills `src` with the text color, else `src` shows as it is, and `dark` in dark mode. */
+export interface DocsLogo {
+  src: string
+  dark: string | null
+  mask: boolean
 }
 
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
 export interface DocsPublicConfig {
   appBase: string
   base: string
-  site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
+  site: { name: string, url: string, description: string, logo: DocsLogo | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
   railExclude: string[]
   groups: DocsGroup[]
@@ -395,12 +411,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }])
     }
 
-    // The manifest is data, not code: the app and the server import the same file, so both see a content change.
+    // The manifest is data, not code: the server imports the whole manifest, and the app a copy with only the page
+    // fields that it reads. Both are written from the same manifest, so both see a content change.
     // `JSON.parse` of a string parses much faster than an object literal of the same size, and every page loads it.
     const manifestSource = () => `export default JSON.parse(${JSON.stringify(JSON.stringify(manifest))})\n`
     const manifestFile = addTemplate({ filename: "docs/manifest.mjs", getContents: manifestSource, write: true }).dst
-    nuxt.options.alias["#docs/manifest"] = manifestFile
-    addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    // Types `#docs/manifest` in server code. Nitro 2 maps the alias to `docs/manifest` without an extension, so the
+    // declaration is `.d.ts`, not `.d.mts`. Nuxt finds a `.d.ts` beside the module too.
+    addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
     addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
@@ -426,8 +446,28 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
 
+    // `::example{name}` shows a Vue file of the examples folder. The page loads the component, and the parser reads
+    // its source, so the server bundle carries every source as a string.
+    const examplesDir = resolve(nuxt.options.srcDir, options.examples ?? "examples")
+    const exampleFiles = () => existsSync(examplesDir) ? readdirSync(examplesDir).filter(file => file.endsWith(".vue")).sort() : []
+    nuxt.options.alias["#docs/examples"] = addTemplate({
+      filename: "docs/examples.mjs",
+      write: true,
+      getContents: () => `export default {\n${exampleFiles().map(file => `  ${JSON.stringify(file.slice(0, -4))}: () => import(${JSON.stringify(join(examplesDir, file))}),`).join("\n")}\n}\n`,
+    }).dst
+    addTemplate({ filename: "docs/examples.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const examples: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default examples\n` })
+    const exampleSourcesFile = addTemplate({
+      filename: "docs/example-sources.mjs",
+      write: true,
+      getContents: () => `export default ${JSON.stringify(Object.fromEntries(exampleFiles().map(file => [file.slice(0, -4), readFileSync(join(examplesDir, file), "utf8")])))}\n`,
+    }).dst
+    nuxt.hook("builder:watch", async (_event, path) => {
+      if (resolve(nuxt.options.srcDir, path).startsWith(`${examplesDir}${sep}`)) await updateTemplates({ filter: template => template.filename.startsWith("docs/example") })
+    })
+
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {
+      nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), examplesDir])]
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false
@@ -529,6 +569,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
       }
     })
+    // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
+    // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
+    // the reader points at it or focuses it instead, unless the app chose when links prefetch.
+    if (!nuxt.options._layers.some(layer => layer.config.experimental?.defaults?.nuxtLink?.prefetchOn))
+      nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
@@ -629,7 +674,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }
       }
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
       // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
       // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
       const inline = nitro.externals?.inline
@@ -685,7 +730,9 @@ const shellIcons = [
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
   "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
-  "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-text",
+  "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
+  "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",
+  "i-vscode-icons-file-type-vue", "i-vscode-icons-file-type-yaml",
 ]
 
 /**
@@ -702,6 +749,12 @@ function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
+function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | null {
+  if (!logo) return null
+  if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
+  return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
+}
+
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
   const url = (site.url ?? "").replace(/\/+$/, "")
@@ -713,7 +766,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
       name: site.name ?? "Docs",
       url,
       description: site.description ?? "",
-      logo: site.logo ? docsAppPath(site.logo, appBase) : null,
+      logo: docsLogo(site.logo, appBase),
       badge: site.badge ? { label: site.badge.label, tooltip: site.badge.tooltip ?? null } : null,
     },
     categories: options.categories ?? [],

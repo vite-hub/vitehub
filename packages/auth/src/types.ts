@@ -18,6 +18,7 @@ export type AuthReservedOption =
   | "events"
   | "console"
   | "access"
+  | "adminClaim"
   | "basePath"
   | "database"
   | "preset"
@@ -129,6 +130,8 @@ export interface AuthSecondaryStorageReference {
 export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
+  /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
+  adminClaim?: false
   /** Opt in to durable auth events with an explicit store. */
   events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
@@ -211,6 +214,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "events"
       | "console"
       | "access"
+      | "adminClaim"
       | "database"
       | "preset"
       | "route"
@@ -223,6 +227,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "events"
       | "console"
       | "access"
+      | "adminClaim"
       | "database"
       | "preset"
       | "route"
@@ -247,9 +252,9 @@ export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Om
 export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
   ? AuthFor<TDefinition>
   : ViteHubAuth
-export interface AuthModuleObjectOptions {
+export interface AuthObjectOptions {
   /** Where the Nuxt page guard of `definePageMeta({ auth })` sends visitors. Vite apps without Nuxt ignore it. */
   redirects?: AuthRedirects
 }
 
-export type AuthModuleOptions = false | AuthModuleObjectOptions
+export type AuthOptions = false | AuthObjectOptions

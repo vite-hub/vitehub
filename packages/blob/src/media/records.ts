@@ -61,6 +61,7 @@ export interface InternalBlobMedia extends BlobMedia {
   planVariant(pathname: string, variant: BlobImageVariant): Promise<MediaVariantPlan | undefined>
 }
 
+// Internal invariant: media methods catch this and return its code as a Result error.
 class MediaFailure extends Error {
   constructor(readonly code: BlobErrorCode, message: string, readonly result?: ResultError<BlobErrorCode>) {
     super(message)

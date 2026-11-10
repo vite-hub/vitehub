@@ -71,13 +71,19 @@ export default defineAuth({
 });
 ```
 
-`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `consoleMcpOAuth()` needs, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub db generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins, such as `organization()`, go in the Database Definition.
+`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `consoleMcpOAuth()` needs, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins, such as `organization()`, go in the Database Definition.
 
 The owned core tables have fixed columns. `authDatabase()` rejects `additionalFields` on `user`, `session`, `account`, and `verification` with `AUTH_C0055`. It also rejects plugins that add unsupported columns to owned tables, and model or field remapping, with `AUTH_C0056`. Use another Better Auth adapter with a schema that matches those options. A Database contribution cannot extend the owned tables.
 
 ## First admin
 
 `VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
+
+For an app without social sign-in, `vitehub auth claim` prints a one-time code and the `VITEHUB_ADMIN_CLAIM` value (its SHA-256) to set on the host. The first signed-in user who enters the code on the Console's Access denied page, or sends it to `POST <auth base>/vitehub/admin-claim`, gets the admin role. A row in the `verification` table marks the code as used. A malformed value fails with `AUTH_C0059`.
+
+The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
 ## Sessions without a database
 
@@ -113,8 +119,7 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv(), hubAuth()],
-  env: {
+  plugins: [hubEnv({
     server: {
       auth: {
         github: {
@@ -124,7 +129,7 @@ export default defineConfig({
         secret: env({ secret: true, source: env.source("BETTER_AUTH_SECRET") }),
       },
     },
-  },
+  }), hubAuth()],
 });
 ```
 
@@ -257,7 +262,11 @@ export default defineAuth({
 });
 ```
 
-Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
+Manual hosts can mount the default export of `#vitehub/auth/server` directly. It is a Fetchable route, `{ fetch(request) }`. It reads the client address and the Cloudflare bindings from the Standard Context of the Request, which Nitro sets in a ViteHub app.
+
+```ts [server/routes/api/auth/[...].ts]
+export { default } from '#vitehub/auth/server'
+```
 
 For a manual adapter that creates plain Web `Request` objects, use `createAuthHandler(definition)` from `@vite-hub/auth/server` and call the returned handler as `handler(request, { clientAddress })`. Read `clientAddress` from the host's peer address, such as Node's `incomingMessage.socket.remoteAddress`, never from a client-sent header. Auth uses it for per-client rate limiting and `session.ipAddress`; without it, plain Web requests share an addressless rate-limit bucket. srvx requests already carry their host address as `ip`.
 

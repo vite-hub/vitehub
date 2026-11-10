@@ -1,12 +1,12 @@
 import { renderHtmlFromDocument } from "@comark/html"
-import { createMarkdownParser } from "comark/parse"
+import { createMarkdownParser, parseFrontmatter } from "comark/parse"
+import { textContent } from "comark/utils"
 import alert from "comark/plugins/alert"
 import attributes from "comark/plugins/attributes"
 import components from "comark/plugins/components"
 import shiki from "comark/plugins/shiki"
 import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
-import { textContent } from "comark/utils"
 import comarkUiHtml from "comark-ui/html"
 import comarkUi from "comark-ui/vue"
 import { defu } from "defu"
@@ -19,7 +19,7 @@ import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 import { ELEMENT_NODE, parse as parseHtml, walkSync } from "ultrahtml"
 
-import type { ElementNode, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
+import type { ComarkPlugin, ElementNode, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { PresetOptions } from "comark-ui/vue"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
 
@@ -36,13 +36,15 @@ export interface DocsParserOptions {
    */
   comarkUi?: PresetOptions
   /** Blocks that show their first fenced block rendered, next to its source. */
-  examples?: DocsExamplesOptions
+  examples?: DocsExamplesOptions | Record<string, string>
+  /** Named Vue example sources supplied by the framework integration. */
+  exampleSources?: Record<string, string>
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
   plugins?: ParserOptions["plugins"]
 }
 
 export interface DocsExamplesOptions {
-  /** Tags of the blocks that get a preview of their first fenced block. `["example"]` by default. */
+  /** Tags of the blocks that get a preview of their first fenced block. `["example", "correct", "incorrect"]` by default. */
   tags?: string[]
   /** A playground URL for a block's Markdown, written as its `play`. `undefined` writes none. */
   play?: (source: string, tag: string) => string | undefined | Promise<string | undefined>
@@ -130,41 +132,21 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
  */
 export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
   const extra = options.plugins ?? []
+  const configured = options.examples ?? {}
+  const isSources = (value: DocsExamplesOptions | Record<string, string>): value is Record<string, string> => Object.values(value).every(source => typeof source === "string")
+  const settings = isSources(configured) ? {} : configured
+  const sources = { ...options.exampleSources, ...(isSources(configured) ? configured : {}) }
+  const examplePlugin = examples(markdown => parseDocument(markdown), sources, settings)
   // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
   // plugins replace both.
-  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks(options.comarkUi), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), ...extra]
+  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks(options.comarkUi), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), examplePlugin, ...extra]
   const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
-  const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
+  // Generate default previews after site plugins have had a chance to supply their own.
+  const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin && plugin !== examplePlugin)
+  if (byName.get(examplePlugin.name) === examplePlugin) plugins.push(examplePlugin)
   const parse = createMarkdownParser({ plugins })
-  const exampleTags = new Set(options.examples?.tags ?? ["example"])
-  const play = options.examples?.play
-
-  // An element node is [tag, attributes, ...children], so its children start at 2.
-  const visit = async (nodes: ComarkNode[], from = 0): Promise<void> => {
-    for (let at = from; at < nodes.length; at++) {
-      const node = nodes[at]!
-      if (!isElement(node)) continue
-      const tag = node[0]
-      const children = node.slice(2) as ComarkNode[]
-      // A site's plugin can still supply its own preview and source pair.
-      if (exampleTags.has(tag) && !children.some(child => isElement(child) && child[0] === "example-preview")) {
-        // An example's Markdown may be broken on purpose, such as invalid frontmatter, so it shows its source alone.
-        const pre = children.find((child): child is ElementNode => isElement(child) && child[0] === "pre")
-        const source = pre && textContent(pre)
-        if (!source) continue
-        const preview = await parseDocument(source).catch(() => undefined)
-        if (preview) node.splice(2, 0, ["example-preview", {}, ...preview.nodes])
-        const url = await play?.(source, tag)
-        if (url !== undefined) node[1].play = url
-        continue
-      }
-      await visit(node as ComarkNode[], 2)
-    }
-  }
-
   const parseDocument = async (markdown: string): Promise<DocsDocument> => {
     const document = await parse(markdown)
-    await visit(document.nodes)
     return { nodes: document.nodes, toc: tocOf(document) }
   }
   return async (markdown) => {
@@ -173,6 +155,57 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
     await renderHtmlBlocks(nodes)
     return { ...document, nodes }
   }
+}
+
+const markdownLanguages = new Set(["md", "markdown", "mdc", "comark"])
+/** `::correct` and `::incorrect` are examples with a title. */
+const defaultExampleTags = ["example", "correct", "incorrect"]
+
+/**
+ * `::example` shows a preview and its source, a switch apart. Around a Markdown code block, the preview is that
+ * Markdown, parsed here with the page's own plugins. With `name`, it is the Vue file of that name in the examples
+ * folder, and its source becomes the code block. Either way the page reaches the browser as nodes.
+ */
+function examples(parse: (markdown: string) => Promise<DocsDocument>, sources: Record<string, string>, options: DocsExamplesOptions): ComarkPlugin {
+  const exampleTags = new Set(options.tags ?? defaultExampleTags)
+  const visit = async (nodes: ComarkNode[]): Promise<void> => {
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null) continue
+      // SAFETY: an element node is [tag, attributes, ...children].
+      const children = node.slice(2) as ComarkNode[]
+      if (!exampleTags.has(node[0])) {
+        await visit(children)
+        continue
+      }
+      const name = typeof node[1].name === "string" ? node[1].name : undefined
+      if (name) {
+        const source = sources[name]
+        if (source === undefined) throw new Error(`::example names "${name}", but the examples folder has no ${name}.vue.`)
+        // A fence longer than any run of backticks in the file keeps the file whole.
+        const fence = "`".repeat(Math.max(3, ...[...source.matchAll(/`+/g)].map(run => run[0].length + 1)))
+        const { nodes: code } = await parse(`${fence}vue\n${source.trim()}\n${fence}\n`)
+        node.splice(2, node.length, ...code)
+        continue
+      }
+      if (children.some(child => typeof child !== "string" && child[0] === "example-preview")) continue
+      const pre = children.find((child): child is Extract<ComarkNode, unknown[]> => typeof child !== "string" && child[0] === "pre")
+      const language = pre && typeof pre[1].language === "string" ? pre[1].language : ""
+      if (!pre || !markdownLanguages.has(language)) continue
+      const markdown = typeof pre[1].code === "string" ? pre[1].code : textContent(pre)
+      const url = await options.play?.(markdown, node[0])
+      if (url !== undefined) node[1].play = url
+      // Invalid frontmatter can be deliberate. Check its syntax alone so missing examples and plugin errors still
+      // report their original diagnostics from the full preview parser.
+      try {
+        parseFrontmatter(markdown)
+      } catch {
+        continue
+      }
+      const preview = await parse(markdown)
+      node.splice(2, 0, ["example-preview", {}, ...preview.nodes])
+    }
+  }
+  return { name: "docs-examples", post: state => visit(state.tree.nodes) }
 }
 
 /** Preview anchors belong to their own document, including links to headings in that preview. */
@@ -228,6 +261,8 @@ function tocOf(document: MarkdownDocument): DocsTocLink[] {
 
 /** Blocks that only agents read. The site renders nothing for them, so search skips them too. */
 const agentOnly = new Set(["agent-only"])
+/** An example's preview repeats its source, which search already reads in the code block. */
+const repeated = new Set(["example-preview"])
 
 /** Split a page into one search entry per h2 and h3, like Nuxt UI's content search expects. */
 export function docsSearchSections(path: string, title: string, nodes: ComarkNode[]): DocsSearchSection[] {
@@ -239,7 +274,7 @@ export function docsSearchSections(path: string, title: string, nodes: ComarkNod
       return
     }
     const [tag, props, ...children] = node
-    if (tag === null || agentOnly.has(tag) || tag === "typeset-styles" || tag === "example-preview") return
+    if (tag === null || agentOnly.has(tag) || repeated.has(tag) || tag === "typeset-styles") return
     const level = /^h([23])$/.exec(tag)?.[1]
     if (level) {
       const depth = Number(level)

@@ -1,11 +1,12 @@
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
-import type { ConsoleAuthorize } from "./auth-types.ts"
 import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
 import { consoleAuthBasePath } from "./auth-pages.ts"
 import { consoleAuthPath } from "./auth-path.ts"
 
+// Its own build entry: `server/console-authorize.ts` imports it at startup, without Better Auth.
+export { defineConsoleAuthorize } from "./authorize.ts"
 export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
 export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
 export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
@@ -77,6 +78,8 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       }
       return {
         ...options,
+        // The host claim code belongs to Primary Auth, not this independent database.
+        adminClaim: false,
         ...(runtime ? { runtime: pluginsInRuntime && oauth.length ? { ...resolvedRuntime, plugins: [...resolved.plugins ?? [], ...oauth] } : runtime } : {}),
         ...(oauth.length && !pluginsInRuntime ? { plugins: [...options.plugins ?? [], ...oauth] } : {}),
         access: {
@@ -98,11 +101,4 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       }
     },
   } as AuthDefinition<AuthDefinitionInput>
-}
-
-/** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
-export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
-  // Accept callbacks created in another JavaScript realm, where `instanceof Function` fails.
-  if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
-  return authorize
 }

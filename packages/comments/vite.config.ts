@@ -30,6 +30,8 @@ export default defineConfig({
         "src/vite.ts",
       ],
       exports: {
+        // Generated code imports these modules by path. They are not public API.
+        exclude: ["operations", "runtime/console"],
         customExports: normalizePackageExports,
         inlinedDependencies: false,
       },
@@ -37,7 +39,7 @@ export default defineConfig({
         dts: ".d.ts",
         js: ".js",
       }),
-      publint: true,
+      publint: "ci-only",
     },
     {
       // The page tools loader at `/_vitehub/page/assets/loader.js`. It has its own build, so it shares no chunk with the overlay.
