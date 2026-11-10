@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { publicPackageBinContracts, publicPackageExportContracts } from "./public-package-exports"
+import { publicPackageBinContracts, publicPackageExportAllowlist, publicPackageExportContracts } from "./public-package-exports"
 import { packageDir, packageInfos, readPackageManifest } from "./utils/repo"
 
 describe("public package export contracts", () => {
@@ -27,11 +27,27 @@ describe("public package export contracts", () => {
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
     expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
-    expect(content).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(content).toContain("fetch(request: Request): Promise<Response>")
     expect(server).toContain("(event: unknown): Promise<unknown>")
-    expect(content).toContain("(event: unknown): Promise<unknown>")
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
+    expect(content).not.toContain('from "h3"')
+  })
+
+  it("publishes exactly the allowlisted subpaths of each package", () => {
+    const published = Object.fromEntries(packageInfos.map(info => [info.packageName, Object.keys(readPackageManifest(info.name).exports || {})]))
+    expect(published).toEqual(publicPackageExportAllowlist)
+    for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
+    // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
+  })
+
+  it("publishes exactly the allowlisted subpaths of each package", () => {
+    const published = Object.fromEntries(packageInfos.map(info => [info.packageName, Object.keys(readPackageManifest(info.name).exports || {})]))
+    expect(published).toEqual(publicPackageExportAllowlist)
+    for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
+    // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {
@@ -70,6 +86,10 @@ describe("public package export contracts", () => {
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/i18n", "@vite-hub/i18n"],
+      ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
+      ["vite-hub/i18n/server", "@vite-hub/i18n"],
+      ["vite-hub/i18n/vue", "@vite-hub/i18n"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
@@ -89,7 +109,7 @@ describe("public package export contracts", () => {
     expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
     expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
-    for (const subpath of ["database", "database/postgres", "operations", "server"]) {
+    for (const subpath of ["database", "database/postgres", "server"]) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
       expect(contract?.optionalRuntimePeers).toEqual([])
       expect(contract?.optionalDeclarationPeers).toEqual([])
@@ -146,7 +166,6 @@ describe("public package export contracts", () => {
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {
     const lazyPeerExports = new Map<string, string>([
       ["@vite-hub/agent", "@vite-hub/workflow"],
-      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
       ["@vite-hub/browser/internal/chromium", "playwright-core"],

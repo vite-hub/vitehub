@@ -44,6 +44,8 @@ const SANDBOX_PACKAGE_NAME = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-task-provider-loader'
 const SANDBOX_STATE_ID = '#vitehub/sandbox-task'
 const RESOLVED_SANDBOX_STATE_ID = '\0vitehub:sandbox-task:state'
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const SANDBOX_STATE_ID_PATTERN = /^(?:#vitehub\/sandbox-task|\0vitehub:sandbox-task:state)$/
 
 type AliasMap = Record<string, string>
 interface SandboxTaskViteInternalOptions {
@@ -96,11 +98,14 @@ function sandboxTaskProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox/task', './runtime/provider-loader', 'runtime/provider-loader.js')
 }
 
+/** The path of the Sandbox Task runtime state module. Generated code of other owners imports it by path. */
+export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
+
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
-  [sandboxTaskRuntimeStateSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js'),
+  [sandboxTaskRuntimeStateSpecifier]: sandboxTaskRuntimeStateModule,
 }
 
 function toSandboxTaskAliasEntries(aliases: AliasMap): SandboxTaskAlias[] {
@@ -390,17 +395,23 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         },
       }
     },
-    resolveId(id) {
-      if (!sandboxTaskStateModule)
-        return
-      if (id === SANDBOX_STATE_ID)
-        return RESOLVED_SANDBOX_STATE_ID
-      if (id === RESOLVED_SANDBOX_STATE_ID)
-        return id
+    resolveId: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (!sandboxTaskStateModule)
+          return
+        if (id === SANDBOX_STATE_ID)
+          return RESOLVED_SANDBOX_STATE_ID
+        if (id === RESOLVED_SANDBOX_STATE_ID)
+          return id
+      },
     },
-    load(id) {
-      if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
-        return sandboxTaskStateModule
+    load: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
+          return sandboxTaskStateModule
+      },
     },
     async configResolved(config) {
       resolvedConfig = config

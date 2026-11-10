@@ -18,8 +18,8 @@ vi.mock("@vite-hub/internal/build/mode", () => ({
   getViteMode: () => undefined,
 }))
 
-vi.mock("@vite-hub/internal/build/esbuild", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@vite-hub/internal/build/esbuild")>(),
+vi.mock("@vite-hub/internal/build/bundle-options", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/internal/build/bundle-options")>(),
   encodeProviderOutputAliases: () => ({}),
 }))
 
