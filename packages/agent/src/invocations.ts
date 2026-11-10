@@ -2274,7 +2274,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       // The store gives the claim only when it is absent or expired. A live run renews its claim before it expires.
       const claimId = `probe_${globalThis.crypto.randomUUID()}`
       if (!await store.claim(id, claimId, CLAIM_LEASE_MS)) return "held"
-      await store.release(id, claimId)
+      // The claim was free. A failed release only keeps the probe claim until its lease expires.
+      await Promise.resolve().then(() => store.release(id, claimId)).catch(() => undefined)
       return "free"
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(

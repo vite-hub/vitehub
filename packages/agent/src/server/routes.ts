@@ -6293,7 +6293,14 @@ async function isInterruptedChatRecord(
 ): Promise<boolean> {
   if (!isRuntimeString(record.startedAt) || !(Date.parse(record.startedAt) < recoveryBefore)) return false
   if (!isAgentInvocations(invocations) || !isRuntimeString(record.runId)) return true
-  return await agentInvocationClaimState(invocations, await agentInvocationId(record.runId, agentName)) !== "held"
+  try {
+    return await agentInvocationClaimState(invocations, await agentInvocationId(record.runId, agentName)) !== "held"
+  }
+  catch (error) {
+    // Keep the start time test, so a journal failure does not stop the recovery of the other records.
+    console.error("[vitehub] Interrupted chat invocation claim check failed. The start time decides.", error)
+    return true
+  }
 }
 
 async function handleChatSdkMessage(

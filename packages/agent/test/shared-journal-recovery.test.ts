@@ -205,6 +205,26 @@ describe("recovery at boot on processes that share one journal and one State", (
     expect(await processes[0]!.store.getSummary(await agentInvocationId("stopped-turn", "support"))).toMatchObject({ status: "failed" })
   })
 
+  it("keeps the start time test when the journal check fails", async () => {
+    const files = await sharedFiles()
+    await writeInterruptedTurn(files, "stopped-turn")
+    const prompts: string[] = []
+    const restarted = await startProcess(files, prompts)
+    const id = await agentInvocationId("stopped-turn", "support")
+    const getSummary = restarted.store.getSummary
+    vi.spyOn(restarted.store, "getSummary").mockImplementation(async (summaryId: string) => {
+      if (summaryId === id) throw new Error("journal unavailable")
+      return await getSummary(summaryId)
+    })
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    restarted.boot()
+
+    await vi.waitFor(() => expect(prompts).toHaveLength(1), { timeout: 10_000 })
+    expect(prompts[0]).toContain("[Retry after interruption]")
+    expect(logged.mock.calls.some(([message]) => typeof message === "string" && message.includes("claim check failed"))).toBe(true)
+    await vi.waitFor(async () => expect(await restarted.state.get(indexKey)).toBeNull(), { timeout: 5_000 })
+  })
+
   it("runs a chat turn again after the same process stops and starts", async () => {
     const files = await sharedFiles()
     const prompts: string[] = []
