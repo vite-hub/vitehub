@@ -20,11 +20,6 @@
     "error": "TS2304 Cannot find name 'diagnostics'.\nTS2304 Cannot find name 'nodeRuntimeResources'.\nTS2304 Cannot find name 'operations'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/gmail.md#a3dfcb0239a0",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2339 Property 'unseal' does not exist on type '{}'."
@@ -65,19 +60,9 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/auth/configure.md#17f5681b94a4",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/auth/configure.md#e343728ee49a",
     "label": "server/auth.ts",
     "error": "TS2304 Cannot find name 'defineAuth'.\nTS7031 Binding element 'env' implicitly has an 'any' type.\nTS7031 Binding element 'requestOrigin' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/auth/configure.md#efe4a2209ad9",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
@@ -128,11 +113,6 @@
     "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
     "label": "server/connections/github.ts",
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#4744d64a62e0",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
@@ -265,46 +245,6 @@
     "error": "TS2304 Cannot find name 'defineAgent'."
   },
   {
-    "id": "docs/content/docs/env/app-secret.md#0b0e47c788ee",
-    "label": "server/utils/session.ts",
-    "error": "TS2305 Module '\"#vitehub/env/server\"' has no exported member 'deriveSecret'."
-  },
-  {
-    "id": "docs/content/docs/env/bridge.md#17b4f7a44fce",
-    "label": null,
-    "error": "TS18046 'env.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/configure.md#61fd7644a2f7",
-    "label": "server/labeller.ts",
-    "error": "TS18046 'labeller' is of type 'unknown'.\nTS18046 'labeller' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/index.md#dce61165544a",
-    "label": "src/app.ts",
-    "error": "TS2322 Type 'unknown' is not assignable to type 'string'."
-  },
-  {
-    "id": "docs/content/docs/env/index.md#caaac143beec",
-    "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/server-api.md#eaad493ab07b",
-    "label": "server/github.ts",
-    "error": "TS18046 'github' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/server-api.md#8695179e5f32",
-    "label": "server/sources/private-repository.ts",
-    "error": "TS18046 'env.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/guides/better-auth-cloudflare.md#efe4a2209ad9",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/queue/limits-and-errors.md#f6a4c53b875d",
     "label": "server/api/signup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
@@ -327,32 +267,27 @@
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e3f6e4dc09d2",
     "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
     "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
-    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
     "label": "server/api/crm.get.ts",
-    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type '{ readonly token: SecretEnv<string>; }'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
     "label": "server/auth.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(options: AuthDefinitionResolver<AuthResolvedDefinitionOptions>): AuthDefinition<AuthDefinitionResolver<AuthResolvedDefinitionOptions>>', gave the following error.\n    Object literal may only specify known properties, and 'baseURL' does not exist in type 'AuthDefinitionResolver<AuthResolvedDefinitionOptions>'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#502346b37dd8",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#9e3479e36459",
@@ -425,16 +360,6 @@
     "error": "TS2339 Property 'tenantId' does not exist on type '{}'.\nTS2339 Property 'token' does not exist on type '{}'.\nTS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'.\nTS2344 Type '{ token: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
   },
   {
-    "id": "packages/auth/README.md#73fb174ae71d",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "packages/auth/README.md#16f5ad8e7cb4",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "packages/blob/README.md#45378057acd1",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
@@ -468,16 +393,6 @@
     "id": "packages/database/README.md#4de5ceb072d1",
     "label": null,
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
-  },
-  {
-    "id": "packages/env/README.md#a071f6c066c6",
-    "label": "server/sync.ts",
-    "error": "TS18046 'airtableToken' is of type 'unknown'."
-  },
-  {
-    "id": "packages/env/README.md#82031b9440a2",
-    "label": null,
-    "error": "TS18046 'snapshot.githubToken' is of type 'unknown'."
   },
   {
     "id": "packages/queue/README.md#d7d22d97097e",
