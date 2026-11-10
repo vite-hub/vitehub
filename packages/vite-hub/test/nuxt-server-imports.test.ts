@@ -32,6 +32,13 @@ describe("ViteHub server auto-imports", () => {
     expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([])
   })
 
+  it("auto-imports the I18n request and translations helpers", () => {
+    expect(resolveViteHubServerImports({ i18n: true })).toEqual([
+      { from: "vite-hub/i18n/server", name: "getRequestI18n", priority: -1 },
+      { from: "vite-hub/i18n/server", name: "useTranslations", priority: -1 },
+    ])
+  })
+
   it.each(features)("returns only the %s helpers when only that feature is on", (feature) => {
     const expected = Object.entries(viteHubServerImports[feature]).flatMap(([from, list]) => list.map((name: string) => ({ from, name, priority: -1 })))
 

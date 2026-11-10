@@ -4647,6 +4647,39 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(netlifyConfig).toHaveProperty("imports.imports", [])
   })
 
+  it.each([false, true])("auto-imports I18n server helpers from inline or Nuxt module options: %s", async (inline) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-i18n-"))
+    try {
+      // Nuxt 5 uses its Nitro 3 server builder; the default fixture has no installed Nuxt host.
+      for (const [name, manifest] of [
+        ["nuxt", { name: "nuxt", dependencies: { "@nuxt/nitro-server": "5.0.0" } }],
+        ["@nuxt/nitro-server", { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } }],
+        ["nitro", { name: "nitro", version: "3.0.261102-rc" }],
+      ] as const) {
+        const directory = resolve(root, "node_modules", name)
+        await mkdir(directory, { recursive: true })
+        await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
+      }
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.buildDir = resolve(root, ".nuxt")
+      nuxt.options.serverDir = resolve(root, "server")
+      const i18n = { workspace: "translations" }
+      if (!inline) Object.assign(nuxt.options, { vitehub: { i18n } })
+      await viteHubNuxtModule({ env: false, preset: "node", ...inline ? { i18n } : {} }, nuxt)
+
+      const config: Record<string, unknown> = { imports: { imports: [] } }
+      await runNitroConfigHook(config)
+      expect(config).toHaveProperty("imports.imports", [
+        { from: "vite-hub/i18n/server", name: "getRequestI18n", priority: -1 },
+        { from: "vite-hub/i18n/server", name: "useTranslations", priority: -1 },
+      ])
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("reads feature switches from the Nuxt module options", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { vitehub: { kv: {}, rateLimit: {} } })

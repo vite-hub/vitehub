@@ -44,6 +44,7 @@ The module scans the server directory of the app and of each Nuxt layer.
 | Database | `database` | `server/databases/` | `db`, `schema`, `useDatabase` |
 | Email | `email` | `server/emails/` (Markdown templates) | `email` |
 | Env | On unless `env: false` | None | `useServerEnv` |
+| I18n | `i18n` | None. Messages are collected from source files; translations live in `locales/` or the configured Workspace. | `getRequestI18n`, `useTranslations` |
 | KV | `kv` | None | `kv` |
 | Queue | `queue` | `server/queues/` | `defineQueue`, `deferQueue`, `useQueue`, `sendQueue` |
 | Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()` and `checkRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `requireRateLimit`, `resetRateLimit` |

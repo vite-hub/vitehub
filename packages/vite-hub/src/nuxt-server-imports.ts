@@ -21,6 +21,7 @@ export const viteHubServerImports = {
   email: { "vite-hub/email/server": ["email"] },
   // Each app generates its own `#vitehub/env/server` from its Env declarations. Nitro and its types alias it.
   env: { "#vitehub/env/server": ["useServerEnv"] },
+  i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
   rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"] },
@@ -44,6 +45,7 @@ interface ServerImportEntries {
   "vite-hub/database/drizzle": typeof import("./database/drizzle.ts")
   "vite-hub/email/server": typeof import("./email/server.ts")
   "vite-hub/env": typeof import("./env.ts")
+  "vite-hub/i18n/server": typeof import("./i18n/server.ts")
   "vite-hub/kv": typeof import("./kv.ts")
   "vite-hub/queue": typeof import("./queue.ts")
   "vite-hub/rate-limit": typeof import("./rate-limit.ts")
