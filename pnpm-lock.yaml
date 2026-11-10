@@ -1173,6 +1173,9 @@ importers:
       advocaat:
         specifier: catalog:ai
         version: 0.0.6
+      drizzle-kit:
+        specifier: catalog:database
+        version: 0.31.11
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
@@ -1188,6 +1191,9 @@ importers:
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       posthog-node:
         specifier: ^5.56.2
         version: 5.56.2(@opentelemetry/api@1.9.1)(rxjs@7.8.2)

@@ -81,6 +81,7 @@ export default defineConfig({
       "src/invocations/default-core.ts",
       "src/invocations/default-libsql.ts",
       "src/invocations/drizzle.ts",
+      "src/invocations/postgres.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",

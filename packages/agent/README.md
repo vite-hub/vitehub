@@ -516,6 +516,10 @@ A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an
 
 `@vite-hub/agent/invocations/default-core` exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/invocations/default-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
 
+## Postgres invocation storage
+
+`@vite-hub/agent/invocations/postgres` exports `postgresAgentInvocationTables({ tablePrefix? })`, the Drizzle tables of the journal on a Postgres Database, and `agentInvocationsPostgresSchema`, the same tables with the default `vitehub_agent_` prefix. `createDatabaseAgentInvocationStore()` uses these tables when the Database runs on postgres.js. The store does not create them; the Database migrations do. A missing table fails with `AGENT_R1038`. Claims expire by the database clock, and each update locks its record row in a transaction. See [Store invocations in a Postgres Database](../../docs/content/docs/agents/invocation-storage.md#store-invocations-in-a-postgres-database).
+
 ## D1 invocation storage
 
 `@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
