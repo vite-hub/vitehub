@@ -52,7 +52,8 @@
     "test": "vp run --cache -t @vite-hub/bundle#build && vp test"
   },
   "dependencies": {
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "vue-router": "^5.4.0"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

@@ -33,11 +33,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js",
-      "default": "./dist/cli.js"
-    },
     "./drivers/cloudflare": {
       "types": "./dist/drivers/cloudflare.d.ts",
       "import": "./dist/drivers/cloudflare.js",
@@ -47,11 +42,6 @@
       "types": "./dist/drivers/memory.d.ts",
       "import": "./dist/drivers/memory.js",
       "default": "./dist/drivers/memory.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",

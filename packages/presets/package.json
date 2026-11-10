@@ -69,7 +69,10 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "valibot": "catalog:runtime"
+    "@yarnpkg/parsers": "catalog:tooling",
+    "comark": "catalog:markdown",
+    "valibot": "catalog:runtime",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
