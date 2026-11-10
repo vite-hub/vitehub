@@ -65,19 +65,24 @@ interface LinkedAccount { userId: string, providerId: string, accessToken?: stri
  */
 export async function adoptGitHubEmail(account: LinkedAccount, context: GenericEndpointContext | null, fetcher: typeof fetch = fetch): Promise<void> {
   if (!context || account.providerId !== "github" || !account.accessToken) return
-  const internal = context.context.internalAdapter
-  const user = await internal.findUserById(account.userId)
-  if (!user || !isPasskeyEmail(user.email)) return
-  const response = await fetcher("https://api.github.com/user/emails", {
-    headers: { "accept": "application/vnd.github+json", "authorization": `Bearer ${account.accessToken}`, "user-agent": "ViteHub Console" },
-  })
-  if (!response.ok) return
-  const emails: unknown = await response.json()
-  const primary = Array.isArray(emails) ? emails.find(entry => entry instanceof Object && Reflect.get(entry, "primary") === true && Reflect.get(entry, "verified") === true) : undefined
-  const address: unknown = primary instanceof Object ? Reflect.get(primary, "email") : undefined
-  if (String(address) !== address || !address.includes("@")) return
-  const email = address.toLowerCase()
-  if (await internal.findUserByEmail(email)) return
-  await internal.updateUser(account.userId, { email, emailVerified: true })
+  // The link is saved before this runs. The email is extra, so a failure here must not fail the link.
+  try {
+    const internal = context.context.internalAdapter
+    const user = await internal.findUserById(account.userId)
+    if (!user || !isPasskeyEmail(user.email)) return
+    const response = await fetcher("https://api.github.com/user/emails", {
+      headers: { "accept": "application/vnd.github+json", "authorization": `Bearer ${account.accessToken}`, "user-agent": "ViteHub Console" },
+    })
+    if (!response.ok) return
+    const emails: unknown = await response.json()
+    const primary = Array.isArray(emails) ? emails.find(entry => entry instanceof Object && Reflect.get(entry, "primary") === true && Reflect.get(entry, "verified") === true) : undefined
+    const address: unknown = primary instanceof Object ? Reflect.get(primary, "email") : undefined
+    if (String(address) !== address || !address.includes("@")) return
+    const email = address.toLowerCase()
+    if (await internal.findUserByEmail(email)) return
+    await internal.updateUser(account.userId, { email, emailVerified: true })
+  }
+  catch (error) {
+    context.context.logger.warn("The Console could not copy the GitHub email to a passkey account.", error)
+  }
 }
-

@@ -41,7 +41,7 @@ async function link(): Promise<void> {
     <template #body>
       <form id="vitehub-account-link" class="grid gap-4" @submit.prevent="link">
         <ConsoleAccountSnippet />
-        <UFormField label="App URL" name="url" required :error="problem">
+        <UFormField label="App URL" name="url" required :error="problem" :ui="{ error: problem ? undefined : 'mt-0' }">
           <!-- Nuxt UI renders the error without a live region, so the message announces itself here. -->
           <template #error="{ error }">
             <span role="alert">{{ error }}</span>

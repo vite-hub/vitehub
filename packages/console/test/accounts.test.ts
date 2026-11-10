@@ -13,8 +13,9 @@ function context(users: Record<string, { id: string, email: string }>) {
     },
     updateUser,
   }
-  // SAFETY: The hook reads only these three methods of the internal adapter.
-  return { context: { context: { internalAdapter } } as unknown as GenericEndpointContext, updateUser }
+  const logger = { warn: vi.fn() }
+  // SAFETY: The hook reads only these methods of the internal adapter and the logger.
+  return { context: { context: { internalAdapter, logger } } as unknown as GenericEndpointContext, updateUser, logger }
 }
 
 const githubEmails = (emails: unknown) => vi.fn(async () => Response.json(emails))
@@ -46,5 +47,23 @@ describe("adoptGitHubEmail", () => {
     await adoptGitHubEmail({ userId: "u1", providerId: "google", accessToken: "token" }, ctx, githubEmails([{ email: "ada@example.com", primary: true, verified: true }]))
     await adoptGitHubEmail({ userId: "u1", providerId: "github", accessToken: "token" }, ctx, vi.fn(async () => new Response("no", { status: 401 })))
     expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  it("does not fail the GitHub link when the email lookup fails", async () => {
+    const { context: ctx, updateUser, logger } = context({ u1: { id: "u1", email: "u1@passkey.invalid" } })
+    await expect(adoptGitHubEmail({ userId: "u1", providerId: "github", accessToken: "token" }, ctx, vi.fn(async () => { throw new TypeError("network") }))).resolves.toBeUndefined()
+    await expect(adoptGitHubEmail({ userId: "u1", providerId: "github", accessToken: "token" }, ctx, vi.fn(async () => new Response("not json")))).resolves.toBeUndefined()
+    expect(updateUser).not.toHaveBeenCalled()
+    expect(logger.warn).toHaveBeenCalledTimes(2)
+  })
+
+  it("takes the email when GitHub is connected again after a failed lookup", async () => {
+    const users = { u1: { id: "u1", email: "u1@passkey.invalid" } }
+    const { context: ctx, updateUser } = context(users)
+    const account = { userId: "u1", providerId: "github", accessToken: "token" }
+    await adoptGitHubEmail(account, ctx, vi.fn(async () => new Response("rate limited", { status: 403 })))
+    expect(updateUser).not.toHaveBeenCalled()
+    await adoptGitHubEmail({ ...account, accessToken: "new-token" }, ctx, githubEmails([{ email: "ada@example.com", primary: true, verified: true }]))
+    expect(updateUser).toHaveBeenCalledWith("u1", { email: "ada@example.com", emailVerified: true })
   })
 })

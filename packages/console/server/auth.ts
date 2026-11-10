@@ -16,8 +16,14 @@ export default defineAuth(({ env }) => ({
   // hook then gives it the verified GitHub email.
   account: { accountLinking: { allowDifferentEmails: true } },
   databaseHooks: {
+    // A link creates the account, and connecting GitHub again updates it. Both retry the email of a passkey account.
     account: {
       create: {
+        async after(account, context) {
+          await adoptGitHubEmail(account, context)
+        },
+      },
+      update: {
         async after(account, context) {
           await adoptGitHubEmail(account, context)
         },
