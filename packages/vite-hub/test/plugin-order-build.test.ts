@@ -64,9 +64,8 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await builder.buildApp()
 
       await withBuiltServer(root, async (fetchServer) => {
-        const page = await fetchServer("/_vitehub")
-        expect(page.status).toBe(200)
-        expect(await page.text()).toContain("<html")
+        // Apps no longer serve the Console page.
+        expect(await (await fetchServer("/_vitehub")).text()).not.toContain("ViteHub Console")
         const rpc = await fetchServer("/_vitehub/rpc/__call", {
           body: JSON.stringify({ operation: "sections.list", input: {} }),
           headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },

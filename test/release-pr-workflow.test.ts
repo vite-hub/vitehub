@@ -146,7 +146,8 @@ describe("release PR workflow", () => {
       expect(readFileSync(envPath, "utf8")).toBe(firstBump)
       execFileSync("node", [checker, `release/v${version}`], { cwd: directory })
 
-      writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - packages/*\nlinkWorkspacePackages: true\n")
+      // Prefer the local Vite peer even when the registry cache contains a newer matching release.
+      writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - packages/*\nlinkWorkspacePackages: true\npreferWorkspacePackages: true\n")
       // Select pnpm explicitly without adding it as an offline config dependency.
       execFileSync("corepack", ["pnpm@12.16.1", "install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile", "--offline"], {
         cwd: directory,

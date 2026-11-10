@@ -1,4 +1,4 @@
-import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
+import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source"
 
 import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"

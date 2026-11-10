@@ -10,7 +10,8 @@
 
 ```ts
 // server/content.ts
-import { defineContent, documents } from "vite-hub/content"
+import { defineContent } from "vite-hub/content"
+import { documents } from "vite-hub/content/collections"
 import cms from "vite-hub/cms"
 import * as v from "valibot"
 

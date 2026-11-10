@@ -1,6 +1,5 @@
 import { inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInput, AgentRuntimeContext, AgentSettings } from "./types.ts"
 
 export type AgentHealthStatus = "ready" | "degraded" | "unsupported" | "unavailable" | "stale" | "missing-credentials" | "missing-executable" | "quota-exhausted" | "timeout"
@@ -59,7 +58,7 @@ export async function resolveAgentHealth(agent: AgentHealthTarget, options: Agen
     timestamp: new Date().toISOString(),
     agent: { name: options.agentName || agent.name, version: agent.version },
     runtime: { node: Boolean(globalThis.process), ...(globalThis.process ? { pid: globalThis.process.pid } : {}) },
-    ...(driver ? { driver: { kind: driver.kind, model: "model" in driver && hasRuntimeType(driver.model, "string") ? driver.model : undefined, provider: driver.kind === "provider" ? driver.provider : undefined } } : {}),
+    ...(driver ? { driver: { kind: driver.kind, model: "model" in driver && typeof driver.model === "string" ? driver.model : undefined, provider: driver.kind === "provider" ? driver.provider : undefined } } : {}),
     ...(capacity ? { capacity } : {}),
     workspace: { configured: workspaceConfigured, ready: workspaceConfigured },
     integrations,

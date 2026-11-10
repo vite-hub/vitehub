@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { bundleCliContributor } from "./cli.ts"
 import { collectEnvironmentReport } from "./collect.ts"
-import { writeEnvironmentReport } from "./files.ts"
+import { writeBundleReportRoot, writeEnvironmentReport } from "./files.ts"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -76,7 +76,7 @@ async function serverFacts(nitro: NitroLike | undefined): Promise<ServerFacts> {
   return { ...(nitro.options.preset ? { host: nitro.options.preset } : {}), rules }
 }
 
-function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, environment: string, outDir: string, root: string, routes?: PageRoute[], routeOptions?: BundleRouteOptions, side: "client" | "server" }, facts?: ServerFacts): void {
+function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, configRoot?: string, environment: string, outDir: string, root: string, routes?: PageRoute[], routeOptions?: BundleRouteOptions, side: "client" | "server" }, facts?: ServerFacts): void {
   // Nitro's rootDir can end with a slash, and Vite's root can be Nuxt's srcDir. Both must name the same build.
   const root = resolve(options.root)
   const outDir = resolve(options.outDir)
@@ -92,6 +92,10 @@ function writeReport(context: OutputContext, bundle: Record<string, unknown>, op
     root,
   })
   writeEnvironmentReport(root, { ...report, ...(facts?.host ? { host: facts.host } : {}), ...(facts?.rules.length ? { rules: facts.rules } : {}), chunks })
+  // The command can run from the build's working directory or next to its Vite config.
+  for (const cliRoot of new Set([root, process.cwd(), ...options.configRoot ? [options.configRoot] : []])) {
+    writeBundleReportRoot(cliRoot, root)
+  }
   written.add(key)
   outputs.set(bundle, written)
 }
@@ -153,6 +157,7 @@ export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
       const side = config.consumer === "server" ? "server" : "client"
       writeReport(this, bundle as Record<string, unknown>, {
         build: coordinatedBuild ?? builds.get(environment)!,
+        ...(config.configFile ? { configRoot: dirname(config.configFile) } : {}),
         environment: environment.name,
         routes,
         routeOptions,

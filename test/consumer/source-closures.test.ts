@@ -147,11 +147,7 @@ describe("packed Source capability closures", () => {
           include: ["src/**/*.ts"],
         }, null, 2)),
         writeFile(join(appDir, "src/lightweight.ts"), `
-import { createSource, defineSource } from "vite-hub/source"
-import { file } from "vite-hub/source/file"
-import { github } from "vite-hub/source/github"
-import { glob } from "vite-hub/source/glob"
-import { markdown } from "vite-hub/source/markdown"
+import { createSource, defineSource, file, github, glob, markdown } from "vite-hub/source"
 
 const local = defineSource({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
 const inline = file({ content: "ok", workspacePath: "inline.txt" })
@@ -180,8 +176,7 @@ const sourceTransport: McpResourcesTransport = {
 void sourceTransport
 `),
         writeFile(join(appDir, "mcp-run.mjs"), `
-import { createSource, defineSource } from "vite-hub/source"
-import { file } from "vite-hub/source/file"
+import { createSource, defineSource, file } from "vite-hub/source"
 import { mcpResources } from "vite-hub/source/mcp"
 
 const transport = {
