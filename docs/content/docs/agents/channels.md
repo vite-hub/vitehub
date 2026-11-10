@@ -324,18 +324,64 @@ Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHe
 
 `secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    server: {
-      prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+      },
     },
   })],
 })
 ```
+:::
+::
 
 ```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'

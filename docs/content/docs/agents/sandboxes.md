@@ -123,19 +123,67 @@ Boot fails when the project pins no Node.js version and no `fallbackNode` is set
 
 Keep secret values outside the repository. Resolve them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads its credentials from the Sandbox Home, for example `.codex/auth.json`. Declare the secrets in Server Env:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    server: {
-      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
-      codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
     },
   })],
 })
 ```
+:::
+::
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from '@vite-hub/agent'

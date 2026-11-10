@@ -68,18 +68,64 @@ export default defineAgent({
 
 No `if` around the Capability list is needed. Declare optional credentials in Server Env, such as `analyticsToken: env({ optional: true, secret: true })`, and return the server only when they exist:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        analyticsToken: env({ optional: true, secret: true }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    server: {
-      analyticsToken: env({ optional: true, secret: true }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        analyticsToken: env({ optional: true, secret: true }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        analyticsToken: env({ optional: true, secret: true }),
+      },
     },
   })],
 })
 ```
+:::
+::
 
 ```ts [server/agents/support.ts]
 import { useServerEnv } from '#vitehub/env/server'

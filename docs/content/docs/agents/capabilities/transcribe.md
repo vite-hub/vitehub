@@ -31,18 +31,64 @@ export default defineAgent({
 
 `openRouterTranscriptionModel()` returns a normal AI SDK model that handles OpenRouter authentication, audio encoding, request shape, and errors, so your Agent needs no multipart code.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    server: {
-      openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+      },
     },
   })],
 })
 ```
+:::
+::
 
 ```ts [server/agents/voice.ts]
 import { useServerEnv } from '#vitehub/env/server'
