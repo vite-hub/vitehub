@@ -22,7 +22,7 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
@@ -303,12 +303,16 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
   await settled(specifiers.map(async (specifier) => {
+    // Vite provides this side-effect module when it compiles the Vue entry. The
+    // package's Vue app test exercises the generated config and catalog loaders.
+    const withI18nClient = specifier === "@vite-hub/i18n/vue" || specifier === "vite-hub/i18n/vue"
     const script = [
-      ...(withCloudflareHost
+      ...(withCloudflareHost || withI18nClient
         ? [
             'const { registerHooks } = await import("node:module")',
             "registerHooks({ resolve(specifier, context, nextResolve) {",
-            '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
+            ...(withCloudflareHost ? ['  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }'] : []),
+            ...(withI18nClient ? ['  if (specifier === "virtual:vite-hub/i18n/client") return { shortCircuit: true, url: "data:text/javascript,export {}" }'] : []),
             "  return nextResolve(specifier, context)",
             "} })",
           ]
@@ -622,6 +626,7 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
+    "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
     "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
     "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
@@ -998,6 +1003,10 @@ describe("published declaration diagnostics", () => {
 
   it("forwards non-Cloudflare imports through the host shim", async () => {
     await importSpecifiers(tmpdir(), ["node:path"], true)
+  })
+
+  it("imports Vue i18n entries with their Vite client module", async () => {
+    await importSpecifiers(join(repoRoot, "packages/vite-hub"), ["@vite-hub/i18n/vue", "vite-hub/i18n/vue"])
   })
 
   it("reports diagnostics reached through dependency declarations", async () => {

@@ -1,6 +1,6 @@
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
-import { importSealKey, seal } from "@vite-hub/env/seal"
+import { importSealKey, sealWithKey } from "@vite-hub/env/seal"
 import { drizzle } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import { Miniflare } from "miniflare"
@@ -50,8 +50,8 @@ it("migrates sealed grants and pending OAuth transactions from the legacy tables
   try {
     const db = drizzle(client)
     const sealKey = await importSealKey(key)
-    const grantPayload = await seal(sealKey, new TextEncoder().encode(JSON.stringify(["connection-grant", "mail", "legacy-revision"])), JSON.stringify({ accessToken: "legacy-access", refreshToken: "legacy-refresh", scopes: ["mail.read"], tokenType: "bearer", account: "account-1" }))
-    const pendingPayload = await seal(sealKey, new TextEncoder().encode(JSON.stringify(["connection-pending", "legacy-state"])), JSON.stringify({ actor: { id: "agent-1", kind: "agent" }, redirectUri: "https://app.example/callback", verifier: "legacy-verifier" }))
+    const grantPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-grant", "mail", "legacy-revision"])), JSON.stringify({ accessToken: "legacy-access", refreshToken: "legacy-refresh", scopes: ["mail.read"], tokenType: "bearer", account: "account-1" }))
+    const pendingPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-pending", "legacy-state"])), JSON.stringify({ actor: { id: "agent-1", kind: "agent" }, redirectUri: "https://app.example/callback", verifier: "legacy-verifier" }))
     await db.run(sql`CREATE TABLE vitehub_connection_grants (name TEXT PRIMARY KEY, provider TEXT NOT NULL, account TEXT, scopes TEXT NOT NULL, payload TEXT NOT NULL, key_id TEXT NOT NULL, revision TEXT NOT NULL, status TEXT NOT NULL, expires_at INTEGER, lease_until INTEGER, last_error TEXT, connected_at TEXT NOT NULL, updated_at TEXT NOT NULL)`)
     await db.run(sql`CREATE TABLE vitehub_connection_pending (state TEXT PRIMARY KEY, ticket TEXT NOT NULL, name TEXT NOT NULL, payload TEXT NOT NULL, expires_at INTEGER NOT NULL, opened INTEGER NOT NULL DEFAULT 0)`)
     await db.run(sql`INSERT INTO vitehub_connection_grants (name, provider, account, scopes, payload, key_id, revision, status, connected_at, updated_at) VALUES ('mail', 'google', 'account-1', '["mail.read"]', ${grantPayload}, 'legacy-key', 'legacy-revision', 'active', '2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z')`)

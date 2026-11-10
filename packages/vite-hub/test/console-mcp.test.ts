@@ -23,6 +23,7 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { resolveConsoleAccessBuild, type ConsoleOptions } from "../src/console/vite.ts"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -404,7 +405,7 @@ describe("MCP sign-in with OAuth access tokens", () => {
   }
 
   function installOAuth(auth: ConsoleOAuthConfig["auth"], config: { issuer?: string, path?: string, resource?: string } = { resource }, authorize?: ConsoleAuthorize) {
-    installConsoleAccess({ authorize, check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", ...config } })
+    installConsoleAccess({ authorize, check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", verify: verifyConsoleJwt, ...config } })
   }
 
   const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
