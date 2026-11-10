@@ -1915,9 +1915,6 @@ importers:
       '@vite-hub/web-container':
         specifier: workspace:*
         version: link:../web-container
-      drizzle-kit:
-        specifier: catalog:database
-        version: 0.31.11
       jiti:
         specifier: catalog:unjs
         version: 2.7.0
@@ -1940,6 +1937,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      drizzle-kit:
+        specifier: catalog:database
+        version: 0.31.11
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)

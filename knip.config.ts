@@ -150,6 +150,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   content: { ignoreDependencies: ["@vite-hub/database"] },
   // remove when the unused @vite-hub/blob devDependency of cms is fixed
   cms: { ignoreDependencies: ["@vite-hub/blob"] },
+  // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
+  database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
     // The Nuxt module adds `runtime/app` as a layer and its server handlers by path.
     entry: ["runtime/**/*.{ts,vue,css}"],
