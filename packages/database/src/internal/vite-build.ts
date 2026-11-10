@@ -66,12 +66,9 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
   })
 }
 
-/** Writes hosted modules before a framework resolves its generated runtime aliases. */
-export async function writeHostedDatabaseRuntimeModules(
-  generatedDir: string,
-  runtimeConfig: ResolvedDBViteConfig,
-  providers: readonly DBProvider[] = ["cloudflare", "vercel"],
-) {
+/** Fails when a Cloudflare runtime module would hold a native D1 Database without a resolved resource. */
+export function assertHostedDatabaseRuntimeResources(runtimeConfig: ResolvedDBViteConfig, providers: readonly DBProvider[] = ["cloudflare", "vercel"]) {
+  if (!providers.includes("cloudflare")) return
   const unprojectedNativeDatabases = runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
     if (database?.dialect === "postgresql") return false
@@ -80,14 +77,25 @@ export async function writeHostedDatabaseRuntimeModules(
     return (projection?.resource === "opaque" || (projection?.resource === "configured" && !projection.binding))
       && cloudflare && !cloudflare.http && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
-  if (providers.includes("cloudflare") && unprojectedNativeDatabases.length) {
+  if (unprojectedNativeDatabases.length) {
     const opaqueNativeDatabases = unprojectedNativeDatabases.filter(name => runtimeConfig.definitionDefaults.cloudflareProjections[name]?.resource === "opaque")
     if (opaqueNativeDatabases.length) {
       throw databaseErrorDiagnostics.DATABASE_OPAQUE_CLOUDFLARE_CONFIG({ databases: opaqueNativeDatabases })
     }
     throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values" })
   }
-  if (providers.includes("cloudflare")) resolveCloudflareD1Bindings(runtimeConfig)
+  resolveCloudflareD1Bindings(runtimeConfig)
+}
+
+/**
+ * Writes hosted modules before a framework resolves its generated runtime aliases. A build calls
+ * `assertHostedDatabaseRuntimeResources` first; `nuxt prepare` writes the modules for types without the check.
+ */
+export async function writeHostedDatabaseRuntimeModules(
+  generatedDir: string,
+  runtimeConfig: ResolvedDBViteConfig,
+  providers: readonly DBProvider[] = ["cloudflare", "vercel"],
+) {
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
   const normalizedRuntimeConfig = { ...runtimeConfig, definitionDefaults }
   const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")

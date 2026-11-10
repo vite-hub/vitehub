@@ -180,6 +180,16 @@ export const VITEHUB_APP_BASE_URL = "__vitehubAppBaseURL" as const
  * Later entries are Nuxt layers in Nuxt priority order.
  */
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
+/**
+ * Set by `vite-hub/nuxt` when it replays Vite config hooks for `nuxt prepare`. Prepare uses `command: "build"` to write
+ * the same types as the build, but it builds nothing.
+ */
+export const VITEHUB_PREPARE = "__vitehubPrepare" as const
+
+/** Reports a Vite config hook call for a production build. `nuxt prepare` is not a build: it only writes types. */
+export function isProductionBuild(config: object, environment: { command: string } | undefined): boolean {
+  return environment?.command === "build" && Reflect.get(config, VITEHUB_PREPARE) !== true
+}
 
 /**
  * Lists the server directory of the application and of each Nuxt layer it extends.
