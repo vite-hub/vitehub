@@ -135,7 +135,23 @@ env: {
 }
 ```
 
-`useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included. `env.server` does not accept custom `schema` parsers because the generated runtime must serialize the parser.
+`useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included.
+
+For a pattern, a custom refinement, or a transform, export a Standard Schema from a module and point the declaration at it. The server build imports the module and runs the schema on the raw value:
+
+```ts fragment
+// server/env.schema.ts
+export const apiUrl = z.url().refine(url => url.startsWith("https://"))
+
+// vite.config.ts
+env: {
+  server: {
+    apiUrl: env({ schema: env.schemaFrom("./server/env.schema.ts", "apiUrl") }),
+  },
+}
+```
+
+The generated type is the schema output type. A secret keeps its `SecretEnv` wrapper, and its errors omit the schema messages. Read [Validate Server Env with your own schema](https://vitehub.dev/docs/env/configure#validate-server-env-with-your-own-schema).
 
 ## `.env.example` schemas
 
