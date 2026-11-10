@@ -3,10 +3,10 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { resolveConfigValue, withConfigValueFallback } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { CloudflareD1BindingConfig, CloudflareD1Projection, DatabaseConfigValue, DBModulePublicOptions, ResolvedDBViteConfig, RuntimeDrizzleDatabaseConfig } from "../types.ts"
+import type { CloudflareD1BindingConfig, CloudflareD1Projection, DatabaseConfigValue, DatabaseOptions, ResolvedDBViteConfig, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 export function cloudflareOptions(
-  options: DBModulePublicOptions | undefined,
+  options: DatabaseOptions | undefined,
 ): CloudflareD1BindingConfig | undefined {
   if (options === false || !options || options.driver !== "d1") return
   const value: CloudflareD1BindingConfig = {}
