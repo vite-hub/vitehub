@@ -44,7 +44,7 @@ icon: i-lucide-circle-alert
 
 - `VITEHUB_CONTENT_KEY` signs preview tokens. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
 - A token lives 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token early. Rotating the key ends all of them.
-- Preview covers requests through Nitro, on Nitro 3 and Nuxt 4 (Nitro 2). Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Preview covers requests through Nitro 3, in Vite and in Nuxt 5. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
 - Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so make it skip its cache for preview requests. See [Caching](/docs/content/preview#caching).
 
 ## Sessions
@@ -66,7 +66,6 @@ icon: i-lucide-circle-alert
 | `CONTENT_LEASE_HELD` | Another session holds the edit lease of the document, from `save()`, `remove()`, or `restore()`, or from a Workspace commit to the draft such as `vitehub push`. `details` carry `collection`, `id`, and `holder: { user, since, expiresAt }`; a Workspace commit adds `documents` with every held document. The Console and `workspace.commit` return it as `409`. | Wait for the holder to finish, take the lease with `content.sessions.acquire({ takeover: true })`, or pass `lease: 'override'` (`--override-lease` for [`vitehub content edit`](/docs/content/cli#edit-leases) and `vitehub push`, `metadata: { lease: 'override' }` for `history.commit()`). See [Editing together](/docs/content/editing-together). |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist, or `unschedule()` named a schedule that already ran or is gone. | Check the id, ref, or revision. |
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
-| `CONTENT_R0005` | The Content handler got an unsupported request or body. | Send a Web or Node request. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
 | `CONTENT_R0008` | An unknown collection, a bad document id or ref, bad call options, such as a malformed session token or a `lease` other than `'override'`, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |

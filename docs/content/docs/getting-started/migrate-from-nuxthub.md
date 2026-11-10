@@ -35,7 +35,7 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 4.5.2 or newer. Remove `@nuxthub/core` and install ViteHub.
+Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub.
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
@@ -109,25 +109,14 @@ driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
 Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
 `serve` keep their names, and `put` takes the same `contentType`, `prefix`,
-`addRandomSuffix`, and `customMetadata` options. Each method returns an
-`[error, value]` tuple. NuxtHub's `blob.delete()` is `blob.del()` in ViteHub.
-The methods take a `string` pathname, so check a `getRouterParam()` result for
-`undefined` before you pass it.
+`addRandomSuffix`, and `customMetadata` options. Each method except `serve`
+returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
+`Response`, with `404` for a missing file. NuxtHub's `blob.delete()` is
+`blob.del()` in ViteHub. The methods take a `string` pathname, so check a
+`getRouterParam()` result for `undefined` before you pass it.
 
-```diff [server/routes/files/[...pathname].get.ts]
-+import { blob } from "vite-hub/blob"
-+
- export default defineEventHandler(async (event) => {
-   const { pathname } = getRouterParams(event)
--  return blob.serve(event, pathname)
-+  const [error, stream] = await blob.serve(event, pathname)
-+  if (error?.code === "BLOB_NOT_FOUND") {
-+    throw createError({ statusCode: 404, statusMessage: "File not found" })
-+  }
-+  if (error) throw error
-+  return stream
- })
-```
+For a custom serving route on Nitro 3, see
+[Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
 
 `blob.handleUpload()` and `blob.handleMultipartUpload()` keep their names and
 return `[error, value]`. `handleUpload()` takes `formKey`, `multiple`, `ensure`,
@@ -313,7 +302,8 @@ apply any new migration to an existing D1 database:
    its D1 resource identity and `migrations_dir` refer to the existing database
    and the copied migrations, and that it has no `migrations_table`. The build
    writes each migration folder there as one `NNNN_<name>.sql` file, because
-   Wrangler reads flat files. ViteHub writes
+   Wrangler reads flat files, and keeps the names in `d1-migrations.json` next
+   to your migrations. Commit that file with the migrations. ViteHub writes
    the D1, KV, and R2 bindings, so you can remove them from the project's
    Wrangler config; if you keep one, it must name the same resource (see
    [Database hosts](/docs/database/hosts)). Then list the pending migrations:

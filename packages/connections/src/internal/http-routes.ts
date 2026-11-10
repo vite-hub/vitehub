@@ -86,7 +86,7 @@ export function errorStatus(error: unknown): number {
 
 export function errorResponse(error: unknown): Response {
   if (isConnectionError(error))
-    return json({ error: managementErrorBody(error.code, error.why) }, errorStatus(error));
+    return json({ error: managementErrorBody(error.code, error.why, undefined, undefined, error.fix) }, errorStatus(error));
   return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
 }
 

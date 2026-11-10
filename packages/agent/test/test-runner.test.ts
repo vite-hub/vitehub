@@ -9,8 +9,8 @@ const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const workflowMock = vi.hoisted(() => {
-  const run = vi.fn((_payload?: unknown, _options?: unknown) => "workflow")
-  return { create: vi.fn(() => ({ run })), run }
+  const start = vi.fn((_payload?: unknown, _options?: unknown) => "workflow")
+  return { create: vi.fn(() => ({ start })), start }
 })
 
 vi.mock("@vite-hub/workflow", () => ({
@@ -26,7 +26,7 @@ vi.mock("@vite-hub/workflow/runtime/state", () => ({
   runWithWorkflowRuntimeEvent: vi.fn((_event, callback) => callback()),
 }))
 
-vi.mock("ai", () => ({
+vi.mock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway,
   jsonSchema: vi.fn(schema => schema),
   isStepCount: vi.fn(count => ({ count })),
   // This SDK double executes fixture responses without invoking a language model.
@@ -68,7 +68,7 @@ describe("agent test runner", () => {
     list.mockResolvedValue([])
     readFile.mockReset()
     workflowMock.create.mockClear()
-    workflowMock.run.mockClear()
+    workflowMock.start.mockClear()
   })
 
   it("creates reusable runtime contexts with a default memo cache", async () => {
@@ -127,7 +127,7 @@ describe("agent test runner", () => {
       waitUntil: vi.fn(),
     }, { prompt: "hello" })
 
-    const payload = workflowMock.run.mock.calls.at(-1)?.[0]
+    const payload = workflowMock.start.mock.calls.at(-1)?.[0]
     expect(payload).toEqual({
       callerAbortSignal: false,
       input: { context: {}, prompt: "hello" },
@@ -199,12 +199,12 @@ describe("agent test runner", () => {
 
   it("preserves finish hook delivery effects while capturing test results", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { createAgentTestRunner } = await import("../src/test.ts")
     const reply = vi.fn()
     const runner = createAgentTestRunner(defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
@@ -226,14 +226,14 @@ describe("agent test runner", () => {
 
   it("preserves error hook delivery effects while capturing failed test runs", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { createAgentTestRunner } = await import("../src/test.ts")
     const failure = new Error("failed")
     const agentError = vi.fn(event => event.reply(event.errorMessage))
     const reply = vi.fn()
     const runner = createAgentTestRunner(defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
@@ -336,7 +336,7 @@ describe("agent test runner", () => {
       runtimeConfig: {},
     }).run({ prompt: "hello" })).resolves.toMatchObject({ text: "inline" })
     expect(workflowMock.create).not.toHaveBeenCalled()
-    expect(workflowMock.run).not.toHaveBeenCalled()
+    expect(workflowMock.start).not.toHaveBeenCalled()
 
     await expect(runAgentWithContext(agent, createAgentRuntimeContext({
       runtime: "unknown",
@@ -344,7 +344,7 @@ describe("agent test runner", () => {
       waitUntil: vi.fn(),
     }), { prompt: "hello" })).resolves.toBe("workflow")
     expect(workflowMock.create).toHaveBeenCalledOnce()
-    expect(workflowMock.run).toHaveBeenCalledOnce()
+    expect(workflowMock.start).toHaveBeenCalledOnce()
   })
 
   it("stops test runs after repeated workspace inspection guardrails", async () => {

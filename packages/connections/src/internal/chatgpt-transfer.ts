@@ -2,6 +2,7 @@ import * as v from "valibot"
 import type { ConnectionInspection } from "../types.ts"
 import type { ConnectionsRuntime } from "../runtime.ts"
 import { chatgptRegistration } from "./chatgpt-flow.ts"
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
 import { chatgptIssuer } from "./chatgpt-identity.ts"
 
 const credential = v.pipe(v.string(), v.minLength(1), v.maxLength(65_536))
@@ -35,6 +36,6 @@ export function registerChatGPTTransfers(runtime: ConnectionsRuntime, value: Tra
 /** Owner management only. No public Connection client exposes credential transfers. */
 export function chatgptTransfers(runtime: ConnectionsRuntime): TransferOperations {
   const value = operations.get(runtime)
-  if (!value) throw new Error("This Connections runtime does not support ChatGPT credential transfer.")
+  if (!value) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "chatgpt-runtime" })
   return value
 }

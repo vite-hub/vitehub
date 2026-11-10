@@ -293,6 +293,11 @@ async function runDrizzleKit(
     const foldersBefore = schemaSnapshot && migrationsDir ? await listMigrationFolders(migrationsDir) : []
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
     if (result !== 0) return result
+    if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && run.database.cloudflare) {
+      // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
+      const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
+      recordD1MigrationNames(migrationsDir)
+    }
     if (schemaSnapshot) {
       // `usesD1Http()` is false for every generate, but its type guard narrows `database` to undefined after it.
       if (!migrationsDir) {
