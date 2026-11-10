@@ -22,7 +22,7 @@ export function readonlyBlobStorage(storage: BlobStorage): ReadonlyBlobStorage {
     get: pathname => storage.get(pathname),
     head: pathname => storage.head(pathname),
     list: options => storage.list(options),
-    serve: (event, pathname, options) => storage.serve(event, pathname, options),
+    serve: (request, pathname, options) => storage.serve(request, pathname, options),
     async sign(pathname, options) {
       if (options.method !== "GET") {
         throw blobErrorDiagnostics.BLOB_R0037({ message: "A read-only Blob handle signs GET requests only. Use blob.store(name) for a PUT request." })
