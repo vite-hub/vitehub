@@ -312,7 +312,7 @@ describe("contributed Schedules on every host", () => {
     await (plugin.config as ConfigHook)({ plugins, root }, { command: "serve", mode: "development" })
     await resolvePlugin(plugin, root, plugins)
 
-    const load = plugin.load as (id: string) => string
+    const load = Reflect.get(Object(plugin.load), "handler") as (id: string) => string
     expect(load("\0#vitehub/schedule/registry")).toContain(`["content/publish"]: async () => import(${JSON.stringify(definition)})`)
     expect(load("\0#vitehub/schedule/targets")).toBeUndefined()
   })
