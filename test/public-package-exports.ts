@@ -254,6 +254,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./operations",
     "./runtime",
     "./vite",
+    "./vue",
     "./package.json",
   ],
   "@vite-hub/gateways": [
@@ -593,6 +594,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./forms/database",
     "./forms/operations",
     "./forms/runtime",
+    "./forms/vue",
     "./gateways",
     "./gateways/ai-sdk",
     "./i18n",
