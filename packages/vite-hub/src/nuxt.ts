@@ -1001,6 +1001,7 @@ type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
   getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
+    compatibility: { server: "nitro3" }
     configKey: "vitehub"
     name: "vite-hub/nuxt"
   }>
@@ -1850,6 +1851,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 }
 
 viteHubNuxtModule.getMeta = async () => ({
+  // Nuxt 5 then skips its Nitro 2 compatibility scan of this package, which parses every file that the
+  // module's server entries import.
+  compatibility: { server: "nitro3" },
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })
