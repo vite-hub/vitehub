@@ -683,6 +683,8 @@ For a store that one process owns, `createProcessAgentInvocations` from `vite-hu
 
 With a libSQL Agent state provider, a persistent Nitro server recovers each Agent journal when it resumes queued webhook deliveries, one second after start or on the first request that loads the Agent routes. It fails pending or running Invocations that started before the process, skips those that a queued delivery reruns under the same run ID, and skips Agents with a durable Workflow runtime. A failed recovery is logged, and the queue still resumes.
 
+Then it retries each interrupted inline Chat turn once. A turn is interrupted when it started before the process and no live run holds the journal claim of its Invocation. A run renews its claim every 10 seconds, and a claim expires 30 seconds after its last renewal. Thus, when several processes share one journal and one Agent state, a process that starts does not run again a turn that another process still runs. When the journal has no record for the turn, the start time is the only test.
+
 ## Next steps
 
 - [Observability](/docs/agents/observability) exports lifecycle events.

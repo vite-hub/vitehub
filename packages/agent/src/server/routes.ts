@@ -36,7 +36,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
+import { agentInvocationClaimState, agentInvocationId, bindAgentInvocations, isAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -6235,7 +6235,7 @@ async function resumeInterruptedChatInvocations(
     if (isRecord(current)) {
       for (const record of Object.values(current)) {
         if (!isRecord(record) || record.agentName !== agentName || record.channelId !== registration.channelId) continue
-        if (!isRuntimeString(record.startedAt) || !(Date.parse(record.startedAt) < recoveryBefore)) continue
+        if (!await isInterruptedChatRecord(agent.invocations, agentName, record, recoveryBefore)) continue
         records.push(record)
       }
     }
@@ -6278,6 +6278,22 @@ async function resumeInterruptedChatInvocations(
       })
     }))
   }
+}
+
+/**
+ * A chat record is interrupted when it started before this process and no live run holds the journal claim of its
+ * Invocation. Processes can share one journal and one State, so a record from before this process can belong to a
+ * live run in another process. Without a journal record, only the start time is known.
+ */
+async function isInterruptedChatRecord(
+  invocations: unknown,
+  agentName: string,
+  record: InterruptedChatRecord,
+  recoveryBefore: number,
+): Promise<boolean> {
+  if (!isRuntimeString(record.startedAt) || !(Date.parse(record.startedAt) < recoveryBefore)) return false
+  if (!isAgentInvocations(invocations) || !isRuntimeString(record.runId)) return true
+  return await agentInvocationClaimState(invocations, await agentInvocationId(record.runId, agentName)) !== "held"
 }
 
 async function handleChatSdkMessage(
