@@ -130,8 +130,11 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/mcp/runtime",
   "@vite-hub/runtime/shutdown",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
+  // It loads the libSQL driver only when the build can select SQLite or libSQL.
   "@vite-hub/agent/invocations/app",
   "@vite-hub/agent/invocations/default",
+  "@vite-hub/agent/invocations/default-core",
+  "@vite-hub/agent/invocations/default-libsql",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/blob/runtime/state",
@@ -268,11 +271,14 @@ describe("framework package contract", () => {
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
+    // Generated journal code imports the optional libSQL loader by path.
+    expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/internal/agent-invocations-libsql.ts`, "utf8")))
+      .toEqual(["@vite-hub/agent/invocations/default-libsql"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
-    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
+    expect(sourceForwarders).toEqual([...exportedForwarders, "src/internal/agent-invocations-libsql.ts", "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -761,9 +767,10 @@ describe("framework package contract", () => {
         throw new TypeError("Expected the Console config hook.");
       const config = { root };
 
+      // Open access is for development. A production build refuses it.
       await Reflect.apply(configHandler, plugin, [
         config,
-        { command: "build", mode: "production" },
+        { command: "serve", mode: "development" },
       ]);
 
       const nitro = Reflect.get(config, "nitro");
