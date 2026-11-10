@@ -141,6 +141,11 @@
       "import": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
     },
+    "./internal/runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
+    },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
