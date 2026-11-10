@@ -115,7 +115,7 @@ export async function loadDatabaseSchema(handler: string, options: DatabaseTable
   }
 
   if (!options.onFallback) throw failure
-  options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
+  options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub database generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
 }
@@ -176,7 +176,7 @@ export async function loadContributedDatabaseSchema(
   catch (error) {
     const failure = databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `Contributed Database tables ${source}` })
     if (!options.onFallback) throw failure
-    options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
+    options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub database generate\` requires the module to load.`)
     return { keys: [], loaded: false, sqlNames: new Map(), tableNames: [] }
   }
   const exportName = contribution.definition.export

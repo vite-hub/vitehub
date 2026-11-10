@@ -60,11 +60,6 @@
       "import": "./dist/google.js",
       "default": "./dist/google.js"
     },
-    "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.js",
-      "default": "./dist/http.js"
-    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",

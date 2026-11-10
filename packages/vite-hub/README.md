@@ -17,7 +17,7 @@ pnpm add vite-hub
 
 If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script.
 
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
+`vite-hub` includes Env, Source, Logs, and the Console routes. Every other feature, and the Console app, is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
@@ -27,6 +27,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
+| `console` | `@vite-hub/console-client` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
@@ -122,7 +123,7 @@ vitehub({
 
 See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
-Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub db` reports that Database is disabled. A directly composed `hubDatabase()` still provides Database.
+Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDatabase()` still provides Database.
 
 If an enabled capability is not supported by the preset, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
@@ -157,7 +158,7 @@ A task is a [Nitro task](https://nitro.build/docs/tasks) in `server/tasks/`. Use
 ```ts
 // server/tasks/db/seed.ts
 import { useDatabase } from "vite-hub/database/drizzle";
-import { defineTask } from "vite-hub/task";
+import { defineTask } from "nitro/task";
 
 export default defineTask({
   meta: { description: "Add one demo note" },
@@ -173,7 +174,7 @@ Start `vite dev`, then run the task from another terminal. The task runs in the 
 
 ```sh
 pnpm vitehub task list
-pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
+pnpm vitehub task run db:seed '{"title":"First note"}' --yes
 ```
 
 `vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.

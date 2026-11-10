@@ -284,8 +284,8 @@ export default defineAuth({
 ```
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 - `authDatabase()` uses the `default` Database. For a Named Database, pass its name, such as `authDatabase('content')`. Write the call inline in `defineAuth()`, in the object or the object the callback returns, so the Vite integration can read it.

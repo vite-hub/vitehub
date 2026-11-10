@@ -88,7 +88,15 @@ Each Console build has an id, which changes only when the Console catalog or cli
 
 ## Enable the Console
 
-Set `console` in the ViteHub options. `console.auth` chooses who can open it, and every environment must set it:
+The Console app is its own package, `@vite-hub/console-client`, so an app without the Console does not install it. Add it before you turn the Console on:
+
+```bash [commands/install-console]
+pnpm add @vite-hub/console-client
+```
+
+`vitehub add console` adds it for you. If it is missing, the build stops and prints the same install command.
+
+Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:
 
 | `auth` | Who can open the Console |
 | --- | --- |
@@ -97,7 +105,7 @@ Set `console` in the ViteHub options. `console.auth` chooses who can open it, an
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
-The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub db generate` and `vitehub db migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
+The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub database generate` and `vitehub database migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
 For local development, use `auth: false`:
 
@@ -159,7 +167,7 @@ export default defineConfig({
 :::
 ::
 
-A standalone Nitro 3 app adds Nitro after ViteHub. The Console and its UI ship inside `vite-hub`, so you install no other package.
+A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies are prebuilt inside `@vite-hub/console-client`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -1759,7 +1767,6 @@ The Console does not fill in missing provider data. Token counts, model metadata
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal, not a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
-| A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
 | `console: true` reports missing app Auth or Console access policy | Set `auth: true` and allow the Console routes in the app Auth Definition. Use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub says `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object: `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition, such as `server/auth.ts`. |
@@ -1806,7 +1813,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_MCP_KEY_INVALID` | `500` | Set `VITEHUB_CONSOLE_MCP_KEY` to 32 random bytes as base64 or hex, such as the output of `openssl rand -base64 32`. |
 | `CONSOLE_MCP_KV_REQUIRED` | `500` | Turn on the default KV store with `kv: true` or an explicit default KV configuration, then rebuild. |
 
-A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs`.
+A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0114`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs`.
 
 See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page instead of the full Console, use [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
 

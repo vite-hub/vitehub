@@ -144,7 +144,7 @@ import { ownerModules } from "../src/internal/owner-modules.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/console-client", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -814,7 +814,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
@@ -1049,7 +1049,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
 
@@ -1063,7 +1063,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
   })
@@ -1107,13 +1107,13 @@ describe("vitehub", () => {
     }))
   })
 
-  it("uses framework subpaths in generated Env modules", () => {
+  it("uses the Env owner runtime path in generated Env modules", () => {
     vitehub({ preset: "node" })
 
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       runtimeImports: {
-        secret: "vite-hub/env/secret",
-        server: "vite-hub/env/server",
+        secret: "vite-hub/env",
+        server: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       },
     })
 
@@ -1128,7 +1128,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       diagnostics: "trace",
       runtimeImports: {
-        secret: "vite-hub/env/secret",
+        secret: "vite-hub/env",
         server: "#app/env/server",
       },
     })
@@ -1212,10 +1212,10 @@ describe("vitehub", () => {
     )).toMatch(/\/auth\/dist\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
-      "@vite-hub/env/server",
+      "@vite-hub/env/internal/server",
       "\0#vitehub/env/server",
       pluginResolveOptions,
-    )).toMatch(/\/env\/dist\/server\.js$/)
+    )).toMatch(/\/env\/dist\/internal\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
       "@vite-hub/schedule/runtime",
@@ -1986,13 +1986,13 @@ describe("vitehub", () => {
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
     expect(() => callHook(deployment.resolveId, [fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts"])).toThrow("cannot provide blob")
-    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/content-type", "/app/server/api.ts"])).not.toThrow()
+    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/client", "/app/server/api.ts"])).not.toThrow()
 
     const dependency = dependencyPlugin({ preset: "deno" })
     // SAFETY: dependencyPlugin returns the concrete plugin whose config hook supplies this alias shape.
     const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
     expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
-    expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
+    expect(config.resolve.alias["vite-hub/blob/client"]).toEqual(expect.any(String))
     expect(() => callHook(dependency.resolveId, ["@vite-hub/blob", "/app/.vitehub/agents.mjs"])).toThrow("Blob is unavailable")
   })
 

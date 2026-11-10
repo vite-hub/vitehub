@@ -431,7 +431,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
   const outboxRuntimeId = randomUUID()
   let command: "build" | "serve" | undefined
   const runtimeEnvImport = internalOptions.runtimeEnvImport
-    ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
+    ?? resolvePackageImport("@vite-hub/env/internal/server")
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare-email"

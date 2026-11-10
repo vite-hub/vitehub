@@ -116,7 +116,7 @@ describe("Database Definitions in Nuxt layers", () => {
       },
       options: { ...app.options, dev: true },
     })
-    // The Vite integration owns generated types and `vitehub db` commands, so it must scan the same layers.
+    // The Vite integration owns generated types and `vitehub database` commands, so it must scan the same layers.
     expect(getResolvedFeatureOptions(app.options.vite, "database")).toMatchObject({ nuxtServerDirs: app.serverDirs, projectRoot: app.appDir })
 
     const nitroConfig: Record<string, unknown> = {}
