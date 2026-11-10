@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, watch, watchEffect } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
 import { accountAppStatusLabels, checkConsoleAccountProject } from "../client/account";
-import { forgetConsoleProject, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountProjectPath, forgetConsoleProject, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
@@ -39,6 +39,7 @@ const currentApp = computed(() => page.value === "app" ? projects.current.value?
 const title = computed(() => {
   if (page.value === "team") return "Members";
   if (page.value === "settings") return "Account settings";
+  if (gate.value.kind === "setup") return `Connect ${appName(gate.value.project)}`;
   if (page.value === "app") return projects.current.value ? appName(projects.current.value) : "App";
   return "Home";
 });
@@ -51,26 +52,34 @@ function pagePath(target: ConsoleAccountPage): string {
   return `${projects.home.replace(/\/+$/, "")}/${target}`;
 }
 
-/**
- * A plain click changes the page in place. A click with a modifier key opens the link as the browser does. After the
- * change, the drawer of a small screen closes and focus moves to the page title, as a page load would.
- */
-function follow(event: MouseEvent, action: () => void): void {
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+/** A plain click changes the page in place. A click with a modifier key opens the link as the browser does. */
+function follow(event: MouseEvent, action: () => void): boolean {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return false;
   event.preventDefault();
   action();
-  // A closing drawer returns focus to its trigger, so the title takes focus after the drawer has closed.
+  return true;
+}
+
+
+// After a page change in place, from the sidebar, a menu, or a button on the page, the drawer of a small screen closes
+// and focus moves to the page title, as a page load would. A closing drawer returns focus to its trigger, so the title
+// takes focus after the drawer has closed.
+watch(() => [page.value, title.value], () => {
   const drawer = navOpen.value;
   navOpen.value = false;
   void nextTick(() => setTimeout(() => document.getElementById("vitehub-account-title")?.focus(), drawer ? 350 : 0));
-}
+});
+
+watchEffect(() => {
+  document.title = page.value === "settings" ? `${title.value} · ViteHub Console` : `${title.value} · ${team.value?.name ?? "Team"} · ViteHub Console`;
+});
 
 onMounted(() => {
   // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
   for (const app of apps.value) {
     status[app.id] = "checking";
     void checkConsoleAccountProject(app.id).then(
-      (result) => { status[app.id] = result.linked ? "connected" : result.status === 401 || result.status === 500 ? "setup" : "unreachable"; },
+      (result) => { status[app.id] = result.status; },
       () => { status[app.id] = "unreachable"; },
     );
   }
@@ -125,7 +134,7 @@ async function retry(): Promise<void> {
         <a
           v-for="app in apps"
           :key="app.id"
-          :href="projects.home"
+          :href="accountProjectPath(app.id)"
           class="vitehub-console__section-link"
           :aria-current="app.id === currentApp ? 'page' : undefined"
           @click="follow($event, () => openAccountProject(app.id))"
@@ -160,8 +169,10 @@ async function retry(): Promise<void> {
         <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :toggle="{ 'aria-label': 'Open navigation' }">
           <template #title>
             <span class="flex min-w-0 items-center gap-2 text-sm">
-              <span class="hidden truncate text-muted sm:inline">{{ team?.name ?? "Team" }}</span>
-              <span class="hidden text-muted sm:inline" aria-hidden="true">/</span>
+              <template v-if="page !== 'settings'">
+                <span class="hidden truncate text-muted sm:inline">{{ team?.name ?? "Team" }}</span>
+                <span class="hidden text-muted sm:inline" aria-hidden="true">/</span>
+              </template>
               <h1 id="vitehub-account-title" tabindex="-1" class="truncate font-semibold text-highlighted outline-none">{{ title }}</h1>
             </span>
           </template>
@@ -250,13 +261,23 @@ async function retry(): Promise<void> {
 
 /* Touch screens get 44px rows and 16px fields, so taps land and iOS does not zoom into a field. */
 @media (pointer: coarse) {
-  body:has(.vitehub-account-shell) [role="menuitem"],
-  body:has(.vitehub-account-shell) [role="menuitemcheckbox"] {
+  /* Menus, dialogs, and the drawer of a small screen render under body, outside the shell. */
+  body:has(.vitehub-account-shell) :is([role="menuitem"], [role="menuitemcheckbox"], [role="option"]),
+  body:has(.vitehub-account-shell) [role="dialog"] :is(a, button, input, select, .vitehub-console__section-link, .vitehub-account-menu__trigger) {
     min-height: 2.75rem;
+  }
+
+  body:has(.vitehub-account-shell) [role="dialog"] button {
+    min-width: 2.75rem;
+  }
+
+  body:has(.vitehub-account-shell) [role="dialog"] :is(input, textarea) {
+    font-size: 1rem;
   }
 
   .vitehub-account-shell :is(input, select, textarea) {
     font-size: 1rem;
+    min-height: 2.75rem;
   }
 
   .vitehub-account-shell :is(.vitehub-console__section-link, .vitehub-account-menu__trigger, button) {

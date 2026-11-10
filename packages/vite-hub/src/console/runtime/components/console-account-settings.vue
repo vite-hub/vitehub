@@ -17,13 +17,14 @@ const providers = shallowRef<string[]>();
 const githubAvailable = ref(false);
 const busy = ref<string>();
 const loadProblem = ref(false);
+const removing = ref<ConsolePasskey>();
 // The supported check is synchronous, so the passkey button never flashes.
 const passkeySupport = typeof window.PublicKeyCredential === "function";
 
 const github = computed(() => providers.value?.includes("github") ?? false);
 // The Console keeps one way to sign in. The last passkey of an account without GitHub has no Remove button.
 const methodCount = computed(() => (passkeys.value?.length ?? 0) + (github.value ? 1 : 0));
-const dateFormat = new Intl.DateTimeFormat("en", { day: "numeric", month: "short", year: "numeric" });
+const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
 /** Loads the sign-in methods. A failed load keeps the rows that the page shows, and says so. */
 async function load(): Promise<void> {
@@ -54,6 +55,13 @@ async function run(id: string, action: () => Promise<void>, done?: string): Prom
     if (!(error instanceof DOMException && error.name === "NotAllowedError")) toast.show({ title: error instanceof Error ? error.message : "Try again." });
   }
   busy.value = undefined;
+}
+
+async function removePasskey(): Promise<void> {
+  const passkey = removing.value;
+  if (!passkey) return;
+  await run(passkey.id, () => deleteConsolePasskey(passkey.id), "Passkey removed");
+  removing.value = undefined;
 }
 
 async function save(): Promise<void> {
@@ -114,10 +122,24 @@ function added(value: string | undefined): string {
             <span class="text-xs text-muted">{{ added(passkey.createdAt) }}{{ methodCount === 1 ? " · Only sign-in method" : "" }}</span>
           </span>
           <UTooltip v-if="methodCount > 1" text="Remove passkey">
-            <UButton icon="i-lucide-trash-2" size="xs" color="neutral" variant="ghost" :aria-label="`Remove the passkey ${added(passkey.createdAt).toLowerCase()}`" :loading="busy === passkey.id" @click="run(passkey.id, () => deleteConsolePasskey(passkey.id), 'Passkey removed')" />
+            <UButton icon="i-lucide-trash-2" size="xs" color="neutral" variant="ghost" :aria-label="`Remove the passkey ${added(passkey.createdAt).toLowerCase()}`" :loading="busy === passkey.id" @click="removing = passkey" />
           </UTooltip>
         </li>
       </ul>
+      <UModal
+        :open="removing !== undefined"
+        title="Remove this passkey?"
+        description="You can no longer sign in with it."
+        :ui="{ content: 'sm:max-w-[440px]' }"
+        @update:open="(value: boolean) => { if (!value) removing = undefined; }"
+      >
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="ghost" label="Cancel" @click="removing = undefined" />
+            <UButton color="error" label="Remove passkey" :loading="busy === removing?.id" @click="removePasskey" />
+          </div>
+        </template>
+      </UModal>
       <div v-if="loadProblem" role="alert" class="flex items-center gap-2 text-[13px] text-error">
         The sign-in methods did not load.
         <UButton size="xs" color="neutral" variant="ghost" label="Retry" @click="load" />

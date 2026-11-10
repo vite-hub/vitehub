@@ -126,7 +126,7 @@ async function rename(): Promise<void> {
           <USelect v-model="role" :items="[{ label: 'Member', value: 'member' }, { label: 'Admin', value: 'admin' }]" aria-label="Role" class="w-28" />
           <UButton type="submit" icon="i-lucide-user-plus" label="Create invite link" class="justify-center max-sm:flex-1" :loading="inviting" />
         </div>
-        <p v-if="inviteProblem" role="alert" class="text-[13px] text-error">{{ inviteProblem }}</p>
+        <p v-if="inviteProblem" id="vitehub-team-invite-help" role="alert" class="text-[13px] text-error">{{ inviteProblem }}</p>
         <p v-else id="vitehub-team-invite-help" class="text-xs text-muted">Use their GitHub email. Copy and send the link yourself.</p>
       </form>
     </section>

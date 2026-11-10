@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import { accountAppStatusLabels, canManageConsoleProjects, loadConsoleTeam } from "../client/account";
-import { linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountProjectPath, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 
@@ -29,7 +29,8 @@ const problem = ref<string>();
 const linked = computed(() => apps.value.length > 0);
 const connected = computed(() => apps.value.some(app => props.status[app.id] === "connected"));
 const checking = computed(() => apps.value.some(app => props.status[app.id] === "checking"));
-const setupApp = computed(() => apps.value.find(app => props.status[app.id] === "setup"));
+// The app that step 3 opens: one that is not connected and not still being checked.
+const setupApp = computed(() => apps.value.find(app => props.status[app.id] === "setup" || props.status[app.id] === "unreachable"));
 // The required steps. Inviting people is optional, so it is not a step and does not count.
 const steps = computed(() => [
   { id: "account", done: true },
@@ -38,10 +39,37 @@ const steps = computed(() => [
 ] as const);
 const doneCount = computed(() => steps.value.filter(step => step.done).length);
 const active = computed(() => steps.value.find(step => !step.done)?.id);
-const setupDone = computed(() => linked.value && connected.value);
-const showSteps = ref(false);
+// After setup, Home is the app list. Links and invitations have their own places: the Apps header and Members.
+// This browser remembers that the team finished setup, so a returning visit shows the list while the checks run, and
+// an app that stops answering shows its status there instead of the first-time steps.
+const doneKey = computed(() => `vitehub-console:setup-done:${account.value?.teamId ?? ""}`);
+const finished = ref(readFinished());
+const setupDone = computed(() => linked.value && (connected.value || finished.value));
 
-watch(setupDone, (done) => { if (!done) showSteps.value = false; });
+function readFinished(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(doneKey.value) === "1";
+  }
+  catch {
+    return false;
+  }
+}
+
+watch(connected, (value) => {
+  if (!value) return;
+  finished.value = true;
+  try {
+    globalThis.localStorage?.setItem(doneKey.value, "1");
+  }
+  catch {}
+}, { immediate: true });
+
+/** A plain click opens the app in place. A click with a modifier key opens its address as the browser does. */
+function openApp(event: MouseEvent, id: string): void {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+  event.preventDefault();
+  openAccountProject(id);
+}
 
 onMounted(async () => {
   const details = await loadConsoleTeam().catch(() => undefined);
@@ -77,17 +105,20 @@ async function link(): Promise<void> {
         <h2 class="text-xl font-semibold text-balance text-highlighted">{{ firstName ? `Welcome, ${firstName}` : "Welcome" }}</h2>
         <span class="shrink-0 text-xs tabular-nums text-muted">{{ doneCount }} of {{ steps.length }} done</span>
       </div>
-      <p class="text-sm text-pretty text-muted">{{ teamName }} is ready. Link an app to open its Console here, for everyone in the team, in any browser.</p>
+      <p class="text-sm text-pretty text-muted">
+        <template v-if="linked">One step left. When the app accepts its token, its Console opens here for everyone in {{ teamName }}.</template>
+        <template v-else>{{ teamName }} is ready. Link an app to open its Console here, for everyone in the team, in any browser.</template>
+      </p>
     </header>
 
-    <section v-if="apps.length" class="grid gap-3" aria-labelledby="vitehub-home-apps">
+    <section v-if="setupDone" class="grid gap-3" aria-labelledby="vitehub-home-apps">
       <div class="flex items-center justify-between gap-2">
         <h2 id="vitehub-home-apps" class="text-sm font-semibold text-highlighted">Apps</h2>
         <UButton v-if="manage" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Link an app" @click="projects.linkOpen.value = true" />
       </div>
       <ul class="vitehub-account-list">
         <li v-for="app in apps" :key="app.id">
-          <button type="button" class="vitehub-account-list__row" @click="openAccountProject(app.id)">
+          <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" @click="openApp($event, app.id)">
             <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
             <span class="grid min-w-0 flex-1 text-start">
               <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
@@ -95,20 +126,12 @@ async function link(): Promise<void> {
             </span>
             <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
             <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
-          </button>
+          </a>
         </li>
       </ul>
     </section>
 
-    <div v-if="setupDone && !showSteps" class="flex items-center justify-between gap-3 border-t border-default pt-4">
-      <p class="flex items-center gap-2 text-sm text-muted">
-        <UIcon name="i-lucide-circle-check" class="vitehub-account-icon text-success" aria-hidden="true" />
-        Setup done.
-      </p>
-      <UButton size="sm" color="neutral" variant="ghost" label="Show steps" @click="showSteps = true" />
-    </div>
-
-    <section v-if="!setupDone || showSteps" aria-label="Setup steps">
+    <section v-if="!setupDone" aria-label="Setup steps">
       <ol class="vitehub-account-steps">
         <li class="vitehub-account-step" data-done>
           <div class="vitehub-account-step__track" aria-hidden="true">
@@ -135,10 +158,10 @@ async function link(): Promise<void> {
               <ConsoleAccountSnippet class="vitehub-account-step__wide" />
               <form class="vitehub-account-step__wide grid gap-1.5" @submit.prevent="link">
                 <div class="flex flex-wrap gap-2">
-                  <UInput v-model="url" type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" aria-label="App URL" required class="min-w-0 flex-1 basis-56" />
+                  <UInput v-model="url" type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" aria-label="App URL" required :aria-invalid="problem ? true : undefined" :aria-describedby="problem ? 'vitehub-home-link-problem' : undefined" class="min-w-0 flex-1 basis-56" />
                   <UButton type="submit" icon="i-lucide-link" label="Link app" class="justify-center max-sm:w-full" :loading="busy" />
                 </div>
-                <p v-if="problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
+                <p v-if="problem" id="vitehub-home-link-problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
               </form>
             </template>
           </div>
@@ -154,7 +177,7 @@ async function link(): Promise<void> {
               <template v-if="active === 'connect' && checking">Checking the app…</template>
               <template v-else>Set one environment variable on the app, then redeploy.</template>
             </p>
-            <UButton v-if="active === 'connect' && setupApp" class="justify-self-start" icon="i-lucide-key-round" :label="`Show the variable for ${name(setupApp)}`" @click="openAccountProject(setupApp.id)" />
+            <UButton v-if="active === 'connect' && setupApp" class="justify-self-start" icon="i-lucide-key-round" :label="status[setupApp.id] === 'setup' ? `Show the variable for ${name(setupApp)}` : `Open ${name(setupApp)}`" @click="openAccountProject(setupApp.id)" />
           </div>
         </li>
 
@@ -302,7 +325,7 @@ async function link(): Promise<void> {
   width: 100%;
 }
 
-button.vitehub-account-list__row:hover {
+a.vitehub-account-list__row:hover {
   background: var(--ui-bg-elevated);
 }
 

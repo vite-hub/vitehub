@@ -267,9 +267,22 @@ export const accountAppStatusLabels: Record<ConsoleAccountAppStatus, string> = {
   unreachable: "Not reachable",
 }
 
+/** What a check of a linked app found. `variable` means the app refuses the token, so its variable is missing or old. */
+export interface ConsoleAccountCheck {
+  status: ConsoleAccountAppStatus
+  /** The HTTP status of the app's answer. */
+  code: number
+}
+
+// The codes of an app that has no hash for the token, or another hash.
+const variableProblems = new Set(["CONSOLE_TOKEN_NOT_CONFIGURED", "CONSOLE_TOKEN_INVALID"])
+
 /** Whether the app keeps the hash of its token: the Console server calls the app with the token. */
-export async function checkConsoleAccountProject(id: string): Promise<{ linked: boolean, status: number }> {
-  return json<{ linked: boolean, status: number }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
+export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
+  const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
+  if (result.linked) return { status: "connected", code: result.status }
+  const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
+  return { status: variableProblems.has(String(answerCode)) ? "setup" : "unreachable", code: result.status }
 }
 
 /** Link an app to the active team. The answer names the variable and the hash to set on the app. */

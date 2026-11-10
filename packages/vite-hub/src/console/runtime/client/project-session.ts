@@ -796,13 +796,16 @@ function rememberedAccountProject(teamId: string | undefined): string | undefine
  * Start an `account` Console: read the session, then the projects of the active team from the Console server. Without
  * a session, or on an `/invite/<id>` page, the gate shows the sign-in page.
  */
-export async function startConsoleAccount(options: { home: string, navigate: (url: string) => void, pageOrigin: string, pathname: string, showPath: (path: string) => void }): Promise<void> {
+export async function startConsoleAccount(options: { home: string, navigate: (url: string) => void, pageOrigin: string, pathname: string, search?: string, showPath: (path: string) => void }): Promise<void> {
   showAccountPath = options.showPath
   // Only an `account` Console loads the Better Auth client.
   const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
   const account = await loadConsoleAccount().catch(() => undefined)
   const storage = memoryProjectStorage()
   if (account) {
+    // A link to one app, `/?app=<id>`, opens that app. Other links open the app that this browser used last.
+    const requested = new URLSearchParams(options.search ?? "").get("app") ?? undefined
+    if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
     const remembered = rememberedAccountProject(account.teamId)
     const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
     storage.setItem(consoleProjectsStorageKey, JSON.stringify({
@@ -834,6 +837,11 @@ export function showConsoleAccountPage(page: ConsoleAccountPage): void {
   }
   showAccountPath?.(path)
   projects.gate.value = { kind: "home", page }
+}
+
+/** The address of one app of the team, which opens that app in any tab. */
+export function accountProjectPath(id: string): string {
+  return `${useState().home}?app=${encodeURIComponent(id)}`
 }
 
 /** Open a project of the team from a page outside the projects. The Console loads again at its home path. */

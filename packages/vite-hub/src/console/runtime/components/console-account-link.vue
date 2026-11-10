@@ -37,7 +37,7 @@ async function link(): Promise<void> {
 </script>
 
 <template>
-  <UModal v-model:open="open" title="Link an app" description="Add this config to a deployed ViteHub app, then enter its URL." :ui="{ content: 'sm:max-w-[440px]' }">
+  <UModal v-model:open="open" title="Link an app" description="Enable Console access, deploy your app, then enter its URL." :ui="{ content: 'sm:max-w-[440px]' }">
     <template #body>
       <form id="vitehub-account-link" class="grid gap-4" @submit.prevent="link">
         <ConsoleAccountSnippet />

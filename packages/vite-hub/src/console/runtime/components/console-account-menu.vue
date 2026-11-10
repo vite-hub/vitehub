@@ -62,19 +62,20 @@ const teamItems = computed<DropdownMenuItem[]>(() => [
       if (item.id !== account.value?.teamId) void switchConsoleTeam(item.id).then(reloadConsoleAccount, error => toast.show({ title: error instanceof Error ? error.message : "Try again." }));
     },
   })),
-  { icon: "i-lucide-plus", label: "New team", onSelect: () => { creating.value = true; } },
+  { icon: "i-lucide-plus", label: "Create team", onSelect: () => { creating.value = true; } },
 ]);
 const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsoleAccount().then(reloadConsoleAccount) }];
 
 const items = computed<DropdownMenuItem[][]>(() => {
   if (!account.value) return [appearanceItems.value];
   if (props.variant === "team") return [teamItems.value];
-  if (props.variant === "user") return [emailItems.value, [{ icon: "i-lucide-settings", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") }, ...appearanceItems.value], signOutItems].filter(group => group.length);
+  // Account settings sits in the sidebar footer, right above this menu.
+  if (props.variant === "user") return [emailItems.value, appearanceItems.value, signOutItems].filter(group => group.length);
   return [
     identityItems.value,
     teamItems.value,
     [
-      { icon: "i-lucide-house", label: "Console home", onSelect: () => showConsoleAccountPage("home") },
+      { icon: "i-lucide-house", label: "Home", onSelect: () => showConsoleAccountPage("home") },
       { icon: "i-lucide-users", label: "Members", onSelect: () => showConsoleAccountPage("team") },
       { icon: "i-lucide-settings", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") },
       ...appearanceItems.value,
@@ -100,7 +101,7 @@ async function create(): Promise<void> {
 
 <template>
   <UDropdownMenu v-if="variant === 'team'" size="sm" :items="items" :content="{ align: 'start' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
-    <button type="button" class="vitehub-account-menu__trigger">
+    <button type="button" class="vitehub-account-menu__trigger" :aria-label="`Team: ${team?.name ?? 'none'}. Switch team`">
       <span class="vitehub-account-menu__team-mark" aria-hidden="true">{{ (team?.name ?? "T").slice(0, 1).toUpperCase() }}</span>
       <span class="min-w-0 flex-1 truncate text-start">{{ team?.name ?? "Team" }}</span>
       <UIcon name="i-lucide-chevrons-up-down" class="size-3.5 shrink-0 text-muted" aria-hidden="true" />

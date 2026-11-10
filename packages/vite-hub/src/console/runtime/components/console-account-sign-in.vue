@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleSignInMethods } from "../client/account";
 import { acceptConsoleInvitation, loadConsoleSignInMethods, signInWithGitHub, signInWithPasskey, signUpWithPasskey } from "../client/account";
@@ -44,6 +44,14 @@ async function run(kind: NonNullable<typeof busy.value>, action: () => Promise<v
   }
 }
 
+// "Back" removes the form, so focus returns to the link that opened it.
+const createLink = ref<HTMLButtonElement>();
+
+function back(): void {
+  creating.value = false;
+  void nextTick(() => createLink.value?.focus());
+}
+
 function create(): void {
   void run("create", () => signUpWithPasskey(name.value));
 }
@@ -65,7 +73,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
 
   <template v-else>
     <div class="grid gap-1.5">
-      <h1 class="text-xl/7 font-semibold text-balance text-highlighted">{{ invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
+      <h1 class="text-xl/7 font-semibold text-balance text-highlighted">{{ creating ? "Create your account" : invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
       <p class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
     </div>
 
@@ -92,7 +100,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
       />
       <p v-if="passkeys" class="mt-2 text-sm text-muted">
         New to ViteHub?
-        <button type="button" class="vitehub-account-sign-in__create" @click="creating = true">Create an account with a passkey</button>
+        <button ref="createLink" type="button" class="vitehub-account-sign-in__create" @click="creating = true">Create an account with a passkey</button>
       </p>
       <p v-if="!passkeys && !methods?.github" class="vitehub-project-gate__text">This browser has no passkeys. Use a current browser to sign in.</p>
     </div>
@@ -103,12 +111,13 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
       </UFormField>
       <div class="flex flex-wrap gap-2">
         <UButton type="submit" icon="i-lucide-key-round" label="Create passkey" class="h-10" :loading="busy === 'create'" />
-        <UButton color="neutral" variant="ghost" label="Back" @click="creating = false" />
+        <UButton color="neutral" variant="ghost" label="Back" @click="back" />
       </div>
     </form>
-
-    <p v-if="problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
   </template>
+
+  <!-- Both branches report here, so a failed invitation also says why. -->
+  <p v-if="problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
 </template>
 
 <style>

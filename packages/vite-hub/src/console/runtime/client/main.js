@@ -50,9 +50,11 @@ const hostBase = hosted || account ? "" : consoleMountBase(window.location.pathn
 const consoleBase = hosted || account ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
 if (account) {
-  await startConsoleAccount({ home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, showPath: (path) => {
+  await startConsoleAccount({ home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, showPath: (path) => {
     if (window.location.pathname !== path) window.history.pushState(null, "", path);
   } });
+  // The app of a `?app=<id>` link is open now, so the address goes back to the home path before the router reads it.
+  if (new URLSearchParams(window.location.search).has("app")) window.history.replaceState(null, "", consoleBase);
   // Back and Forward between the account pages, such as from `/team` to `/start`, load that page. In an open project,
   // the router handles them.
   window.addEventListener("popstate", () => {
