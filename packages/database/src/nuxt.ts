@@ -551,6 +551,7 @@ async function installNitroLocalDatabaseRuntime(
       `const definitionDefaults = ${definitionDefaults}`,
       ...schemas,
     ],
+    useDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "use-database.js")).href,
   }))
   ensureRecord(config, "alias")[databaseDrizzleImport] = file
   return runtime

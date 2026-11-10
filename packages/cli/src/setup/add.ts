@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
-import { consoleFeaturePackages, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
@@ -150,15 +150,6 @@ export function isRecord(value: JsonValue | undefined): value is { readonly [key
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
-/** Additional Console owners selected by its access policy and enabled features. */
-export function setupConsolePackages(value: JsonValue | undefined, enabled: ReadonlySet<FeatureId>): string[] {
-  const packages: string[] = []
-  if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
-  const auth = isRecord(value) ? value.auth : "app"
-  if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
-  return packages
-}
-
 /** Reads the arguments. Throws `CLI_R0003` for an unknown flag, feature, or option. */
 export function readAddArgs(args: readonly string[]): SetupAddArgs {
   const parsed: SetupAddArgs = { dryRun: false, features: [], help: false, install: true, json: false, options: {}, yes: false }
@@ -261,7 +252,7 @@ export function toSource(value: JsonValue): string {
   return JSON.stringify(value)
 }
 
-/** A unified diff of `path`. An empty `before` is a new file, and an empty `after` is a deleted file. */
+/** A unified diff of `path`. Empty `before` creates a file; empty `after` deletes it. */
 export function setupDiff(path: string, before: string, after: string): string {
   return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", after ? `b/${path}` : "/dev/null", before, after, undefined, undefined, { context: 3 })
     .replace(/^=+\n/u, "")
@@ -507,9 +498,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
-  const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
-  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id)))
-  if (enabled.has("console")) packages.push(...setupConsolePackages(valueFor("console"), enabled))
+  const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures, ...(enabled.has("console") ? ["console" as const] : [])])]
+  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), [...enabled]))
   const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),

@@ -10,7 +10,7 @@ import { diagnostics } from "../diagnostics.ts"
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
 /** True when the project `package.json` lists `name` in any dependency field. */
-function dependsOn(ctx: RuleContext, name: string): boolean {
+export function dependsOn(ctx: RuleContext, name: string): boolean {
   const manifest: unknown = ctx.getJson("package.json")
   if (!manifest || typeof manifest !== "object") return false
   return dependencyFields.some((field) => {
@@ -258,33 +258,6 @@ export const sandboxRuntimeOptions: DoctorRule = createRule({
 })
 
 
-export const defineAgentFromViteHub: DoctorRule = createRule({
-  meta: {
-    id: "vitehub/define-agent-from-vite-hub",
-    title: "Import defineAgent from vite-hub/agent",
-    category: "correctness",
-    severity: "warn",
-    requires: { script: true },
-  },
-  create(ctx) {
-    if (!dependsOn(ctx, "vite-hub")) return
-    return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "ImportDeclaration") || node.importKind === "type") return
-        if (!isNode(node.source) || node.source.value !== "@vite-hub/agent") return
-        const imports = (Array.isArray(node.specifiers) ? node.specifiers : []).some(specifier =>
-          isNode(specifier) && specifier.importKind !== "type" && isIdentifier(specifier.imported, "defineAgent"))
-        if (!imports) return
-        ctx.report(diagnostics.VHUB0028({
-          why: "This app uses `vite-hub`, but imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so Invocations of this Agent are not recorded. A string `invocations` setting such as `\"database\"` also fails when the module loads.",
-          fix: "Import `defineAgent` from `vite-hub/agent`.",
-        }), { range: ctx.range(node) })
-      },
-    }
-  },
-})
-
-
 export const rateLimitCapabilityLimiter: DoctorRule = createRule({
   meta: {
     id: "vitehub/rate-limit-capability-limiter",
@@ -306,7 +279,7 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
           why: inline.length
             ? `\`rateLimit()\` no longer accepts the inline \`${inline.join("`, `")}\` options. Without \`limiter\`, the Capability throws \`AGENT_R0162\` on the first Invocation.`
             : "`rateLimit()` needs a `limiter`. Without it, the Capability throws `AGENT_R0162` on the first Invocation.",
-          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `@vite-hub/rate-limit` and `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory`.",
+          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `vite-hub/rate-limit` and `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory`.",
         }), { range: ctx.range(node) })
       },
     }
@@ -723,7 +696,6 @@ export const rules: DoctorRule[] = [
   realtimePersistence,
   forgeErrorImports,
   sandboxRuntimeOptions,
-  defineAgentFromViteHub,
   rateLimitCapabilityLimiter,
   noViteHubPluginInNuxt,
   validViteHubOptions,

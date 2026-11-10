@@ -25,6 +25,8 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_C0015: dynamicError,
     WORKFLOW_C0016: dynamicError,
     WORKFLOW_C0017: dynamicError,
+    WORKFLOW_C0018: dynamicError,
+    WORKFLOW_C0019: dynamicError,
     WORKFLOW_R0001: dynamicError,
     WORKFLOW_R0002: dynamicError,
     WORKFLOW_R0003: dynamicError,
@@ -67,6 +69,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0037: {
       why: "OpenWorkflow sets up its Postgres schema on a second connection while this server holds the setup lock on the first. The database gave no second connection in 10 seconds, so the setup did not start. A pool with one connection, or a pool that other traffic fills, does this. The server tries again later.",
       fix: "Raise the pool size to 2 or more. Or set up the schema once through a direct connection, then set `workflow.postgres.runMigrations: false`.",
+    },
+    WORKFLOW_R0038: {
+      why: "DATABASE_URL contains a Postgres URL, but OpenWorkflow no longer selects storage from DATABASE_URL alone. Falling back to a local SQLite file would leave existing Postgres runs behind and stop sharing runs between servers.",
+      fix: "Set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url` to the same Postgres URL, or add a Postgres Default Database. To choose local storage intentionally, set `workflow.sqlite.path` or OPENWORKFLOW_SQLITE_PATH.",
     },
     WORKFLOW_B0001: dynamicError,
     WORKFLOW_B0002: {

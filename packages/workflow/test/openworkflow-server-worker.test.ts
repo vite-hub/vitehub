@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { installOpenWorkflow } from "../src/runtime/openworkflow-worker.ts"
+import { createWorkflowDevPluginModule } from "../src/internal/dev-registry.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 import type { ResolvedWorkflowOptions } from "../src/types.ts"
@@ -94,6 +95,47 @@ afterEach(async () => {
 })
 
 describe("installOpenWorkflow", () => {
+  it.each([undefined, "@vite-hub/database/drizzle"])("leaves storage untouched when the generated startup plugin has no discovered Workflows: %s", async (databaseImport) => {
+    const app = createApp()
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const databaseUrl = vi.fn(() => { throw new Error("No Postgres connection URL") })
+    // Execute the generated startup plugin against the real worker installer and an empty registry.
+    const code = createWorkflowDevPluginModule({ provider: "openworkflow" }, false, databaseImport)
+      .replace(/^import .+$/gm, "").replace("export default ", "return ")
+    const startup = new Function("definePlugin", "setWorkflowRuntimeConfig", "setWorkflowRuntimeRegistry", "registry", "installOpenWorkflow", "getPostgresConnectionUrl", code)(
+      (setup: unknown) => setup, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, {}, installOpenWorkflow, databaseUrl,
+    )
+    await startup(app)
+    await flush()
+    expect(databaseUrl).not.toHaveBeenCalled()
+    expect(fake.state.workers).toHaveLength(0)
+    expect(fake.state.backendStops).toBe(0)
+    expect(app.captureError).not.toHaveBeenCalled()
+    expect(consoleWarn).not.toHaveBeenCalled()
+    await app.close()
+    consoleWarn.mockRestore()
+  })
+
+  it("drains the dev worker when the last discovered Workflow is removed", async () => {
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
+    const app = createApp()
+    await expect(installOpenWorkflow(app)).resolves.toBe(true)
+    const [worker] = fake.state.workers
+    let finish!: () => void
+    worker!.stop.mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+
+    setWorkflowRuntimeRegistry({})
+    await expect(installOpenWorkflow(app)).resolves.toBe(false)
+    expect(worker!.stop).toHaveBeenCalledOnce()
+    expect(fake.state.workers).toHaveLength(1)
+    expect(fake.state.backendStops).toBe(0)
+    finish()
+    await flush()
+    expect(fake.state.backendStops).toBe(1)
+    await app.close()
+  })
+
   it("starts a worker with the registry definitions and stops it when Nitro closes", async () => {
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
@@ -145,7 +187,7 @@ describe("installOpenWorkflow", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     for (const workflow of [{ provider: "openworkflow", worker: false }, config] satisfies ResolvedWorkflowOptions[]) {
       setWorkflowRuntimeConfig(workflow)
-      setWorkflowRuntimeRegistry({})
+      setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
       const app = createApp()
       await installOpenWorkflow(app)
       await app.close()
@@ -160,7 +202,7 @@ describe("installOpenWorkflow", () => {
   it("does not start a worker with worker: false or another provider", async () => {
     for (const workflow of [{ ...config, worker: false }, { provider: "vercel" }] satisfies ResolvedWorkflowOptions[]) {
       setWorkflowRuntimeConfig(workflow)
-      setWorkflowRuntimeRegistry({})
+      setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
       await expect(installOpenWorkflow(createApp())).resolves.toBe(false)
     }
     expect(fake.state.workers).toHaveLength(0)
@@ -169,7 +211,7 @@ describe("installOpenWorkflow", () => {
   it("tries again until the setup and the worker start work, and reports each failure", async () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({})
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     // Postgres is down for a while, then a worker fails to start once.
     fake.state.connectErrors = Array.from({ length: 8 }, () => new Error("connection refused"))
     fake.state.startErrors = [new Error("start failed")]
@@ -194,10 +236,10 @@ describe("installOpenWorkflow", () => {
     consoleWarn.mockRestore()
   })
 
-  it("stops trying when only a configuration change can fix the setup", async () => {
+  it.each(["WORKFLOW_R0036", "WORKFLOW_R0038"])("stops trying when only a configuration change can fix the setup: %s", async (code) => {
     setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({})
-    fake.state.connectErrors = [Object.assign(new Error("No connection URL."), { code: "WORKFLOW_R0036" })]
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
+    fake.state.connectErrors = [Object.assign(new Error("No connection URL."), { code })]
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const app = createApp()
 
@@ -211,7 +253,7 @@ describe("installOpenWorkflow", () => {
   it("tries again when the pool gives no second connection, because a busy pool frees one later", async () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({})
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     // Other boot traffic fills the pool twice, then a connection is free.
     fake.state.connectErrors = [
       Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" }),
@@ -247,7 +289,7 @@ describe("installOpenWorkflow", () => {
   it("stops trying when the server closes", async () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({})
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     fake.state.connectErrors = Array.from({ length: 100 }, () => new Error("connection refused"))
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})

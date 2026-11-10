@@ -156,6 +156,10 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
     }
   }
 
+  if (/^postgres(?:ql)?:\/\//i.test(readEnv("DATABASE_URL") || "")) {
+    throw workflowErrorDiagnostics.WORKFLOW_R0038()
+  }
+
   return {
     backend: "sqlite",
     namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",

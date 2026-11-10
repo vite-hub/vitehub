@@ -99,7 +99,7 @@ ViteHub then:
 - declares `posthog.apiKey` as Server Env `observability.posthog.apiKey` and reads it at startup, so the Console Env page shows it.
 - generates a Nitro plugin that installs one host instance, sets request IDs, connects the evlog drain and HTTP error hooks, and flushes on shutdown.
 - adds the observability Capability to every Agent, and with `papercuts`, the `report_papercut` tool.
-- reports `status()` as `observability` in `/_vitehub/api/status`.
+- reports `status()` as `observability` in the `status.get` operation.
 
 Remove your own evlog Nitro module and host plugin. Without an API key, events still reach local evlog output, `status().configured` is `false`, and `capture()` rejects.
 

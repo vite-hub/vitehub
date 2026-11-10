@@ -6,6 +6,7 @@ import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntim
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
+import { assertWorkflowDefinitionName } from "../definition.ts"
 
 import type { ShutdownApp } from "@vite-hub/runtime/shutdown"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
@@ -47,6 +48,7 @@ async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
       ? loaded.default
       : loaded)
     if (isWorkflowDefinition(definition)) {
+      assertWorkflowDefinitionName(name, definition)
       definitions.set(name, definition)
       continue
     }
@@ -241,7 +243,7 @@ const openWorkflowStartDelayMs = 500
  * Errors that a new attempt cannot fix, because the configuration must change first. `WORKFLOW_R0037` is not one: a
  * pool that is full with other traffic when the server starts gives a second connection later.
  */
-const permanentSetupErrorCodes = new Set(["WORKFLOW_R0036"])
+const permanentSetupErrorCodes = new Set(["WORKFLOW_R0036", "WORKFLOW_R0038"])
 
 function hasPermanentSetupError(error: unknown): boolean {
   for (let current: unknown = error, depth = 0; current && typeof current === "object" && depth < 8; depth++) {
@@ -345,6 +347,9 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
       const closeRuntimes = detachOpenWorkflowRuntimes()
       void previous.finished().then(closeRuntimes).catch(report)
     }
+    // Inline and Agent Workflows never enter OpenWorkflow storage. Drain an old dev worker above, but do not
+    // resolve storage or start a replacement when the last discovered Workflow has been removed.
+    if (Object.keys(getWorkflowRuntimeRegistry()).length === 0) return false
     try {
       logDefaultStorage()
     }

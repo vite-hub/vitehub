@@ -76,6 +76,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
       "",
       ...imports,
     ],
+    useDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/use-database")),
   })
 }
 

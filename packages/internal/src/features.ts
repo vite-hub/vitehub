@@ -1,4 +1,5 @@
 import type { DeploymentPreset, DeploymentService } from "./deployment.ts"
+import { isPlainObject } from "./object.ts"
 
 /**
  * The feature keys of `vitehub({...})`. `vitehub add <feature>` and `vitehub status` read this list before the owner
@@ -270,7 +271,9 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
+    // The Console app is hosted at console.vitehub.dev. The app serves only its Operations endpoint and MCP.
+    packages: [],
+    summary: "The Operations endpoint and MCP at `/_vitehub`, which the hosted Console at console.vitehub.dev and the CLI call.",
     title: "Console",
   }),
   database: feature({
@@ -519,8 +522,8 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
   }),
 }
 
-/** Packages needed by a feature and its statically selected provider. */
-export function featurePackages(id: FeatureId, value: unknown): string[] {
+/** Packages needed by a feature, its provider, and its enabled feature integrations. */
+export function featurePackages(id: FeatureId, value: unknown, enabled: readonly FeatureId[] = []): string[] {
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
@@ -534,6 +537,11 @@ export function featurePackages(id: FeatureId, value: unknown): string[] {
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  if (id === "console") {
+    if (enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
+    const auth = options ? options.auth : "app"
+    if ((isPlainObject(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.includes("auth"))) selected.push(...consoleFeaturePackages.signIn)
+  }
   return [...new Set([...definition.packages, ...selected])]
 }
 
