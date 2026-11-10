@@ -16,7 +16,7 @@ When the installed `@vercel/queue` exports a `QueueClient` class, ViteHub must p
 
 If all four are empty, the client throws. This occurs when the Vercel provider runs outside of a Vercel request and without these variables. Examples are a script, a test, or the Vercel build output that you run on your own machine.
 
-`runQueue()` and `getQueue()` in `vite dev` use the local provider, so they do not throw this error. A direct Vercel client from `createQueueClient()` can still throw it there. A client that you pass as `client` to `createQueueClient()` does not need a region.
+`sendQueue()` and `useQueue()` in `vite dev` use the local provider, so they do not throw this error. A direct Vercel client from `createQueueClient()` can still throw it there. A client that you pass as `client` to `createQueueClient()` does not need a region.
 
 ## Fix it
 
@@ -41,7 +41,7 @@ A direct client from `createQueueClient()` does not read `queue.region` from the
 
 ## Check the fix
 
-Build again, deploy, and call the route that runs `runQueue()`. The client starts, and the result has no `QUEUE_MISSING_REGION` error. For a script, run it with `QUEUE_REGION` set and check that `createQueueClient()` resolves.
+Build again, deploy, and call the route that runs `sendQueue()`. The client starts, and the result has no `QUEUE_MISSING_REGION` error. For a script, run it with `QUEUE_REGION` set and check that `createQueueClient()` resolves.
 
 ## Related
 
