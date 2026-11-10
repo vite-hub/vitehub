@@ -362,6 +362,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/preview": {
+      "types": "./dist/content/preview.d.ts",
+      "import": "./dist/content/preview.js",
+      "default": "./dist/content/preview.js"
+    },
     "./content/realtime": {
       "types": "./dist/content/realtime.d.ts",
       "import": "./dist/content/realtime.js",
@@ -426,6 +431,11 @@
       "types": "./dist/email/server.d.ts",
       "import": "./dist/email/server.js",
       "default": "./dist/email/server.js"
+    },
+    "./email/test": {
+      "types": "./dist/email/test.d.ts",
+      "import": "./dist/email/test.js",
+      "default": "./dist/email/test.js"
     },
     "./env": {
       "types": "./dist/env.d.ts",
@@ -522,6 +532,11 @@
       "import": "./dist/markdown-template/file.js",
       "default": "./dist/markdown-template/file.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -537,10 +552,25 @@
       "import": "./dist/rate-limit.js",
       "default": "./dist/rate-limit.js"
     },
+    "./rate-limit/drivers/cloudflare": {
+      "types": "./dist/rate-limit/drivers/cloudflare.d.ts",
+      "import": "./dist/rate-limit/drivers/cloudflare.js",
+      "default": "./dist/rate-limit/drivers/cloudflare.js"
+    },
+    "./rate-limit/drivers/memory": {
+      "types": "./dist/rate-limit/drivers/memory.d.ts",
+      "import": "./dist/rate-limit/drivers/memory.js",
+      "default": "./dist/rate-limit/drivers/memory.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./realtime/client": {
+      "types": "./dist/realtime/client.d.ts",
+      "import": "./dist/realtime/client.js",
+      "default": "./dist/realtime/client.js"
     },
     "./realtime/server": {
       "types": "./dist/realtime/server.d.ts",
@@ -827,6 +857,11 @@
       "import": "./dist/workflow.js",
       "default": "./dist/workflow.js"
     },
+    "./workflow/openworkflow": {
+      "types": "./dist/workflow/openworkflow.d.ts",
+      "import": "./dist/workflow/openworkflow.js",
+      "default": "./dist/workflow/openworkflow.js"
+    },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
@@ -873,11 +908,6 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/auth/client": {
-      "types": "./dist/console/auth-client.d.ts",
-      "import": "./dist/console/auth-client.js",
-      "default": "./dist/console/auth-client.js"
-    },
     "./console/auth/cloudflare-access": {
       "types": "./dist/console/auth-cloudflare-access.d.ts",
       "import": "./dist/console/auth-cloudflare-access.js",
@@ -1002,12 +1032,17 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./console/setup": {
+      "types": "./dist/console/runtime/server/setup.d.ts",
+      "import": "./dist/console/runtime/server/setup.js",
+      "default": "./dist/console/runtime/server/setup.js"
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack && node scripts/write-console-digest.ts",
+    "build": "vp pack",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
-    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
+    "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run --cache -t vite-hub#build && vp test"
   },
@@ -1079,7 +1114,6 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1092,6 +1126,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1118,7 +1153,7 @@
     "google-auth-library": "catalog:storage",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
@@ -1156,6 +1191,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
@@ -1164,7 +1200,6 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
@@ -1175,6 +1210,7 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1195,6 +1231,7 @@
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
     "nitro": "catalog:nitro-compat",
+    "openworkflow": "catalog:workflow",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
@@ -1255,6 +1292,9 @@
     "@supabase/storage-js": {
       "optional": true
     },
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/agent": {
       "optional": true
     },
@@ -1277,9 +1317,6 @@
       "optional": true
     },
     "@vite-hub/connections": {
-      "optional": true
-    },
-    "@vite-hub/console-client": {
       "optional": true
     },
     "@vite-hub/content": {
@@ -1310,6 +1347,9 @@
       "optional": true
     },
     "@vite-hub/markdown-template": {
+      "optional": true
+    },
+    "@vite-hub/mcp": {
       "optional": true
     },
     "@vite-hub/presets": {
@@ -1367,6 +1407,9 @@
       "optional": true
     },
     "google-auth-library": {
+      "optional": true
+    },
+    "openworkflow": {
       "optional": true
     },
     "playwright-core": {

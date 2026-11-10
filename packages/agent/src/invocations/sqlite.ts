@@ -1,7 +1,6 @@
 import { normalizeAgentInvocationListOptions } from "./list-options.ts"
 import { createClient } from "@libsql/client"
 
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
 import { normalizeRetention } from "../internal/retention-policy.ts"
@@ -70,7 +69,7 @@ function stringify(value: unknown): string {
     return JSON.stringify(value)
   }
   catch {
-    return JSON.stringify(value, (_key, item: unknown) => hasRuntimeType(item, "bigint") ? String(item) : item)
+    return JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? String(item) : item)
   }
 }
 
@@ -79,9 +78,9 @@ function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
 }
 
 function parsedObservation(value: unknown): TraceEventLogEntry | undefined {
-  if (!hasRuntimeType(value, "string")) return
+  if (typeof value !== "string") return
   const parsed: unknown = JSON.parse(value)
-  if (parsed === null || !hasRuntimeType(parsed, "object") || !("name" in parsed) || !hasRuntimeType(parsed.name, "string")) return
+  if (parsed === null || typeof parsed !== "object" || !("name" in parsed) || typeof parsed.name !== "string") return
   // SAFETY: Observation rows are written from records that applyAgentInvocationStoreUpdate() produced.
   return parsed as TraceEventLogEntry
 }
@@ -520,7 +519,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       if (maxSize !== false) {
         const databases = await client.execute("PRAGMA database_list")
         const file = databases.rows.find(row => row.name === "main")?.file
-        if (!hasRuntimeType(file, "string") || !file) {
+        if (typeof file !== "string" || !file) {
           throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
         }
         storePath = file
@@ -864,7 +863,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         ) RETURNING id`,
       })
       if (!deleted.rows.length) break
-      for (const row of deleted.rows) if (hasRuntimeType(row.id, "string")) ids.push(row.id)
+      for (const row of deleted.rows) if (typeof row.id === "string") ids.push(row.id)
       rows -= deleted.rows.length
       await executor.execute(deleteOrphanClaims)
       bytes = await liveBytes(executor)
@@ -949,7 +948,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         const ids: string[] = []
         for (const selection of pruneSelections(true, updatedBefore)) {
           const deleted = await transaction.execute({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })
-          for (const row of deleted.rows) if (hasRuntimeType(row.id, "string")) ids.push(row.id)
+          for (const row of deleted.rows) if (typeof row.id === "string") ids.push(row.id)
         }
         await transaction.execute(deleteOrphanClaims)
         const size = await pruneSize(transaction, budget)
@@ -1036,7 +1035,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         sql: `SELECT claim_token FROM ${table}_claims WHERE id = ?`,
       })
       const claimToken = result.rows[0]?.claim_token
-      return hasRuntimeType(claimToken, "string") ? claimToken : undefined
+      return typeof claimToken === "string" ? claimToken : undefined
     },
     get: read,
     getSummary: readSummary,
@@ -1069,7 +1068,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args.push(...statuses)
       }
       // With a status list, this range uses the (status, updated_at) index.
-      const updatedSince = hasRuntimeType(listOptions.updatedSince, "string") ? listOptions.updatedSince : undefined
+      const updatedSince = typeof listOptions.updatedSince === "string" ? listOptions.updatedSince : undefined
       if (updatedSince !== undefined) {
         filters.push("updated_at >= ?")
         args.push(updatedSince)
@@ -1175,7 +1174,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           FROM (${rows}) AS invocation, json_each(invocation.ids) AS capability ORDER BY capability_id`,
       })
       return result.rows.flatMap((row) => {
-        return hasRuntimeType(row.capability_id, "string") ? [row.capability_id] : []
+        return typeof row.capability_id === "string" ? [row.capability_id] : []
       })
     },
     async listTriggeredBy(agentName) {
@@ -1195,7 +1194,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args: selectedAgent ? [selectedAgent, selectedAgent] : [],
         sql: `SELECT DISTINCT triggered_by FROM (${rows}) WHERE trim(triggered_by) <> '' ORDER BY triggered_by`,
       })
-      return result.rows.flatMap(row => hasRuntimeType(row.triggered_by, "string") ? [row.triggered_by] : [])
+      return result.rows.flatMap(row => typeof row.triggered_by === "string" ? [row.triggered_by] : [])
     },
     async delete(id) {
       return write(async () => {
@@ -1230,7 +1229,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
                 ...selections.map(selection => ({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })),
                 deleteOrphanClaims,
               ], "write")
-          const ids = results.slice(0, selections.length).flatMap(result => result.rows.flatMap(row => hasRuntimeType(row.id, "string") ? [row.id] : []))
+          const ids = results.slice(0, selections.length).flatMap(result => result.rows.flatMap(row => typeof row.id === "string" ? [row.id] : []))
           return { dryRun, ids }
         })
       })

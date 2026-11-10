@@ -64,11 +64,13 @@
     "defu": "catalog:unjs",
     "destr": "^2.0.5",
     "nostics": "catalog:runtime",
+    "proper-lockfile": "catalog:",
     "unstorage": "catalog:storage",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@types/proper-lockfile": "catalog:",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

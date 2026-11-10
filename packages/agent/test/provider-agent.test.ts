@@ -86,7 +86,7 @@ import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilit
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -969,7 +969,7 @@ describe("Provider Agent Driver", () => {
         const persistedDiagnostic: unknown = JSON.parse(persisted)
         expect(persisted).not.toContain(databaseUrl)
         expect(persisted).not.toContain(leakedSuffix)
-        if (!isRuntimeRecord(persistedDiagnostic) || !hasRuntimeType(persistedDiagnostic.stderr, "string")) {
+        if (!isRuntimeRecord(persistedDiagnostic) || typeof persistedDiagnostic.stderr !== "string") {
           throw new TypeError("Expected the persisted provider launch diagnostic to contain stderr.")
         }
         expect(Buffer.byteLength(persistedDiagnostic.stderr)).toBeLessThanOrEqual(stderrLimit)

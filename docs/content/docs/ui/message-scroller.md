@@ -3,7 +3,7 @@ title: Message Scroller
 description: "Compose headless message scrolling with live-edge following, prepend preservation, and message jumps."
 navigation.order: 41
 navigation.group: Utilities
-icon: i-ph-scroll-light
+icon: i-lucide-scroll-text
 ---
 
 The message scroller is the scrolling layer under `Chat`. It follows new content only while the reader is at the bottom (the live edge), keeps the position when older messages load above, and jumps to a message ID. The parts match the names and `data-slot` attributes of the [shadcn/ui Message Scroller](https://ui.shadcn.com/docs/components/message-scroller).

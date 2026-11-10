@@ -4,7 +4,7 @@ description: "Console-ready Vue components for chat, sessions, Agent runs, and c
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start
-icon: i-ph-squares-four-light
+icon: i-lucide-layout-grid
 ---
 
 `@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. Start with a full Console block, then connect your data.
