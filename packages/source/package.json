@@ -45,31 +45,6 @@
       "import": "./dist/drizzle.js",
       "default": "./dist/drizzle.js"
     },
-    "./file": {
-      "types": "./dist/file.d.ts",
-      "import": "./dist/file.js",
-      "default": "./dist/file.js"
-    },
-    "./files": {
-      "types": "./dist/files.d.ts",
-      "import": "./dist/files.js",
-      "default": "./dist/files.js"
-    },
-    "./github": {
-      "types": "./dist/github.d.ts",
-      "import": "./dist/github.js",
-      "default": "./dist/github.js"
-    },
-    "./glob": {
-      "types": "./dist/glob.d.ts",
-      "import": "./dist/glob.js",
-      "default": "./dist/glob.js"
-    },
-    "./markdown": {
-      "types": "./dist/markdown.d.ts",
-      "import": "./dist/markdown.js",
-      "default": "./dist/markdown.js"
-    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
@@ -92,14 +67,14 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/source#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/source#build && vp test"
+    "test": "vp run --cache -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
+    "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs"
   },
@@ -109,7 +84,7 @@
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
-    "mrmime": "catalog:workspace",
+    "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",

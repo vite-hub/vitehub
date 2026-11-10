@@ -21,7 +21,7 @@ export type { PendingMigration } from "./migration-journal.ts"
 
 export interface MigrationPlan {
   database: string
-  /** Where `vitehub db migrate` applies migrations, without credentials. */
+  /** Where `vitehub database migrate` applies migrations, without credentials. */
   target: string
   pending: PendingMigration[]
 }
@@ -163,7 +163,7 @@ function toMillis(value: unknown): number | undefined {
 }
 
 /**
- * Lists the migrations that `vitehub db migrate` would apply to one database, with their statements that lose data.
+ * Lists the migrations that `vitehub database migrate` would apply to one database, with their statements that lose data.
  * It reads the Drizzle migrations table, or Wrangler's `d1_migrations` table for D1 HTTP, and changes nothing.
  */
 export async function readMigrationPlan(
@@ -201,7 +201,7 @@ export async function readMigrationPlan(
 
 /**
  * Applies the pending migrations of a D1 HTTP database with Wrangler's ledger, so `wrangler d1 migrations apply` and
- * `vitehub db migrate` agree on what is applied. Returns the error message when a request fails.
+ * `vitehub database migrate` agree on what is applied. Returns the error message when a request fails.
  */
 export async function migrateD1Http(
   database: ResolvedDrizzleDatabaseConfig,

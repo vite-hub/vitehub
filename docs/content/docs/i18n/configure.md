@@ -275,7 +275,7 @@ The CLI shows the locales and their coverage without a server:
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions --kind i18n
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
-`inspect definitions` lists each locale with its records folder and its counts of messages, translations, missing translations, and unused records. `inspect provider-output` lists `.vitehub/i18n/messages.mjs`, the compiled translations that the server loads, and `.vitehub/i18n/manifest.json`, the messages of the last build.
+`inspect definitions` lists each locale with its records folder and its counts of messages, translations, missing translations, and unused records. `inspect output` lists `.vitehub/i18n/messages.mjs`, the compiled translations that the server loads, and `.vitehub/i18n/manifest.json`, the messages of the last build.
