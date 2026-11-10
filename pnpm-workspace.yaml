@@ -14,7 +14,7 @@ catalog:
   "@types/proper-lockfile": 4.1.4
   forges: 0.3.1
   proper-lockfile: 4.1.2
-  comark-chat: 0.7.1
+  comark-chat: 0.10.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
@@ -24,7 +24,6 @@ catalogs:
   ai:
     "@agntn/web": ^0.5.5
     "@ai-sdk/anthropic": 4.0.75
-    "@ai-sdk/gateway": 4.0.103
     "@ai-sdk/mcp": 2.0.69
     "@ai-sdk/openai": 4.0.88
     "@ai-sdk/openai-compatible": 3.0.65
@@ -240,6 +239,6 @@ packageExtensions:
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
-  nuxt-agent-discovery@0.8.1: patches/nuxt-agent-discovery@0.8.1.patch
+  nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch

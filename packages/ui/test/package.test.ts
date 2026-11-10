@@ -114,6 +114,7 @@ describe("@vite-hub/ui package contract", () => {
       katex: "^0.19.1",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
+      "@shikijs/themes": "4.5.0",
       "@types/node": "catalog:tooling",
       "@vite-hub/comments": "workspace:*",
       "nostics": "catalog:runtime",
