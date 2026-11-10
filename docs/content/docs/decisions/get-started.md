@@ -13,7 +13,7 @@ Decisions turns what a person types into choices from a list that you give. You 
 In this tutorial, you build a filter box. A person types "nord parts except vak supply". Your page shows one supplier to include and one to exclude.
 
 > [!NOTE] Before you start
-> Use the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
+> Use the app from the **Vite** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
 >
 > Until the last step, you need no API key and no network. A small offline stand-in answers in place of the model. The last step uses a real model, which needs an API key and can cost money.
 
@@ -188,6 +188,30 @@ The browser sends the text to your route and gets a selection back. `useChoices(
 
 Add the Vue plugin to `vite.config.ts`:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: "node" },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import vue from "@vitejs/plugin-vue"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vue(), vitehub({ preset: "node" }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
@@ -197,6 +221,8 @@ export default defineConfig({
   plugins: [vue(), vitehub({ preset: "node" })],
 })
 ```
+::::
+:::
 
 Create the page at the root of your app:
 

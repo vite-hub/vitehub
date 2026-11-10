@@ -487,8 +487,9 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-facade-runtime-imports-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.mjs" } }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\nexport interface ViteHubContext { readonly "~standard": { readonly req: Request } }\n', "utf8")
-    await writeFile(join(root, "runtime.mjs"), 'export const resolveServerEnv = () => ({ token: "ok" }); export const loadServerEnv = async () => ({ token: "ok" }); export const inspectServerEnv = async () => ({ entries: [] });\n', "utf8")
+    await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\nexport interface ViteHubContext { readonly "~standard": { readonly req: Request } }\nexport declare function seal(purpose: string, value: unknown): Promise<string>\nexport declare function unseal(purpose: string, sealed: string): Promise<unknown>\n', "utf8")
+    const sealingRuntime = new URL("../dist/server.js", import.meta.url).href
+    await writeFile(join(root, "runtime.mjs"), `export { createSealing, deriveSecret } from ${JSON.stringify(sealingRuntime)};\nexport const resolveServerEnv = () => ({ token: "ok" }); export const loadServerEnv = async () => ({ token: "ok" }); export const inspectServerEnv = async () => ({ entries: [] });\n`, "utf8")
 
     const plugin = hubEnv({
       runtimeImports: {
@@ -519,6 +520,9 @@ describe("Vite plugin", () => {
     const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)
     expect(await generated.loadServerEnv()).toEqual({ token: "ok" })
     expect((await generated.manageServerEnv(new Request("http://localhost"))).status).toBe(503)
+    vi.stubEnv("VITEHUB_SECRET", "facade-root-secret-at-least-32-characters")
+    const sealed = await generated.seal("app:facade", { token: "ok" })
+    expect(await generated.unseal("app:facade", sealed)).toEqual([undefined, { token: "ok" }])
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"../../secret.js\"")
     const typesPath = join(root, ".vitehub", "types", "env.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain("import(\"../../secret.js\").SecretEnv<string>")
@@ -983,7 +987,7 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } export function seal(purpose: string, value: unknown): Promise<string>; export function unseal(purpose: string, sealed: string): Promise<unknown> }\n', "utf8")
     const packageJsonPath = join(appRoot, "package.json")
     const packageJson = JSON.stringify({
       imports: {
