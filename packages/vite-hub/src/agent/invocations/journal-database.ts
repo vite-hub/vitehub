@@ -1,6 +1,6 @@
 // `getAgentInvocationsDatabase()` loads this module on first use, so a server that never queries the journal does not load Drizzle.
+import { createLibsqlDrizzle } from "@vite-hub/database/runtime/libsql-drizzle"
 import { drizzle as drizzleRemote } from "drizzle-orm/sqlite-proxy"
-import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import type { AgentInvocationRecord, AgentInvocationSummary } from "@vite-hub/agent"
@@ -81,9 +81,12 @@ export type AgentInvocationsDatabase = {
   schema: typeof d1InvocationSchema
 }
 
-/** Drizzle over the libSQL client that the default journal uses. */
+/**
+ * Drizzle over the libSQL client that the default journal uses. `drizzle()` from `drizzle-orm/libsql` would import
+ * `@libsql/client` into every build, also a Cloudflare build whose journal is D1.
+ */
 export function createLibsqlInvocationsDatabase(client: Client): AgentInvocationsDatabase {
-  return { driver: "libsql", db: drizzle(client, { schema: libsqlInvocationSchema }), schema: libsqlInvocationSchema }
+  return { driver: "libsql", db: createLibsqlDrizzle(client, { schema: libsqlInvocationSchema }), schema: libsqlInvocationSchema }
 }
 
 /** Drizzle over the D1 journal. `database` returns the migrated binding of the current Worker request. */

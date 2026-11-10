@@ -6,9 +6,8 @@ navigation.order: 1
 icon: i-lucide-book-open-check
 ---
 
-Use these guides after [Installation](/docs/getting-started/installation).
-Each guide solves a deployment or provider task. Keep the provider configuration
-in ViteHub and call the server API from application code.
+Read these after [Installation](/docs/getting-started/installation). Each
+solves one deployment or provider task.
 
 ## Deploy an Agent
 
@@ -27,12 +26,12 @@ in ViteHub and call the server API from application code.
 ## Connect a database
 
 - [Use Turso with ViteHub and Drizzle](/docs/guides/turso).
-- [Use Neon Postgres with ViteHub](/docs/guides/neon-postgres).
-- [Use Cloudflare D1 with ViteHub](/docs/guides/cloudflare-d1).
+- [Use Neon Postgres](/docs/guides/neon-postgres).
+- [Use Cloudflare D1](/docs/guides/cloudflare-d1).
 
 ## Store values and files
 
-- [Use Upstash Redis for ViteHub KV](/docs/guides/upstash-redis).
+- [Use Upstash Redis for KV](/docs/guides/upstash-redis).
 - [Store files in Cloudflare R2](/docs/guides/cloudflare-r2).
 - [Use Vercel Blob](/docs/guides/vercel-blob).
 
@@ -55,7 +54,6 @@ in ViteHub and call the server API from application code.
 - [Rate limiting vs throttling, and the four rate limiting algorithms](/docs/guides/rate-limiting-algorithms).
 - [Durable execution: steps, retries, replay, and idempotency](/docs/guides/durable-execution).
 
-Provider access, prices, quotas, and deployment limits belong to each service.
-Check the [support matrix](/docs/frameworks-hosts/support-matrix) for the proof
-available for each ViteHub integration. A shared API does not make provider
-limits identical or move existing data between services.
+Each service sets its own access, prices, quotas, and limits. One API does not
+make them the same or move data between services. The
+[support matrix](/docs/frameworks-hosts/support-matrix) shows what we tested.
