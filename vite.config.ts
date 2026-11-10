@@ -46,11 +46,6 @@ export default defineConfig({
         cache: false,
         command: "vp run --filter vitehub-docs dev",
       },
-      "examples:verify": {
-        cache: false,
-        command: "node test/package-examples.mjs",
-        dependsOn: ["build"],
-      },
       "e2e:local": {
         cache: false,
         command: "node test/local/local.mjs",

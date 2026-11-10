@@ -103,7 +103,6 @@ Definition.
 | Generated types | The module adds the `.vitehub` declarations to the Nuxt and Nitro TypeScript configs, not to `tsconfig.json`. |
 | Generated Agent files | Agent route handlers and wrappers go to `<buildDir>/vitehub/agent/**`, normally `.nuxt/vitehub/agent/**`, not `.vitehub/agent/**`. Discovery still uses `server/agents`. |
 | Database on Cloudflare | With the `cloudflare` preset, `database` defaults to `driver: 'd1'`: one D1 host resource that Nitro and Nuxt Content share. |
-| Console | The Console runs as Nuxt pages. Install `@nuxt/ui`, `@iconify-json/lucide`, and `@iconify-json/ph`. Read [Console](/docs/development/console). |
 | Server auto-imports | On Nuxt 5, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: true }`, behind the Console sign-in. |

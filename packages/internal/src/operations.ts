@@ -79,8 +79,9 @@ export interface OperationContext {
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
   /**
-   * The server event of the HTTP request that carries the call, such as an H3 event, when there is one. Operations
-   * hand it to app hooks that read the request's own session, such as `identify` of Comments.
+   * The request event of the HTTP request that carries the call, when there is one: the Request of the Console route,
+   * with its Standard Context. Operations hand it to app hooks that read the request's own session, such as `identify`
+   * of Comments.
    */
   event?: unknown
   /** Operations set a success status here, such as 202 for an accepted call. */
@@ -600,13 +601,23 @@ export interface OperationTarget {
 
 export const operationCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 
-/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
-export function operationHeaders(env: Record<string, string | undefined>): Headers {
-  const headers = new Headers({ "accept": "application/json", "content-type": "application/json", [operationRpcHeader]: "1", [operationSurfaceHeader]: "cli" })
+/** The Console credentials that CLI commands send to a deployed app, read from the environment. */
+export function consoleCredentialHeaders(env: Record<string, string | undefined>): Headers {
+  const headers = new Headers()
   if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
   if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
   if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
   if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
+  return headers
+}
+
+/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
+export function operationHeaders(env: Record<string, string | undefined>): Headers {
+  const headers = consoleCredentialHeaders(env)
+  headers.set("accept", "application/json")
+  headers.set("content-type", "application/json")
+  headers.set(operationRpcHeader, "1")
+  headers.set(operationSurfaceHeader, "cli")
   return headers
 }
 

@@ -46,9 +46,9 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
-| `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to `vite-hub/nuxt`'s `comments` option. `false` sets `comments: false` there. |
-| `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. Can be async. |
-| `parser` | `string` | None | Path of a module that default-exports `DocsParserOptions`, such as `{ plugins }`. The page route, search, and Console drafts use it. See [Add Comark plugins](/docs/docs-site/configure#add-comark-plugins). |
+| `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
+| `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
+| `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`: `{ comarkUi, examples, plugins }`. The page route, search, and Console drafts parse with it. See [Configure the parser](/docs/docs-site/configure#configure-the-parser). |
 
 The module also configures the modules it installs: `llms` from `site`, and `agentDiscovery` with the page routes and MCP server card. Your own `llms` and `agentDiscovery` options win.
 
@@ -66,7 +66,7 @@ The module also configures the modules it installs: `llms` from `site`, and `age
 | `layout` | `'article'`, `'tutorial'`, `'landing'`, or `'home'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
 | `tutorial` | `'project'` or `'quickstart'` | None | Stored in the manifest for your tutorials catalog. |
 | `codePanel` | `boolean` | `false` | Tutorials only. Shows the current step's files beside the text. |
-| `sidebar` | `boolean` | `true` | `false` hides the left navigation on this page. |
+| `sidebar` | `boolean \| "collapsed"` | `true` | `false` hides the left navigation on this page. `"collapsed"` starts it as a narrow column that the reader opens. |
 | `toc` | `boolean` | `true`, `false` on `landing` and `home` | `false` hides the "On this page" outline. |
 | `navigation` | `false` or `{ title?, order?, group?, kind?, panel? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. `panel: true` on the `index.md` of a folder inside a section makes the folder a [panel](/docs/docs-site/configure#panels). |
 | `seo` | `{ title?, description?, image?, index? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. `index: false` marks the page `noindex` and leaves it out of the prerender, `sitemap.xml`, llms.txt, and the share images. See [Pages that search engines skip](/docs/docs-site/configure#pages-that-search-engines-skip). |

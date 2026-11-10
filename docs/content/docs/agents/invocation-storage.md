@@ -13,7 +13,7 @@ The journal gives the model no conversation context. Use [Chat History](/docs/ag
 
 ## Store invocation history
 
-An Agent Definition from `vite-hub/agent` that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
+An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -131,7 +131,7 @@ VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
 
@@ -189,7 +189,7 @@ export default defineConfig({
 :::
 ::
 
-In Nuxt, use the `vitehub` key. It applies to Agents from `vite-hub/agent` that do not set `invocations`. An Agent's own value replaces it, and `invocations: false` turns it off. `agent.invocations` accepts `'database'` (requires `database` in the ViteHub options), `'memory'`, `false`, or the object form without `redact` and `redactError`, which belong on the Agent.
+In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 
 `agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. Every app-wide journal requires Nitro-hosted Agents. For Netlify and Deno Agent output, set `agent.invocations: false` and configure journals on each Agent Definition. `false` records no app-wide journal. When the Console is enabled, it shows the app-wide journal.
 
@@ -590,7 +590,7 @@ export const invocations = defineAgentInvocations({
 The store creates its table and indexes on each isolate's first use of a binding, with `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation retries on the next operation. To use your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
 
 ```ts [scripts/invocation-schema.ts]
-import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
+import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```

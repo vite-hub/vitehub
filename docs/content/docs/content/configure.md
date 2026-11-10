@@ -50,7 +50,8 @@ Use a collection when people or Agents edit content at runtime. A collection sto
 Collections need a Workspace with retained history. The [CMS](/docs/cms) preset, `defineContent({ extends: cms })`, sets it up at build time. It turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds the history tables and the [Editing together](/docs/content/editing-together) `contentSessionsSchema` table to your Database (the implicit `default` Database if you define none).
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
@@ -67,7 +68,8 @@ To use your own Workspace, pass its name as `workspace` instead of `extends`. It
 ### Define collections
 
 ```ts [server/content.ts]
-import { defineContent, documents, optional } from 'vite-hub/content'
+import { defineContent, optional } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
@@ -77,6 +79,7 @@ export const content = defineContent({
   collections: {
     posts: documents({
       path: 'posts/**/*.md',
+      url: '/blog/:id',
       fields: {
         title: z.string().min(1),
         date: z.coerce.date(),
@@ -123,9 +126,13 @@ Adding a glob can change existing ids. Ids are relative to the folder all globs 
 
 `content.resolve(path)` finds the document a page shows, for example for an Edit button. It returns `{ collection, id }`, or `null`.
 
-```ts
-const route = await content.resolve('/blog/hello?utm=x')
-// { collection: 'posts', id: 'hello' }
+```ts [server/utils/edit-target.ts]
+import { content } from '../content'
+
+export async function editTarget() {
+  return await content.resolve('/blog/hello?utm=x')
+  // { collection: 'posts', id: 'hello' }
+}
 ```
 
 A collection maps documents to paths with its [`url`](/docs/content/seo#document-urls). A document with `url: null` has no page. Without `url`, the path is `/` plus the id, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. Query strings, hashes, and trailing slashes are ignored. If two collections give the same path, the first defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads `published`, or `draft` in a preview request. Pass `{ ref: 'draft' }` to include unpublished documents.
@@ -213,7 +220,8 @@ The [Console editor](/docs/content/console#translations) switches between locale
 Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path in `collections`. It gets the same drafts, publishing, history, validation, and access.
 
 ```ts [server/content.ts]
-import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
+import { defineContent, image, optional } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -248,13 +256,17 @@ ViteHub has no settings schema. These fields are an example. Define the ones you
 
 The id is the file name without extension: `settings.json` is `settings`. You rarely need it, because singleton methods work without an id.
 
-```ts
-const settings = content.collection('settings')
+```ts [server/utils/settings.ts]
+import { content } from '../content'
 
-await settings.get()                       // published settings, or null before the first publish
-const draft = await settings.save({ data: { title: 'ViteHub' } })
-await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
-await settings.status()                    // { state: 'published', ... }
+export async function renameSite() {
+  const settings = content.collection('settings')
+
+  await settings.get()                       // published settings, or null before the first publish
+  const draft = await settings.save({ data: { title: 'ViteHub' } })
+  await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
+  await settings.status()                    // { state: 'published', ... }
+}
 ```
 
 `content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.

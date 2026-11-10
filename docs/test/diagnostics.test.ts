@@ -44,6 +44,15 @@ describe("diagnostic catalogs", () => {
   it("gives the package that the code prefix names a code that two catalogs declare", () => {
     expect(code("CONTENT_R0006").pkg).toBe("content")
   })
+
+  it("keeps Agent MCP errors in their existing section alongside the new app MCP catalog", () => {
+    for (const name of ["MCP_SERVER_FAILED", "MCP_TOOL_CALL_FAILED", "MCP_TOOL_CANCELLED", "MCP_TOOL_NOT_FOUND", "MCP_TOOL_TIMEOUT"]) {
+      expect(code(name)).toMatchObject({ pkg: "agent", docsBase: "https://vitehub.dev/docs/agents/diagnostics" })
+    }
+    for (const name of ["MCP_B0001", "MCP_B0002"]) {
+      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/development/diagnostics" })
+    }
+  })
 })
 
 describe("catalog object references", () => {

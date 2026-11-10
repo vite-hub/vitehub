@@ -10,7 +10,7 @@ import { diagnostics } from "../diagnostics.ts"
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
 /** True when the project `package.json` lists `name` in any dependency field. */
-function dependsOn(ctx: RuleContext, name: string): boolean {
+export function dependsOn(ctx: RuleContext, name: string): boolean {
   const manifest: unknown = ctx.getJson("package.json")
   if (!manifest || typeof manifest !== "object") return false
   return dependencyFields.some((field) => {
@@ -196,7 +196,7 @@ export const forgeErrorImports: DoctorRule = createRule({
 
 
 const runtimeNames = new Set(["crabbox", "trusted-host", "vercel"])
-const runtimeKinds = new Set(["cloudflare", "crabbox", "trusted-host", "vercel"])
+const runtimeKinds = new Set(["cloudflare", "container", "crabbox", "trusted-host", "vercel"])
 
 function checkSandboxDefinition(ctx: RuleContext, definition: unknown) {
   const target = unwrap(definition)
@@ -212,13 +212,13 @@ function checkSandboxDefinition(ctx: RuleContext, definition: unknown) {
         : `\`runtime: "${runtimeName}"\` is not a Sandbox runtime. \`resolveSandbox()\` throws \`SANDBOX_R0031\` on each call.`,
       fix: runtimeName === "cloudflare"
         ? "Use `runtime: { kind: \"cloudflare\", namespace: env.SANDBOX }`."
-        : "Use `\"crabbox\"`, `\"trusted-host\"`, `\"vercel\"`, a tagged configuration such as `{ kind: \"cloudflare\", namespace }`, or a custom runtime object.",
+        : "Use `\"crabbox\"`, `\"trusted-host\"`, `\"vercel\"`, a tagged configuration such as `{ kind: \"cloudflare\", namespace }` or `{ kind: \"container\", image }`, or a custom runtime object.",
     }), { range: ctx.range(runtimeProperty) })
   }
   if (kind !== undefined && !runtimeKinds.has(kind)) {
     ctx.report(diagnostics.VHUB0027({
       why: `\`kind: "${kind}"\` is not a Sandbox runtime kind. \`resolveSandbox()\` throws \`SANDBOX_R0033\` on each call.`,
-      fix: "Use `kind: \"crabbox\"`, `\"trusted-host\"`, `\"cloudflare\"`, or `\"vercel\"`.",
+      fix: "Use `kind: \"crabbox\"`, `\"trusted-host\"`, `\"cloudflare\"`, `\"container\"`, or `\"vercel\"`.",
     }), { range: ctx.range(runtime) })
   }
   const cwd = hasValue(target, "cwd")
@@ -258,33 +258,6 @@ export const sandboxRuntimeOptions: DoctorRule = createRule({
 })
 
 
-export const defineAgentFromViteHub: DoctorRule = createRule({
-  meta: {
-    id: "vitehub/define-agent-from-vite-hub",
-    title: "Import defineAgent from vite-hub/agent",
-    category: "correctness",
-    severity: "warn",
-    requires: { script: true },
-  },
-  create(ctx) {
-    if (!dependsOn(ctx, "vite-hub")) return
-    return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "ImportDeclaration") || node.importKind === "type") return
-        if (!isNode(node.source) || node.source.value !== "@vite-hub/agent") return
-        const imports = (Array.isArray(node.specifiers) ? node.specifiers : []).some(specifier =>
-          isNode(specifier) && specifier.importKind !== "type" && isIdentifier(specifier.imported, "defineAgent"))
-        if (!imports) return
-        ctx.report(diagnostics.VHUB0028({
-          why: "This app uses `vite-hub`, but imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so Invocations of this Agent are not recorded. A string `invocations` setting such as `\"database\"` also fails when the module loads.",
-          fix: "Import `defineAgent` from `vite-hub/agent`.",
-        }), { range: ctx.range(node) })
-      },
-    }
-  },
-})
-
-
 export const rateLimitCapabilityLimiter: DoctorRule = createRule({
   meta: {
     id: "vitehub/rate-limit-capability-limiter",
@@ -306,7 +279,7 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
           why: inline.length
             ? `\`rateLimit()\` no longer accepts the inline \`${inline.join("`, `")}\` options. Without \`limiter\`, the Capability throws \`AGENT_R0162\` on the first Invocation.`
             : "`rateLimit()` needs a `limiter`. Without it, the Capability throws `AGENT_R0162` on the first Invocation.",
-          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `@vite-hub/rate-limit` and `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory`.",
+          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `vite-hub/rate-limit` and `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory`.",
         }), { range: ctx.range(node) })
       },
     }
@@ -723,7 +696,6 @@ export const rules: DoctorRule[] = [
   realtimePersistence,
   forgeErrorImports,
   sandboxRuntimeOptions,
-  defineAgentFromViteHub,
   rateLimitCapabilityLimiter,
   noViteHubPluginInNuxt,
   validViteHubOptions,

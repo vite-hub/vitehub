@@ -1,3 +1,4 @@
+import { hostedConsoleOrigin } from "./hosted-console.ts"
 import { encodeRouteSegment } from "./route-segment.ts"
 
 /** Public origins resolved from `vitehub({ publicUrl })` at build time. */
@@ -72,8 +73,14 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   return request.origin
 }
 
-/** Build the Console URL of one Agent invocation. `origin` must not include the application base path. */
+/**
+ * Build the hosted Console URL that opens one Agent invocation, such as
+ * `https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fbot%2Finvocations%2Fid`.
+ * `origin` must not include the application base path. The hosted Console checks the project URL when it opens the link.
+ */
 export function consoleInvocationUrl(origin: string, agentName: string, invocationId: string): string {
-  const path = `${applicationBasePath()}/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
-  return new URL(path, origin).href
+  const project = `${new URL(origin).origin}${applicationBasePath()}`
+  const path = `/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
+  // Vercel's Workflow VM has `URL` but no `URLSearchParams`, so the query is built by hand.
+  return `${hostedConsoleOrigin}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 }

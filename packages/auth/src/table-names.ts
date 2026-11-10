@@ -18,4 +18,8 @@ export const authTableNames: Readonly<Record<AuthTableName, string>> = {
   oauthConsent: "oauth_consent",
   oauthClientAssertion: "oauth_client_assertion",
   rateLimit: "rate_limit",
+  organization: "organization",
+  member: "member",
+  invitation: "invitation",
+  passkey: "passkey",
 }

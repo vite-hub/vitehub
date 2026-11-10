@@ -8,7 +8,7 @@ import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { mcp } from "../src/capabilities/mcp.ts"
 import { defineAgent } from "../src/index.ts"
 import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
-import { streamAgentOutputToEvents } from "../src/output.ts"
+import { streamAgentOutputToEvents } from "../src/agent-output.ts"
 
 import type { ConnectionsRuntime } from "../../connections/src/runtime.ts"
 import type { ConnectionOAuthDefinition } from "../../connections/src/types.ts"
@@ -170,4 +170,41 @@ it("fails clearly when the provider declares no mcp endpoint", async () => {
   const test = createTestRuntime(definition)
   await connect(test)
   await expect(resolveWith(test.runtime, { mail: { connection: "mail" } })).rejects.toThrow(/declares no mcp endpoint/)
+})
+
+it("leaves out a connected server whose MCP endpoint rejects the credential", async () => {
+  const { getMcpWarnings } = await import("../src/capabilities/mcp.ts")
+  const definition = mcpEndpointConnection()
+  const test = createTestRuntime(definition)
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    if (String(input) === "https://auth.example.com/token") return test.provider.fetch(input, init)
+    return Response.json({ error: true, message: "Directus session expired" }, { status: 401 })
+  }
+  const connections = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store: test.store })
+  await connect({ ...test, runtime: connections })
+  const docs = { close: vi.fn(), tools: async () => ({ lookup: { execute: vi.fn() } }) }
+
+  const resolved = await resolveWith(connections, { mail: { connection: "mail", optional: true }, docs })
+  try {
+    expect(Object.keys(resolved.tools ?? {})).toEqual(["mcp_docs_lookup"])
+    expect(getMcpWarnings(resolved.input)).toEqual([{ code: "CONNECTIONS_NEEDS_RECONNECT", phase: "discovery", server: "mail" }])
+  }
+  finally { await resolved.close() }
+})
+
+it("leaves out a server whose Connection is not connected, and names the Connection error", async () => {
+  const { getMcpWarnings } = await import("../src/capabilities/mcp.ts")
+  const definition = mcpEndpointConnection()
+  const test = createTestRuntime(definition)
+  const server = fakeMcpServer(test)
+  const connections = createConnectionsRuntime({ definitions: { mail: definition }, fetch: server.fetch, store: test.store })
+  const docs = { close: vi.fn(), tools: async () => ({ lookup: { execute: vi.fn() } }) }
+
+  const resolved = await resolveWith(connections, { mail: { connection: "mail" }, docs })
+  try {
+    expect(Object.keys(resolved.tools ?? {})).toEqual(["mcp_docs_lookup"])
+    expect(getMcpWarnings(resolved.input)).toEqual([expect.objectContaining({ server: "mail", code: "CONNECTIONS_NOT_CONNECTED" })])
+    expect(server.urls).toEqual([])
+  }
+  finally { await resolved.close() }
 })

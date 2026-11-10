@@ -370,14 +370,14 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
-  it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
+  it("requests no page tools session, since apps serve no page tools", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
     setConsoleProject({ origin: "", base: "/page-tools-app" })
     const base = "/_vitehub/api/sections?page-tools-app"
     await loadConsoleNavigation(base)
     await loadConsoleNavigation(base)
     const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
-    expect(sessions).toEqual([["/page-tools-app/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } }]])
+    expect(sessions).toEqual([])
   })
 
   it("keeps permitted operations alongside read-only section metadata", async () => {
@@ -425,19 +425,17 @@ describe("Console requests", () => {
     ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
-  it.each(["", "/admin"])("requests the shared page session under the app mount %s", async (mount) => {
+  it.each(["", "/admin"])("loads navigation without a page session under the app mount %s", async (mount) => {
     const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" } }
     const hidden = { ...comments, id: "hidden" }
     const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
-    // Navigation uses RPC; the shared page session is an ordinary GET that sets the app cookie.
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
     setConsoleProject({ origin: "", base: mount })
     const base = `/_vitehub/api/sections?page-session-test${mount}`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch.mock.calls.map(([url]) => url)).not.toContainEqual(`${mount}/_vitehub/page/session`)
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {
