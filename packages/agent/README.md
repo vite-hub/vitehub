@@ -313,7 +313,14 @@ Pass `--json` for the structured inspection contract.
 ```ts
 import { openapi } from "@vite-hub/agent/capabilities";
 
-openapi({
+// The application sets this Invocation context value for each tenant.
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    billing: { tenantId: string; token: string };
+  }
+}
+
+export const billing = openapi({
   spec: "https://api.example.com/openapi.json",
   cli: {
     name: "billing",
@@ -328,11 +335,11 @@ openapi({
       handler({ context, request }) {
         request.body = {
           ...(request.body as Record<string, unknown> | undefined),
-          tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+          tenantId: context.get("billing")?.tenantId,
         };
         request.headers.set(
           "authorization",
-          `Bearer ${context.get<{ token: string }>("billing")?.token}`,
+          `Bearer ${context.get("billing")?.token}`,
         );
       },
     },
@@ -505,6 +512,8 @@ For GitHub Channels, `activity: true` links pull request webhook activity to its
 `@vite-hub/agent/invocations/default` exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
 
 A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
+
+`@vite-hub/agent/invocations/default-core` exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/invocations/default-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
 
 ## D1 invocation storage
 
