@@ -9,6 +9,7 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 import { resolve } from "pathe"
 
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { CONNECTION_NAME_MAX_LENGTH } from "./types.ts"
 
 import type { DiscoveredConnectionDefinition } from "./types.ts"
@@ -18,10 +19,10 @@ const connectionSuffixPattern = /\.connection\.(?:c|m)?[jt]s$/i
 function createDiscoveredConnectionDefinition(source: DiscoveredConnectionDefinition["source"]) {
   return (context: { file: string, name: string }): DiscoveredConnectionDefinition => {
     if (context.name !== context.name.trim()) {
-      throw new Error(`Connection name "${context.name}" cannot start or end with whitespace. Rename "${context.file}".`)
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_NAME({ file: context.file, name: context.name, problem: "whitespace" })
     }
     if (context.name.length > CONNECTION_NAME_MAX_LENGTH) {
-      throw new Error(`Connection name "${context.name}" exceeds ${CONNECTION_NAME_MAX_LENGTH} characters. Rename "${context.file}" so its Env key fits the 512-character limit.`)
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_NAME({ file: context.file, name: context.name, problem: "length" })
     }
     return { handler: context.file, name: context.name, source }
   }
