@@ -26,6 +26,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/email"
     | "@vite-hub/forms"
     | "@vite-hub/gateways"
+    | "@vite-hub/i18n"
     | "@vite-hub/kv"
     | "@vite-hub/markdown-template"
     | "@vite-hub/presets"
@@ -69,6 +70,7 @@ export const optionalFeaturePackages = {
   // `server/forms/` turns Forms on, and its submissions go to the Database.
   "forms": ["@vite-hub/forms"],
   "gateways": ["@vite-hub/gateways"],
+  "i18n": features.i18n.packages,
   "kv": features.kv.packages,
   // `.template.md` imports and `vite-hub/markdown-template`.
   "markdown-template": ["@vite-hub/markdown-template"],
