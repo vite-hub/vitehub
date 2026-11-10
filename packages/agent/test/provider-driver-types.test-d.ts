@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { claudeCodeDriver, codexDriver, defineAgent, runAgentInline, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentRuntimeContext, type BuiltInAgentDriver } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentRuntimeContext, type BuiltInAgentDriver } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 

@@ -1,12 +1,12 @@
 ---
-title: Comments
+title: Comments operations
 navigation.title: Operations overview
 description: Store the comment threads of your running app, check who may read and write them, and read them from the Console, the CLI, and agents.
 navigation.order: 20
 icon: i-lucide-message-square
 ---
 
-Comments let a signed-in team member leave a numbered note on any spot of your own running app, and let the team reply. This package is the server half: tables, access rules, and the `comments.*` [operations](/docs/development/operations). The browser half is in [UI comments](/docs/ui/comments).
+Comments let your team pin numbered notes on your running app and reply to them. This package is the server half: tables, access rules, and the `comments.*` [operations](/docs/development/operations). The browser half is [UI comments](/docs/ui/comments).
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -16,17 +16,17 @@ export default defineComments({
 })
 ```
 
-Add the file and ViteHub does the rest:
+Add this file, and ViteHub:
 
-- It adds the `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` tables to your Database.
-- It adds the operations `comments.list`, `get`, `create`, `reply`, `edit`, `delete`, `resolve`, `reopen`, and `users`. The Console, `vitehub comments list`, the [MCP endpoint](/docs/development/mcp), and the browser client call the same code.
-- It adds a **Comments** section to the [Console](/docs/development/console) that lists the threads the signed-in user may read, with filter chips and a link to the page. A row opens the thread in a side panel, where you reply, resolve, reopen, and `@`-mention people.
+- Adds the `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` tables to your Database.
+- Adds the operations `comments.list`, `get`, `create`, `reply`, `edit`, `delete`, `resolve`, `reopen`, and `users`. The Console, `vitehub comments list`, the [MCP endpoint](/docs/development/mcp), and the browser client all call this code.
+- Adds a **Comments** section to the [Console](/docs/development/console). It lists the threads you may read, with filter chips and a page link. A row opens the thread in a side panel, where you reply, resolve, reopen, and `@`-mention people.
 
-Comments are private to the people that `authorize` allows. Without a policy, the people that the Console admits to its Comments section may read and write, and anonymous people only on the dev server.
+Only the people that `authorize` allows can see comments. Without a policy, people that the Console admits to its Comments section may read and write. On the dev server, anonymous people may too.
 
 ## Next steps
 
-- [Get started](/docs/comments/operations/get-started) adds comments to an app.
-- [Configure](/docs/comments/operations/configure) covers `authorize`, subjects, mentions, and the Database.
-- [Server API](/docs/comments/operations/server-api) lists the operations and the browser transport.
-- [Limits and errors](/docs/comments/operations/limits-and-errors) lists the limits and the error codes.
+- [Get started](/docs/comments/operations/get-started): add comments to an app.
+- [Configure](/docs/comments/operations/configure): `authorize`, subjects, mentions, and the Database.
+- [Server API](/docs/comments/operations/server-api): the operations and the browser transport.
+- [Limits and errors](/docs/comments/operations/limits-and-errors): limits and error codes.

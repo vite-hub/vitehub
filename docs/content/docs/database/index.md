@@ -8,7 +8,7 @@ icon: i-lucide-database
 ---
 
 ::product-hero{tagline="Define SQL tables in TypeScript and query them from your routes, with typed rows." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree{feature="database"}
   ```ts [src/database.ts]
   import { defineDatabase } from 'vite-hub/database'
   import {
@@ -28,6 +28,19 @@ icon: i-lucide-database
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // On Node, tables are saved in local SQLite
+      database: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -35,12 +48,32 @@ icon: i-lucide-database
 
   export default defineConfig({
     plugins: [
-      // Local SQLite while you develop
-      vitehub({ preset: 'node', database: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, tables are saved in local SQLite
+        database: true,
+      }),
       nitro(),
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // On Node, tables are saved in local SQLite
+        database: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [server/api/notes.get.ts]
   import { defineEventHandler } from 'h3'
@@ -92,23 +125,23 @@ icon: i-lucide-database
 
 ::product-features
   :::product-feature-item{title="Tables in one file" icon="i-lucide-file-code-2" to="/docs/database/configure#define-a-database"}
-  Write your tables with Drizzle in `src/database.ts`. ViteHub finds the file and makes migrations from it.
+  Write your tables with Drizzle in `src/database.ts`. ViteHub finds it and makes migrations.
   :::
 
   :::product-feature-item{title="Query from any route" icon="i-lucide-code-2" to="/docs/database/server-api#use-it-at-runtime"}
-  `useDatabase()` gives you a Drizzle client and your tables. Results have the types of your columns.
+  `useDatabase()` gives you a Drizzle client and your tables, with typed results.
   :::
 
   :::product-feature-item{title="More than one database" icon="i-lucide-layers" to="/docs/database/server-api#use-named-databases"}
-  Give a database a name to keep its data apart. Each one has its own client and connection.
+  Name a database to keep its data apart, with its own client and connection.
   :::
 
   :::product-feature-item{title="Local first, hosted later" icon="i-lucide-cloud-cog" to="/docs/database/hosts#providers"}
-  Use a local SQLite file while you develop. Move to Turso or Cloudflare D1 without changing your routes.
+  Use a local SQLite file while you develop. Move to Turso or Cloudflare D1 with the same routes.
   :::
 
   :::product-feature-item{title="SQLite everywhere" icon="i-lucide-table-2" to="/docs/database/hosts#production-checks"}
-  Every connection uses SQLite-compatible SQL, so your queries work the same on each host.
+  Every connection uses SQLite-compatible SQL, so queries work the same on each host.
   :::
 ::
 

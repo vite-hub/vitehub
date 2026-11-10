@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import * as vue from "vue"
 import { compileScript, compileTemplate, parse } from "vue/compiler-sfc"
 import * as serverRenderer from "vue/server-renderer"
@@ -33,4 +33,23 @@ it("renders the same empty placeholder on the server and in the browser when the
   // A component without `ssrRender` renders its client vnodes, which is what hydration compares the server HTML with.
   const browser = await serverRenderer.renderToString(vue.createSSRApp({ ...compile("assistant/DocsAssistantOff.vue", false), ssrRender: undefined }))
   expect(server).toBe(browser)
+})
+
+it.each([true, false])("loads only the first example when rendering a tab group (ssr=%s)", async (ssr) => {
+  const filename = resolve(import.meta.dirname, "../runtime/app/components/content/Examples.vue")
+  const { descriptor } = parse(readFileSync(filename, "utf8"), { filename })
+  const script = compileScript(descriptor, { id: "examples", isProd: true, inlineTemplate: true, templateOptions: { ssr } }).content
+  const { outputText } = transpileModule(script, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext } })
+  const exports: { default?: vue.Component } = {}
+  runInNewContext(outputText, { ...vue, exports, require: (id: string) => id === "vue/server-renderer" ? serverRenderer : vue })
+  const first = vi.fn(async () => ({ render: () => vue.h("p", "First preview") }))
+  const second = vi.fn(async () => ({ render: () => vue.h("p", "Second preview") }))
+  const examples = [vue.defineAsyncComponent(first), vue.defineAsyncComponent(second)]
+  const app = vue.createSSRApp({ render: () => vue.h(exports.default!, null, { default: () => examples.map(example => vue.h(example)) }) })
+
+  const html = await serverRenderer.renderToString(app)
+  expect(html).toContain("First preview")
+  expect(html).not.toContain("Second preview")
+  expect(first).toHaveBeenCalledOnce()
+  expect(second).not.toHaveBeenCalled()
 })

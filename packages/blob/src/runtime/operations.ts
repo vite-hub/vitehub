@@ -12,7 +12,9 @@ import {
   blobDevMaximumUploadBytes,
 } from "../results.ts"
 
-import type { BlobObject, BlobResult, BlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode, BlobObject, BlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
 import type { MediaRecord, MediaVariantEntry } from "../media/types.ts"
 
 /** Store names and drivers that the Blob configuration of this runtime defines. `default` is first. */
@@ -116,6 +118,7 @@ export interface BlobOperationInput {
 }
 
 /** A failure with the fields that every surface reports. */
+// Internal invariant: the CLI and Console read its status, code, and fix. Changing the class changes their output.
 export class BlobOperationError extends Error {
   constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
     super(redactInspectionText(message))
@@ -166,9 +169,9 @@ function notFound(pathname: string, store: string): BlobOperationError {
   return new BlobOperationError(`Blob ${pathname} was not found in store ${store}.`, 404, "BLOB_NOT_FOUND")
 }
 
-function unwrap<TResult>(result: BlobResult<TResult>): TResult {
-  if (result[0] === null) return result[1]
-  const error = result[0]
+function unwrap<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  const [error, value] = result
+  if (!error) return value
   const cause = error.cause
   const causeMessage = cause instanceof Error ? ` ${cause.message}` : ""
   throw new BlobOperationError(`${error.message}${causeMessage}`, 502, error.code)

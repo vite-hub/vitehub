@@ -31,12 +31,15 @@ const gmailWatchLabelIds: readonly string[] = ["INBOX"]
 
 // Gmail API: https://developers.google.com/workspace/gmail/api/reference/rest
 
-/** One Gmail REST request. `path` is relative to `https://gmail.googleapis.com/gmail/v1/users/me/`. */
+/**
+ * One Gmail REST request. `path` is relative to `https://gmail.googleapis.com/gmail/v1/users/me/`.
+ * Query values have the Gmail API types: a repeated parameter is an array and a flag is a boolean.
+ */
 export interface GmailRequest {
   body?: Record<string, unknown>
   method: "GET" | "PATCH" | "POST"
   path: string
-  query?: Record<string, number | readonly string[] | string | undefined>
+  query?: Record<string, boolean | number | readonly string[] | string | undefined>
 }
 
 /**
@@ -338,7 +341,7 @@ function requestUrl(request: GmailRequest): string {
   const url = new URL(request.path.replace(/^\/+/, ""), gmailApiBaseUrl)
   for (const [name, value] of Object.entries(request.query || {})) {
     if (value === undefined) continue
-    if (hasRuntimeType(value, "string") || hasRuntimeType(value, "number")) url.searchParams.append(name, String(value))
+    if (hasRuntimeType(value, "string") || hasRuntimeType(value, "number") || hasRuntimeType(value, "boolean")) url.searchParams.append(name, String(value))
     else for (const item of value) url.searchParams.append(name, item)
   }
   return url.toString()
@@ -713,50 +716,6 @@ export async function trashGmailMessage(client: GmailClient, id: string): Promis
   await client({ method: "POST", path: `messages/${encodeURIComponent(id)}/trash` })
 }
 
-/** Moves mail with `label` that is older than `olderThan` days to Trash. Starred mail stays. */
-export interface GmailCleanupRule {
-  /** Gmail label name. Nested labels use `Parent/Child`. */
-  label: string
-  /** Age in whole days. */
-  olderThan: number
-}
-
-export interface GmailCleanupRuleResult {
-  /** IDs of the matching messages, at most 500 per rule. */
-  messageIds: string[]
-  /** Gmail search query of the rule. */
-  query: string
-  rule: string
-}
-
-/** Gmail's largest search page. A later run finds the rest. */
-const cleanupLimit = 500
-
-function gmailCleanupQuery(rule: GmailCleanupRule): string {
-  // Quotes keep spaces and nested label names exact.
-  return `label:"${rule.label}" older_than:${rule.olderThan}d -is:starred -in:trash`
-}
-
-/** Finds the matches of each rule and, with `apply`, moves them to Trash. */
-export async function cleanupGmailMailbox(client: GmailClient, rules: Readonly<Record<string, GmailCleanupRule>>, apply: boolean): Promise<GmailCleanupRuleResult[]> {
-  const results: GmailCleanupRuleResult[] = []
-  for (const [rule, value] of Object.entries(rules)) {
-    const query = gmailCleanupQuery(value)
-    const { ids } = await listGmailMessageIds(client, { includeSpamTrash: true, limit: cleanupLimit, query })
-    for (let start = 0; apply && start < ids.length; start += messageFetchConcurrency) {
-      await Promise.all(ids.slice(start, start + messageFetchConcurrency).map(async (id) => {
-        try { await trashGmailMessage(client, id) }
-        catch (error) {
-          // A message deleted after the search needs no cleanup.
-          if (gmailErrorStatus(error) !== 404) throw error
-        }
-      }))
-    }
-    results.push({ messageIds: ids, query, rule })
-  }
-  return results
-}
-
 // Pub/Sub push authentication
 
 const jwkSchema = v.object({ e: v.string(), kid: v.string(), kty: v.literal("RSA"), n: v.string() })
@@ -910,7 +869,7 @@ async function listGmailMessageIds(
   const page = await gmailRequest(client, messageListSchema, {
     method: "GET",
     path: "messages",
-    query: { includeSpamTrash: options.includeSpamTrash ? "true" : undefined, labelIds: options.labelIds, maxResults: options.limit, pageToken: options.pageToken, q: options.query },
+    query: { includeSpamTrash: options.includeSpamTrash || undefined, labelIds: options.labelIds, maxResults: options.limit, pageToken: options.pageToken, q: options.query },
   })
   return { ids: (page.messages || []).map(message => message.id), ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}) }
 }
@@ -1157,7 +1116,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
         // Only an expired history request triggers recovery, not a dispatch failure.
         const page = await gmailRequest(client, historyListSchema, {
           method: "GET", path: "history",
-          query: { historyTypes: "messageAdded", pageToken: progress.pageToken, startHistoryId: cursor },
+          query: { historyTypes: ["messageAdded"], pageToken: progress.pageToken, startHistoryId: cursor },
         }).catch(async (error: unknown) => {
           if (await restartExpiredPageToken(error)) return null
           if (gmailErrorStatus(error) !== 404) throw error

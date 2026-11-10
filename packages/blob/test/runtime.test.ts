@@ -1,7 +1,12 @@
-import { H3Event } from "h3"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { existsSync } from "node:fs"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
+import { normalizeBlobOptions } from "../src/config.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import {
@@ -11,15 +16,18 @@ import {
   setBlobRuntimeConfig,
   setBlobRuntimeStorage,
 } from "../src/runtime/state.ts"
-import type { BlobEnsureOptions, BlobResult, ResolvedBlobModuleOptions } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobEnsureOptions, BlobErrorCode, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 it("forwards response options through the runtime Blob helper", async () => {
-  const storage = { serve: vi.fn(async () => [null, null] as const) }
+  const response = new Response(null, { status: 304 })
+  const storage = { serve: vi.fn(async () => response) }
   setBlobRuntimeStorage(storage as unknown as ReturnType<typeof createBlobStorage>)
-  const event = new H3Event(new Request("https://example.test/photo"))
+  const request = new Request("https://example.test/photo")
   const options = { cacheControl: "public, max-age=300", transform: { key: "v1", run: (original: Blob) => original } }
-  expect(await blob.serve(event, "original", options)).toEqual([null, null])
-  expect(storage.serve).toHaveBeenCalledWith(event, "original", options)
+  expect(await blob.serve(request, "original", options)).toBe(response)
+  expect(storage.serve).toHaveBeenCalledWith(request, "original", options)
 })
 
 /** Runs one request the way the Nitro Cloudflare middleware does: the request env is active for the whole handler. */
@@ -35,9 +43,9 @@ async function cloudflareRequest<T>(blobConfig: ResolvedBlobModuleOptions, env: 
   })
 }
 
-function expectBlobSuccess<TResult>(result: BlobResult<TResult>): TResult {
+function expectBlobSuccess<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
   const [error, value] = result
-  expect(error).toBeNull()
+  expect(error).toBeUndefined()
   return value as TResult
 }
 
@@ -225,6 +233,7 @@ afterEach(() => {
   filesSdkMock.s3.mockClear()
   filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.BLOB_STORE_ID
   delete process.env.CLOUDFLARE_ACCOUNT_ID
   delete process.env.CLOUDFLARE_R2_ACCOUNT_ID
   delete process.env.CLOUDFLARE_R2_ACCESS_KEY_ID
@@ -337,15 +346,15 @@ describe("blob runtime", () => {
     const bucket = createMemoryBucket()
     setActiveCloudflareEnv({ BLOB: bucket })
 
-    expect(await blob.head("missing.txt")).toEqual([null, null])
-    expect(await blob.get("missing.txt")).toEqual([null, null])
+    expect(await blob.head("missing.txt")).toEqual([undefined, null])
+    expect(await blob.get("missing.txt")).toEqual([undefined, null])
     expectBlobSuccess(await blob.put("exists.txt", "hello"))
     expect(expectBlobSuccess(await blob.head("exists.txt"))?.pathname).toBe("exists.txt")
 
     const cause = new Error("R2 unavailable")
     vi.spyOn(bucket, "head").mockRejectedValue(cause)
     const [error, value] = await blob.head("exists.txt")
-    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", cause, details: { operation: "head", store: "default" } })
+    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", cause, why: "The Blob head operation failed on the \"default\" store." })
     expect(value).toBeUndefined()
   })
 
@@ -368,8 +377,10 @@ describe("blob runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "BLOB_OPERATION_FAILED",
-      details: { operation: "put", store: "archive" },
-      name: "ViteHubError",
+      docs: "https://vitehub.dev/docs/blob/diagnostics/blob_operation_failed",
+      fix: "Read `error.cause` for the provider error. Retry when the provider is available again.",
+      name: "BLOB_OPERATION_FAILED",
+      why: "The Blob put operation failed on the \"archive\" store.",
     })
   })
 
@@ -385,8 +396,8 @@ describe("blob runtime", () => {
     expect(value).toBeUndefined()
     expect(error).toMatchObject({
       code: "BLOB_OPERATION_FAILED",
-      details: { operation: "get", store: "default" },
-      name: "ViteHubError",
+      name: "BLOB_OPERATION_FAILED",
+      why: "The Blob get operation failed on the \"default\" store.",
     })
   })
 
@@ -425,6 +436,37 @@ describe("blob runtime", () => {
       access: "public",
       token: "secret-token",
     }))
+  })
+
+  it("lets the Vercel SDK use OIDC when the project has BLOB_STORE_ID", async () => {
+    process.env.BLOB_STORE_ID = "store_1"
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig({
+      store: {
+        access: "private",
+        driver: "vercel-blob",
+        token: "********",
+      },
+    })
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.objectContaining({ access: "private" }))
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.not.objectContaining({ token: expect.anything() }))
+  })
+
+  it("passes a masked configured token to the Vercel SDK ahead of OIDC", async () => {
+    const config = normalizeBlobOptions({ driver: "vercel-blob", token: "build-token" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "build-token", BLOB_STORE_ID: "oidc-store" },
+    })
+    const runtimeConfig: ResolvedBlobModuleOptions = JSON.parse(JSON.stringify(config))
+    process.env.BLOB_READ_WRITE_TOKEN = "runtime-token"
+    process.env.BLOB_STORE_ID = "oidc-store"
+    setBlobRuntimeConfig(runtimeConfig)
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.objectContaining({ token: "runtime-token" }))
   })
 
   it.each([undefined, false, true])("preserves Vercel list options and result shape with folded %s", async (folded) => {
@@ -741,7 +783,7 @@ describe("blob runtime", () => {
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
     expectBlobSuccess(await blob.del("notes/hello.txt"))
-    expect(await blob.head("notes/hello.txt")).toEqual([null, null])
+    expect(await blob.head("notes/hello.txt")).toEqual([undefined, null])
   })
 
   it("serves byte ranges from the active Cloudflare binding in one read, without reading the whole object", async () => {
@@ -763,11 +805,10 @@ describe("blob runtime", () => {
       },
     })
 
-    const event = new H3Event(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }))
-    const body = expectBlobSuccess(await blob.serve(event, "video.mp4"))
+    const response = await blob.serve(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }), "video.mp4")
 
-    expect(event.res.status).toBe(206)
-    expect(await new Response(body).text()).toBe("456")
+    expect(response.status).toBe(206)
+    expect(await response.text()).toBe("456")
     expect(reads).toEqual([{ onlyIf: undefined, range: { offset: 4, length: 3 } }])
   })
 
@@ -1192,7 +1233,7 @@ describe("blob runtime", () => {
 
     expect(await expectBlobSuccess(await blob.get("notes/100%25.txt"))?.text()).toBe("value")
     expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
-    expect(await blob.head("notes/h%C3%A9llo.txt")).toEqual([null, null])
+    expect(await blob.head("notes/h%C3%A9llo.txt")).toEqual([undefined, null])
   })
 
   it("passes decoded pathnames to the Vercel driver", async () => {
@@ -1354,6 +1395,72 @@ describe("blob runtime", () => {
     expect(expectBlobSuccess(await blob.get("notes/slow.txt"))).toBeNull()
   })
 
+})
+
+describe("blob runtime in vite dev", () => {
+  async function localBase() {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-dev-"))
+    onTestFinished(() => rm(base, { force: true, recursive: true }))
+    return base
+  }
+
+  it("keeps a Vercel Blob token in env on the local fs store", async () => {
+    const base = await localBase()
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base, BLOB_READ_WRITE_TOKEN: "secret-token" } }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
+    expect(vercelBlobMock.put).not.toHaveBeenCalled()
+  })
+
+  it("uses the real Vercel Blob store with remote: true and warns once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig(normalizeBlobOptions({ remote: true }, { dev: true, env: { BLOB_READ_WRITE_TOKEN: "secret-token" } }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.put("notes/again.txt", "again"))
+
+    expect(vercelBlobMock.put).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls).toEqual([["[vitehub] Blob store \"default\" is remote: `vite dev` uses the real Vercel Blob store. Writes change real data."]])
+  })
+
+  it("uses the local fs store for the Cloudflare preset when the dev runner has no R2 binding", async () => {
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the R2 binding of the dev runner for the Cloudflare preset", async () => {
+    const base = await localBase()
+    const bucket = createMemoryBucket()
+    setActiveCloudflareEnv({ BLOB: bucket })
+    setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("notes/hello.txt"))?.text()).toBe("hello")
+    expect(existsSync(join(base, "notes/hello.txt"))).toBe(false)
+  })
+
+  it("uses the R2 API instead of the local binding with remote: true", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID = "account"
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "access-key"
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY = "secret-key"
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+    setBlobRuntimeConfig(normalizeBlobOptions({ bucketName: "assets", remote: true }, { dev: true, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.list())
+
+    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({ bucket: "assets" }))
+  })
 })
 
 describe("ensureBlob", () => {

@@ -5,6 +5,15 @@ export interface EnvManagement {
   bridge: EnvBridge;
   authenticate(request: Request): EnvAccessContext | null | Promise<EnvAccessContext | null>;
 }
+/**
+ * Options that server code passes to one management request. A request never sets them.
+ * `allowedOrigin` is a browser origin that the caller already accepted for this request, such as the Console with a
+ * verified bearer token from `console.origins`. The bridge still authenticates the request and checks permissions.
+ */
+export interface EnvBridgeRequestOptions {
+  allowedOrigin?: string;
+}
+
 export type EnvManagementResolver = (
   path: string,
 ) => { key: string; management: EnvManagement } | undefined;
@@ -62,13 +71,13 @@ function response(value: unknown, status = 200): Response {
 /** Mount only on a server route. resolve selects declared credentials, never arbitrary store keys. */
 export function createEnvBridgeHandler(
   resolve: EnvManagementResolver,
-): (request: Request) => Promise<Response> {
-  return async (request) => {
+): (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response> {
+  return async (request, options = {}) => {
     if (request.method !== "POST") return response({ message: "Method not allowed." }, 405);
     const origin = request.headers.get("origin");
     if (
       origin
-        ? origin !== new URL(request.url).origin
+        ? origin !== new URL(request.url).origin && origin !== options.allowedOrigin
         : !/^Bearer\s+\S+$/i.test(request.headers.get("authorization") ?? "")
     )
       return response({ message: "Request origin is not allowed." }, 403);

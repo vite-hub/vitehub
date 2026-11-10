@@ -1,12 +1,12 @@
 import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
-import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
+import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 import { failInterruptedAgentInvocations } from "./server/invocation-health.ts"
 
@@ -39,7 +39,7 @@ const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 const MAX_AGENT_CONFIGURATION_ITEMS = 32 * 1024
 const MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS = 8 * 1024
-export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE } from "./internal/invocation-observation-stream.ts"
+export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE } from "./internal/invocation-observation-stream.ts"
 const AGENT_INVOCATION_INPUT_REDACTED_ATTRIBUTE = "vitehub.input.redacted"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
 const PROMPT_TRUNCATED_ATTRIBUTE = "input.prompt.truncated"
@@ -76,6 +76,7 @@ const TERMINAL_RETRY_TIMEOUT_MS = 60_000
 const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
+const STORE_OPEN_TIMEOUT_MS = 10_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
 const brandedErrorValues = new WeakSet<object>()
@@ -168,6 +169,8 @@ export interface AgentInvocationListOptions {
   search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
   triggeredBy?: string
+  /** ISO timestamp; keeps invocations whose `updatedAt` is at or after it. Stores without an index for it may ignore it. */
+  updatedSince?: string
 }
 
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
@@ -214,6 +217,12 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
+  /**
+   * Prepares a store that connects on first use, such as one that loads its database client and runs migrations.
+   * The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`.
+   * Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried.
+   */
+  open?(): MaybePromise<void>
   claim(id: string, claimId: string, leaseMs: number, options?: {
     /** Atomically rotate only an absent claim or one of these owned generations, unless replaceExisting is true. */
     expectedClaimIds?: readonly string[]
@@ -626,6 +635,7 @@ function boundedString(value: string | undefined): string | undefined {
 }
 
 function isDateValue(value: unknown): value is Date {
+  if (isUnbrandedValue(value)) return false
   try {
     Date.prototype.getTime.call(value)
     return true
@@ -637,6 +647,7 @@ function isDateValue(value: unknown): value is Date {
 
 
 function arrayBufferByteLength(value: unknown): number | undefined {
+  if (isUnbrandedValue(value)) return undefined
   try {
     const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
     // SAFETY: The intrinsic byteLength getter returns a number for a branded ArrayBuffer.
@@ -813,6 +824,7 @@ function isAggregateErrorValue(value: unknown): value is AggregateError {
 }
 
 function isRegExpValue(value: unknown): value is RegExp {
+  if (isUnbrandedValue(value)) return false
   try {
     Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return true
@@ -870,6 +882,7 @@ interface BoundedObservationBuiltIn {
 }
 
 function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  if (isUnbrandedValue(value)) return
   try {
     return Set.prototype.values.call(value)
   }
@@ -879,7 +892,7 @@ function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
 }
 
 function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || !hasRuntimeType(value, "object") || isUnbrandedValue(value)) return
   try {
     return Map.prototype.entries.call(value)
   }
@@ -1271,6 +1284,34 @@ function boundedObservationAttributeValue(
   return configuration
 }
 
+/** Compare visible history fields without serializing the unbounded input. */
+function sameVisibleMessageText(value: unknown, bounded: unknown): boolean {
+  try {
+    if (!Array.isArray(value) || !Array.isArray(bounded) || value.length !== bounded.length) return false
+    const stringField = (record: unknown, key: string) => isRuntimeRecord(record) && hasRuntimeType(record[key], "string") ? record[key] : undefined
+    // Matching lengths limit traversal to the history retained by the value budget.
+    return bounded.every((message: unknown, index) => {
+      const original: unknown = value[index]
+      const content = stringField(original, "content")
+      const boundedContent = stringField(message, "content")
+      if (content !== undefined || boundedContent !== undefined) return content === boundedContent
+      const parts = isRuntimeRecord(original) && Array.isArray(original.parts) ? original.parts : undefined
+      const boundedParts = isRuntimeRecord(message) && Array.isArray(message.parts) ? message.parts : undefined
+      if (!parts || !boundedParts) return parts === boundedParts
+      if (parts.length !== boundedParts.length) return false
+      return boundedParts.every((part: unknown, partIndex) => {
+        const originalPart: unknown = parts[partIndex]
+        if (!isRuntimeRecord(originalPart) || !isRuntimeRecord(part)) return isRuntimeRecord(originalPart) === isRuntimeRecord(part)
+        return stringField(originalPart, "text") === stringField(part, "text")
+          && stringField(originalPart, "url") === stringField(part, "url")
+      })
+    })
+  }
+  catch {
+    return false
+  }
+}
+
 function boundedObservation(
   observation: TraceEventLogEntry,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
@@ -1317,44 +1358,62 @@ function boundedObservation(
     if (payload.visibility === "public") canonicalAttributes["vitehub.payload.value"] = payload.value
     if (payload.visibility === "summary") canonicalAttributes["vitehub.payload.summary"] = payload.summary
   }
+  const recordedTruncation = observation.attributes?.[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] === true
+  const recordedAttributes = observation.attributes?.[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]
+  // A flag without names stays unnamed: this pass cannot tell what an earlier pass cut.
+  const unnamedTruncation = recordedTruncation && !Array.isArray(recordedAttributes)
+  const truncatedAttributes = new Set<string>(Array.isArray(recordedAttributes)
+    ? recordedAttributes.filter(key => hasRuntimeType(key, "string")).map(key => boundedString(key)!)
+    : [])
   const ordinaryAttributes = Object.entries(observation.attributes || {})
-    .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+    .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key)
+      && key !== AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE
+      && key !== AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE)
   const ordinaryAttributeLimit = MAX_OBSERVATION_ATTRIBUTES - Object.keys(canonicalAttributes).length
-  if (ordinaryAttributes.length > ordinaryAttributeLimit) {
-    budget.truncated = true
-  }
+  for (const [key] of ordinaryAttributes.slice(ordinaryAttributeLimit)) truncatedAttributes.add(boundedString(key)!)
   let attributes = observation.attributes || Object.keys(canonicalAttributes).length
     ? {
         ...Object.fromEntries(ordinaryAttributes
           .slice(0, ordinaryAttributeLimit)
         .flatMap(([key, value]) => {
-          if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-          return value === undefined ? [] : [[boundedString(key), boundedObservationAttributeValue(
+          const truncatedBefore = budget.truncated
+          budget.truncated = key.length > MAX_METADATA_STRING_LENGTH
+          const bounded = value === undefined ? undefined : boundedObservationAttributeValue(
             key,
             value,
             budget,
-            key === "vitehub.agent.configuration" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
+            // Run IDs compose channel thread IDs. Keep them whole so the flag reports content loss, not identity length.
+            key === "vitehub.agent.configuration" || key === "agent.run.id" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
             builtIns,
-          )]]
+          )
+          if (budget.truncated) {
+            // Input histories often lose only hidden part data. Name that apart from message text.
+            const hiddenPartsOnly = (key === "input.messages" || key === "input.prompt")
+              && sameVisibleMessageText(value, bounded)
+            truncatedAttributes.add(hiddenPartsOnly ? `${key}.parts` : boundedString(key)!)
+          }
+          budget.truncated ||= truncatedBefore
+          return value === undefined ? [] : [[boundedString(key), bounded]]
         })),
         ...canonicalAttributes,
       }
     : undefined
-  if (payloadBudget.truncated) budget.truncated = true
+  if (payloadBudget.truncated) truncatedAttributes.add("vitehub.payload.value")
+  if (recordedTruncation || truncatedAttributes.size) budget.truncated = true
   if (budget.truncated) {
     attributes ||= {}
-    if (Object.keys(attributes).length >= MAX_OBSERVATION_ATTRIBUTES) {
+    const flag = observation.name === "vitehub.agent.configured" ? "vitehub.agent.configurationTruncated" : AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE
+    const markers = () => Number(!(flag in attributes!)) + Number(!unnamedTruncation)
+    while (Object.keys(attributes).length + markers() > MAX_OBSERVATION_ATTRIBUTES) {
       const lastOrdinaryAttribute = Object.keys(attributes)
-        .filter(key => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+        .filter(key => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key) && key !== flag)
         .at(-1)
-      if (lastOrdinaryAttribute) delete attributes[lastOrdinaryAttribute]
+      if (!lastOrdinaryAttribute) break
+      truncatedAttributes.add(lastOrdinaryAttribute)
+      delete attributes[lastOrdinaryAttribute]
     }
-    if (observation.name === "vitehub.agent.configured") {
-      attributes["vitehub.agent.configurationTruncated"] = true
-    }
-    else {
-      attributes[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] = true
-    }
+    attributes[flag] = true
+    if (!unnamedTruncation) attributes[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE] = [...truncatedAttributes].slice(0, MAX_OBSERVATION_ATTRIBUTES)
   }
   if (observation.name === "agent.invocation.start" && observation.attributes?.["input.prompt"] !== undefined && attributes) {
     attributes[PROMPT_TRUNCATED_ATTRIBUTE] = attributes[PROMPT_TRUNCATED_ATTRIBUTE] === true
@@ -1616,6 +1675,18 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   if (unref) unref.call(timer)
 }
 
+function namedTruncationAttributes(attributes: TraceEventLogEntry["attributes"], dropped: readonly string[]) {
+  const recorded = attributes?.[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]
+  // Preserve unknown earlier losses rather than presenting a partial list as complete.
+  if (attributes?.[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] === true && !Array.isArray(recorded)) return {}
+  return {
+    [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: [...new Set([
+      ...(Array.isArray(recorded) ? recorded.filter(key => hasRuntimeType(key, "string")) : []),
+      ...dropped,
+    ])],
+  }
+}
+
 // Bound encoded storage size after privacy filtering and value normalization.
 export function byteBoundedObservations(values: readonly TraceEventLogEntry[], limits: Required<AgentInvocationObservationOptions>): { observations: readonly TraceEventLogEntry[], truncated: boolean } {
   const maxBytes = limits.maxBytes
@@ -1649,11 +1720,13 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
       throw agentDiagnostics.AGENT_R0908({ message: "[vitehub] Agent Invocation observation byte capacity reached; appended evidence was not changed." })
     }
     if (bytes + size + (retained.length ? 1 : 0) > maxBytes && observation.name === "vitehub.agent.configured") {
+      const dropped = Object.keys(observation.attributes || {}).filter(key => isTraceContentAttributeKey(key) || key === "vitehub.agent.configuration")
       candidate = {
         ...observation,
         attributes: {
-          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.agent.configuration")),
+          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !dropped.includes(key))),
           "vitehub.agent.configurationTruncated": true,
+          ...namedTruncationAttributes(observation.attributes, dropped),
         },
       }
       size = encoder.encode(JSON.stringify(candidate)).byteLength
@@ -1666,11 +1739,13 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
       }
     }
     else if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
+      const dropped = Object.keys(observation.attributes || {}).filter(key => isTraceContentAttributeKey(key) || key === "vitehub.payload.value")
       candidate = {
         ...observation,
         attributes: {
-          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.payload.value")),
+          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !dropped.includes(key))),
           [observation.name === "vitehub.agent.configured" ? "vitehub.agent.configurationTruncated" : AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+          ...namedTruncationAttributes(observation.attributes, dropped),
           ...(observation.payload?.visibility === "public" ? { "vitehub.payload.visibility": "redacted" } : {}),
         },
         ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
@@ -1680,7 +1755,11 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
       if (bytes + size + (retained.length ? 1 : 0) > maxBytes && isRuntimeRecord(usageRecord)) {
         // Keep canonical totals before dropping bulky per-call and raw evidence.
         const { calls: _calls, raw: _raw, ...summary } = usageRecord
-        candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": summary } }
+        candidate = { ...candidate, attributes: {
+          ...candidate.attributes,
+          ...namedTruncationAttributes(candidate.attributes, ["usage.record"]),
+          "usage.record": summary,
+        } }
         size = encoder.encode(JSON.stringify(candidate)).byteLength
         if (bytes + size + (retained.length ? 1 : 0) > maxBytes) {
           // Arbitrary details and response metadata must not displace measured totals.
@@ -1913,12 +1992,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id, options) {
       const record = records.get(id)
       if (!record) return undefined
-      const cloned = cloneRecord(record)
-      if (options?.observationNames) {
-        const names = new Set(options.observationNames)
-        cloned.observations = cloned.observations.filter(observation => names.has(observation.name))
-      }
-      return cloned
+      if (!options?.observationNames) return cloneRecord(record)
+      const names = new Set(options.observationNames)
+      return cloneRecord({ ...record, observations: record.observations.filter(observation => names.has(observation.name)) })
     },
     getSummary(id) {
       const record = records.get(id)
@@ -2114,9 +2190,32 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (!Number.isSafeInteger(storeTimeoutMs) || storeTimeoutMs < 1 || storeTimeoutMs > 60_000) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
   }
-  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => boundedStoreOperation(operation, timeoutMs)
+  // A lazy store opens once, outside the bound of the operation that comes first.
+  let opening: Promise<void> | undefined
+  const storeOpen = options.store.open
+  const openStore = storeOpen && (async () => {
+    const task = opening ??= Promise.resolve().then(() => storeOpen.call(options.store)).catch((error: unknown) => {
+      opening = undefined
+      throw error
+    })
+    const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
+    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+  })
+  const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
+    if (openStore) {
+      try {
+        await openStore()
+      }
+      catch (error) {
+        if (propagateErrors) throw error
+        return undefined
+      }
+    }
+    return boundedStoreOperation(operation, timeoutMs, propagateErrors)
+  }
+  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => storeOperation(operation, timeoutMs)
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
-    const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+    const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
       throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
     }
@@ -2157,6 +2256,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     [agentInvocationsBrand]: true,
     get supportsDelete() { return hasRuntimeType(store.delete, "function") },
     async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
+      if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2284,50 +2384,52 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
-        if (!creationTask) {
-          const task = Promise.resolve().then(async () => {
-            if (!bindOptions.existingOnly) return await store.create(createInput)
-            const record = await store.get(recordId)
-            return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
-              ? { created: false, record }
-              : undefined
-          }).then((result) => {
-            if (result) {
-              traceId = result.record.traceId
-              if (bindOptions.existingOnly) existingTraceId = result.record.traceId
-              if (bindOptions.existingOnly) existingCursor = result.record.cursor
-              limits = observationLimits(result.record.observationLimits)
-              observationCount = result.record.observations.length
-              observationsTruncated = result.record.observationsTruncated === true
-                || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
-              truncationPersisted = result.record.observationsTruncated === true
-              observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
-              invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
-              reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
-              finished = terminalStatus(result.record.status) && !reopenFailed
-              boundToTerminalRecord = finished
-              workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
-              createdNew = result.created
-              created = true
-              cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
-                || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
-              readCancellationRequest(result.record)
-            }
-            else if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return result
-          }, () => {
-            if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return undefined
-          })
-          creationTask = task
-        }
-        const result = await boundedStore(() => creationTask!, timeoutMs)
+        const result = await boundedStore(() => {
+          if (!creationTask) {
+            const task = Promise.resolve().then(async () => {
+              if (!bindOptions.existingOnly) return await store.create(createInput)
+              const record = await store.get(recordId)
+              return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
+                ? { created: false, record }
+                : undefined
+            }).then((result) => {
+              if (result) {
+                traceId = result.record.traceId
+                if (bindOptions.existingOnly) existingTraceId = result.record.traceId
+                if (bindOptions.existingOnly) existingCursor = result.record.cursor
+                limits = observationLimits(result.record.observationLimits)
+                observationCount = result.record.observations.length
+                observationsTruncated = result.record.observationsTruncated === true
+                  || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+                truncationPersisted = result.record.observationsTruncated === true
+                observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+                invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
+                reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
+                finished = terminalStatus(result.record.status) && !reopenFailed
+                boundToTerminalRecord = finished
+                workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
+                createdNew = result.created
+                created = true
+                cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
+                  || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
+                readCancellationRequest(result.record)
+              }
+              else if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return result
+            }, () => {
+              if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return undefined
+            })
+            creationTask = task
+          }
+          return creationTask!
+        }, timeoutMs)
         if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
@@ -3060,7 +3162,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         return result
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
-        const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+        const result = await storeOperation(operation, storeTimeoutMs, true)
         if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
         return result
       }

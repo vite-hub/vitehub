@@ -13,10 +13,13 @@ export function createWorkflowTypes(file: string, definitions: DiscoveredWorkflo
     const directory = /\.(?:c|m)?[jt]s$/i.test(definition.handler) ? dirname(definition.handler) : definition.handler
     return [
       `    ${JSON.stringify(definition.name)}: {`,
-      ...definition.steps!.map((step) => {
+      ...definition.steps!.flatMap((step) => {
         const path = relative(dirname(file), step)
         const specifier = path.startsWith(".") ? path : `./${path}`
-        return `      ${JSON.stringify(toStepPropertyName(relative(directory, step)))}: typeof import(${JSON.stringify(specifier)}).default`
+        return [
+          ...(/\.(?:c|m)?js$/i.test(step) ? ["      // @ts-ignore JavaScript steps may have no declarations when allowJs is disabled."] : []),
+          `      ${JSON.stringify(toStepPropertyName(relative(directory, step)))}: typeof import(${JSON.stringify(specifier)}).default`,
+        ]
       }),
       "    }",
     ]

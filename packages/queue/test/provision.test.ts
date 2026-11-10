@@ -51,8 +51,29 @@ describe("queue provision step", () => {
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
 
-    await actions[0]!.apply()
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { queue: { welcome: existing } } } })
     expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false)
+  })
+
+  it("finds an existing queue on the second page of the queue list", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+    const existing = getCloudflareQueueName("welcome")
+    const pages: Array<string | null> = []
+
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") throw new Error("must not create existing queue")
+      const page = new URL(String(input)).searchParams.get("page")
+      pages.push(page)
+      return page === "2"
+        ? jsonResponse({ success: true, result: [{ queue_name: existing }], result_info: { page: 2, per_page: 1, total_count: 2, total_pages: 2 } })
+        : jsonResponse({ success: true, result: [{ queue_name: "other" }], result_info: { page: 1, per_page: 1, total_count: 2, total_pages: 2 } })
+    }) as unknown as typeof globalThis.fetch
+
+    const actions = await createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+
+    expect(pages).toEqual(["1", "2"])
+    expect(actions.map(({ exists, name }) => ({ exists, name }))).toEqual([{ exists: true, name: existing }])
   })
 
   it("creates a missing queue with the hex-encoded name", async () => {
@@ -71,8 +92,20 @@ describe("queue provision step", () => {
 
     const actions = await createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
     expect(actions[0]!.exists).toBe(false)
-    await actions[0]!.apply()
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { queue: { welcome: expectedName } } } })
     expect(posted).toEqual([{ queue_name: expectedName }])
+  })
+
+  it("describes the Queue names it records without network access", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+
+    const [category] = createQueueProvisionStep(() => rootDir, () => "preview-").recordedState?.({ env: {} }) ?? []
+    expect(category).toMatchObject({ category: "queue", declared: ["welcome"] })
+    expect(category?.declaredResourceIdentity?.("welcome")).toBe(getCloudflareQueueName("welcome", "preview-"))
+    expect(category?.declaredResourceIdentity?.("removed")).toBeUndefined()
+    expect(category?.deleteHint({ id: "old-queue", key: "old" })).toBe("run `wrangler queues delete old-queue`")
+    expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the Queue in the Cloudflare dashboard")
   })
 
   it.each([

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { consoleErrorMessage } from "../client/documents";
-import { consoleMediaDate, consoleMediaFormat, consoleMediaTransformable, consoleMediaType, consoleMediaTypeIcons, consoleMediaUrl, consoleMediaVariantUrl } from "../client/media-library";
+import { consoleMediaDate, consoleMediaFormat, consoleMediaTransformable, consoleMediaType, consoleMediaTypeIcons, consoleMediaFileUrl, consoleMediaVariantUrl } from "../client/media-library";
 import { consoleBytes } from "../client/format";
 import { useConsoleToast } from "../client/toast";
 import { resolveConsoleRouteName } from "../console-route";
@@ -35,7 +35,7 @@ const emit = defineEmits<{
 
 const route = useRoute();
 const toast = useConsoleToast();
-const url = computed(() => props.file.url ?? consoleMediaUrl(props.served, props.file.pathname));
+const url = computed(() => consoleMediaFileUrl(props.file, props.served));
 const type = computed(() => consoleMediaType(props.file.contentType));
 const isImage = computed(() => type.value === "image");
 const preview = computed(() => {

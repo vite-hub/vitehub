@@ -10,20 +10,23 @@ const execFileAsync = promisify(execFile)
 it("runs Database request state through Nuxt's facade alias", async () => {
   const result = await build({
     alias: {
-      "@vite-hub/database/runtime/state": fileURLToPath(new URL("../src/_internal/database/runtime/state.ts", import.meta.url)),
+      "@vite-hub/database/runtime/state": fileURLToPath(new URL("../src/internal/database-runtime-state.ts", import.meta.url)),
     },
     bundle: true,
     format: "esm",
     platform: "node",
     stdin: {
       contents: [
-        'import { runWithDatabaseRequest } from "@vite-hub/database/runtime/state"',
-        "console.log(await runWithDatabaseRequest({}, () => 42))",
+        'import { getRequestCloudflareEnv, runWithDatabaseRequest } from "@vite-hub/database/runtime/state"',
+        'const env = { DATABASE: "request-binding" }',
+        'const event = { "~standard": { vendor: "test", req: new Request("https://example.test/"), res: { headers: new Headers() }, runtime: { cloudflare: { env } } } }',
+        "console.log(getRequestCloudflareEnv(event) === env)",
+        "console.log(await runWithDatabaseRequest(event, () => 42))",
       ].join("\n"),
       resolveDir: fileURLToPath(new URL("..", import.meta.url)),
     },
     write: false,
   })
   const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", result.outputFiles[0]!.text])
-  expect(stdout.trim()).toBe("42")
+  expect(stdout.trim()).toBe("true\n42")
 })

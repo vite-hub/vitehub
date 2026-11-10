@@ -2,13 +2,11 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it } from "vitest"
 import { integer, sqliteTable } from "drizzle-orm/sqlite-core"
 import { consoleDatabaseKey, consoleDatabaseRootKey } from "../src/console/internal.ts"
-import consoleDatabaseHandlerRoute from "../src/console/runtime/server/database.get.ts"
+import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts"
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
-import { allowed } from "./support/console-access.ts"
 
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
 
-const handler = allowed(consoleDatabaseHandlerRoute)
 const items = sqliteTable("items", { id: integer("id").primaryKey(), value: integer("value") })
 
 afterEach(() => {
@@ -35,7 +33,7 @@ describe("console database cross-realm values", () => {
     }
     const db = { select: () => query } as unknown as RuntimeDatabaseEntry<Record<string, unknown>>["db"]
     installConsoleDatabase("/project", { default: { db, schema: { items } } }, ["default"])
-    const result = await handler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/database?table=items" } })
+    const result = await browseConsoleDatabase({ table: "items" })
     expect(result.rows[0]).toMatchObject({
       value: { kind: "date", value: "2024-01-02T03:04:05.000Z" },
       bytes: { kind: "bytes", value: "0102ff" },

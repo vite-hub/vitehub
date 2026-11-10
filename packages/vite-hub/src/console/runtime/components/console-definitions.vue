@@ -474,7 +474,7 @@ onBeforeUnmount(() => request?.abort());
                       <button
                         v-if="!index"
                         type="button"
-                        class="text-start font-medium outline-none after:absolute after:inset-0 focus-visible:after:ring-1 focus-visible:after:ring-inset focus-visible:after:ring-primary"
+                        class="text-start font-medium outline-none after:absolute after:inset-0 focus-visible:after:ring-1 focus-visible:after:ring-inset focus-visible:after:ring-(--vitehub-console-focus)"
                         @click="selectRecord(row.id)"
                       >
                         {{ row.cells[column.key] || row.id }}

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -16,7 +16,7 @@ import { summarizeRealtimeDefinitions } from "./inspect.ts"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
-import type { DiscoveredRealtimeDefinition, RealtimeModuleOptions } from "./types.ts"
+import type { DiscoveredRealtimeDefinition, RealtimeOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import unavailable from "./internal/runtime/unavailable.ts"
 
@@ -38,7 +38,7 @@ export interface RealtimeContribution {
   plugins?: string[]
 }
 
-export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
+export interface RealtimeVitePluginOptions extends RealtimeOptions {
   importBase?: string
   /**
    * Adds definitions owned by another package. It runs only when the build has a room authority (Cloudflare Durable
@@ -231,7 +231,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           "",
         ].join("\n"))
       }
-      else if (environment?.command === "build" && authority === "auto") {
+      else if (isProductionBuild(config, environment) && authority === "auto") {
         throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
       else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {

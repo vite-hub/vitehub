@@ -6,7 +6,7 @@ import { glob as tinyglobby } from "tinyglobby"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createSource } from "../../src/core/reader.ts"
-import { glob } from "../../src/glob.ts"
+import { glob } from "../../src/index.ts"
 
 vi.mock("tinyglobby", () => ({
   glob: vi.fn(async () => ["docs/README.md"]),

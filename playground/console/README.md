@@ -14,6 +14,8 @@ The `Review image attachments` session covers persisted input and output images 
 
 `meal-logger` is a retired Agent. Its session stays in invocation history, so search lists it under Invocation history and the Agents list does not show it.
 
+`channels-fixture.ts` answers the `channels.*` operations. `release-engineer` has simulated Slack and Discord Channels, as `agent.channels.simulate` gives them in `vite dev`, and `product-reviewer` has a real Telegram Channel with a durable State. The simulated Channels serve the real chat page of `@vite-hub/agent` on their webhook route, but no Agent answers a message sent there.
+
 The `Inspect MCP tools and title` session provides synthetic server groups, tool contracts, skipped and empty servers, and a completed Title view for the Capabilities tab.
 
 The `Share one empty state across primitive pages` session is the happy path: a configured Agent, a prepared workspace, reasoning, file reads, commands with output, a file change with diffs, commentary, a Markdown answer, a GitHub reply, and usage with cost. The `Sync docs for the 0.0.5 release` session fails while it prepares the workspace, so the preparation group shows a failed step.
@@ -40,7 +42,7 @@ The check uses installed Playwright Chromium, the real Console components, and i
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
-`/api/_vitehub/console/`, and it also matches the paths under it:
+`/_vitehub/api/`, and it also matches the paths under it:
 
 ```js
 document.cookie = "playground-fail=agents=401,invocations=401" // Sign-in on the Agents page

@@ -13,11 +13,8 @@ import {
   consoleDatabaseRequestQuery,
   parseConsoleDatabase,
 } from "../src/console/runtime/components/console-database-model.ts";
-import consoleDatabaseHandlerRoute from "../src/console/runtime/server/database.get.ts";
+import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
-import { allowed } from "./support/console-access.ts";
-
-const consoleDatabaseHandler = allowed(consoleDatabaseHandlerRoute);
 
 const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -34,9 +31,6 @@ const posts = sqliteTable("posts", {
 const schema = { posts, users };
 const clients: Array<ReturnType<typeof createClient>> = [];
 
-function event(query = "", method = "GET") {
-  return { method, req: { url: `http://localhost/api/_vitehub/console/database${query}` } };
-}
 
 async function database(name = "default") {
   const client = createClient({ url: "file::memory:" });
@@ -84,7 +78,7 @@ describe("Console database inspection", () => {
   it("lists schema metadata before reading a selected table", async () => {
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
 
-    const result = await consoleDatabaseHandler(event());
+    const result = await browseConsoleDatabase({});
 
     expect(result).toMatchObject({
       database: "default",
@@ -125,7 +119,7 @@ describe("Console database inspection", () => {
     const schema = { accounts };
     installConsoleDatabase("/project", { default: { db: drizzle({ client, schema }), schema } }, ["default"]);
 
-    const result = await consoleDatabaseHandler(event());
+    const result = await browseConsoleDatabase({});
 
     expect(Object.fromEntries(result.tables[0]!.columns.map(column => [column.key, column.unique])))
       .toEqual({ tenant: false, email: false, handle: true, externalId: true, activeAlias: false, expression: false });
@@ -134,9 +128,7 @@ describe("Console database inspection", () => {
   it("paginates, filters, and sorts rows through structured read-only inputs", async () => {
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
 
-    const page = await consoleDatabaseHandler(
-      event("?table=users&limit=1&offset=1&sort=email&direction=desc"),
-    );
+    const page = await browseConsoleDatabase({ direction: "desc", limit: 1, offset: 1, sort: "email", table: "users" });
     expect(page).toMatchObject({
       direction: "desc",
       limit: 1,
@@ -153,33 +145,30 @@ describe("Console database inspection", () => {
       },
     ]);
 
-    const filtered = await consoleDatabaseHandler(event("?table=users&search=lovelace"));
+    const filtered = await browseConsoleDatabase({ search: "lovelace", table: "users" });
     expect(filtered.total).toBe(1);
     expect(filtered.rows[0]?.email).toEqual({ kind: "text", value: "ada@example.com" });
   });
 
-  it("selects named databases and rejects mutation or free-form query inputs", async () => {
+  it("selects named databases and rejects free-form query inputs", async () => {
     installConsoleDatabase(
       "/project",
       { analytics: await database("analytics"), default: await database() },
       ["analytics", "default"],
     );
 
-    const named = await consoleDatabaseHandler(event("?database=analytics&table=posts"));
+    const named = await browseConsoleDatabase({ database: "analytics", table: "posts" });
     expect(named.database).toBe("analytics");
     expect(named.databases).toEqual(["default", "analytics"]);
     expect(named.rows[0]?.title).toEqual({ kind: "text", value: "analytics database" });
 
-    await expect(consoleDatabaseHandler(event("?table=users", "POST"))).rejects.toMatchObject({
-      statusCode: 405,
-    });
-    await expect(consoleDatabaseHandler(event("?database=missing"))).rejects.toMatchObject({
+    await expect(browseConsoleDatabase({ database: "missing" })).rejects.toMatchObject({
       statusCode: 404,
     });
     await expect(
-      consoleDatabaseHandler(event("?table=users&sort=drop%20table%20users")),
+      browseConsoleDatabase({ sort: "drop table users", table: "users" }),
     ).rejects.toMatchObject({ statusCode: 400 });
-    await expect(consoleDatabaseHandler(event("?table=users&limit=101"))).rejects.toMatchObject({
+    await expect(browseConsoleDatabase({ limit: 101, table: "users" })).rejects.toMatchObject({
       statusCode: 400,
     });
   });

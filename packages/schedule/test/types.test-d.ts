@@ -15,6 +15,7 @@ import type { ScheduleRunContext } from "../src/index.ts"
 it("infers schedule handler result types", () => {
   const schedule = defineSchedule({ cron: "0 9 * * *", handler: async context => context.id })
 
+  expectTypeOf(schedule.cron).toEqualTypeOf<string>()
   expectTypeOf(schedule.handler).parameters.toEqualTypeOf<[ScheduleRunContext]>()
   expectTypeOf(schedule.handler).returns.toEqualTypeOf<string | Promise<string>>()
 })
@@ -31,10 +32,13 @@ it("types the defineSchedule helper signature", () => {
   })
 
   const positional = defineSchedule("0 9 * * *", async context => context.id, { manual: true })
+  expectTypeOf(positional.cron).toEqualTypeOf<string>()
   expectTypeOf(positional.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
 
-  // @ts-expect-error cron is required.
-  defineSchedule({ handler: async () => {} })
+  // Without cron, only startSchedule() runs the Definition. The handler reads what startSchedule() stored.
+  defineSchedule({ handler: async (context) => {
+    expectTypeOf(context.payload).toEqualTypeOf<unknown>()
+  } })
 
   // @ts-expect-error handler is required.
   defineSchedule({ cron: "0 9 * * *" })
@@ -79,6 +83,7 @@ it("types the Process Schedule Runtime", () => {
     onError?: (error: unknown) => void
     registry: ScheduleDefinitionRegistry
     scheduleRunStore: ScheduleRunStore
+    timings?: Readonly<Record<string, { cron: string, timeZone?: string }>>
   }>()
   expectTypeOf(installProcessScheduleRuntime).parameter(0).toEqualTypeOf<ProcessScheduleRuntimeOptions>()
   expectTypeOf(installProcessScheduleRuntime).returns.toEqualTypeOf<Promise<ScheduleRuntimeController>>()

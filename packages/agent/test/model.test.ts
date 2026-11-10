@@ -29,9 +29,16 @@ const runtime = {
   waitUntil: vi.fn(),
 }
 
+// Agents create AI Gateway models with the `createGateway` that `ai` re-exports, so the bundle keeps one gateway copy.
+function mockCreateGateway(createGateway: unknown) {
+  vi.doMock("ai", async importOriginal => ({ ...await importOriginal<typeof import("ai")>(), createGateway }))
+}
+
 describe("Agent model materialization", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    vi.doUnmock("ai")
     vi.resetModules()
     vi.restoreAllMocks()
   })
@@ -41,9 +48,10 @@ describe("Agent model materialization", () => {
     const model = languageModel()
     const selectModel = vi.fn(() => model)
     const createGateway = vi.fn(() => selectModel)
-    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    mockCreateGateway(createGateway)
     const instrumentation = vi.fn(({ model }) => model)
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       driver: {
         execution: { instrumentation: { model: instrumentation } },
@@ -51,15 +59,32 @@ describe("Agent model materialization", () => {
       },
     })
 
-    await runAgent(agent, runtime, { prompt: "hello" })
+    await runAgentWithContext(agent, runtime, { prompt: "hello" })
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "ambient-token" })
     expect(selectModel).toHaveBeenCalledWith("zai/glm-5v-turbo")
     expect(instrumentation).toHaveBeenCalledWith(expect.objectContaining({ model }))
   })
 
+  it("answers through the AI Gateway client that ai ships", async () => {
+    const requests: Request[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push(new Request(input, init))
+      return Response.json({ ...generateResult, content: [{ type: "text", text: "Hello from the gateway." }] })
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
+    const agent = defineAgent({ driver: { model: { apiKey: "gateway-token", id: "zai/glm-5v-turbo" } } })
+
+    await expect(runAgentWithContext(agent, runtime, { prompt: "hello" })).resolves.toMatchObject({ text: "Hello from the gateway." })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.url).toBe("https://ai-gateway.vercel.sh/v4/ai/language-model")
+    expect(requests[0]!.headers.get("authorization")).toBe("Bearer gateway-token")
+    expect(requests[0]!.headers.get("ai-language-model-id")).toBe("zai/glm-5v-turbo")
+  })
+
   it("uses explicit descriptor credentials and Cloudflare credential discovery", async () => {
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
-    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    mockCreateGateway(createGateway)
     const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
 
     await materializeAgentModel({
@@ -77,7 +102,7 @@ describe("Agent model materialization", () => {
   it("rejects empty explicit credentials instead of using ambient credentials", async () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", "ambient-token")
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
-    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    mockCreateGateway(createGateway)
     const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
 
     await expect(materializeAgentModel({ apiKey: "", id: "zai/glm-5v-turbo" }, {} as never))
@@ -87,8 +112,9 @@ describe("Agent model materialization", () => {
 
   it("resolves descriptor credentials for each invocation", async () => {
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
-    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    mockCreateGateway(createGateway)
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent<{ gatewayKey: string }>({
       driver: {
         model: ({ runtimeConfig }) => ({
@@ -98,7 +124,7 @@ describe("Agent model materialization", () => {
       },
     })
 
-    await runAgent(agent, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
+    await runAgentWithContext(agent, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
 
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "tenant-token" })
   })
@@ -107,7 +133,7 @@ describe("Agent model materialization", () => {
     const model = languageModel()
     const selectModel = vi.fn(() => model)
     const createGateway = vi.fn(() => selectModel)
-    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    mockCreateGateway(createGateway)
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     let resolvedModel: unknown
 
@@ -131,7 +157,7 @@ describe("Agent model materialization", () => {
   it("leaves conventional Gateway credential discovery intact", async () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", "")
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
-    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    mockCreateGateway(createGateway)
     const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
 
     await materializeAgentModel("zai/glm-5v-turbo", {} as never)

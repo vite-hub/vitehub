@@ -6,56 +6,95 @@ navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-Configure where Workspace stores files, what each Workspace Definition contains, and how Sources are bound into the file tree.
+Choose where a Workspace keeps files, what each Workspace Definition (a `defineWorkspace()` file) holds, and where Sources appear.
 
 ## Configure the Vite Integration
 
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { workspace: true },
 })
 ```
+:::
 
-The Vite config key is `workspace`.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ workspace: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ workspace: true })],
+})
+```
+:::
+::
+
+`workspace` takes `true` or an object with these options:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace` | `boolean` or `WorkspaceModuleOptions` | disabled | Enables Workspace discovery and runtime wiring through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
+| `workspace` | `boolean` or `WorkspaceOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
-| `projectRoot` | `string` | ViteHub project root | Resolves server-side discovery from a custom project root. |
-| `assets` | `WorkspaceModuleOptions['assets']` | package default | Controls build-time Workspace asset materialization. Accepts `false`, `true`, or explicit asset paths. |
-| `store` | `WorkspaceStoreOptions` | inferred from development mode, hosting, and environment | Default Workspace Store used by definitions that do not choose one. |
+| `projectRoot` | `string` | ViteHub project root | Project root that server-side discovery starts from. |
+| `assets` | `WorkspaceOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
+| `store` | `WorkspaceStoreOptions` | inferred from dev mode, host, and environment | Store for definitions that do not choose one. |
 
 ## Store providers
 
 | Store | Configure with | Nuance |
 | --- | --- | --- |
-| Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Filesystem-backed Workspace Store. Used by default in development and on hosts without a more specific match. |
-| Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
+| Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Files on disk. Default in development and on hosts with no better match. |
+| Memory | `{ provider: 'memory' }` | Temporary storage for tests or short-lived runtimes. |
 | Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
-| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Repository-backed storage with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
-| Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
-| Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
+| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Files live under `_vitehub/workspaces/<workspace>/`. `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` (letters, numbers, underscores, dashes, single slashes). The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, it uses OIDC when the project has `BLOB_STORE_ID`. Elsewhere, it uses `BLOB_READ_WRITE_TOKEN`. |
+| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Files in a repository, with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
+| Custom | `WorkspaceStore` | Your own implementation of the Store contract. |
+| Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Folder history that works on any host. Pass the returned Store to a Workspace Definition. |
 
-Vercel Blob writes preserve file bytes and JSON attributes in separate objects. Same-path writes and removals are serialized across Store instances in one process, including failed-write recovery. Readers are not isolated from in-progress writes. Coordinate access across processes or hosts when they share a Workspace; this adapter does not provide distributed transactions. Use the Blob + Database Store when you need atomic publication across replicas.
+Vercel Blob keeps file bytes and JSON attributes in separate objects. In one process, writes and removals on the same path run one at a time across Store instances, including failed-write recovery. Readers can see writes in progress.
 
-For a GitHub Store, set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` for credentials. You can set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` for the repository, branch, and root. These are the only GitHub Store location variables. A missing repository or token fails at the first request, not when the Workspace loads. See [GitHub Store](#github-store).
+::warning
+This adapter has no distributed transactions. When processes or hosts share a Workspace, coordinate their access yourself. For atomic publication across replicas, use the Blob + Database Store.
+::
 
-GitHub Stores and history views share immutable blob bytes by sha within one isolate, including across repositories. Concurrent reads share one request when the repository and credentials match. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB, evicts the oldest entries first, and skips blobs larger than 4 MiB. New isolates and reads after eviction still fetch each blob from GitHub. Failed reads can be retried.
+A [GitHub Store](#github-store) reads its token from `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
 
-Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
+In one isolate, GitHub Stores and history views cache blob bytes by sha, across repositories:
 
-Custom Stores can implement `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, preserve files and missing paths, and reject nonempty directories within the Store mutation boundary. Without this optional method, cleanup retains generated directories. Local, Memory, and Cloudflare Artifacts implement it.
+- Parallel reads with the same repository and credentials share one request. A failed request does not affect readers of another repository or token.
+- The cache holds up to 32 MiB, removes the oldest entries first, and skips blobs over 4 MiB.
+- New isolates, and reads after removal, fetch the blob from GitHub again. You can retry failed reads.
 
-Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, regardless of case. This includes NTFS stream suffixes such as `.vitehub::$INDEX_ALLOCATION`, spellings with trailing ASCII periods or spaces such as `.vitehub.`, and NTFS short-name aliases such as `git~1`. ViteHub rejects these spellings on every host.
+Without a `store`, development uses Local. In production:
+
+- Cloudflare uses Memory.
+- Vercel uses Vercel Blob when `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` exists, else Memory.
+- Other hosts use Local.
+
+You must select Cloudflare Artifacts or GitHub yourself.
+
+A Custom Store can add `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, keep files and missing paths, and reject a non-empty directory inside the Store mutation boundary. Without it, cleanup keeps generated directories. Local, Memory, and Cloudflare Artifacts have it.
+
+Workspace paths cannot use `.git` at any depth or `.vitehub` at the root, in any case. ViteHub also rejects, on every host, NTFS stream suffixes such as `.vitehub::$INDEX_ALLOCATION`, trailing ASCII periods or spaces such as `.vitehub.`, and NTFS short names such as `git~1`.
 
 ### Blob + Database Store
 
-Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration.
+This Store keeps fixed versions of a folder on any host that [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts) support. Add its schema to a Database Definition, then generate and apply migrations with the Database integration.
 
 ```ts [server/databases/history/config.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -79,17 +118,28 @@ export const dropStore = createBlobDatabaseWorkspaceStore({
 export default defineWorkspace({ store: dropStore })
 ```
 
-`vite-hub/workspace/blob-database` also exports the constructor and schema. Install `drizzle-orm` when using this subpath. Configure the selected Blob store and Database connection through their integrations. The Store does not create cloud resources or apply migrations at runtime.
+`vite-hub/workspace/blob-database` also exports the constructor and schema. This subpath needs `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.
 
-Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. History objects always live under `_vitehub/workspace-history/`. An optional `prefix` adds a namespace below it: `prefix: 'handbook'` stores objects under `_vitehub/workspace-history/handbook/`. A prefix accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides paths under `_vitehub/` by default. Each Store owns its Blob namespace. Do not write its objects through another API.
+Give each document or folder one stable workspace identity, and keep the identity and prefix across restarts. History objects live under `_vitehub/workspace-history/`, and `prefix: 'handbook'` puts them under `_vitehub/workspace-history/handbook/`. A prefix accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides `_vitehub/` paths by default. Each Store owns its Blob namespace, so never write its objects with another API.
 
-Normal `fs` writes stage changes in the Store instance and follow the `main` ref. Call `snapshot()` or `history.checkpoint()` to commit them to `main`. A successful `history.commit()` to `main` replaces the staged tree with the new head. Commits to other refs leave it alone. Failed commits preserve staged changes. Staged changes are lost when the instance stops; committed revisions are durable. Other instances observe committed heads, and a staged checkpoint fails if its base head moved.
+Normal `fs` writes stage changes in the Store instance on the `main` ref. Call `snapshot()` or `history.checkpoint()` to commit them to `main`.
+
+- A successful `history.commit()` to `main` replaces the staged tree with the new head. Commits to other refs leave it alone.
+- A failed commit keeps staged changes.
+- Staged changes are lost when the instance stops. Committed revisions persist.
+- Other instances see committed heads. A staged checkpoint fails if its base head moved.
 
 Keep work that must survive a restart, such as editor drafts, on its own ref. Commit each save with `history.commit({ ref: 'draft', ifHead, changes })`, then copy the chosen files to `published`. See [Refs](/docs/workspace/server-api#refs).
 
 #### Upgrade an existing history Database
 
-Named refs changed the schema. `workspace_history_workspaces` holds the deletion tombstone, `workspace_history_refs` has one row per Workspace and ref, and revisions record their `ref` in place of the `published` column, now `committed`. Regenerate migrations for new Databases. For a Database that already holds history, apply this SQL once so existing heads become `main`:
+Named refs changed the schema:
+
+- `workspace_history_workspaces` holds the deletion tombstone.
+- `workspace_history_refs` has one row per Workspace and ref.
+- Revisions record their `ref`, and the `published` column is now `committed`.
+
+For new Databases, regenerate migrations. For a Database that already has history, run this SQL once so existing heads become `main`:
 
 ```sql
 CREATE TABLE workspace_history_workspaces (workspace TEXT PRIMARY KEY NOT NULL, deleted INTEGER DEFAULT 0 NOT NULL);
@@ -104,13 +154,19 @@ DROP INDEX workspace_history_timeline;
 CREATE INDEX workspace_history_timeline ON workspace_history_revisions (workspace, ref, committed, sequence);
 ```
 
-Call `await dropStore.delete()` after application authorization to delete the workspace and all its history. Deletion first tombstones the identity, then removes objects and catalog rows. It is permanent. Use a new identity to create a replacement workspace. Retry `delete()` after a storage outage or after stopping an abandoned in-flight request. The tombstone prevents late commits from publishing. An interrupted upload can leave bytes that a later deletion sweep removes.
+To delete the workspace and all its history, check authorization in your app, then call `await dropStore.delete()`. It marks the identity with a tombstone, then removes objects and catalog rows.
 
-The Store retains every committed revision on every ref. It has no pruning API. Failed or conflicting uploads can leave reusable objects outside retained usage accounting until workspace deletion. See [host storage behavior](/docs/workspace/hosts#blob-database-history).
+::warning
+Deletion is permanent. A replacement workspace needs a new identity.
+::
+
+Retry `delete()` after a storage outage or once you stop an abandoned request. The tombstone blocks late commits, and a later sweep removes bytes from an interrupted upload.
+
+The Store keeps every committed revision on every ref and has no pruning API. Failed or conflicting uploads can leave reusable objects, outside usage counts, until workspace deletion. See [host storage behavior](/docs/workspace/hosts#blob-database-history).
 
 ### GitHub Store
 
-The GitHub Store keeps the Workspace in a repository. Reads and writes use the GitHub API, so it needs a token and a network. It also implements [retained history](/docs/workspace/server-api): each branch is a ref, and each commit is a revision.
+The GitHub Store keeps the Workspace in a repository. It reads and writes through the GitHub API, so it needs a token and a network. It supports [retained history](/docs/workspace/server-api): each branch is a ref, and each commit is a revision.
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from 'vite-hub/workspace'
@@ -132,57 +188,59 @@ export default defineWorkspace({
 | `branch` | `string` | `VITEHUB_WORKSPACE_GITHUB_BRANCH`, else `main` | The branch of the Workspace files. |
 | `root` | `string` | `VITEHUB_WORKSPACE_GITHUB_ROOT`, else `.vitehub/workspaces/<workspace>` | The folder in the repository. An empty string is the repository root. |
 | `token` | `string` | `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
-| `refs` | `{ published?: string, draft?: string }` | none | Branch names for the history refs `published` and `draft`. |
-| `database` | `unknown` | none | A value that the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store does not use it. |
+| `refs` | `{ published?: string, draft?: string }` | none | Branches for the history refs `published` and `draft`. |
+| `database` | `unknown` | none | A value the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store ignores it. |
 
-The Store does not read the repository or the token when it is created. A missing one throws `WORKSPACE_R0072` at the first request, so a build that loads the Workspace Definition needs no token.
+The Store reads the repository and token at the first request, not at creation. A missing one throws `WORKSPACE_R0072` then, so a build that loads the Workspace Definition needs no token.
 
 #### History on branches
 
-- **Refs.** A history ref is a branch name. With `refs`, a call on `published` or `draft` reads or writes the branch you named, and revisions on that branch report the ref `published` or `draft`. A branch that is literally named `published` or `draft` is hidden while its alias points elsewhere. A call that names the aliased branch itself, such as `main` for `published`, throws `WORKSPACE_R0071`: use the alias, so rules on `published` always apply. Calls without `ref` use `main`.
-- **First commit on a missing ref.** `commit({ ref, ifHead: null })` creates the branch. It starts from the `published` branch when `refs.published` is set, else from the default branch of the repository. The new branch has all files of that branch, then your changes. `startFrom: <revision id>` starts the new branch from that revision instead, so a write can be based on the exact files that the caller read. A commit that changes nothing does not create a branch.
-- **Compare and swap.** `ifHead` and `ifHeads` are checked against the branch heads on GitHub right before the commit. A stale value throws `WORKSPACE_CONFLICT`. GitHub updates one branch at a time, so a change between the check and the commit on the other branches of `ifHeads` is still possible.
-- **Commit metadata.** `message` is the commit message. `metadata` is stored in the commit message as a last line, `Vitehub-Metadata: {...}` (one line of JSON). `list`, `head`, `refs`, and `open` read it back, and return the message without that line. Only the last line of a message counts. The author fields of a revision come from the commit and are never taken from the metadata. A message with its own `Vitehub-Metadata:` line, a message over 16 KiB, or metadata over 64 KiB as JSON throws `WORKSPACE_R0073`. Commits made outside ViteHub have no such line and no metadata.
-- **Digests.** File digests are Git blob shas, not SHA-256. `history.digest(bytes)` returns the digest of bytes for the Store, and every revision view lists it as `digest`. Compare digests only with that function.
-- **Paths.** `history.list({ path })` returns only the commits that changed that file or folder.
-- **Head cache.** `history.head()` keeps the head of a branch for 5 seconds. A commit through the same Store instance replaces it at once. A commit by another writer shows within 5 seconds.
+- **Refs.** A history ref is a branch name. With `refs`, a call on `published` or `draft` uses the branch you named, and its revisions report the ref `published` or `draft`. A branch literally named `published` or `draft` is hidden while its alias points elsewhere. Naming the aliased branch itself, such as `main` for `published`, throws `WORKSPACE_R0071`. Use the alias, so rules on `published` always apply. Calls without `ref` use `main`.
+- **First commit on a missing ref.** `commit({ ref, ifHead: null })` creates the branch from the `published` branch when `refs.published` is set, else from the repository's default branch. It copies all files of that branch, then applies your changes. `startFrom: <revision id>` starts from that revision instead, so a write builds on the exact files the caller read. A commit that changes nothing creates no branch.
+- **Compare and swap.** ViteHub checks `ifHead` and `ifHeads` against the GitHub branch heads right before the commit. A stale value throws `WORKSPACE_CONFLICT`. GitHub updates one branch at a time, so another branch in `ifHeads` can still change between the check and the commit.
+- **Commit metadata.** `message` is the commit message. `metadata` goes in its last line as `Vitehub-Metadata: {...}` (one line of JSON). `list`, `head`, `refs`, and `open` read it back and return the message without that line. Only the last line counts. Revision author fields come from the commit, never from the metadata. A message with its own `Vitehub-Metadata:` line, a message over 16 KiB, or metadata over 64 KiB as JSON throws `WORKSPACE_R0073`. Commits made outside ViteHub have no metadata.
+- **Digests.** File digests are Git blob shas, not SHA-256. `history.digest(bytes)` returns the Store's digest for those bytes, and revision views list it as `digest`. Compare digests only with that function.
+- **Paths.** `history.list({ path })` returns only commits that changed that file or folder.
+- **Head cache.** `history.head()` caches a branch head for 5 seconds. A commit through the same Store instance updates it at once. Another writer's commit shows within 5 seconds.
 
 #### Limits
 
 - GitHub rate limits apply to every request. A revision view reads the whole tree of its commit.
-- Revisions of a repository root include every file of the repository. Use `rules` to limit writes. For example, `{ '**': { write: false } }` denies all writes, and a more specific rule such as `'content/**/*.md': { write: true }` allows one folder.
-- The Store does not create pull requests. See [GitHub store](/docs/cms/configure#github-store) for what the CMS does on top of it.
+- With the repository root as `root`, revisions include every repository file. Limit writes with `rules`: `{ '**': { write: false } }` denies all writes, and a more specific rule such as `'content/**/*.md': { write: true }` allows one folder.
+- The Store does not create pull requests. [GitHub store](/docs/cms/configure#github-store) shows what the CMS adds on top.
 
 ### Local path locks
 
-Local Stores lock each path before they read or write it. The default, `locks: 'filesystem'`, keeps lock markers under `.vitehub/locks` inside the root, so separate processes that share the root stay coordinated. Set `locks: 'process'` when one process owns the root, for example a disposable checkout that one worker uses. The Store then keeps the same per-path read and write locks in memory. It creates no lock directory, does not poll lock markers, and lists entries in parallel. A waiting writer runs before readers that arrive after it. Process locks do not protect the root from another process.
+Local Stores lock each path before they read or write it. The default, `locks: 'filesystem'`, keeps lock markers in `.vitehub/locks` inside the root, so processes that share the root stay in sync.
+
+Set `locks: 'process'` when one process owns the root, such as a throwaway checkout for one worker. The same per-path locks then live in memory, with no lock directory, no marker polling, and parallel listing. A waiting writer goes before readers that arrive after it. Process locks do not protect the root from other processes.
 
 ### Git checkout roots
 
-Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snapshots, and diffs then skip `.git` and every path that Git ignores, such as `node_modules` and build output. The Store asks Git for the ignored paths on each listing, so changes to `.gitignore` apply immediately. Git must be installed on the host.
+Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snapshots, and diffs then skip `.git` and every path Git ignores, such as `node_modules` and build output. The Store asks Git on each listing, so `.gitignore` changes apply at once. The host needs Git.
 
 ## Workspace Definition options
 
-`defineWorkspace()` accepts these top-level fields. The name comes from the discovered file path, or from the contribution when a package [contributes the Workspace](#contribute-workspace-definitions-from-a-package).
+`defineWorkspace()` takes these fields. The name comes from the file path, or from the package that [contributes the Workspace](#contribute-workspace-definitions-from-a-package).
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `commit` | `boolean \| string` | Auto-commit all Workspace changes, optionally with a custom message. |
+| `commit` | `boolean \| string` | Commit all changes automatically, with an optional message. |
 | `rootDir` | `string` | Source root used by loaders. |
-| `sourceRootDir` | `string` | Source-specific root for Source helpers. |
+| `sourceRootDir` | `string` | Folder that local Source helpers such as `file()` and `glob()` read from. For application `server/workspaces/<name>.ts` files, the default is the resolved project root. For flat files in Nuxt layers, `server/workspaces/<name>/config.ts` and Agent folders, the default is the file's folder, or its `workspace/` folder when present. |
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
-| `bindings` | `Record<string, WorkspaceInstructionBinding>` | Explicit scalar or file-backed values available to Agent Instruction Composition. Values can be `string`, `number`, `boolean`, `null`, or `{ path: string }`. |
-| `sources` | `Record<string, WorkspaceSourceInput>` | Workspace Source Bindings. |
-| `rules` | `WorkspaceRules` | Read, write, media type, max size, commit, and validation policy by path pattern. |
+| `bindings` | `Record<string, WorkspaceInstructionBinding>` | Values that Agent instructions can read: `string`, `number`, `boolean`, `null`, or a file as `{ path: string }`. |
+| `sources` | `Record<string, WorkspaceSourceInput>` | Source Bindings (where each Source appears). |
+| `rules` | `WorkspaceRules` | Read, write, media type, max size, commit, and validation rules by path pattern. |
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
-| `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
+| `plugins` | `WorkspacePlugin[]` | Packaged rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
 
-Instruction text reads scalar bindings with `{{ data.workspace.<name> }}` and file-backed bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
+Instructions read value bindings with `{{ data.workspace.<name> }}` and file bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys in `bindings` are available. Other Workspace files stay hidden from instructions. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 
 ## Contribute Workspace Definitions from a package
 
-A package can register a Workspace from its own Vite plugin, so applications do not write `server/workspaces/<name>.ts` for it. Add `vitehub.workspaces` to the plugin object. Each entry has a `name` and a `definition` that names the module and export of a `defineWorkspace()` result:
+A package can add a Workspace from its Vite plugin, so apps do not write `server/workspaces/<name>.ts` for it. Add `vitehub.workspaces` to the plugin object. Each entry has a `name` and a `definition` that points to the module and export of a `defineWorkspace()` result:
 
 ```ts [my-package/vite.ts]
 import { fileURLToPath } from 'node:url'
@@ -215,25 +273,25 @@ export const contentWorkspace = defineWorkspace({ /* store, rules, plugins */ })
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | `string` | Workspace name for `useWorkspace(name)`. |
-| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier that the application can import. Relative paths are rejected. |
-| `definition.export` | `string` | Export that holds the Workspace Definition. Defaults to `default`. |
-| `reason` | `string` | Optional. Why the package adds the Workspace. `vitehub inspect definitions` and the Console show it. |
+| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier the app can import. Relative paths fail. |
+| `definition.export` | `string` | Export with the Workspace Definition. Defaults to `default`. |
+| `reason` | `string` | Optional. Why the package adds the Workspace. Shown in `vitehub inspect definitions` and the Console. |
 
-`vitehub.workspaces` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. The Workspace plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
+`vitehub.workspaces` takes an array or a factory. The factory can be async and receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root. The Workspace plugin can read contributions before your `config` hook runs, so compute them in the factory. It runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
 
-A contributed Workspace behaves like a discovered file. It is in the generated Nitro registry, in the `WorkspaceName` types, in `vitehub inspect definitions`, and in the Console Workspaces section. Its definition is loaded at build time for asset bundling and Cloudflare Artifacts, the same as discovered files. The definition must not set `name`.
+A contributed Workspace works like a discovered file. It appears in the generated Nitro registry, the `WorkspaceName` types, `vitehub inspect definitions`, and the Console Workspaces section. The build loads its definition for asset bundling and Cloudflare Artifacts. The definition must not set `name`.
 
-Each Workspace name has one definition. If a contribution reuses the name of a discovered file or of another contribution, the build fails with `WORKSPACE_B0003`, and the message names both sources or both plugins. An invalid contribution fails with `WORKSPACE_B0004`. If the named export is missing at runtime, the first `useWorkspace(name)` call throws a `TypeError` that names the module, export, and contributing plugin.
+Each Workspace name has one definition. A contribution that reuses a name fails the build with `WORKSPACE_B0003`, and the message names both sources or plugins. An invalid contribution fails with `WORKSPACE_B0004`. If the export is missing at runtime, the first `useWorkspace(name)` throws a `TypeError` that names the module, export, and plugin.
 
-`collectWorkspaceContributions(plugins, context)` from `@vite-hub/workspace/vite` returns the validated contributions. It helps when another build step needs the same list.
+When another build step needs the same list, `collectWorkspaceContributions(plugins, context)` from `@vite-hub/workspace/vite` returns the validated contributions.
 
 ## Source Binding options
 
-Bind a standalone Source definition with `{ source, mount, materialize }`. Reuse
-the definition for direct reads or Content:
+Bind a Source definition with `{ source, mount, materialize }`. You can reuse
+the same definition for direct reads or Content:
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
@@ -249,30 +307,30 @@ export default defineWorkspace({
 })
 ```
 
-The Source key `intro.md` appears at `docs/intro.md`. The binding owns placement,
-materialization, sync, and access rules. Source owns retrieval. Pass the same
-`docs` definition to `createSource(docs)` for direct reads or
-`defineContent({ source: docs })` for parsed Content. Each consumer owns its
-reader lifecycle and revision.
+The Source key `intro.md` appears at `docs/intro.md`. The Source fetches the
+items. The binding decides where they appear, when they are copied in
+(materialization), sync, and access rules. Pass the same `docs` definition to
+`createSource(docs)` for direct reads or `defineContent({ source: docs })` for
+parsed Content. Each consumer owns its reader lifecycle and revision.
 
-The Workspace `file()`, `glob()`, and other binding helpers remain available
-when a definition is used only in Workspace. Standalone Source loaders use
-`defineSource()` for custom retrieval; Workspace's `custom()` helper adds
-Workspace binding behavior.
+For a definition used only in Workspace, the Workspace `file()`, `glob()`, and
+other binding helpers still work. Standalone Source loaders use
+`defineSource()` for custom retrieval. Workspace's `custom()` helper adds
+binding behavior.
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `source` | `Source` | Standalone loader definition to bind. Required in the explicit binding form. |
-| `mount` | `WorkspaceSourceMount` | Where retrieved items appear in the Workspace file tree. Accepts a path string or Mount options. |
-| `materialize` | `WorkspaceMaterializeMode` | Build-time, process-startup, lazy, or disabled materialization. Values: `build`, `startup`, `lazy`, `none`. Startup Sources remain available through lazy reads and can be prepared with `createWorkspacePreparation()`. |
-| `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
-| `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
-| `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
-| `probeKeys` | `string[]` | Known Source item keys used to check bundled-source completeness and intersect path-scoped access without enumerating the whole Source. File-shaped helpers infer this when possible. |
+| `source` | `Source` | The Source definition to bind. Required in this form. |
+| `mount` | `WorkspaceSourceMount` | Where items appear in the file tree. A path string or Mount options. |
+| `materialize` | `WorkspaceMaterializeMode` | When items are copied in: `build`, `startup`, `lazy`, or `none`. Startup Sources also work through lazy reads, and `createWorkspacePreparation()` can prepare them. |
+| `cache` | `false or WorkspaceCacheOptions` | `false` turns caching off. `{ maxAge }` sets a TTL. |
+| `validate` | `WorkspaceValidateMode` | Request validation for API-backed Sources: `false` or `request`. |
+| `sync` | `WorkspaceSourceSyncConfig` | Turns on explicit Source Sync: `true`, `false`, or a sync policy. |
+| `probeKeys` | `string[]` | Known item keys. ViteHub uses them to check that a bundled Source is complete and to match path-scoped access without listing the whole Source. File helpers infer them when possible. |
 
 ### Prepare startup Sources
 
-Use `createWorkspacePreparation()` when a process must materialize required Sources before reporting readiness:
+Use `createWorkspacePreparation()` when a process must copy in required Sources before it reports ready:
 
 ```ts
 import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
@@ -285,40 +343,45 @@ export const preparation = createWorkspacePreparation({
 await preparation.start()
 ```
 
-With no explicit `sources`, the controller selects every Source whose `materialize` mode is `startup`. Failed attempts become inspectable error state and retry in the background. `response()` returns a non-cacheable JSON readiness response without exposing internal errors, and `stop()` cancels an active attempt and its retry timer. The state is process-local readiness, not a continuous upstream health or liveness signal.
+Without `sources`, it selects every Source with `materialize: 'startup'`. A failed attempt becomes error state you can inspect, and retries in the background.
+
+- `response()` returns a non-cacheable JSON readiness response that hides internal errors.
+- `stop()` cancels the active attempt and its retry timer.
+
+The state is readiness for this process only. It is not an ongoing upstream health or liveness signal.
 
 ### Fetch Sources
 
-`fetch(options)` declares an HTTP-backed Source. It can expose one read-only Workspace path, or omit `workspacePath` to remain request-only for runtime Source request integrations. `fetch(resolver)` receives the invocation-aware Source Resolution Context and returns the same options or `false`, `null`, or `undefined`.
+`fetch(options)` declares a Source that reads one HTTP URL. With `workspacePath`, the response appears at one read-only path. Without it, the Source is request-only, for runtime Source request integrations. `fetch(resolver)` receives the Source Resolution Context of the current invocation and returns the same options, or `false`, `null`, or `undefined`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `url` | `string \| URL` | required | Request URL. |
-| `workspacePath` | `string` | none | Read-only Workspace path for the response. Omitting it creates a request-only Source. |
+| `workspacePath` | `string` | none | Read-only path for the response. Without it, the Source is request-only. |
 | `method` | `GET \| HEAD \| POST` | `GET` | Allowed HTTP method. GET and HEAD cannot declare a body. |
-| `responseType` | `json \| text` | `json` | Response parser and serialized Workspace content type. |
+| `responseType` | `json \| text` | `json` | How the response is parsed and stored. |
 | `query` | `Record<string, unknown>` | URL query | Static query values. Cannot be combined with `querySchema`. |
-| `querySchema` | Standard JSON Schema-compatible schema | none | Validates runtime query input and supplies schema defaults. Cannot be combined with `query`. |
+| `querySchema` | Standard JSON Schema-compatible schema | none | Validates runtime query input and fills schema defaults. Cannot be combined with `query`. |
 | `body` | `unknown` | none | Static POST body. Cannot be combined with `bodySchema`. |
-| `bodySchema` | Standard JSON Schema-compatible schema | none | Validates runtime body input and supplies schema defaults. Cannot be combined with `body`. |
+| `bodySchema` | Standard JSON Schema-compatible schema | none | Validates runtime body input and fills schema defaults. Cannot be combined with `body`. |
 | `headers` | `Record<string, string>` | none | Static request headers. |
 | `cookies` | `Record<string, string>` | none | Static request cookies. |
 | `timeout` | `number` | `30000` | Request and response-body timeout in milliseconds. |
-| `maxResponseBytes` | `number` | `5242880` | Maximum decoded response size. Explicit limits must not exceed 25 MiB. |
-| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, timeout, or `maxResponseBytes` at request time. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
-| `transform` | `(response) => output` | identity | Transforms parsed response data before ViteHub serializes it. |
-| `cache` | `false \| { maxAge?: number }` | `false` | Controls Source response caching. |
-| `materialize` | `build \| lazy \| none` | `lazy`, or `none` when sync is enabled | Controls when response content is written into the Workspace Store. |
+| `maxResponseBytes` | `number` | `5242880` | Maximum decoded response size. At most 25 MiB. |
+| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, timeout, or `maxResponseBytes` per request. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
+| `transform` | `(response) => output` | identity | Changes parsed data before ViteHub stores it. |
+| `cache` | `false \| { maxAge?: number }` | `false` | Response caching. |
+| `materialize` | `build \| lazy \| none` | `lazy`, or `none` with sync on | When the response is written to the Store. |
 | `probeKeys` | `string[]` | inferred from `workspacePath` | Overrides the known Source item keys. |
-| `sync` | `boolean \| WorkspaceSourceSyncPolicy` | `false` | Allows explicit Workspace Source Sync. |
+| `sync` | `boolean \| WorkspaceSourceSyncPolicy` | `false` | Allows explicit Source Sync. |
 
-A plain object Source with `url` is inferred as Fetch. In that shorthand, `path` supplies the Workspace path; when neither `path` nor `workspacePath` is present, ViteHub derives a file path from a query-free URL. Use the explicit `fetch()` helper when request-only behavior is intentional.
+A plain object Source with `url` counts as Fetch. In that form, `path` sets the Workspace path. Without `path` or `workspacePath`, ViteHub makes a file path from a URL with no query. For a request-only Source, use `fetch()`.
 
 ## Resolve custom Sources
 
-Use `custom({ files })` when a Custom Source knows its Workspace paths before it loads their content. The shorthand enumerates those paths without resolving content, and path-scoped materialization resolves only the requested file's content callback.
+Use `custom({ files })` when a Custom Source knows its paths before it loads content. It lists the paths without loading content, and a path-scoped read calls only that file's `content` callback.
 
-Invocation-aware resolution belongs to Source helpers and custom Source definitions, not to the Source Binding wrapper. Use resolver forms such as `fetch(resolver)` or the resolver accepted by the relevant helper, then add binding behavior such as `mount`, `cache`, or `sync` around the result.
+Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `fetch(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
 
 ```ts [server/workspaces/support.ts]
 import { custom, defineWorkspace } from '@vite-hub/workspace'
@@ -344,11 +407,11 @@ export default defineWorkspace({
 })
 ```
 
-ViteHub infers each file's media type from its path unless the descriptor provides `mediaType`. Use a full Custom Source with `getKeys()` and `getItem()` when retrieval needs behavior beyond a fixed file list.
+ViteHub infers each file's media type from its path unless the file sets `mediaType`. For more than a fixed file list, write a full Custom Source with `getKeys()` and `getItem()`.
 
-Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
+A Custom Source can read files already in the Workspace through `ctx.workspaceFiles`, such as a previous sync report or cached asset metadata. The view is read-only. It does not expose Stores, provider adapters, snapshots, diffs, or materialization.
 
-Sources can resolve their origin and mount for one invocation from trusted runtime context. Use this when the same Source key needs a narrower origin after Access selects a Workspace Scope.
+A Source can pick its origin and mount per invocation from trusted runtime context. Use this when one Source key needs a narrower origin after Access selects a Workspace Scope.
 
 ```ts
 declare global {
@@ -371,6 +434,6 @@ github(({ channel, invocation }) => {
 })
 ```
 
-The resolver receives registered invocation context values directly and through `invocation.context`. Register application values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers `channel` automatically. The resolver reads trusted Agent Invocation Context Values and the selected Workspace Scope, not model output. `access()` still controls authorization, and its selected scope must grant the Source key or Workspace path. ViteHub fingerprints options that affect scope so Source caches don't reuse data across scopes.
+The resolver gets registered context values directly and through `invocation.context`. Register your values in `ViteHubWorkspaceSourceResolutionContextMap`. The Agent package registers `channel` for you. The resolver reads trusted invocation context and the selected Workspace Scope, never model output.
 
-Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
+`access()` still decides authorization, and its selected scope must grant the Source key or path. Resolved Sources run at invocation time and default to lazy materialization. A resolver can return a narrower GitHub `repo`, `root`, and `mount` without build or cache options. ViteHub fingerprints the options and selected scope, so scopes never share cached data.

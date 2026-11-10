@@ -3,7 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import * as photon from "@cf-wasm/photon"
-import { H3Event } from "h3"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -13,13 +12,15 @@ import { jpegOrientation, probeImage } from "../src/media/probe.ts"
 import { setBlobPhotonLoader } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobImageOperation } from "../src/media/types.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 const fixture = (name: string) => readFile(new URL(`./fixtures/photon/${name}`, import.meta.url))
 const transformer = createPhotonImageTransformer()
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 
@@ -185,11 +186,10 @@ describe("photon transformer in Blob storage", () => {
     const record = ok(await storage.media.put("meals/lunch.jpg", await fixture("orientation-6.jpg")))
     expect(record).toMatchObject({ color: expect.stringMatching(/^#[0-9a-f]{6}$/), height: 48, width: 32 })
 
-    const event = new H3Event(new Request("https://example.test/meals/lunch.jpg"))
-    const [error, body] = await storage.serve(event, "meals/lunch.jpg", { variant: { format: "jpeg", width: 16 } })
-    expect(error).toBeNull()
-    expect(event.res.headers.get("content-type")).toBe("image/jpeg")
-    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ format: "jpeg", height: 24, width: 16 })
+    const response = await storage.serve(new Request("https://example.test/meals/lunch.jpg"), "meals/lunch.jpg", { variant: { format: "jpeg", width: 16 } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toBe("image/jpeg")
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ format: "jpeg", height: 24, width: 16 })
     expect(ok(await storage.media.variants("meals/lunch.jpg"))[0]!.key).toContain("engine=photon")
   })
 })

@@ -1,14 +1,18 @@
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installRequestStandardContext } from "@vite-hub/runtime"
 
-import { installComments } from "../index.ts"
-import { normalizeCommentPage } from "../page.ts"
+import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
+import { installCommentsRuntime } from "../operations-core/server.ts"
+import { runtimeBuilds } from "../installed.ts"
 import { commentsMcpTools } from "./mcp.ts"
-import { resolveCommentsIdentity } from "./session.ts"
+import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
-import type { H3Event } from "h3"
-import type { Comments, InstallCommentsOptions } from "../index.ts"
+import type { Comments } from "../index.ts"
+import type { InstallCommentsOptions } from "../install.ts"
+import type { CommentsRuntime } from "../operations-core/service.ts"
 import type { CommentsDatabase } from "../operations-core/store.ts"
+import type { CommentsRequestEvent } from "../types.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
@@ -16,8 +20,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   comments: Comments
   /** Offers GitHub sign-in or account switching through the overlay, even before read access is granted. */
   githubLogin?: CommentsGitHubLogin
-  /** The Database of `defineComments({ database })`, or undefined when the app has none. */
-  database: () => CommentsDatabase | undefined
+  /** The Database of `defineComments({ database })`, or undefined when the app has none. The first Comments call reads it. */
+  database: () => CommentsDatabase | undefined | Promise<CommentsDatabase | undefined>
   /**
    * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
    * loader imports it for people that may read comments.
@@ -55,9 +59,18 @@ export function installedComments(): Comments | undefined {
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
   return (nitroApp) => {
-    const database = options.database()
-    if (database) {
-      installComments(options.comments, {
+    // The store, its migrations, and the app's Database load on the first Comments call, not at server startup.
+    let warned = false
+    let building: Promise<CommentsRuntime> | undefined
+    const build = () => building ??= (async () => {
+      const database = await options.database()
+      if (!database) {
+        if (!warned) console.warn(options.missingDatabase ?? "[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
+        warned = true
+        throw Object.assign(commentsErrorDiagnostics.COMMENTS_R0010(), { status: 503 })
+      }
+      const { installComments } = await import("../install.ts")
+      return installComments(options.comments, {
         database,
         development: options.development === true,
         ...(options.schema ? { schema: options.schema } : {}),
@@ -66,8 +79,12 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
       })
-    }
-    else console.warn(options.missingDatabase ?? "[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
+    })().catch((error: unknown) => {
+      building = undefined
+      throw error
+    })
+    runtimeBuilds.set(options.comments, build)
+    installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
@@ -80,18 +97,23 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       label: "Comments",
       icon: "i-lucide-message-square-text",
       script,
-      lazy: true,
+      // Not lazy for readers: as in Drop, selected text gets the Comment bar and comments show on the page as soon as it
+      // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
-      async allowed({ event, request }) {
-        // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
-        const identity = await resolveCommentsIdentity(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
+      async allowed({ request }) {
+        // In a ViteHub app, the Request of the session route carries the Standard Context of the request.
+        installRequestStandardContext(request)
+        // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
+        const event = request as Request & CommentsRequestEvent
+        const identity = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
         if (identity === false) return false
         const { user, gate } = identity
         const page = new URL(request.url).searchParams.get("page")
-        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
-        return await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)
-          || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
+        const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
+        if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true
+        // Someone who may only sign in, or switch accounts, gets the button. The overlay loads when they press it.
+        return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false
       },
     })
     installViteHubPageTools(nitroApp, { base: options.base })
