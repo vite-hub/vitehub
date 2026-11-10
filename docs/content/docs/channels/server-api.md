@@ -34,7 +34,7 @@ export default defineChannel({
 | --- | --- |
 | `adapter` | The connection. `stripe()` and `webhook()` from `vite-hub/channels` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/agent/channels` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(text, options)`. |
 | `on` | Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. See [Receive webhooks](#receive-webhooks). |
-| `instructions`, `capabilities`, `history` | Read by an Agent that runs the Channel's deliveries. |
+| `instructions`, `capabilities`, `history` | Read by the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. |
 
 ## Send a message
 
@@ -42,7 +42,7 @@ export default defineChannel({
 
 The optional provider `id` must be a string. Unreadable or non-string IDs are left out of the receipt and the delivery log.
 
-Named clients share one definition load for the active runtime registry. A failed load can retry on a later send. Replacing the runtime registry invalidates the cached definition for existing clients.
+Clients share one definition load per runtime registry. A failed load retries on the next send. A new registry clears the cache.
 
 ```ts [server/api/build-finished.post.ts] fragment
 import { defineEventHandler } from 'h3'
@@ -115,7 +115,7 @@ An event without a target answers 200 with `{ accepted: false, reason }`, so the
 
 ### Choose the delivery rules with a trigger
 
-Use `defineChannelTrigger()` from `vite-hub/agent/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
+A trigger that selects no task runs the Agent that lists the Channel. Use `defineChannelTrigger()` from `vite-hub/agent/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
 
 ```ts [server/channels/prefect.ts]
 import { defineChannelTrigger } from 'vite-hub/agent/channels'
@@ -144,6 +144,27 @@ export default defineChannel({
 ```
 
 Next to `on` handlers, a trigger must set `webhooks: []`, because the handlers receive the webhook. It then runs through `context.dispatch()` and `context.pull()`.
+
+## Start a trigger from code
+
+`sendChannelTrigger(channel, trigger, input)` starts a trigger or an `on` handler of a Channel from server code, such as a Schedule that reconciles a webhook that a provider lost. The trigger's `invoke` gets `input` as it gets a verified webhook body, and ViteHub admits the result to the webhook queue with the same delivery ID, `serialize`, `debounce`, and Channel State rules. A delivery ID that the queue already has is a duplicate, so the reconcile and the real webhook run the work once.
+
+```ts [server/schedules/payments-reconcile.ts]
+import { sendChannelTrigger } from 'vite-hub/channels'
+import { defineSchedule } from 'vite-hub/schedule'
+
+export default defineSchedule({
+  cron: '0 * * * *',
+  async handler() {
+    const event = { id: 'evt_missed', object: 'event', type: 'checkout.session.completed', created: 0, livemode: false, pending_webhooks: 0, data: { object: { id: 'cs_missed' } } }
+    const [error, receipt] = await sendChannelTrigger('stripe', 'checkout.session.completed', event)
+    if (error) throw error
+    console.log(receipt.queued ? 'queued' : 'already queued', receipt.deliveryId)
+  },
+})
+```
+
+`sendChannelTrigger()` returns `[undefined, { deliveryId, queued }]` or `[error, undefined]` with `CHANNEL_TRIGGER_FAILED`. `queued` is `false` when the queue already had the delivery or the trigger answered without one, such as `ignored()`. The trigger's `context.dispatch()`, `context.pull()`, and `channelState.transaction()` work as on the webhook route. It needs the persistent server that hosts the Channel, with SQLite or libSQL Agent State, like `enqueueChannelTask()`.
 
 ## Send through a chat adapter
 
@@ -176,13 +197,13 @@ if (error) throw error
 
 | Option | Value |
 | --- | --- |
-| `recipient` | A Chat SDK thread ID that the bot received a message in, or `user:<id>` for a direct message. |
-| `thread` | Optional. Every send with the same `key` replies under one root message in a channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
+| `recipient` | A Chat SDK thread ID where the bot got a message, or `user:<id>` for a direct message. |
+| `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first text, and stores it in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
-| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message to the new text and returns the same receipt. Without a stored receipt, ViteHub posts as usual. |
-| `replace` | Optional. Requires `idempotencyKey`. The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its message, ViteHub deletes the message stored for that key and removes its receipt. Without a stored receipt, ViteHub deletes nothing. It must not equal the `idempotencyKey` of this send. |
+| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message and returns the same receipt. Without a stored receipt, it posts as usual. |
+| `replace` | Optional. Needs `idempotencyKey`. Set it to the `idempotencyKey` of an earlier send to the same `recipient` and `thread`, not this send's key. After this send posts or edits, ViteHub deletes that message and its receipt. Without a stored receipt, it deletes nothing. |
 
-Use `update` to keep one message current, such as a status card that changes as work progresses:
+Use `update` to keep one message current, such as a status card:
 
 ```ts fragment
 const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
@@ -193,7 +214,7 @@ const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
 if (error) throw error
 ```
 
-Use `replace` to remove a temporary message when the final message must be new. Teams and Slack do not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
+Teams and Slack do not notify users of edits. To notify, post the result as new and use `replace` to delete the temporary message:
 
 ```ts fragment
 const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}`, root: `Ticket ${ticketId}` } }
@@ -207,9 +228,9 @@ const [error] = await useChannel('teams').send(suggestion, {
 if (error) throw error
 ```
 
-For a channel thread, set `thread.root` on the first send so the temporary message is a reply under a stable root. Without `thread.root`, the first text becomes the root. Replacing that root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
+Set `thread.root` on the first send so the temporary message is a reply, not the root. Replacing the root throws a `TypeError` before any post or edit, so the thread and receipts stay.
 
-ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that the platform no longer has counts as deleted.
+ViteHub stores the new receipt, then deletes the old message. A failed delete returns the error, and a retry with the same options deletes again. A message the platform no longer has counts as deleted.
 
 ViteHub stores roots and receipts in KV under the channel name, such as `teams:` or `slack:`, and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.
 
@@ -224,6 +245,10 @@ No Channel Definition has this name, or its file failed to load. Add `server/cha
 ### CHANNEL_INVALID_SEND
 
 The text is empty, the options are not an object, or the adapter has no `send`, such as `stripe()`. `error.why` names the problem. Pass non-empty text and an options object, and send through a Channel whose adapter sends.
+
+### CHANNEL_TRIGGER_FAILED
+
+`sendChannelTrigger()` could not start the trigger. The Channel has no trigger or `on` handler with that name, no Agent webhook queue runs in this process, the State cannot queue, or the trigger threw. `error.cause` keeps the reason.
 
 ### CHANNEL_SEND_FAILED
 
