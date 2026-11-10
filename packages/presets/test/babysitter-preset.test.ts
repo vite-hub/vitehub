@@ -59,6 +59,8 @@ import type { GitHubHost } from "../src/github/index.ts";
 import { RateLimitedError } from "@vite-hub/forge";
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`;
+
 const roots: string[] = [];
 afterEach(async () => {
   vi.clearAllMocks();
@@ -2158,7 +2160,7 @@ describe("Babysitter preset runtime", () => {
       const run = await createRun.mock.results[0]!.value;
       expect(run.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`),
       }]);
     } finally {
       await f.runtime.inbox.close();
