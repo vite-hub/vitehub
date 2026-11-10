@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -99,6 +99,7 @@ it.each([undefined, "vite-hub/workflow"])("retains a deferred start from a Nitro
 it("installs discovered Agent workflows into a Cloudflare Nitro entry", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-"))
   try {
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
     const agentDir = join(rootDir, "server", "agents", "calories")
     await mkdir(agentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), "export default defineAgent({ driver: { run: () => 'ok' } })\n")

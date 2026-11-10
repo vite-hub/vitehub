@@ -82,6 +82,7 @@ const integrationMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@vite-hub/agent/vite", () => ({
+  agentRuntimeModule: (entry: string) => `/agent/dist/${entry}.js`,
   discoverAgentDefinitionEntries: integrationMocks.discoverAgentDefinitionEntries,
   hubAgent: integrationMocks.hubAgent,
 }))
@@ -120,12 +121,13 @@ vi.mock("@vite-hub/kv/vite", () => ({
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit, rateLimitConsoleSection: integrationMocks.consoleSection("rate-limits") }))
-vi.mock("@vite-hub/sandbox/task/vite", () => ({ hubSandboxTask: integrationMocks.hubSandboxTask, sandboxTaskConsoleSection: integrationMocks.consoleSection("sandbox-tasks") }))
+vi.mock("@vite-hub/sandbox/task/vite", () => ({ hubSandboxTask: integrationMocks.hubSandboxTask, sandboxTaskConsoleSection: integrationMocks.consoleSection("sandbox-tasks"), sandboxTaskRuntimeStateModule: "/sandbox/dist/task/runtime/state.js" }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule, scheduleConsoleSection: integrationMocks.consoleSection("schedules") }))
 vi.mock("@vite-hub/workflow/vite", () => ({
   discoverWorkflowDefinitions: integrationMocks.discoverWorkflowDefinitions,
   hubWorkflow: integrationMocks.hubWorkflow,
   workflowConsoleSection: integrationMocks.consoleSection("workflows"),
+  workflowRuntimeModule: (entry: string) => `/workflow/dist/runtime/${entry}.js`,
 }))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace, workspaceConsoleSection: integrationMocks.consoleSection("workspaces") }))
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
@@ -831,8 +833,6 @@ describe("vitehub", () => {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
-      cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
-      importBase: "vite-hub/_internal/agent",
       kvImport: "vite-hub/kv",
       processDiscordGateway: true,
       providerImportAliases: {
@@ -847,11 +847,10 @@ describe("vitehub", () => {
         email: "vite-hub/email/server",
         kv: "vite-hub/kv",
       },
-      workflowImportBase: "vite-hub/_internal/workflow",
+      workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -884,7 +883,6 @@ describe("vitehub", () => {
       },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
-      agentImportBase: "vite-hub/_internal/agent",
       hosting: "node-server",
       importBase: "vite-hub/workflow",
       providerImportAliases: {
@@ -894,7 +892,7 @@ describe("vitehub", () => {
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
+      workspaceRuntimeModule: "/agent/dist/internal/workspace/runtime.js",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -915,7 +913,6 @@ describe("vitehub", () => {
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       hosting: "node-server",
-      importBase: "vite-hub/_internal/workspace",
     })
 
     vitehub({ agent: true, console: { auth: false }, preset: "node" })
@@ -1049,7 +1046,7 @@ describe("vitehub", () => {
       expect(integrationMocks.hubAgent).toHaveBeenCalledTimes(agentCallsBefore)
       expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
         workspaceDependencyRuntimeImports: {},
-        workspaceImportBase: "vite-hub/_internal/workspace",
+        workspaceRuntimeModule: "vite-hub/workspace/runtime",
       }))
     })
   })
@@ -1192,14 +1189,14 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
@@ -1350,9 +1347,7 @@ describe("vitehub", () => {
     expect(aliases).not.toHaveProperty("vite-hub")
     expect(aliases).not.toHaveProperty("unstorage/drivers/upstash")
     expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
-    expect(aliases["vite-hub/_internal/agent/server/registry"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/registry\.js$/)
-    expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
-    expect(aliases["vite-hub/_internal/sandbox/task/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/task\/runtime\/state\.js$/)
+    expect(Object.keys(aliases).filter(specifier => specifier.startsWith("vite-hub/_internal"))).toEqual([])
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
   })
 
@@ -1407,7 +1402,7 @@ describe("vitehub", () => {
     const aliases = await providerOutputAliases(dependencyPlugin({ agent: true, preset: "vercel", schedule: true, workflow: true }))
 
     expect(aliases["@vite-hub/agent"]).toMatch(/packages\/agent\/dist\/index\.js$/)
-    expect(aliases["@vite-hub/agent/runtime/workflow"]).toMatch(/packages\/agent\/dist\/runtime\/workflow\.js$/)
+    expect(aliases["@vite-hub/agent/server/internal"]).toMatch(/packages\/agent\/dist\/server\/internal\.js$/)
     expect(aliases["@vite-hub/markdown-template"]).toMatch(/packages\/markdown-template\/dist\/index\.js$/)
     expect(aliases["@vite-hub/workflow/runtime/state"]).toMatch(/packages\/workflow\/dist\/runtime\/state\.js$/)
   })
