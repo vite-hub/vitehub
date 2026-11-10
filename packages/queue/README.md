@@ -5,7 +5,7 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
-`@vite-hub/queue` discovers background job handlers during a Vite build and connects `runQueue()` to Cloudflare Queues, Vercel Queues, or the local provider of a Node server. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
+`@vite-hub/queue` discovers background job handlers during a Vite build and connects `sendQueue()` to Cloudflare Queues, Vercel Queues, or the local provider of a Node server. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
 Applications that already use the `vite-hub` framework distribution should enable Queue in `vitehub()` and import from `vite-hub/queue`. Install this owner package directly when you are building a custom composition, another framework integration, or package-level tooling. The [Queue guide](https://vitehub.dev/docs/queue) covers the framework-distribution setup.
 
@@ -44,10 +44,10 @@ Enqueue it by its discovered name:
 
 ```ts
 // src/server.ts
-import { runQueue } from "@vite-hub/queue";
+import { sendQueue } from "@vite-hub/queue";
 
 export async function enqueueWelcomeEmail(email: string) {
-  const [error, result] = await runQueue("welcome-email", { email });
+  const [error, result] = await sendQueue("welcome-email", { email });
   if (error) throw error;
   return result;
 }
@@ -79,7 +79,7 @@ pnpm vite build
 
 A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email` definition. Nitro writes the Worker and `.output/server/wrangler.json`. The Wrangler configuration contains one generated producer binding and one consumer for the Queue Definition.
 
-That build proves discovery and generated output only. In the built Worker, `runQueue()` needs a deployed Cloudflare binding and an existing queue before it can return `[undefined, { status: "queued" }]`. In `vite dev`, it needs neither: see [Run jobs in vite dev](#run-jobs-in-vite-dev). Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
+That build proves discovery and generated output only. In the built Worker, `sendQueue()` needs a deployed Cloudflare binding and an existing queue before it can return `[undefined, { status: "queued" }]`. In `vite dev`, it needs neither: see [Run jobs in vite dev](#run-jobs-in-vite-dev). Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
 ## Choose a provider
 
@@ -97,7 +97,7 @@ Vercel needs a generated topic and the `@vercel/queue` runtime. It rejects Cloud
 
 ## Run jobs on a Node server
 
-The local provider stores each accepted job as a file in `.vitehub/data/queue`, next to the KV `fs-lite` store, and runs the Queue Definition in the same server process. `runQueue()` returns after the file is written.
+The local provider stores each accepted job as a file in `.vitehub/data/queue`, next to the KV `fs-lite` store, and runs the Queue Definition in the same server process. `sendQueue()` returns after the file is written.
 
 ```ts
 // vite.config.ts
@@ -113,7 +113,7 @@ export default defineConfig({
 
 `hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
 
-Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `getQueue()` in the dev server, or give the direct client a separate `base` directory.
+Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `useQueue()` in the dev server, or give the direct client a separate `base` directory.
 
 When a production server reopens a dev store, it redacts stored errors without a code before it exposes the jobs. Queue errors and `ViteHubError` keep their code and message.
 
@@ -128,7 +128,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs in vite dev
 
-In `vite dev` and `nuxt dev`, `runQueue()` stores the job in `.vitehub/data/queue` of the project and the dev server runs the Queue Definition, whatever the provider of the build. A Cloudflare or Vercel app needs no binding, credentials, or `wrangler dev`. The build output does not change: `vite build` still writes the Cloudflare or Vercel runtime.
+In `vite dev` and `nuxt dev`, `sendQueue()` stores the job in `.vitehub/data/queue` of the project and the dev server runs the Queue Definition, whatever the provider of the build. A Cloudflare or Vercel app needs no binding, credentials, or `wrangler dev`. The build output does not change: `vite build` still writes the Cloudflare or Vercel runtime.
 
 The dev server follows the documented defaults of the provider of the build, so a handler fails and retries in dev as it does on the host:
 
@@ -142,7 +142,7 @@ The dev server follows the documented defaults of the provider of the build, so 
 | Largest `sendBatch()` | 100 jobs, 256 KB | 100 jobs | No limit |
 | Rejected options | `idempotencyKey`, `region`, `retentionSeconds` | `contentType` | `contentType`, `region`, `retentionSeconds` |
 
-The sources are the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails `runQueue()` with `QUEUE_PROVIDER_FAILED`, and `error.cause` names the limit. A rejected option fails with `QUEUE_UNSUPPORTED_OPTION` and names the provider of the build.
+The sources are the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails `sendQueue()` with `QUEUE_PROVIDER_FAILED`, and `error.cause` names the limit. A rejected option fails with `QUEUE_UNSUPPORTED_OPTION` and names the provider of the build.
 
 Dev does not emulate these parts of the host:
 
@@ -150,7 +150,7 @@ Dev does not emulate these parts of the host:
 - It does not call `onError` or `callbackOptions`. A failed handler retries by the rules above, and a Queue error that a retry cannot fix makes the job dead at once.
 - It keeps a dead job for inspection. Cloudflare deletes it, or moves it to a dead-letter queue, and Vercel deletes an expired job.
 - The payload is a JSON copy. Cloudflare `contentType: "v8"` can send values that JSON cannot, such as a `Map`. The payload size is the JSON size, not the provider encoding.
-- `idempotencyKey` deduplicates only while a job is pending or running. Vercel deduplicates for the retention, up to 24 hours. `getQueue()` returns the local client.
+- `idempotencyKey` deduplicates only while a job is pending or running. Vercel deduplicates for the retention, up to 24 hours. `useQueue()` returns the local client.
 
 List, inspect, run again, and remove the stored jobs with the CLI. The commands call the `queue.jobs-list`, `queue.jobs-show`, `queue.jobs-retry`, and `queue.jobs-clear` operations of the running dev server, or of a deployed app with `--url`. The Console and agents run the same operations.
 
@@ -165,7 +165,7 @@ pnpm vitehub queue jobs clear --state dead --yes
 
 ## Treat acceptance and delivery separately
 
-`runQueue()` waits for provider enqueue and returns `[error, result]`. `result` is this portable value:
+`sendQueue()` waits for provider enqueue and returns `[error, result]`. `result` is this portable value:
 
 ```ts
 type QueueSendResult = {
@@ -182,7 +182,7 @@ Providers, the local one included, can retry failed delivery, so handlers must t
 
 On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless the error is a Queue error that a retry cannot fix or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
 
-`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
+`sendQueue()`, `dynamicQueue.send()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
 
 ## Public imports
 
@@ -207,13 +207,13 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your TypeScript project. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
 
 ```ts
-const [error] = await runQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
-const queue = await getQueue("welcome-email")
+const [error] = await sendQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
+const queue = await useQueue("welcome-email")
 const [sendError] = await queue.send({ email: "ada@example.com" })
 ```
 
 `QueueRegistry` is the generated definition map. `QueuePayload<"welcome-email">` extracts a payload type. A missing name or wrong payload is a type error. Run Vite configuration or the Nuxt prepare step after you add a definition. For a standalone TypeScript host, you can extend `QueueRegistry` with `typeof import("./welcome.queue").default`.
 
-Use `dynamicQueue.run(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.get()` for names read from external input. These methods check that the definition exists at runtime. They do not validate payload shape. Validate external data in your application. Direct provider clients from `createQueueClient()` also accept unknown payloads because they have no Queue Definition.
+Use `dynamicQueue.send(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.use()` for names read from external input. These methods check that the definition exists at runtime. They do not validate payload shape. Validate external data in your application. Direct provider clients from `createQueueClient()` also accept unknown payloads because they have no Queue Definition.
 
-This is a breaking change: replace `runQueue(name, { payload, ...options })` with `runQueue(name, payload, options)`, and `client.send({ payload, ...options })` with `client.send(payload, options)`. There is no envelope detection. Existing envelope objects are delivered whole as payloads.
+This is a breaking change: replace `sendQueue(name, { payload, ...options })` with `sendQueue(name, payload, options)`, and `client.send({ payload, ...options })` with `client.send(payload, options)`. There is no envelope detection. Existing envelope objects are delivered whole as payloads.

@@ -1,11 +1,10 @@
 import { nitro } from "nitro/vite"
 
+import { isIncludedNitroPlugin, markIncludedNitroPlugin } from "./included-nitro-registry.ts"
+
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
 
-const includedKey = Symbol.for("vitehub.included-nitro")
-// SAFETY: One process-wide set, so the copies of this module that `vite-hub` and `@vite-hub/comments` bundle agree.
-const scope = globalThis as typeof globalThis & { [includedKey]?: WeakSet<object> }
-const includedNitroPlugins = scope[includedKey] ??= new WeakSet<object>()
+export { isIncludedNitroPlugin }
 
 function flattenPlugins(option: PluginOption): Plugin[] {
   if (Array.isArray(option)) return option.flatMap(flattenPlugins)
@@ -15,7 +14,7 @@ function flattenPlugins(option: PluginOption): Plugin[] {
 /** Whether the app added `nitro()` itself. Nitro plugins that a ViteHub package included do not count. */
 function findAppNitro(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(findAppNitro)
-  return value !== null && typeof value === "object" && !includedNitroPlugins.has(value) && Reflect.get(value, "name") === "nitro:main"
+  return value !== null && typeof value === "object" && !isIncludedNitroPlugin(value) && Reflect.get(value, "name") === "nitro:main"
 }
 
 function applies(apply: Plugin["apply"], config: UserConfig, env: ConfigEnv): boolean {
@@ -32,12 +31,7 @@ export function includedNitro(options: { unless?: (config: UserConfig) => boolea
   for (const plugin of plugins) {
     const apply = plugin.apply
     plugin.apply = (config, env) => !findAppNitro(config.plugins) && !options.unless?.(config) && applies(apply, config, env)
-    includedNitroPlugins.add(plugin)
+    markIncludedNitroPlugin(plugin)
   }
   return plugins
-}
-
-/** Tells if a ViteHub package added this Nitro plugin. Nuxt removes them, because Nuxt runs its own Nitro. */
-export function isIncludedNitroPlugin(plugin: object): boolean {
-  return includedNitroPlugins.has(plugin)
 }

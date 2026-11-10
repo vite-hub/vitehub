@@ -4,12 +4,15 @@ import { installAgentRegistry } from "#vitehub/agent/registry"
 
 import { defineCollection } from "../../source/src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent, workflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, workflowDispatchAttemptedAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
 import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
+
+// Recovery Workflows get a handle without `start`, so dispatching recovery fails and the test follows the main run only.
+const recoveryWorkflowPrefix = "vitehub-agent-invocation-recovery-"
 
 afterEach(() => {
   vi.useRealTimers()
@@ -24,7 +27,7 @@ it.each(["openworkflow", "vercel"] as const)("loads the cold host before reconci
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const name = "cold-replay"
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -64,7 +67,7 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   let entered = 0
   const update = vi.fn()
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     activity: { update },
     history: {
       collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
@@ -95,7 +98,7 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
     workflow: async () => ({
       ...await import("@vite-hub/workflow"),
       // SAFETY: The fixture only uses the Workflow handle's run operation.
-      createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
+      createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), start: providerRun }) as never,
     }),
   })
   const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "replay-workflow", runtime: workflow("replay-workflow") })
@@ -121,7 +124,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
   const invocations = defineAgentInvocations({ store })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const update = vi.fn()
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     activity: { update },
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
@@ -132,10 +135,11 @@ it("records durable replay cancellation observed before provider dispatch", asyn
     state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
     workflow: async () => ({
       ...await import("@vite-hub/workflow"),
-      createWorkflow: () => {
+      createWorkflow: (name: unknown) => {
+        if (String(name).startsWith(recoveryWorkflowPrefix)) return {}
         // Simulate another process persisting cancellation in the dispatch window.
         cancellationRequested = true
-        return { getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }
+        return { getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), start: providerRun }
       },
     }) as never,
   })
@@ -148,7 +152,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
 it.each([true, false])("recovers an expired Workflow reservation only when no dispatch attempt is recorded: %s", async explicit => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -160,7 +164,7 @@ it.each([true, false])("recovers an expired Workflow reservation only when no di
     state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: The test only needs the Workflow run operation.
-      createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
+      createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), start: providerRun }) as never,
     }),
   })
   const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "recover-workflow", runtime: workflow("recover-workflow") })
@@ -269,7 +273,7 @@ it.each(["queued", "unknown", "unavailable-marker"] as const)("reconciles an acc
     },
   } })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {}, run: { runId: "reconciliation-request", annotations: Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`caller-${index}`, index])) } }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -280,7 +284,7 @@ it.each(["queued", "unknown", "unavailable-marker"] as const)("reconciles an acc
     state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: This fixture implements the run and lookup operations used by replay recovery.
-      createWorkflow: () => ({ getRun, run: providerRun }) as never,
+      createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({ getRun, start: providerRun }) as never,
     }),
   })
   const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "confirm-workflow", runtime: workflow("confirm-workflow") })
@@ -334,7 +338,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
     },
   } })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -343,7 +347,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
     state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: This fixture implements the run and lookup operations used by replay recovery.
-      createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
+      createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), start: providerRun }) as never,
     }),
   })
   const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "attempt-write-workflow", runtime: workflow("attempt-write-workflow") })
@@ -370,7 +374,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
 it.each(["provider", "preparation"] as const)("retains terminal journaling for a definite %s failure", async failure => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello", ...(failure === "preparation" ? { context: { invalid: () => {} } } : {}) } }) }) },
   })
@@ -380,7 +384,7 @@ it.each(["provider", "preparation"] as const)("retains terminal journaling for a
     state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: This fixture implements the run and lookup operations used by replay recovery.
-      createWorkflow: () => ({ getRun, run: providerRun }) as never,
+      createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({ getRun, start: providerRun }) as never,
     }),
   })
   const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "definite-failure-workflow", runtime: workflow("definite-failure-workflow") })
