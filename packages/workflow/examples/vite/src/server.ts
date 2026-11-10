@@ -1,13 +1,13 @@
 import { H3, readBody } from "h3"
 
-import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
+import { getWorkflowRun, startWorkflow } from "@vite-hub/workflow"
 import type { WelcomePayload } from "./welcome.workflow"
 
 const app = new H3()
 
 app.post("/api/welcome", async (event) => {
   const payload = await readBody<WelcomePayload>(event)
-  const run = await runWorkflow("welcome", payload)
+  const run = await startWorkflow("welcome", payload)
 
   return { ok: true, payload, run }
 })
