@@ -94,9 +94,9 @@ export const CommentLayer = defineComponent({
     provideComments(state);
     const draftFiles = ref<File[]>([]);
     const uploadingDraft = shallowRef<CommentDraft | null>(null);
-    // The files belong to one draft. A new draft, or none, starts without them.
+    // The files belong to one draft. A new draft starts with its own, such as a screenshot, or none.
     watch(() => state.draft.value, (next, previous) => {
-      if (next !== previous) draftFiles.value = [];
+      if (next !== previous) draftFiles.value = next?.files ? [...next.files] : [];
     });
     const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
     const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);

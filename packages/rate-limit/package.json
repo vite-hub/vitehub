@@ -59,9 +59,10 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/rate-limit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/rate-limit#build && vp test"
+    "test": "vp run --cache -t @vite-hub/rate-limit#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",

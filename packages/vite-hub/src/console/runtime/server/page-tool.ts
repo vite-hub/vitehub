@@ -13,12 +13,11 @@ async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, 
 }
 
 /**
- * Registers the Console and Content windows in the page tools pill. The Console access policy decides
- * who gets it, so in `local` mode only the development server shows it. Generated Console output calls this with the
- * app base.
+ * Registers the Console in the page tools pill. The Console access policy decides who gets it, so in `local` mode only
+ * the development server shows it. With Content, the segment loads with the page, so it can offer the draft of the open
+ * page. Without Content it loads when someone reaches for it. Generated Console output calls this with the app base.
  */
 export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
-  // The page tool script of @vite-hub/console-client, below the app base.
   const pageTool = consoleClientAssets()?.pageTool
   if (pageTool) {
     const script = `/_vitehub/assets/${pageTool}`
@@ -26,13 +25,9 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
       id: "console",
       label: "Console",
       icon: "i-lucide-square-terminal",
-      script, lazy: true,
+      script,
+      ...getConsoleSections().includes("content") ? {} : { lazy: true },
       allowed: ({ event }) => consoleAllowsRequest(event),
-    })
-    registerViteHubPageTool(nitroApp, {
-      // Eager, so the segment can offer the draft of the open page before the editor opens. The editor frame still waits.
-      id: "content", label: "Content", icon: "i-lucide-file-pen", script,
-      allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content", "write"),
     })
   }
   installViteHubPageTools(nitroApp, options)
