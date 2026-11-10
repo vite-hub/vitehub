@@ -4,7 +4,6 @@ import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools
 import { viteHubPageToolsInlineScript } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { commentsApiRoute } from "../src/page.ts"
-import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
 
@@ -70,8 +69,6 @@ describe("Comments page tool", () => {
     // Only the button loads at first: the overlay script waits until the person presses it.
     expect(session.body.tools[0]).toMatchObject({ id: "comments", lazy: true })
     expect(session.cookie).toContain("vitehub-tools=1;")
-    defineCommentsPlugin({ ...options, consoleSession: async () => false })(app)
-    expect((await pageSession(app, "")).body.tools).toEqual([])
     defineCommentsPlugin({ ...options, comments: defineComments({ identify: () => null }) })(app)
     expect((await pageSession(app, "")).body.tools).toEqual([])
     defineCommentsPlugin({ ...options, githubLogin: { ...githubLogin, configured: () => false } })(app)
@@ -103,25 +100,12 @@ describe("Comments page tool", () => {
     expect((await pageSession(app, "")).body).toEqual({ tools: [] })
   })
 
-  it.each([true, false])("checks Console read access without custom identify: %s", async (allowed) => {
-    const app = {}
-    const consoleSession = commentsConsoleSession({
-      authorize: async ({ kind }) => allowed && kind !== "write",
-      user: async () => ({ id: "ada" }),
-      identify: async () => null,
-    })
-    defineCommentsPlugin({ comments: defineComments({ authorize: () => true }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
-    expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
-  })
-
-  it.each([true, false])("lets custom identify and authorize decide over the Console: %s", async (allowed) => {
+  it.each([true, false])("lets custom identify and authorize decide: %s", async (allowed) => {
     const app = {}
     const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
-    const consoleSession = vi.fn(async () => false as const)
-    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => allowed }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
+    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => allowed }), database: () => undefined, overlay: "/o.js" })(app)
     expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
     expect(identify).toHaveBeenCalledOnce()
-    expect(consoleSession).not.toHaveBeenCalled()
   })
 
   it("finds the API from the mounted overlay URL", () => {
