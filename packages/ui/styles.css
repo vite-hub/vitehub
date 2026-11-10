@@ -3766,6 +3766,9 @@
     color: var(--vh-text);
     color-scheme: inherit;
     height: auto;
+  }
+}
+
 /* DeviceFrame: a page at a device's size on a muted stage, with Chrome's device toolbar above it. */
 @layer components {
   .vh-device-frame {
