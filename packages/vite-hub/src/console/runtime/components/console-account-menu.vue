@@ -28,17 +28,19 @@ const email = computed(() => account.value?.hasEmail ? account.value.user.email 
 const team = computed(() => account.value?.teams.find(item => item.id === account.value?.teamId));
 // The standalone Console provides its appearance. A Nuxt host owns color mode, so the menu leaves it out there.
 const appearance = inject(consoleAppearanceKey, undefined);
+// One "Theme" row opens the three choices, so the menu stays short.
 const appearanceItems = computed<DropdownMenuItem[]>(() => appearance
-  ? [
-      { type: "label", label: "Appearance" },
-      ...consoleAppearances.map((option): DropdownMenuItem => ({
+  ? [{
+      icon: consoleAppearanceOptions[appearance.preference.value].icon,
+      label: "Theme",
+      children: consoleAppearances.map((option): DropdownMenuItem => ({
         type: "checkbox",
         icon: consoleAppearanceOptions[option].icon,
         label: consoleAppearanceOptions[option].label,
         checked: appearance.preference.value === option,
         onSelect: () => appearance.select(option),
       })),
-    ]
+    }]
   : []);
 
 watch(creating, () => {
@@ -48,6 +50,8 @@ watch(creating, () => {
 });
 
 const identityItems = computed<DropdownMenuItem[]>(() => [{ type: "label", label: label.value }, ...(email.value ? [{ type: "label" as const, label: email.value }] : [])]);
+// The user row in the sidebar already shows the name, so its menu shows only the email.
+const emailItems = computed<DropdownMenuItem[]>(() => email.value ? [{ type: "label", label: email.value }] : []);
 const teamItems = computed<DropdownMenuItem[]>(() => [
   { type: "label", label: "Teams" },
   ...(account.value?.teams ?? []).map((item): DropdownMenuItem => ({
@@ -64,17 +68,17 @@ const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Si
 
 const items = computed<DropdownMenuItem[][]>(() => {
   if (!account.value) return [appearanceItems.value];
-  if (props.variant === "team") return [teamItems.value, [{ icon: "i-lucide-users", label: "Team members", onSelect: () => showConsoleAccountPage("team") }]];
-  if (props.variant === "user") return [identityItems.value, [{ icon: "i-lucide-settings", label: "Settings", onSelect: () => showConsoleAccountPage("settings") }], appearanceItems.value, signOutItems].filter(group => group.length);
+  if (props.variant === "team") return [teamItems.value];
+  if (props.variant === "user") return [emailItems.value, [{ icon: "i-lucide-settings", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") }, ...appearanceItems.value], signOutItems].filter(group => group.length);
   return [
     identityItems.value,
     teamItems.value,
     [
-      { icon: "i-lucide-house", label: "Console home", onSelect: () => showConsoleAccountPage("start") },
-      { icon: "i-lucide-users", label: "Team members", onSelect: () => showConsoleAccountPage("team") },
-      { icon: "i-lucide-settings", label: "Settings", onSelect: () => showConsoleAccountPage("settings") },
+      { icon: "i-lucide-house", label: "Console home", onSelect: () => showConsoleAccountPage("home") },
+      { icon: "i-lucide-users", label: "Members", onSelect: () => showConsoleAccountPage("team") },
+      { icon: "i-lucide-settings", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") },
+      ...appearanceItems.value,
     ],
-    appearanceItems.value,
     signOutItems,
   ].filter(group => group.length);
 });
@@ -95,26 +99,26 @@ async function create(): Promise<void> {
 </script>
 
 <template>
-  <UDropdownMenu v-if="variant === 'team'" :items="items" :content="{ align: 'start' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
+  <UDropdownMenu v-if="variant === 'team'" size="sm" :items="items" :content="{ align: 'start' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
     <button type="button" class="vitehub-account-menu__trigger">
       <span class="vitehub-account-menu__team-mark" aria-hidden="true">{{ (team?.name ?? "T").slice(0, 1).toUpperCase() }}</span>
       <span class="min-w-0 flex-1 truncate text-start">{{ team?.name ?? "Team" }}</span>
-      <UIcon name="i-lucide-chevrons-up-down" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+      <UIcon name="i-lucide-chevrons-up-down" class="size-3.5 shrink-0 text-muted" aria-hidden="true" />
     </button>
   </UDropdownMenu>
 
-  <UDropdownMenu v-else-if="variant === 'user'" :items="items" :content="{ align: 'start', side: 'top' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
+  <UDropdownMenu v-else-if="variant === 'user'" size="sm" :items="items" :content="{ align: 'start', side: 'top' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
     <button type="button" class="vitehub-account-menu__trigger">
       <UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="xs" />
       <span class="grid min-w-0 flex-1 text-start">
         <span class="truncate">{{ label }}</span>
-        <span v-if="email" class="truncate text-xs font-normal text-dimmed">{{ email }}</span>
+        <span v-if="email" class="truncate text-xs font-normal text-muted">{{ email }}</span>
       </span>
-      <UIcon name="i-lucide-chevrons-up-down" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+      <UIcon name="i-lucide-chevrons-up-down" class="size-3.5 shrink-0 text-muted" aria-hidden="true" />
     </button>
   </UDropdownMenu>
 
-  <UDropdownMenu v-else :items="items" :content="{ side: 'right', align: 'end', sideOffset: 8 }" :ui="{ content: 'min-w-56' }">
+  <UDropdownMenu v-else size="sm" :items="items" :content="{ side: 'right', align: 'end', sideOffset: 8 }" :ui="{ content: 'min-w-56' }">
     <UTooltip :text="label" :content="{ side: 'right' }" :disabled="expanded">
       <PrimitiveRailItem :label="label">
         <UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="sm" class="size-5" />
@@ -122,11 +126,11 @@ async function create(): Promise<void> {
     </UTooltip>
   </UDropdownMenu>
 
-  <UModal v-model:open="creating" title="New team" description="Teams share their linked apps. You will be the owner." :ui="{ content: 'sm:max-w-[440px]' }">
+  <UModal v-model:open="creating" title="Create team" description="Teams share their linked apps. You will be the owner." :ui="{ content: 'sm:max-w-[440px]' }">
     <template #body>
       <form id="vitehub-account-team" class="grid gap-3" @submit.prevent="create">
         <UFormField label="Team name" name="team" required>
-          <UInput v-model="teamName" class="w-full" autofocus />
+          <UInput v-model="teamName" required class="w-full" autofocus />
         </UFormField>
         <p v-if="problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
       </form>
@@ -166,9 +170,9 @@ async function create(): Promise<void> {
 
 .vitehub-account-menu__team-mark {
   align-items: center;
-  background: var(--ui-bg-inverted);
+  background: var(--ui-bg-accented);
   border-radius: 0.3125rem;
-  color: var(--ui-bg);
+  color: var(--ui-text-highlighted);
   display: inline-flex;
   flex-shrink: 0;
   font-size: 0.6875rem;

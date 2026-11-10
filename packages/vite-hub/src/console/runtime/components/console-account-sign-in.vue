@@ -55,7 +55,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
   <template v-if="account && invitation">
     <div class="grid gap-1.5">
       <h1 class="vitehub-project-gate__title">Join a team</h1>
-      <p class="vitehub-project-gate__text">You are signed in as {{ account.user.name }}. Accept the invitation to open the projects of its team.</p>
+      <p class="vitehub-project-gate__text">You are signed in as {{ account.user.name }}. Accept the invitation to open the apps of its team.</p>
     </div>
     <div class="flex flex-wrap gap-2">
       <UButton label="Accept invitation" :loading="busy === 'accept'" @click="run('accept', () => acceptConsoleInvitation(invitation!))" />
@@ -65,16 +65,17 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
 
   <template v-else>
     <div class="grid gap-1.5">
-      <h1 class="vitehub-project-gate__title">{{ invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
-      <p class="vitehub-project-gate__text">Link your ViteHub apps to a team, and open them from any browser.</p>
+      <h1 class="text-xl/7 font-semibold text-balance text-highlighted">{{ invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
+      <p class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
     </div>
 
-    <div v-if="!creating" class="grid gap-2 sm:max-w-80">
+    <div v-if="!creating" class="grid gap-2">
       <UButton
         v-if="methods?.github"
         icon="i-lucide-github"
         label="Continue with GitHub"
         block
+        class="h-10"
         :loading="busy === 'github'"
         @click="run('github', () => signInWithGitHub(`${projects.pageOrigin}${invitationPath ?? '/'}`))"
       />
@@ -85,19 +86,23 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
         icon="i-lucide-key-round"
         label="Sign in with a passkey"
         block
+        class="h-10"
         :loading="busy === 'passkey'"
         @click="run('passkey', signInWithPasskey)"
       />
-      <UButton v-if="passkeys" color="neutral" variant="ghost" label="Create an account with a passkey" block @click="creating = true" />
+      <p v-if="passkeys" class="mt-2 text-sm text-muted">
+        New to ViteHub?
+        <button type="button" class="vitehub-account-sign-in__create" @click="creating = true">Create an account with a passkey</button>
+      </p>
       <p v-if="!passkeys && !methods?.github" class="vitehub-project-gate__text">This browser has no passkeys. Use a current browser to sign in.</p>
     </div>
 
-    <form v-else class="grid gap-3 sm:max-w-80" @submit.prevent="create">
+    <form v-else class="grid gap-3" @submit.prevent="create">
       <UFormField label="Your name" name="name" help="The Console shows it to your team.">
         <UInput v-model="name" autocomplete="name" autofocus class="w-full" />
       </UFormField>
       <div class="flex flex-wrap gap-2">
-        <UButton type="submit" icon="i-lucide-key-round" label="Create passkey" :loading="busy === 'create'" />
+        <UButton type="submit" icon="i-lucide-key-round" label="Create passkey" class="h-10" :loading="busy === 'create'" />
         <UButton color="neutral" variant="ghost" label="Back" @click="creating = false" />
       </div>
     </form>
@@ -105,3 +110,23 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
     <p v-if="problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
   </template>
 </template>
+
+<style>
+.vitehub-account-sign-in__create {
+  color: var(--ui-text-highlighted);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--ui-border-accented);
+  text-underline-offset: 0.2em;
+}
+
+.vitehub-account-sign-in__create:hover {
+  text-decoration-color: currentColor;
+}
+
+.vitehub-account-sign-in__create:focus-visible {
+  border-radius: 0.125rem;
+  outline: 2px solid var(--vitehub-console-focus);
+  outline-offset: 2px;
+}
+</style>

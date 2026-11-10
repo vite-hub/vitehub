@@ -1,47 +1,69 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, reactive, ref } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
-import { checkConsoleAccountProject } from "../client/account";
+import type { ConsoleAccountPage } from "../client/project-session";
+import { accountAppStatusLabels, checkConsoleAccountProject } from "../client/account";
 import { forgetConsoleProject, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
-import { consoleProjectHost, consoleProjectName } from "../client/projects";
+import { consoleProjectHost } from "../client/projects";
+import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
 import ConsoleAccountSetup from "./console-account-setup.vue";
-import ConsoleAccountStart from "./console-account-start.vue";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
-import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleToaster from "./console-toaster.vue";
 
 const ConsoleAccountTeam = defineAsyncComponent(() => import("./console-account-team.vue"));
 const ConsoleAccountSettings = defineAsyncComponent(() => import("./console-account-settings.vue"));
 
 /**
- * The frame of an `account` Console before a project opens: a sidebar with the team, its apps, the team page, and the
- * settings, and a panel with the onboarding, a page, or the step that an app still needs.
+ * The frame of an `account` Console before a project opens: a sidebar with the team, its apps, the members, and the
+ * settings, and a panel with Home, a page, or the step that an app still needs.
  */
 const projects = useConsoleProjects();
 const gate = projects.gate;
 const account = computed(() => projects.account.value);
+const team = computed(() => account.value?.teams.find(item => item.id === account.value?.teamId));
 const apps = computed<ConsoleAccountProject[]>(() => account.value?.projects ?? []);
 const status = reactive<Record<string, ConsoleAccountAppStatus>>({});
 const busy = ref(false);
+const navOpen = ref(false);
 
 const page = computed(() => {
   if (gate.value.kind === "home") return gate.value.page;
   if (gate.value.kind === "setup" || gate.value.kind === "problem") return "app";
-  return "start";
+  return "home";
 });
 const currentApp = computed(() => page.value === "app" ? projects.current.value?.id : undefined);
 const title = computed(() => {
-  if (page.value === "team") return "Team";
-  if (page.value === "settings") return "Settings";
-  if (page.value === "app") return projects.current.value ? consoleProjectName(projects.current.value) : "App";
-  return "Get started";
+  if (page.value === "team") return "Members";
+  if (page.value === "settings") return "Account settings";
+  if (page.value === "app") return projects.current.value ? appName(projects.current.value) : "App";
+  return "Home";
 });
 
-const dotLabels: Record<ConsoleAccountAppStatus, string> = { checking: "Checking", connected: "Connected", setup: "Needs its variable", unreachable: "Not reachable" };
+function appName(app: { label?: string | null, url: string }): string {
+  return app.label || consoleProjectHost(app);
+}
+
+function pagePath(target: ConsoleAccountPage): string {
+  return `${projects.home.replace(/\/+$/, "")}/${target}`;
+}
+
+/**
+ * A plain click changes the page in place. A click with a modifier key opens the link as the browser does. After the
+ * change, the drawer of a small screen closes and focus moves to the page title, as a page load would.
+ */
+function follow(event: MouseEvent, action: () => void): void {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+  event.preventDefault();
+  action();
+  // A closing drawer returns focus to its trigger, so the title takes focus after the drawer has closed.
+  const drawer = navOpen.value;
+  navOpen.value = false;
+  void nextTick(() => setTimeout(() => document.getElementById("vitehub-account-title")?.focus(), drawer ? 350 : 0));
+}
 
 onMounted(() => {
   // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
@@ -62,20 +84,22 @@ async function retry(): Promise<void> {
 </script>
 
 <template>
-  <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-account">
+  <UDashboardGroup class="vitehub-console vitehub-account-shell" unit="rem" storage="local" storage-key="vitehub-console-account">
+    <a href="#vitehub-account-main" class="vitehub-console__skip-link">Skip to content</a>
     <UDashboardSidebar
       id="console-account-navigation"
+      v-model:open="navOpen"
       class="vitehub-console__nav"
       :default-size="16"
       :min-size="14"
       :max-size="22"
       :menu="{ title: 'Console' }"
-      :ui="{ body: 'gap-0 p-0', footer: 'grid gap-1 border-t border-default p-2' }"
+      :ui="{ body: 'gap-0 p-0', footer: 'grid gap-px border-t border-default p-2' }"
     >
       <template #header>
         <div class="flex w-full min-w-0 items-center gap-1">
-          <ConsoleMark class="ms-1.5 size-[1.125rem] text-highlighted" />
-          <span class="text-dimmed" aria-hidden="true">/</span>
+          <ConsoleMark class="ms-1.5 size-[1.15rem] text-highlighted!" />
+          <span class="text-muted" aria-hidden="true">/</span>
           <div class="min-w-0 flex-1">
             <ConsoleAccountMenu variant="team" />
           </div>
@@ -83,49 +107,49 @@ async function retry(): Promise<void> {
       </template>
 
       <nav class="vitehub-console__section-nav pt-2" aria-label="Console">
-        <button type="button" class="vitehub-console__section-link" :aria-current="page === 'start' ? 'page' : undefined" @click="showConsoleAccountPage('start')">
-          <UIcon name="i-lucide-list-checks" class="vitehub-console__section-icon" />
-          <span class="truncate">Get started</span>
-        </button>
+        <a :href="pagePath('home')" class="vitehub-console__section-link" :aria-current="page === 'home' ? 'page' : undefined" @click="follow($event, () => showConsoleAccountPage('home'))">
+          <UIcon name="i-lucide-house" class="vitehub-console__section-icon" />
+          <span class="truncate">Home</span>
+        </a>
+        <a :href="pagePath('team')" class="vitehub-console__section-link" :aria-current="page === 'team' ? 'page' : undefined" @click="follow($event, () => showConsoleAccountPage('team'))">
+          <UIcon name="i-lucide-users" class="vitehub-console__section-icon" />
+          <span class="truncate">Members</span>
+        </a>
 
-        <div class="vitehub-console__section-heading flex items-center justify-between pe-1">
+        <div class="vitehub-console__section-heading vitehub-account-shell__heading">
           <span>Apps</span>
           <UTooltip text="Link an app">
             <UButton icon="i-lucide-plus" size="xs" variant="ghost" color="neutral" aria-label="Link an app" @click="projects.linkOpen.value = true" />
           </UTooltip>
         </div>
-        <button
+        <a
           v-for="app in apps"
           :key="app.id"
-          type="button"
+          :href="projects.home"
           class="vitehub-console__section-link"
           :aria-current="app.id === currentApp ? 'page' : undefined"
-          @click="openAccountProject(app.id)"
+          @click="follow($event, () => openAccountProject(app.id))"
         >
-          <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" role="img" :aria-label="dotLabels[status[app.id] ?? 'checking']" />
-          <span class="min-w-0 flex-1 truncate text-start">{{ consoleProjectName(app) }}</span>
-        </button>
-        <button v-if="!apps.length" type="button" class="vitehub-console__section-link text-dimmed" @click="projects.linkOpen.value = true">
+          <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
+          <span class="min-w-0 flex-1 truncate">{{ appName(app) }}</span>
+          <span class="sr-only">, {{ accountAppStatusLabels[status[app.id] ?? 'checking'] }}</span>
+        </a>
+        <button v-if="!apps.length" type="button" class="vitehub-console__section-link" @click="projects.linkOpen.value = true">
           <UIcon name="i-lucide-link" class="vitehub-console__section-icon" />
           <span class="truncate">Link your first app</span>
-        </button>
-
-        <div class="vitehub-console__section-heading">Team</div>
-        <button type="button" class="vitehub-console__section-link" :aria-current="page === 'team' ? 'page' : undefined" @click="showConsoleAccountPage('team')">
-          <UIcon name="i-lucide-users" class="vitehub-console__section-icon" />
-          <span class="truncate">Members</span>
-        </button>
-        <button type="button" class="vitehub-console__section-link" :aria-current="page === 'settings' ? 'page' : undefined" @click="showConsoleAccountPage('settings')">
-          <UIcon name="i-lucide-settings" class="vitehub-console__section-icon" />
-          <span class="truncate">Settings</span>
         </button>
       </nav>
 
       <template #footer>
+        <a :href="pagePath('settings')" class="vitehub-console__section-link" :aria-current="page === 'settings' ? 'page' : undefined" @click="follow($event, () => showConsoleAccountPage('settings'))">
+          <UIcon name="i-lucide-settings" class="vitehub-console__section-icon" />
+          <span class="truncate">Account settings</span>
+        </a>
         <a class="vitehub-console__section-link" href="https://vitehub.dev/docs/development/console#hosted-console" target="_blank" rel="noopener">
           <UIcon name="i-lucide-book-open" class="vitehub-console__section-icon" />
           <span class="flex-1 truncate">Docs</span>
-          <UIcon name="i-lucide-arrow-up-right" class="size-3.5 text-dimmed" />
+          <UIcon name="i-lucide-arrow-up-right" class="size-3.5 text-muted" aria-hidden="true" />
+          <span class="sr-only">(opens in a new tab)</span>
         </a>
         <ConsoleAccountMenu variant="user" />
       </template>
@@ -133,25 +157,31 @@ async function retry(): Promise<void> {
 
     <UDashboardPanel id="console-account-page" :ui="{ body: 'p-0 sm:p-0' }">
       <template #header>
-        <ConsolePageHeader :title="title" :description="page === 'app' && projects.current.value?.label ? consoleProjectHost(projects.current.value) : undefined" />
+        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :toggle="{ 'aria-label': 'Open navigation' }">
+          <template #title>
+            <span class="flex min-w-0 items-center gap-2 text-sm">
+              <span class="hidden truncate text-muted sm:inline">{{ team?.name ?? "Team" }}</span>
+              <span class="hidden text-muted sm:inline" aria-hidden="true">/</span>
+              <h1 id="vitehub-account-title" tabindex="-1" class="truncate font-semibold text-highlighted outline-none">{{ title }}</h1>
+            </span>
+          </template>
+        </UDashboardNavbar>
       </template>
       <template #body>
-        <main class="vitehub-account-shell__page">
-          <ConsoleAccountStart v-if="page === 'start'" :status="status" />
+        <main id="vitehub-account-main" tabindex="-1" class="vitehub-account-shell__page outline-none">
+          <ConsoleAccountHome v-if="page === 'home'" :status="status" />
           <ConsoleAccountTeam v-else-if="page === 'team'" />
           <ConsoleAccountSettings v-else-if="page === 'settings'" />
-          <div v-else-if="gate.kind === 'setup'" class="grid max-w-xl gap-5">
-            <ConsoleAccountSetup :project="gate.project" />
-          </div>
-          <div v-else-if="gate.kind === 'problem'" class="grid max-w-xl gap-5">
-            <div class="grid gap-1.5" role="alert">
-              <h1 class="vitehub-project-gate__title">{{ gate.problem.title }}</h1>
-              <p class="vitehub-project-gate__text"><ConsoleCodeText :text="gate.problem.message" /></p>
-              <p v-if="gate.problem.fix" class="vitehub-project-gate__fix"><ConsoleCodeText :text="gate.problem.fix" /></p>
-            </div>
+          <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" />
+          <div v-else-if="gate.kind === 'problem'" class="grid max-w-2xl gap-6">
+            <header class="grid gap-1" role="alert">
+              <h2 class="text-xl font-semibold text-highlighted">{{ gate.problem.title }}</h2>
+              <p class="text-sm text-pretty text-muted"><ConsoleCodeText :text="gate.problem.message" /></p>
+              <p v-if="gate.problem.fix" class="text-sm text-pretty text-default"><ConsoleCodeText :text="gate.problem.fix" /></p>
+            </header>
             <div class="flex flex-wrap gap-2">
               <UButton icon="i-lucide-refresh-cw" label="Try again" :loading="busy" @click="retry" />
-              <UButton v-if="projects.current.value?.id" color="error" variant="ghost" icon="i-lucide-unlink" label="Unlink this app" @click="forgetConsoleProject(projects.current.value.id)" />
+              <UButton v-if="projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" label="Unlink this app" @click="forgetConsoleProject(projects.current.value.id)" />
             </div>
           </div>
         </main>
@@ -164,20 +194,46 @@ async function retry(): Promise<void> {
 </template>
 
 <style>
+/* The icons of the account pages are 1.15rem, a step above the 1rem icons of the Console sections. */
+.vitehub-account-shell .vitehub-console__section-icon,
+.vitehub-account-shell .vitehub-account-icon {
+  height: 1.15rem;
+  width: 1.15rem;
+}
+
+.vitehub-account-shell .vitehub-console__section-heading,
+.vitehub-account-shell .vitehub-console__section-link {
+  color: var(--ui-text-muted);
+}
+
+.vitehub-account-shell .vitehub-console__section-link:hover,
+.vitehub-account-shell .vitehub-console__section-link[aria-current="page"] {
+  color: var(--ui-text-highlighted);
+}
+
+.vitehub-account-shell__heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding-inline-end: 0.25rem;
+  padding-top: 1rem;
+}
+
 .vitehub-account-shell__page {
   padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem) 4rem;
 }
 
+/* The dot sits in the 1.15rem icon box, so app names line up with the page names above them. */
 .vitehub-account-shell__dot {
   border-radius: 999px;
   flex-shrink: 0;
   height: 0.5rem;
-  margin-inline: 0.25rem;
+  margin-inline: 0.325rem;
   width: 0.5rem;
 }
 
 .vitehub-account-shell__dot[data-status="checking"] {
-  box-shadow: inset 0 0 0 1px var(--ui-text-dimmed);
+  box-shadow: inset 0 0 0 1px var(--ui-text-muted);
 }
 
 .vitehub-account-shell__dot[data-status="connected"] {
@@ -190,5 +246,25 @@ async function retry(): Promise<void> {
 
 .vitehub-account-shell__dot[data-status="unreachable"] {
   background: var(--ui-error);
+}
+
+/* Touch screens get 44px rows and 16px fields, so taps land and iOS does not zoom into a field. */
+@media (pointer: coarse) {
+  body:has(.vitehub-account-shell) [role="menuitem"],
+  body:has(.vitehub-account-shell) [role="menuitemcheckbox"] {
+    min-height: 2.75rem;
+  }
+
+  .vitehub-account-shell :is(input, select, textarea) {
+    font-size: 1rem;
+  }
+
+  .vitehub-account-shell :is(.vitehub-console__section-link, .vitehub-account-menu__trigger, button) {
+    min-height: 2.75rem;
+  }
+
+  .vitehub-account-shell button {
+    min-width: 2.75rem;
+  }
 }
 </style>

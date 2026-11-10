@@ -94,7 +94,7 @@ onMounted(() => {
 
   <main v-else class="vitehub-project-gate">
     <div class="vitehub-project-gate__body">
-      <ConsoleMark class="size-6 text-highlighted" />
+      <ConsoleMark class="size-6 text-highlighted!" />
 
       <ConsoleAccountSignIn v-if="gate.kind === 'account'" :invitation="gate.invitation" />
 

@@ -261,7 +261,11 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
-          from: "src/console/runtime/components/console-account-start.vue",
+          from: "src/console/runtime/components/console-account-home.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-snippet.vue",
           to: "dist/console/runtime/components",
         },
         {

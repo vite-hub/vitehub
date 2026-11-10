@@ -259,6 +259,14 @@ export async function renameConsoleAccount(name: string): Promise<void> {
 /** What the Console knows about a linked app: it answers with its token, it still needs its variable, or it does not answer. */
 export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unreachable"
 
+/** What each status says, in the sidebar and on Home. */
+export const accountAppStatusLabels: Record<ConsoleAccountAppStatus, string> = {
+  checking: "Checking",
+  connected: "Connected",
+  setup: "Variable not set",
+  unreachable: "Not reachable",
+}
+
 /** Whether the app keeps the hash of its token: the Console server calls the app with the token. */
 export async function checkConsoleAccountProject(id: string): Promise<{ linked: boolean, status: number }> {
   return json<{ linked: boolean, status: number }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
