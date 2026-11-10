@@ -3041,9 +3041,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       local-pkg:
         specifier: catalog:tooling
         version: 1.2.1
@@ -3093,6 +3090,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      esbuild:
+        specifier: catalog:tooling
+        version: 0.28.2
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
