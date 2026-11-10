@@ -71,10 +71,14 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
     const initial = seed === undefined || reading ? pendingState(refetch) : settled(seed)
     const state = shallowRef<unknown>(initial)
     if (server) {
-      if (reading) onServerPrefetch(async () => {
-        const value: unknown = await reading
-        if (value !== undefined) state.value = settled(value)
-      })
+      if (reading) {
+        // The read settles the ref itself: Vue runs `onServerPrefetch` only after an async setup ends, and that setup
+        // can wait for the session. The render waits for the same read.
+        const done = reading.then((value: unknown) => {
+          if (value !== undefined) state.value = settled(value)
+        })
+        onServerPrefetch(() => done)
+      }
       return state
     }
     void load().then((client) => {

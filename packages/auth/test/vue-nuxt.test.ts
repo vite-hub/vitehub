@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createSSRApp, defineComponent, h, ref } from "vue"
+import { createSSRApp, defineComponent, h, ref, watch } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -167,6 +167,23 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
     // The payload seeds the browser's composables, without the session token.
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
+  })
+
+  it("settles the session for an SSR component whose async setup waits until the session is ready", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+    const User = defineComponent(async () => {
+      const { ready, user, loggedIn } = useUserSession()
+      // Vue runs `onServerPrefetch` only after async setup ends, so the read must settle the session without it.
+      if (!ready.value) await new Promise<void>(resolve => watch(ready, value => value && resolve(), { flush: "sync" }))
+      const id = user.value?.id
+      return () => h("span", `${id}:${loggedIn.value}`)
+    })
+    const html = renderToString(createSSRApp(() => h("main", [h(User)])))
+    const timeout = new Promise<string>(resolve => setTimeout(() => resolve("timeout"), 1000))
+
+    expect(await Promise.race([html, timeout])).toBe("<main><span>u:true</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
   })
 
   it("keeps the session read of each SSR request apart", async () => {
