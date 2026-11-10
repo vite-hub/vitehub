@@ -90,35 +90,30 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
-    "./eve": {
-      "types": "./dist/eve.d.ts",
-      "import": "./dist/eve.js",
-      "default": "./dist/eve.js"
-    },
-    "./internal/workspace/internal/runtime/hosted": {
-      "types": "./dist/internal/workspace/internal/runtime/hosted.d.ts",
-      "import": "./dist/internal/workspace/internal/runtime/hosted.js",
-      "default": "./dist/internal/workspace/internal/runtime/hosted.js"
-    },
-    "./internal/workspace/internal/runtime/hosted-vercel-blob": {
-      "types": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
-      "import": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js",
-      "default": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js"
-    },
-    "./internal/workspace/runtime": {
-      "types": "./dist/internal/workspace/runtime.d.ts",
-      "import": "./dist/internal/workspace/runtime.js",
-      "default": "./dist/internal/workspace/runtime.js"
+    "./invocations/app": {
+      "types": "./dist/invocations/app.d.ts",
+      "import": "./dist/invocations/app.js",
+      "default": "./dist/invocations/app.js"
     },
     "./invocations/d1": {
       "types": "./dist/invocations/d1.d.ts",
       "import": "./dist/invocations/d1.js",
       "default": "./dist/invocations/d1.js"
     },
+    "./invocations/database": {
+      "types": "./dist/invocations/database.d.ts",
+      "import": "./dist/invocations/database.js",
+      "default": "./dist/invocations/database.js"
+    },
     "./invocations/default": {
       "types": "./dist/invocations/default.d.ts",
       "import": "./dist/invocations/default.js",
       "default": "./dist/invocations/default.js"
+    },
+    "./invocations/drizzle": {
+      "types": "./dist/invocations/drizzle.d.ts",
+      "import": "./dist/invocations/drizzle.js",
+      "default": "./dist/invocations/drizzle.js"
     },
     "./invocations/sqlite": {
       "types": "./dist/invocations/sqlite.d.ts",
@@ -155,11 +150,6 @@
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./output": {
       "types": "./dist/output.d.ts",
       "import": "./dist/output.js",
@@ -170,25 +160,10 @@
       "import": "./dist/process-host.js",
       "default": "./dist/process-host.js"
     },
-    "./runtime/invocations-dev": {
-      "types": "./dist/runtime/invocations-dev.d.ts",
-      "import": "./dist/runtime/invocations-dev.js",
-      "default": "./dist/runtime/invocations-dev.js"
-    },
     "./runtime/process": {
       "types": "./dist/runtime/process.d.ts",
       "import": "./dist/runtime/process.js",
       "default": "./dist/runtime/process.js"
-    },
-    "./runtime/registry": {
-      "types": "./dist/runtime/registry.d.ts",
-      "import": "./dist/runtime/registry.js",
-      "default": "./dist/runtime/registry.js"
-    },
-    "./runtime/workflow": {
-      "types": "./dist/runtime/workflow.d.ts",
-      "import": "./dist/runtime/workflow.js",
-      "default": "./dist/runtime/workflow.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -199,16 +174,6 @@
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
-    },
-    "./server/registry": {
-      "types": "./dist/server/registry.d.ts",
-      "import": "./dist/server/registry.js",
-      "default": "./dist/server/registry.js"
-    },
-    "./server/workspace": {
-      "types": "./dist/server/workspace.d.ts",
-      "import": "./dist/server/workspace.js",
-      "default": "./dist/server/workspace.js"
     },
     "./state/sqlite": {
       "types": "./dist/state/sqlite.d.ts",
@@ -236,7 +201,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/agent#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
+    "test": "vp run --cache -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "catalog:ai",
@@ -289,6 +254,7 @@
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
     "eve": "0.80.1",
     "miniflare": "4.20260730.0",
@@ -317,6 +283,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "drizzle-orm": "catalog:database",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -351,6 +318,9 @@
       "optional": true
     },
     "@vite-hub/database": {
+      "optional": true
+    },
+    "drizzle-orm": {
       "optional": true
     },
     "@vite-hub/email": {

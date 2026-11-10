@@ -39,7 +39,7 @@ function notesSchema(columns: string[]) {
   ].join("\n")
 }
 
-// The package root has drizzle-kit and @libsql/client in its dependencies, like a project that uses `vitehub db`.
+// The package root has drizzle-kit and @libsql/client in its dependencies, like a project that uses `vitehub database`.
 async function createProject() {
   const rootDir = await mkdtemp(join(import.meta.dirname, ".drizzle-migrate-"))
   tempDirs.push(rootDir)
@@ -87,7 +87,7 @@ async function createProject() {
   return { columns, database, rootDir, run, writeSchema: (columns: string[]) => writeFile(join(rootDir, "schema.ts"), notesSchema(columns)) }
 }
 
-describe("vitehub db migrate", () => {
+describe("vitehub database migrate", () => {
   it("prints pending migrations, refuses data loss, and applies it with --allow-data-loss", async () => {
     const project = await createProject()
     await project.writeSchema(["title", "body"])
@@ -116,7 +116,7 @@ describe("vitehub db migrate", () => {
     const refused = await project.run("migrate")
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr).toContain("0001_drop_body: drops column \"body\" from \"notes\": ALTER TABLE `notes` DROP COLUMN `body`;")
-    expect(refused.stderr).toContain("vitehub db migrate --allow-data-loss")
+    expect(refused.stderr).toContain("vitehub database migrate --allow-data-loss")
     await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
 
     await expect(project.run("migrate", ["--dry-run", "--allow-data-loss"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
@@ -216,7 +216,7 @@ async function createFakeD1(rootDir: string, setup?: string) {
   return { client, fetch, rows }
 }
 
-describe("vitehub db migrate with D1 over HTTP", () => {
+describe("vitehub database migrate with D1 over HTTP", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })

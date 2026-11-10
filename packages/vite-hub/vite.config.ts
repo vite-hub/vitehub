@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
@@ -60,6 +60,7 @@ const runtimeEntries = [
   // Generated code imports these modules by path. They are not package exports.
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
+  "src/task/operations.ts",
   "src/console/auth-types.ts",
   // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
   "src/console/authorize.ts",
@@ -144,18 +145,11 @@ const runtimeEntries = [
   "src/console/runtime/server/status.get.ts",
 ];
 
-const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
+const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
+// The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
+const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
 const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
-
-function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
-  const matches = readdirSync(consoleAssetRoot)
-    .filter(file => file.startsWith(prefix) && file.endsWith(extension));
-  if (matches.length !== 1) {
-    throw new TypeError(`Expected one hashed Console ${prefix}*${extension} asset, found ${matches.length}.`);
-  }
-  return matches[0]!;
-}
 
 export default defineConfig({
   pack: [
@@ -166,8 +160,6 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
-        { from: ".vitehub/console", to: "dist/console/runtime/public" },
-        { from: ".vitehub/skills", to: "dist/console/runtime/public" },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -446,22 +438,23 @@ export default defineConfig({
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
       plugins: [
         {
-          name: "vite-hub-console-assets",
-          generateBundle(_options, bundle) {
-            const page = Object.values(bundle).find(output =>
-              output.type === "chunk"
-              && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
-            );
-            if (!page || page.type !== "chunk") {
-              throw new TypeError("Expected the standalone Console page in the package bundle.");
-            }
-            page.code = page.code
-              .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset("console-", ".css"))
-              .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset("console-", ".js"));
-            const tool = consoleAsset("page-tool-", ".js");
-            for (const output of Object.values(bundle)) {
-              if (output.type === "chunk") output.code = output.code.replaceAll("__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__", tool);
-            }
+          // Emit the skills and the well-known index that `npx skills add <app>/_vitehub` reads. The pack task owns dist,
+          // so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
+          name: "vite-hub-console-skills",
+          generateBundle() {
+            const skills = consoleSkills.map((name) => {
+              const root = resolve(skillsSource, name);
+              const frontmatter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(root, "SKILL.md"), "utf8"))?.[1] ?? "";
+              const field = (key: string) => new RegExp(`^${key}: (.+)$`, "m").exec(frontmatter)?.[1];
+              const description = field("description");
+              if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
+              const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
+              for (const file of files) {
+                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
+              }
+              return { name, description, files };
+            });
+            this.emitFile({ type: "asset", fileName: "console/runtime/public/skills/index.json", source: `${JSON.stringify({ skills }, null, 2)}\n` });
           },
         },
         {
@@ -574,6 +567,7 @@ export default defineConfig({
           delete exports["./console/auth-inline"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
+          delete exports["./task/operations"];
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
@@ -600,7 +594,7 @@ export default defineConfig({
         dts: ".d.ts",
         js: ".js",
       }),
-      publint: true,
+      publint: "ci-only",
     },
     {
       clean: false,

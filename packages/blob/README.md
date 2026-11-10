@@ -44,11 +44,10 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     base: ".vitehub/data/blob",
-  },
-  plugins: [hubBlob(), nitro()],
+  }), nitro()],
 })
 ```
 
@@ -85,8 +84,7 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: { remote: true },
-  plugins: [hubBlob(), nitro()],
+  plugins: [hubBlob({ remote: true }), nitro()],
 })
 ```
 
@@ -105,7 +103,7 @@ For files shared by public link, add `serve.anonymous: true`. Then signed-out re
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
 ```ts
-import { detectContentType } from "@vite-hub/blob/content-type"
+import { detectContentType } from "@vite-hub/blob"
 
 const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
 if (detected !== file.type) throw new Error("File content does not match its declared type")
@@ -117,7 +115,7 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     serve: {
       route: "/assets",
@@ -126,8 +124,7 @@ export default defineConfig({
         "X-Content-Type-Options": "nosniff",
       },
     },
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -257,14 +254,13 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "s3",
     bucket: "app-assets",
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION,
     publicBaseUrl: "https://assets.example.com",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -284,10 +280,9 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "minio",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 

@@ -27,7 +27,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
+      neverBundle: ["vite", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
       onlyBundle: false,
     },
     plugins: [{
@@ -87,6 +87,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

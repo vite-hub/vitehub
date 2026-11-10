@@ -9,8 +9,12 @@ import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/co
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { requestEvent } from "./console-event.ts"
 import { installStandardContext } from "../src/runtime/h3.ts"
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const origin = "https://app.example.com"
 vi.mock("../../auth/dist/runtime/empty-definition.js", () => ({

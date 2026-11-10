@@ -63,13 +63,25 @@ export interface CommentsForgeOptions {
 }
 
 /**
- * The request event of a Comments call. Read the request, its cookies, and the platform bindings from
- * `event["~standard"]`. `context` is the H3 event context, when the call came through an H3 route.
+ * The request event of a Comments call: the Request of the Comments API, or the server event of an operation call.
+ * Read the request, its cookies, and the platform bindings from `event["~standard"]`. `context` is the H3 event
+ * context, when the call came through an H3 event.
  */
 export type CommentsRequestEvent = ViteHubContext<{ context?: Record<string, unknown> }>
 
 export interface CommentsIdentifyContext {
   event: CommentsRequestEvent
+}
+
+export interface CommentsPageContext {
+  /** The page URL: the origin of the request and the normalized path, without query and hash. */
+  url: URL
+  event: CommentsRequestEvent
+}
+
+/** The subject of a page, and the version of the subject that new threads start on. */
+export interface CommentsPageSubject extends CommentSubject {
+  revision?: number
 }
 
 export interface DefineCommentsOptions extends CommentsDefinition {
@@ -79,6 +91,12 @@ export interface DefineCommentsOptions extends CommentsDefinition {
   database?: string
   /** Posts threads to the pull request that the page previews. */
   forge?: CommentsForgeOptions
+  /**
+   * The subject that the overlay comments on for a page, such as `{ kind: "drop", id, revision }`. The server decides:
+   * the overlay reads the subject from `/session`, and a new thread from the overlay must be on it. `authorize` still
+   * runs on the subject. Return `null` or `undefined` for the default, `{ kind: "page", id: url.pathname }`.
+   */
+  page?: (context: CommentsPageContext) => CommentsPageSubject | null | undefined | Promise<CommentsPageSubject | null | undefined>
 }
 
 export interface ListCommentThreadsOptions {
@@ -109,6 +127,8 @@ export interface CreateCommentThreadInput {
   metadata?: CommentMetadata
   /** The version of the subject, such as a document version. */
   revision?: number
+  /** A retry key. A second create with the same key and author in the same scope returns the first thread. */
+  requestId?: string
   body: string
   author: CommentUser
   /** Ids of the people that `body` names with `@`. */
