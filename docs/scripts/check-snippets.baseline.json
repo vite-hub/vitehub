@@ -535,11 +535,6 @@
     "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/source/server-api.md#b43f632ae0d3",
-    "label": "server/collections/articles.ts",
-    "error": "TS2339 Property 'articles' does not exist on type 'never'.\nTS2339 Property 'articles' does not exist on type 'never'.\nTS2339 Property 'articles' does not exist on type 'never'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS2304 Cannot find name 'db'."
