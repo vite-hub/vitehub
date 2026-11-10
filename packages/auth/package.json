@@ -117,7 +117,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/auth#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/auth#build && vp test"
+    "test": "vp run --cache -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
     "@noble/hashes": "catalog:auth",
