@@ -366,7 +366,7 @@ export const AgentSession = defineComponent({
                   class: "vh-agent-session__tab-button",
                   "aria-selected": selected ? "true" : "false",
                   onClick: () => (active.value = id),
-                  onAuxclick: (event: MouseEvent) => event.button === 1 && closeSurface(id),
+                  onAuxclick: (event: MouseEvent) => closable && event.button === 1 && closeSurface(id),
                 }, [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
                 closable
                   ? h("button", {

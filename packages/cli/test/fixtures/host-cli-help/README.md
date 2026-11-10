@@ -14,3 +14,7 @@
 - Deno Deploy CLI 0.0.9909 (`deno deploy`, Deno 2.9.7): `deno-deploy.txt`, `deno-deploy-env.txt`.
   - `env add` takes the value as an argument. `env load <file>` reads a dotenv file, so the secret goes through `/dev/stdin`.
   - Exit code 4 means NOT_FOUND: https://docs.deno.com/runtime/reference/cli/deploy/#agent--ci-usage
+
+`vitehub deployments` and the `live` line of `vitehub status` read Cloudflare, Vercel, and Netlify through their REST APIs (see `test/fixtures/host-api/README.md`), and Deno through its CLI:
+
+- Deno Deploy CLI 0.0.9909: `deno-deploy-deployments-list.txt` and `deno-deploy-apps-get.txt`. With `--json`, `deployments list` prints `{ items: [{ id, status, prod, createdAt, updatedAt, lastStep }], nextCursor, org, app }` and `apps get` prints `{ id, slug, org, productionUrl, domains, productionRevisionId, ... }` (the CLI source, `deploy/deployments.ts` and `deploy/apps.ts` in `jsr:@deno/deploy@0.0.9909`). Deno Deploy keeps no deploy message, so a Deno deployment has no commit marker.

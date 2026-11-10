@@ -1,6 +1,7 @@
 import type { ReadonlyWorkspaceFiles } from "@vite-hub/workspace/files"
 import * as v from "valibot"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleHttpError } from "./http-error.ts"
 
 /* Readers for retained Workspace history, shared by the session Workspace and the Workspaces section. */
 const sourceLabelSchema = v.pipe(v.string(), v.minLength(1), v.check(value => !/\p{Cc}/u.test(value)))
@@ -49,7 +50,7 @@ export type WorkspaceHistoryReader = {
 }
 
 export function failure(statusCode: number, message: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message }), { statusCode, statusMessage: message })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_C0001({ message }))
 }
 
 export function visiblePath(path: string): boolean {

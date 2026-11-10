@@ -114,6 +114,7 @@ describe("@vite-hub/ui package contract", () => {
       katex: "^0.18.7",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
+      "@shikijs/themes": "4.5.0",
       "@types/node": "catalog:tooling",
       "@vite-hub/comments": "workspace:*",
       "nostics": "catalog:runtime",
@@ -161,10 +162,12 @@ describe("@vite-hub/ui package contract", () => {
   });
 
   it("ships flat console surfaces that fill their containers", () => {
-    for (const block of [".vh-chat", ".vh-session"]) {
+    for (const block of [".vh-chat", ".vh-session", ".vh-agent-session"]) {
       expect(stylesheet, block).toMatch(new RegExp(`\\n\\s*${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
-    expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
+    // Folded text fades to signal more content; the surrounding surfaces stay flat.
+    const surfaces = stylesheet.replace(/\.vh-agent-session__bubble\[data-folded\] \.vh-agent-session__bubble-text\s*\{[^}]*\}/g, "");
+    expect(surfaces).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
     expect(stylesheet).not.toContain("--vh-ui-text-muted");
   });
 

@@ -127,8 +127,7 @@ const changedFiles = computed(() => {
   if (!invocation) return 0;
   const files = new Set<string>();
   for (const activity of invocationActivities(invocation))
-    for (const patch of activity.patches)
-      for (const match of patch.matchAll(/^\+\+\+ b\/(.+)$/gm)) files.add(match[1]!);
+    for (const path of activity.paths) files.add(path);
   return files.size;
 });
 </script>

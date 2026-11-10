@@ -3,7 +3,6 @@
 export const viteHubUIIcons: readonly string[] = [
   "lucide:brain",
   "lucide:chevron-down",
-  "lucide:chevron-right",
   "lucide:circle-x",
   "lucide:database",
   "lucide:external-link",

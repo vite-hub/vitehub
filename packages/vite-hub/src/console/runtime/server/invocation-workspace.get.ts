@@ -46,6 +46,7 @@ async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Pr
   const invocation = await getConsoleInvocations().get(id)
   if (!invocation) throw failure(404, "Invocation not found.")
   const configuration = invocation.observations
+    .slice().reverse()
     .map(entry => v.safeParse(configurationSchema, entry.attributes?.["vitehub.agent.configuration"]))
     .find(result => result.success)
   const recorded = configuration?.success ? configuration.output.workspace : undefined

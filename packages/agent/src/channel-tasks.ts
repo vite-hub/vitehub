@@ -67,6 +67,8 @@ export interface ChannelTaskQueue {
   agentName: string
   cancel: (channel: string, task: string, options: CancelChannelTaskOptions) => Promise<number>
   enqueue: (channel: string, task: string, input: AgentRunInput, options: EnqueueChannelTaskOptions & { notBefore: number }) => Promise<ChannelTaskReceipt>
+  /** Runs a trigger's `invoke` with `input` and admits its result to the webhook queue. */
+  trigger: (channel: string, trigger: string, input: unknown) => Promise<{ deliveryId: string, queued: boolean }>
 }
 
 interface ChannelTaskRegistry {
@@ -85,6 +87,7 @@ function channelTaskRegistry(): ChannelTaskRegistry {
 
 /** Internal: a persistent host can start its queue on demand before its background startup timer fires. */
 export function registerChannelTaskQueueStarter(start: () => void): () => void {
+  installChannelTriggerDispatcher()
   const starters = channelTaskRegistry().starters ??= new Set()
   starters.add(start)
   return () => { starters.delete(start) }
@@ -99,6 +102,7 @@ export function startingChannelTaskQueue(starting: Promise<unknown>): void {
 
 /** Internal: the webhook queue of an Agent registers the Channels it serves while it runs. Returns the unregister function. */
 export function registerChannelTaskQueue(channels: readonly string[], queue: ChannelTaskQueue): () => void {
+  installChannelTriggerDispatcher()
   const { queues } = channelTaskRegistry()
   for (const channel of channels) {
     const registered = queues.get(channel) ?? new Set()
@@ -200,4 +204,17 @@ export async function cancelChannelTask(
 /** The queue debounce key of one trigger's Channel task key. */
 export function channelTaskDebounceKey(trigger: string, task: string, key: string): string {
   return `task:${JSON.stringify([trigger, task, key])}`
+}
+
+// `sendChannelTrigger()` in `@vite-hub/channels` calls the Agent delivery core through this global, because the
+// Channels package does not depend on the Agent package.
+const triggerDispatcherKey = Symbol.for("vitehub.channels.triggerDispatcher")
+
+async function dispatchChannelTrigger(channel: string, trigger: string, input: unknown): Promise<{ deliveryId: string, queued: boolean }> {
+  if (!validTaskName(channel, trigger)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] sendChannelTrigger() needs a non-empty Channel name and trigger name." })
+  return await (await channelTaskQueue(channel)).trigger(channel, trigger, input)
+}
+
+function installChannelTriggerDispatcher(): void {
+  (globalThis as typeof globalThis & { [triggerDispatcherKey]?: typeof dispatchChannelTrigger })[triggerDispatcherKey] = dispatchChannelTrigger
 }

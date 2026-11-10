@@ -10,8 +10,33 @@ vi.mock("../src/console/runtime/components/console-session-copy-link.vue", () =>
 vi.mock("../src/console/runtime/components/console-session-loading.vue", () => ({ default: { render: () => null } }))
 
 import Session from "../src/console/runtime/components/console-agent-session.vue"
+import type { AgentInvocationView } from "../src/console/runtime/components/invocation/types"
 
-it.each(["Close Details", "Open a surface"])("opens the desktop launcher from %s", async (label) => {
+it.each([false, true])("counts deleted files alongside other changes (mixed: %s)", async (mixed) => {
+  localStorage.clear()
+  const timestamp = "2026-11-07T10:00:00.000Z"
+  const deleted = "diff --git a/deleted.ts b/deleted.ts\n--- a/deleted.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n"
+  const modified = "diff --git a/edited.ts b/edited.ts\n--- a/edited.ts\n+++ b/edited.ts\n@@ -1 +1 @@\n-old\n+new\n"
+  const invocation = {
+    id: "run", createdAt: timestamp, updatedAt: timestamp, traceId: "trace", status: "completed",
+    observations: [{
+      name: "agent.turn.diff.updated", sequence: 1, timestamp, type: "run",
+      attributes: { "vitehub.activity.kind": "change", "vitehub.activity.body": deleted + (mixed ? modified + modified : "") },
+    }],
+  } satisfies AgentInvocationView
+  const wrapper = mount(Session, {
+    props: { loading: false, title: "Session", invocation },
+    global: { stubs: { AgentInvocation: true, UIcon: true } },
+  })
+  try {
+    await wrapper.get('[data-slot="agent-session-details-toggle"]').trigger("click")
+    const row = wrapper.findAll('[data-slot="agent-session-details-row"]').find(row => row.text().includes("Changed files"))
+    expect(row?.find(".vh-agent-session__row-value").text()).toBe(mixed ? "2" : "1")
+  }
+  finally { wrapper.unmount() }
+})
+
+it("opens the desktop launcher from Open a surface while the lone tab stays open", async () => {
   localStorage.clear()
   const host = defineComponent({
     setup() {
@@ -24,7 +49,8 @@ it.each(["Close Details", "Open a surface"])("opens the desktop launcher from %s
   })
   const wrapper = mount(host, { global: { components: { UIcon: { render: () => null } } } })
   try {
-    await wrapper.get(`button[aria-label="${label}"]`).trigger("click")
+    expect(wrapper.find('button[aria-label="Close Details"]').exists()).toBe(false)
+    await wrapper.get('button[aria-label="Open a surface"]').trigger("click")
     expect(wrapper.find('[data-slot="agent-session-launcher"]').exists()).toBe(true)
     expect(wrapper.find('[role="tab"][aria-selected="true"]').exists()).toBe(false)
     await wrapper.get('[data-slot="agent-session-launcher"] button').trigger("click")

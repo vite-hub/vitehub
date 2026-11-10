@@ -82,6 +82,23 @@ describe("Workspace files inspection", () => {
   })
 })
 describe("invocation Workspace inspection", () => {
+  it("opens the newest recorded Workspace configuration after provider preparation", async () => {
+    const revision = { id: "prepared-revision", ref: "main", parentId: null, createdAt: "2026-11-07T10:00:00.000Z", files: 1, bytes: 4 }
+    const observations = [
+      { attributes: { "vitehub.agent.configuration": { workspace: { name: "bot" } } } },
+      { attributes: { "vitehub.agent.configuration": { workspace: { name: "bot", ref: "main", revision: revision.id } } } },
+      { attributes: { "vitehub.agent.configuration": null } },
+    ]
+    mocks.get.mockResolvedValue({ agentName: "bot", observations })
+    mocks.open.mockResolvedValue({ revision, list: mocks.glob, stat: mocks.stat, readFile: mocks.readFile })
+    mocks.refs.mockResolvedValue([{ name: "main", head: revision }])
+    mocks.list.mockResolvedValue({ revisions: [revision] })
+    mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    mocks.definition.mockReturnValue(undefined)
+    expect(await handler(request())).toMatchObject({ repository: "bot", revision: revision.id, ref: "main" })
+    expect(mocks.open).toHaveBeenCalledWith(revision.id)
+    expect(observations[0]?.attributes["vitehub.agent.configuration"]).toEqual({ workspace: { name: "bot" } })
+  })
   it("uses the host-authorized immutable snapshot when no mounted Workspace exists", async () => {
     mocks.definition.mockReturnValue(undefined)
     mocks.get.mockResolvedValue(undefined)

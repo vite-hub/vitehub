@@ -52,10 +52,15 @@ it("offers a close button only when the panel has more than one tab", async () =
   const wrapper = session({ panelOpen: true, surface: "workspace" });
   expect(wrapper.findAll("[role='tab']")).toHaveLength(1);
   expect(wrapper.find("[aria-label='Close Workspace']").exists()).toBe(false);
+  await wrapper.get("[role='tab']").trigger("auxclick", { button: 1 });
+  expect(wrapper.emitted("update:surface")).toBeUndefined();
+  expect(wrapper.get("[role='tab'][aria-selected='true']").text()).toBe("Workspace");
   await wrapper.setProps({ surface: "trace" });
   expect(wrapper.findAll("[role='tab']")).toHaveLength(2);
   expect(wrapper.find("[aria-label='Close Workspace']").exists()).toBe(true);
   expect(wrapper.find("[aria-label='Close Trace']").exists()).toBe(true);
+  await wrapper.get("[role='tab'][aria-selected='true']").trigger("auxclick", { button: 1 });
+  expect(wrapper.emitted("update:surface")).toEqual([["workspace"]]);
   wrapper.unmount();
 });
 
