@@ -173,20 +173,10 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
-  "@vite-hub/schedule/operations",
-  "@vite-hub/schedule/runtime/console",
-  "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
-  "@vite-hub/workflow/operations",
   "@vite-hub/workspace/operations",
-  "@vite-hub/workflow/runtime/cloudflare-runner",
-  "@vite-hub/workflow/runtime/cloudflare-shared",
-  "@vite-hub/workflow/runtime/cloudflare-vite",
-  "@vite-hub/workflow/runtime/dev-runs",
-  "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/state",
-  "@vite-hub/workflow/runtime/vercel-vite",
 ]);
 
 function sourceForwarderTargets(source: string): string[] | undefined {

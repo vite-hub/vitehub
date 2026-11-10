@@ -42,6 +42,14 @@ describe("public package export contracts", () => {
     expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
   })
 
+  it("publishes exactly the allowlisted subpaths of each package", () => {
+    const published = Object.fromEntries(packageInfos.map(info => [info.packageName, Object.keys(readPackageManifest(info.name).exports || {})]))
+    expect(published).toEqual(publicPackageExportAllowlist)
+    for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
+    // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit|schedule))(?:\/|$)/.test(subpath))).toEqual([])
+  })
+
   it("classifies every public root and subpath exactly once", () => {
     const expected = packageInfos.flatMap((info) => {
       const manifest = readPackageManifest(info.name)
