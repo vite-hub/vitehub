@@ -37,7 +37,7 @@ import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-r
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
 import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
@@ -1534,7 +1534,7 @@ async function queuedWebhookInvocationCancelled(
 
 /** The name that identifies this Agent's Invocations. It matches the name of the Invocation journal. */
 function routeAgentInvocationName(agent: AgentInput<ViteAgentRouteRuntimeContext>, identity: AgentHostIdentity | undefined): string | undefined {
-  return (isRuntimeRecord(agent) && hasRuntimeType(agent.name, "string") && agent.name) || identity?.name
+  return (isRuntimeRecord(agent) && typeof agent.name === "string" && agent.name) || identity?.name
 }
 
 async function notifyQueuedWebhookFailure(
@@ -9533,7 +9533,7 @@ function createQueuedChannelDispatch(
 function simulatedChannels(agent: unknown): Array<{ id: string, kind: string }> {
   if (!isRecord(agent) || !isRecord(agent.channels)) return []
   return Object.entries(agent.channels).flatMap(([id, channel]) =>
-    isRuntimeRecord(channel) && hasRuntimeType(channel.kind, "string") && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
+    isRuntimeRecord(channel) && typeof channel.kind === "string" && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
 }
 
 /**
@@ -9561,7 +9561,7 @@ async function simulatedChannelPageResponse(
   const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, webhookId))
   const channelId = match?.registration.channelId
   const channel = channelId ? channels[channelId] : undefined
-  if (!match || !channelId || !isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  if (!match || !channelId || !isRuntimeRecord(channel) || typeof channel.kind !== "string" || !isChannelSimulated(channel.kind)) return undefined
   const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
   const route = new URL(request.url).pathname
   // The other Channels share the route and differ in the webhook selector. Declared paths and aliases need not share
