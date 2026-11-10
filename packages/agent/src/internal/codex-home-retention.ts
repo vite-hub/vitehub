@@ -5,7 +5,7 @@ import { lock } from "proper-lockfile"
 
 import { providerNativeThreadId } from "./provider-session-cursor.ts"
 import { retentionBudgetBytes } from "./retention-volume.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite"
 import { formatRetentionPercentage } from "./retention-policy.ts"
@@ -167,12 +167,12 @@ function loadSqlite(): Promise<Sqlite> {
 }
 
 function errorCode(error: unknown): string | undefined {
-  return isRuntimeRecord(error) && hasRuntimeType(error.code, "string") ? error.code : undefined
+  return isRuntimeRecord(error) && typeof error.code === "string" ? error.code : undefined
 }
 
 function isSqliteBusy(error: unknown): boolean {
   if (!isRuntimeRecord(error)) return false
-  const code = hasRuntimeType(error.errcode, "number") ? error.errcode & 0xFF : undefined
+  const code = typeof error.errcode === "number" ? error.errcode & 0xFF : undefined
   return code === 5 || code === 6
 }
 
@@ -183,7 +183,7 @@ function errorMessage(error: unknown): string {
 function pragmaNumber(db: DatabaseSync, name: string): number {
   const row = db.prepare(`PRAGMA ${name}`).get()
   const value = row?.[name]
-  return hasRuntimeType(value, "number") ? value : hasRuntimeType(value, "bigint") ? Number(value) : 0
+  return typeof value === "number" ? value : typeof value === "bigint" ? Number(value) : 0
 }
 
 function tableColumns(db: DatabaseSync, table: string): Set<string> {
@@ -472,7 +472,7 @@ async function readForkParent(path: string): Promise<string | undefined> {
     const line: unknown = JSON.parse(text.slice(0, end))
     if (!isRuntimeRecord(line) || line.type !== "session_meta" || !isRuntimeRecord(line.payload)) return
     const parent = line.payload.forked_from_id
-    return hasRuntimeType(parent, "string") ? parent.toLowerCase() : undefined
+    return typeof parent === "string" ? parent.toLowerCase() : undefined
   }
   catch {
     return
@@ -1057,7 +1057,7 @@ function expandHome(path: string): string {
 export function resolveCodexHome(input: { credentialHome?: string, environmentHome?: string, providerSettings?: Record<string, unknown> }): string | undefined {
   if (input.credentialHome) return input.credentialHome
   const configured = input.providerSettings?.homePath
-  if (hasRuntimeType(configured, "string") && configured.trim()) return resolve(expandHome(configured.trim()))
+  if (typeof configured === "string" && configured.trim()) return resolve(expandHome(configured.trim()))
   if (input.environmentHome?.trim()) return resolve(expandHome(input.environmentHome.trim()))
   return process.env.CODEX_HOME?.trim() ? resolve(expandHome(process.env.CODEX_HOME.trim())) : undefined
 }
