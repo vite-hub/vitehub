@@ -34,7 +34,7 @@ describe("Workflow preparation Invocation journal", () => {
         createWorkflow: () => {
           if (stage === "definition") throw failure
           // SAFETY: This fixture only creates a handle; invalid input must fail before run.
-          return { run: providerRun } as never
+          return { start: providerRun } as never
         },
       }),
     })
@@ -156,7 +156,7 @@ it.each(["preparation", "provider-preparation", "provider"] as const)("signals i
     workflow: async () => ({
       ...await import("@vite-hub/workflow"),
       // SAFETY: The provider fails before returning a run; no other handle operations are used.
-      createWorkflow: () => ({ run: providerRun }) as never,
+      createWorkflow: () => ({ start: providerRun }) as never,
     }),
   })
   const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: workflow("handoff") })

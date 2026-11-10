@@ -176,8 +176,8 @@ export function scriptNonce(headers: Headers): string | undefined {
  * `cache-control: private, no-store`. Other responses return unchanged, including compressed HTML. `policyHeaders`
  * supplies the effective CSP when the host keeps it outside the Response.
  */
-export function injectPageToolsLoader(response: Response, base = "", policyHeaders: Headers = response.headers): Response {
-  return transformPage(response, loaderTag(base, scriptNonce(policyHeaders)), true)
+export function injectPageToolsLoader(response: Response, base = "", policyHeaders?: Headers): Response {
+  return transformPage(response, () => loaderTag(base, scriptNonce(policyHeaders ?? response.headers)), true)
 }
 
 /**
@@ -187,13 +187,17 @@ export function injectPageToolsLoader(response: Response, base = "", policyHeade
  * already has a page tools script, such as a prerendered page, gets no second one. Other responses return unchanged,
  * including compressed HTML and pages without an explicit UTF-8 charset.
  */
-function injectPageToolsBootstrap(response: Response, base = "", policyHeaders: Headers = response.headers): Response {
-  return transformPage(response, viteHubPageToolsInlineScript(base, scriptNonce(policyHeaders)), false)
+function injectPageToolsBootstrap(response: Response, base = "", policyHeaders?: Headers): Response {
+  return transformPage(response, () => viteHubPageToolsInlineScript(base, scriptNonce(policyHeaders ?? response.headers)), false)
 }
 
 // These describe the upstream body, not the HTML after adding or updating a page tools script.
 const pageBodyHeaders = ["content-length", "etag", "last-modified"]
 const pageConditions = ["if-none-match", "if-modified-since"]
+
+function hasPageConditions(request: Request): boolean {
+  return pageConditions.some(name => request.headers.has(name))
+}
 
 function withoutPageConditions(request: Request): Request {
   if (request.method !== "GET" && request.method !== "HEAD") return request
@@ -216,9 +220,15 @@ function htmlCharset(type: string): string | undefined {
   return /;\s*charset\s*=\s*"?([^";]*)/i.exec(type)?.[1]?.trim()
 }
 
-function transformPage(response: Response, tag: string, personal: boolean): Response {
+/** Whether a response is an HTML page that can get a page tools script. It reads the status and type, not the body. */
+function isHtmlPage(response: Response): boolean {
+  return response.status === 200 && (response.headers.get("content-type") ?? "").toLowerCase().startsWith("text/html")
+}
+
+function transformPage(response: Response, tag: () => string, personal: boolean): Response {
+  // On Node.js, reading `body` makes srvx build a web Response and stream it, so the checks that need no body go first.
+  if (!isHtmlPage(response) || !response.body) return response
   const type = response.headers.get("content-type") ?? ""
-  if (!response.body || response.status !== 200 || !type.toLowerCase().startsWith("text/html")) return response
   const encoding = response.headers.get("content-encoding")
   if (encoding && encoding.toLowerCase() !== "identity") return response
   const charset = htmlCharset(type)
@@ -227,7 +237,7 @@ function transformPage(response: Response, tag: string, personal: boolean): Resp
   const headers = new Headers(response.headers)
   for (const name of pageBodyHeaders) headers.delete(name)
   if (personal) headers.set("cache-control", "private, no-store")
-  return new Response(response.body.pipeThrough(pageToolsHtmlTransform(tag)), { headers, status: response.status, statusText: response.statusText })
+  return new Response(response.body.pipeThrough(pageToolsHtmlTransform(tag())), { headers, status: response.status, statusText: response.statusText })
 }
 
 /** The parts of an H3 1 event that the Nitro 2 hooks read. */
@@ -292,13 +302,17 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
   if (fetch instanceof Function) {
     Reflect.set(nitroApp, "fetch", async (request: Request, ...rest: unknown[]) => {
       const base = state().bases.get(nitroApp) ?? ""
-      const addition = request instanceof Request ? pageAddition(nitroApp, request, base) : undefined
-      // An upstream 304 on a document request could reuse a page cached before this bootstrap was deployed.
-      if (addition) request = withoutPageConditions(request)
+      // An upstream 304 on a document request could reuse a page cached before this bootstrap was deployed, so a
+      // request with validators is checked before the app answers. Any other request is checked only when the app
+      // answers with an HTML page, so JSON and other responses skip parsing the request URL.
+      const conditional = request instanceof Request && hasPageConditions(request)
+      const early = conditional ? pageAddition(nitroApp, request, base) : undefined
+      if (early) request = withoutPageConditions(request)
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      if (!(response instanceof Response) || !(request instanceof Request)) return response
+      if (!(response instanceof Response) || !(request instanceof Request) || !isHtmlPage(response)) return response
+      const addition = conditional ? early : pageAddition(nitroApp, request, base)
       if (addition === "loader") return injectPageToolsLoader(response, base)
       return addition === "bootstrap" ? injectPageToolsBootstrap(response, base) : response
     })
