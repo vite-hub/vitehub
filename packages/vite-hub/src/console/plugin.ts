@@ -12,7 +12,7 @@ import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { consoleRuntimeDigestFile, digestConsoleRuntime } from "./runtime-digest.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
-import { consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
+import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
@@ -189,7 +189,7 @@ function renderConsoleNitroPlugin(
   pageTools = true,
 ): string {
   const accessCode = renderConsoleAccess(access)
-  const operations = (catalog.operations ?? []).map(contribution => ({ ...contribution, module: consoleRuntimeReaderModule(contribution.module) }))
+  const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -210,7 +210,12 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  // An override also adds a section that no owner registers, such as Forms.
+  const registered = new Map(describeConsoleContributedSections(sections).map(section => [section.id, section]))
+  const contributedSections = sections.flatMap((id) => {
+    const section = catalog.sectionOverrides?.[id] ?? registered.get(id)
+    return section ? [section] : []
+  })
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
@@ -238,7 +243,7 @@ function renderConsoleNitroPlugin(
     `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
+      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from ${JSON.stringify(requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("runtime/workflow"))}`]
       : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),

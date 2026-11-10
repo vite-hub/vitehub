@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { agentRuntimeModule } from "@vite-hub/agent/vite"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const internalSource = resolve(packageRoot, "../internal/src")
@@ -55,7 +56,7 @@ describe("Console server startup graph", () => {
         root,
         ["agents", "databases", "env", "kv", "mcp-client"],
         [],
-        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "@vite-hub/kv/console", plugin: "@vite-hub/kv/vite" }] },
+        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         [],
         undefined,
         undefined,
@@ -66,8 +67,8 @@ describe("Console server startup graph", () => {
         { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
       )
       const generated = await readFile(file, "utf8")
-      expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/_internal/agent/runtime/workflow", "vite-hub/console/sections", "vite-hub/console/server"])
-      for (const module of ["vite-hub/console/operations", "vite-hub/_internal/kv/console", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
+      expect(staticSpecifiers(generated).sort()).toEqual([agentRuntimeModule("runtime/workflow"), "vite-hub/console/sections", "vite-hub/console/server"].sort())
+      for (const module of ["vite-hub/console/operations", "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 
