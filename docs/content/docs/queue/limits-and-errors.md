@@ -200,8 +200,8 @@ The local provider is the Node preset's provider when the app has no Postgres Da
 The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. Retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
 
 - The first server to start creates the table and its indexes under a transaction lock, so servers that start at once do not race.
-- A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so two instances never take the same job. A send wakes all workers at once with `NOTIFY`. Without one, a worker checks for due jobs every second.
-- A claim holds a job for 30 seconds, and a running handler renews it. If a process stops during a handler, another instance runs the job again with the next attempt number when the claim ends.
+- A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so instances cannot take a job while its claim is held. A send wakes all workers at once with `NOTIFY`. Without one, a worker checks for due jobs every second.
+- A claim holds a job for 30 seconds, and a running handler renews it. If a claim is not renewed for 30 seconds, for example because the process stops, the event loop blocks, or renewals fail, another instance can run the job with the next attempt number while the previous handler may still be running.
 - `concurrency` applies per process. With three instances and the default of 1, three jobs of one queue can run at once.
 - When Nitro closes, for example on `SIGTERM`, workers stop taking jobs and wait up to 10 seconds for running jobs. A job that does not end in time runs again on another instance when its claim ends.
 - Completed jobs are deleted. Dead jobs stay in the table, up to 100 per queue. `vitehub queue jobs list` shows at most 1,000 jobs.

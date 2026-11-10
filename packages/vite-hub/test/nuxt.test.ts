@@ -1184,7 +1184,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(development.nuxt).handlers).toContainEqual({ handler: expect.stringMatching(/server\/page\.get\.js$/), lazy: true, route: "/_vitehub/**" })
     expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
       baseURL: "/_vitehub/assets",
-      dir: expect.stringMatching(/console\/runtime\/public\/console$/),
+      dir: expect.stringMatching(/console-client\/dist\/client$/),
       fallthrough: false,
       maxAge: 31536000,
     }, {
@@ -2391,7 +2391,7 @@ describe("ViteHub Nuxt integration", () => {
   it("installs the Content section and serves its routes from the standalone Console page", async () => {
     const entry = "/tmp/vitehub-nuxt/custom-server/content.ts"
     await mkdir(resolve(entry, ".."), { recursive: true })
-    await writeFile(entry, `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(entry, `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     try {
       const development = createNuxt(true)
       await viteHubNuxtModule({ blob: true, console: { auth: false }, preset: "node", workspace: true }, development.nuxt)

@@ -1024,6 +1024,9 @@ importers:
       advocaat:
         specifier: catalog:ai
         version: 0.0.6
+      drizzle-orm:
+        specifier: catalog:database
+        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
       evalite:
         specifier: catalog:ai
         version: 1.0.0-beta.16(ai@7.0.130(zod@4.6.7))(better-sqlite3@12.9.0)
@@ -1798,6 +1801,8 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+
+  packages/console-client: {}
 
   packages/content:
     dependencies:
@@ -3738,6 +3743,9 @@ importers:
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../connections
+      '@vite-hub/console-client':
+        specifier: workspace:*
+        version: link:../console-client
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content

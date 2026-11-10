@@ -15,7 +15,7 @@ import type { LocalQueueEntry } from "./local.ts"
 /** The table of the jobs. All Queue Definitions of the app share it. */
 export const postgresQueueTable = "vitehub_queue_jobs"
 
-/** Seconds that a claim holds a job. A running job renews its claim, so only a stopped process loses it. */
+/** Seconds that a claim holds a job. A running job renews it; a claim that is not renewed can be taken again. */
 export const postgresQueueLockSeconds = 30
 
 /** Milliseconds between two checks for due jobs. A send on any instance wakes the workers at once with `NOTIFY`. */
@@ -115,7 +115,7 @@ function toJobSummary(row: JobRow): LocalQueueJob {
     ...(row.failed_at ? { failedAt: iso(row.failed_at) } : {}),
     id: row.message_id,
     queue: row.queue,
-    // A claim that ran out belongs to a stopped worker. The next claim takes the job again.
+    // A claim that ran out can be taken again, even if its previous handler is still running.
     state: row.status === "running" && !row.locked ? "pending" : row.status,
   }
 }
@@ -252,16 +252,19 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   }
 
   async function claim(queue: string, limit: number): Promise<JobRow[]> {
+    // Evaluate the locking LIMIT once, even when the planner favors a nested loop.
     return await sql<JobRow[]>`
-      update ${t} set status = 'running', attempts = attempts + 1, locked_by = ${workerId},
-        locked_until = now() + make_interval(secs => ${lockSeconds}), updated_at = now()
-      where id in (
-        select id from ${t}
+      with next_jobs as materialized (
+        select id as claim_id from ${t}
         where queue = ${queue} and run_at <= now() and (status = 'pending' or (status = 'running' and locked_until < now()))
+        ${running.size ? sql`and id not in ${sql([...running.keys()])}` : sql``}
         order by run_at, created_at
         for update skip locked
         limit ${limit}
       )
+      update ${t} set status = 'running', attempts = attempts + 1, locked_by = ${workerId},
+        locked_until = now() + make_interval(secs => ${lockSeconds}), updated_at = now()
+      from next_jobs where id = next_jobs.claim_id
       returning id, message_id, queue, payload, payload is null as no_payload, attempts, status, ${times}, last_error, idempotency_key, true as locked`
   }
 
@@ -282,8 +285,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   }
 
   async function markDead(row: JobRow, error: DeliveryError, reason: string) {
-    await sql`update ${t} set status = 'dead', last_error = ${JSON.stringify(error)}::text::jsonb, failed_at = now(), locked_by = null,
-      locked_until = null, updated_at = now() where id = ${row.id} and locked_by = ${workerId}`
+    const result = await sql`update ${t} set status = 'dead', last_error = ${JSON.stringify(error)}::text::jsonb, failed_at = now(), locked_by = null,
+      locked_until = null, updated_at = now() where id = ${row.id} and locked_by = ${workerId} and attempts = ${row.attempts}`
+    if (!result.count) return
     console.error(`[vitehub:queue] The postgres provider stopped delivery of a "${row.queue}" job ${reason}. The job stays in ${base}.`)
     await pruneDead(row.queue)
   }
@@ -296,10 +300,16 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
         .catch((error: unknown) => console.error(`[vitehub:queue] The postgres provider cannot update a job in ${base}.`, error))
       return
     }
-    // Renew the claim while the handler runs, so a long job does not run on a second worker.
+    // Renew while the handler runs. A failed renewal can let another worker take the job.
+    let handling = true
     const renew = setInterval(() => {
       void sql`update ${t} set locked_until = now() + make_interval(secs => ${lockSeconds}), updated_at = now()
-        where id = ${row.id} and locked_by = ${workerId}`.catch((error: unknown) => {
+        where id = ${row.id} and locked_by = ${workerId} and attempts = ${row.attempts}`.then((result) => {
+        if (!result.count && handling) {
+          clearInterval(renew)
+          console.warn(`[vitehub:queue] The postgres provider lost the claim of a "${row.queue}" job ${row.message_id}. Another delivery may be running.`)
+        }
+      }).catch((error: unknown) => {
         console.error(`[vitehub:queue] The postgres provider cannot renew the claim of a "${row.queue}" job.`, error)
       })
     }, Math.max(250, lockSeconds * 1000 / 3))
@@ -314,11 +324,12 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       failure = { error }
     }
     finally {
+      handling = false
       clearInterval(renew)
     }
     try {
       if (!failure) {
-        await sql`delete from ${t} where id = ${row.id} and locked_by = ${workerId}`
+        await sql`delete from ${t} where id = ${row.id} and locked_by = ${workerId} and attempts = ${row.attempts}`
         return
       }
       const context = { attempts: row.attempts, development: options.development, id: row.message_id, provider: "postgres", queue: row.queue } as const
@@ -331,7 +342,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       // A pending job keeps its last error, so `vitehub queue jobs list` shows why it waits.
       await sql`update ${t} set status = 'pending', run_at = now() + make_interval(secs => ${retryDelayMs(row.attempts) / 1000}),
         last_error = ${JSON.stringify(report)}::text::jsonb, locked_by = null, locked_until = null, updated_at = now()
-        where id = ${row.id} and locked_by = ${workerId}`
+        where id = ${row.id} and locked_by = ${workerId} and attempts = ${row.attempts}`
     }
     catch (storeError) {
       // The claim runs out, and another worker takes the job again.

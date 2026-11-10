@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto"
 import { resolve } from "node:path"
 
 import postgres from "postgres"
-import { afterAll, afterEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineDatabase } from "@vite-hub/database"
 import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
+import { queueUnsupportedOptionsError } from "../src/errors.ts"
 import { closePostgresQueues, createPostgresQueueRuntimeClient, resolvePostgresQueueConnection, startPostgresQueue } from "../src/internal/runtime/postgres-client.ts"
 import { getQueueRuntimeJobStore, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 import { createPostgresQueueClient, createPostgresQueueEngine } from "../src/providers/postgres.ts"
@@ -145,6 +146,134 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const client = createPostgresQueueClient(engine({ table: table() }), "jobs")
     const [error] = await client.send({}, { contentType: "json" })
     expect(error?.code).toBe("QUEUE_UNSUPPORTED_OPTION")
+  })
+
+  it("limits running handlers even when the planner favors a nested loop", async () => {
+    const name = table()
+    const producer = engine({ table: name })
+    const client = createPostgresQueueClient(producer, "jobs")
+    await client.send(0)
+    await sql!`alter table ${sql!(name)} set (autovacuum_enabled = false)`
+    await sql!`analyze ${sql!(name)}`
+    for (let offset = 1; offset < 200; offset += 100) {
+      await client.sendBatch(Array.from({ length: Math.min(100, 200 - offset) }, (_, index) => ({ body: offset + index })))
+    }
+    const connection = postgres(url!, {
+      max: 1,
+      connection: {
+        enable_hashjoin: "off", enable_mergejoin: "off", enable_material: "off", enable_hashagg: "off", enable_sort: "off",
+      },
+    })
+    const gate = Promise.withResolvers<void>()
+    let active = 0
+    let peak = 0
+    const handler = async () => {
+      peak = Math.max(peak, ++active)
+      await gate.promise
+      active--
+    }
+    const consumer = engine({
+      connection: { client: connection },
+      handler,
+      load: async () => ({ options: { concurrency: 2 }, handler }),
+      table: name,
+    })
+    try {
+      await consumer.start()
+      await until(async () => peak, count => count > 0)
+      expect(peak).toBe(2)
+      expect(await consumer.jobs({ state: "running" })).toHaveLength(2)
+    }
+    finally {
+      const closed = consumer.close()
+      gate.resolve()
+      await closed
+      await connection.end()
+    }
+  })
+
+  it("keeps an expired local delivery tracked when renewals fail", async () => {
+    const name = table()
+    const gate = Promise.withResolvers<void>()
+    const started: QueueJob[] = []
+    const handler = async (job: QueueJob) => {
+      started.push(job)
+      await gate.promise
+    }
+    const consumer = engine({ handler, load: async () => ({ options: { concurrency: 2 }, handler }), lockSeconds: 1, table: name })
+    await consumer.status()
+    // Fail only renewals; claims and completion writes still work.
+    await sql!.unsafe(`create function ${name}_reject_renew() returns trigger language plpgsql as $$
+      begin
+        if new.status = 'running' and new.attempts = old.attempts then
+          raise exception 'renew unavailable';
+        end if;
+        return new;
+      end $$`)
+    await sql!.unsafe(`create trigger reject_renew before update on ${name} for each row execute function ${name}_reject_renew()`)
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await consumer.start()
+      await createPostgresQueueClient(consumer, "jobs").send({})
+      await until(async () => started.length, count => count > 0)
+      // Several polls after the claim expires must not start the same job again locally.
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining("cannot renew"), expect.any(Error))
+      expect(started).toHaveLength(1)
+      expect((await consumer.jobs())[0]?.attempts).toBe(1)
+      let drained = false
+      const closed = consumer.close().then(() => { drained = true })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(drained).toBe(false)
+      gate.resolve()
+      await closed
+      const [{ count }] = await sql!<{ count: number }[]>`select count(*)::int as count from ${sql!(name)}`
+      expect(count).toBe(0)
+    }
+    finally {
+      gate.resolve()
+      await consumer.close()
+      errors.mockRestore()
+      await sql!.unsafe(`drop function ${name}_reject_renew() cascade`)
+    }
+  })
+
+  it.each(["complete", "retry", "dead"] as const)("does not %s or renew a superseded claim with the same worker ID", async (outcome) => {
+    const name = table()
+    const gate = Promise.withResolvers<void>()
+    let started = false
+    const consumer = engine({
+      handler: async () => {
+        started = true
+        await gate.promise
+        if (outcome === "dead") throw queueUnsupportedOptionsError({ contentType: "json" }, "postgres")
+        if (outcome !== "complete") throw new Error("handler failed")
+      },
+      lockSeconds: 1,
+      table: name,
+      workerId: "reused-worker",
+    })
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await consumer.start()
+      await createPostgresQueueClient(consumer, "jobs").send({})
+      await until(async () => started, value => value)
+      // A newer claim can belong to the same named worker. The attempt identifies the delivery.
+      await sql!`update ${sql!(name)} set attempts = 2, locked_until = now() + interval '60 seconds'`
+      await new Promise(resolve => setTimeout(resolve, 500))
+      gate.resolve()
+      await consumer.close()
+      expect(warnings).toHaveBeenCalledWith(expect.stringContaining("lost the claim"))
+      const rows = await sql!`select status, attempts, locked_by, locked_until > now() + interval '30 seconds' as held from ${sql!(name)}`
+      expect(rows).toEqual([expect.objectContaining({ status: "running", attempts: 2, locked_by: "reused-worker", held: true })])
+    }
+    finally {
+      gate.resolve()
+      await consumer.close()
+      warnings.mockRestore()
+      errors.mockRestore()
+    }
   })
 
   it("honors delaySeconds", async () => {
