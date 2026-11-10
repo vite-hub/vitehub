@@ -53,6 +53,7 @@ export default defineConfig({
       "src/build/deployment-output.ts",
       "src/build/deployment-plan-output.ts",
       "src/build/deno-runtime-packages.ts",
+      "src/build/bundle-options.ts",
       "src/build/esbuild.ts",
       "src/build/included-nitro.ts",
       "src/build/included-nitro-registry.ts",

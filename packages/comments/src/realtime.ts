@@ -1,6 +1,6 @@
 import { text } from "./identity.ts"
 import { commentRoom, normalizeCommentPage } from "./page.ts"
-import { resolveCommentsIdentity } from "./runtime/session.ts"
+import { resolveCommentsIdentity, resolveCommentsPage } from "./runtime/session.ts"
 
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
 import type { Comments } from "./index.ts"
@@ -41,9 +41,10 @@ export function commentsRealtime(comments: Comments, options: CommentsSessionOpt
       if (mode !== "read" || identity === undefined || identity === false) return false
       const page = new URL(request.url).searchParams.get("page")
       if (!page) return false
-      const subject = { kind: "page", id: normalizeCommentPage(page) }
-      // Comments hints travel in page awareness. The definition-wide events room exposes other pages' activity.
-      if (documentId !== commentRoom(subject.id)) return false
+      // Rooms stay one per page path. Comments hints travel in page awareness. The definition-wide events room exposes
+      // other pages' activity.
+      if (documentId !== commentRoom(normalizeCommentPage(page))) return false
+      const { subject } = await resolveCommentsPage(comments, event, request, page)
       return await comments.can({ user: identity.user, action: "read", subject }, identity.gate)
     },
     document: {

@@ -108,16 +108,16 @@ export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
     console: { auth: false },
-    env: { providers: { credentials: './server/env/credentials.ts' } },
-  }), nitro()],
-  env: {
-    server: {
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 ::::
@@ -132,16 +132,16 @@ export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
     console: { auth: false },
-    env: { providers: { credentials: './server/env/credentials.ts' } },
-  })],
-  env: {
-    server: {
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
     },
-  },
+  })],
 })
 ```
 ::::
@@ -184,7 +184,7 @@ const token = env.githubToken.unseal()
 | `createDatabaseEnvStore` from `vite-hub/env/database` | Store encrypted values, grants, and activity in a SQLite Drizzle database. |
 | `createEnvAuthenticator` from `vite-hub/env/auth` | Turn a Better Auth session or a verified Agent session into an `EnvAccessContext`. The only source of user, Agent token, and admin contexts. |
 | `createEnvBridgeHandler` from `vite-hub/env/http` | Serve management requests on a route. The Console uses it through generated Server Env. |
-| `importSealKey`, `seal`, `unseal`, `sealKeyId` from `vite-hub/env/seal` or `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages. |
+| `importSealKey`, `sealWithKey`, `unsealWithKey`, `sealKeyId` from `vite-hub/env/seal` or `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages. |
 
 Types, such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `EnvSecretStore`, and `EnvAccessStore` come from `vite-hub/env/bridge`. Each `vite-hub/env/<subpath>` also exists as `@vite-hub/env/<subpath>`.
 
