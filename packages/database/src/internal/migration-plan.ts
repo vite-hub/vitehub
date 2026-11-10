@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 
 import { createClient } from "@libsql/client"
@@ -21,7 +21,7 @@ export type { PendingMigration } from "./migration-journal.ts"
 
 export interface MigrationPlan {
   database: string
-  /** Where `vitehub db migrate` applies migrations, without credentials. */
+  /** Where `vitehub database migrate` applies migrations, without credentials. */
   target: string
   /** How many migrations of the journal the database already has. */
   applied: number
@@ -165,7 +165,7 @@ function toMillis(value: unknown): number | undefined {
 }
 
 /**
- * Lists the migrations that `vitehub db migrate` would apply to one database, with their statements that lose data.
+ * Lists the migrations that `vitehub database migrate` would apply to one database, with their statements that lose data.
  * It reads the Drizzle migrations table, or Wrangler's `d1_migrations` table for D1 HTTP, and changes nothing.
  */
 export async function readMigrationPlan(
@@ -190,6 +190,10 @@ export async function readMigrationPlan(
       return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     const lastApplied = entries.length ? await readLastAppliedMillis(target, options) : undefined
+    // Drizzle Kit reads every journal SQL file, even applied ones. Preserve that validation before skipping Kit.
+    for (const entry of entries) {
+      if (lastApplied !== undefined && lastApplied >= entry.when) readFileSync(join(database.migrationsDir, `${entry.tag}.sql`))
+    }
     const pending = entries
       .filter(entry => lastApplied === undefined || lastApplied < entry.when)
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
@@ -203,7 +207,7 @@ export async function readMigrationPlan(
 
 /**
  * Applies the pending migrations of a D1 HTTP database with Wrangler's ledger, so `wrangler d1 migrations apply` and
- * `vitehub db migrate` agree on what is applied. Returns the error message when a request fails.
+ * `vitehub database migrate` agree on what is applied. Returns the error message when a request fails.
  */
 export async function migrateD1Http(
   database: ResolvedDrizzleDatabaseConfig,
