@@ -524,7 +524,7 @@ export const manualScheduleRun: DoctorRule = createRule({
   },
 })
 
-const chatAdapterNames = ["discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
+const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
 
 export const validChannel: DoctorRule = createRule({
   meta: {

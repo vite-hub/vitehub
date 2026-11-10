@@ -1,13 +1,10 @@
 import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { IncomingMessage, ServerResponse } from "node:http"
-import { Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createEvent } from "h3-v1"
 
 const generatedHandlerReadGate = vi.hoisted<{
   path: string | undefined
@@ -744,6 +741,9 @@ describe("framework generated types", () => {
       handler: join(root, ".vitehub/content/preview.mjs"),
       plugin: true,
     }, {
+      handler: join(root, ".vitehub/content/types.mjs"),
+      plugin: true,
+    }, {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
@@ -774,23 +774,31 @@ describe("framework generated types", () => {
     const nitroApp = { fetch: () => "next" }
     previewPlugin(nitroApp)
     expect(nitroApp.fetch()).toBe("next")
-    const generatedModule: unknown = await import(pathToFileURL(handlers[1]!.handler).href)
+    await expect(readFile(join(root, ".vitehub/content/types.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentTypesPlugin } from "vite-hub/content"`,
+        `import { useRuntimeConfig } from "nitro/runtime-config"`,
+        ``,
+        `// A production build drops this branch, so the server does not load Content at startup.`,
+        `const write = async (declarations) => {`,
+        `  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })`,
+        '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
+        `}`,
+        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).content, write, { moduleName: "vite-hub/content" }) : () => {}`,
+        ``,
+      ].join("\n"),
+    )
+    // Until a development server writes the types, `.vitehub/types.d.ts` references an empty file.
+    await expect(readFile(join(root, ".vitehub/types/content.d.ts"), "utf8")).resolves.toBe("export {}\n")
+    const generatedModule: unknown = await import(pathToFileURL(handlers[2]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
-    if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
-    const nodeRequest = new IncomingMessage(new Socket())
-    nodeRequest.url = "/api/content/custom"
-    nodeRequest.method = "POST"
-    nodeRequest.headers = {
-      host: "internal.test",
-      "x-content-test": "preserved",
-      "x-forwarded-host": "example.test",
-      "x-forwarded-proto": "https",
-    }
-    nodeRequest.push("content body")
-    nodeRequest.push(null)
-    // SAFETY: This fixture models the state Node's HTTP parser sets before emitting the completed request body.
-    Object.defineProperty(nodeRequest, "complete", { value: true })
-    const response: unknown = await generatedHandler(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
+    const fetchHandler: unknown = Reflect.get(Object(generatedHandler), "fetch")
+    if (!(fetchHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
+    const response: unknown = await fetchHandler(new Request("https://example.test/api/content/custom", {
+      body: "content body",
+      headers: { "x-content-test": "preserved" },
+      method: "POST",
+    }))
     if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
     await expect(response.json()).resolves.toEqual({
       aborted: false,
@@ -800,13 +808,9 @@ describe("framework generated types", () => {
       url: "https://example.test/api/content/custom",
     })
 
-    const abortedRequest = new IncomingMessage(new Socket())
-    abortedRequest.url = "/api/content/aborted"
-    abortedRequest.headers = { host: "example.test" }
-    Object.defineProperty(abortedRequest, "aborted", { value: true })
-    const abortedResponse: unknown = await generatedHandler(
-      createEvent(abortedRequest, new ServerResponse(abortedRequest)),
-    )
+    const abort = new AbortController()
+    abort.abort()
+    const abortedResponse: unknown = await fetchHandler(new Request("https://example.test/api/content/aborted", { signal: abort.signal }))
     if (!(abortedResponse instanceof Response)) throw new TypeError("Expected an aborted Content response.")
     await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
   })
@@ -874,18 +878,14 @@ export const content = defineContent(${options})
     const load = async (name: string) => {
       const module: unknown = await import(`${pathToFileURL(join(root, `.vitehub/content/${name}.mjs`)).href}?t=${Date.now()}`)
       const handler = Reflect.get(Object(module), "default")
-      if (!(handler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
-      return handler
+      const fetchHandler: unknown = Reflect.get(Object(handler), "fetch")
+      if (!(fetchHandler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
+      return { fetch: (request: Request): Promise<Response> => fetchHandler.call(handler, request) }
     }
-    // Nitro 2 passes an H3 v1 event over a Node request; the request origin fills in the site.
-    const nodeRequest = new IncomingMessage(new Socket())
-    nodeRequest.url = "/robots.txt"
-    nodeRequest.headers = { host: "internal.test", "x-forwarded-host": "example.test", "x-forwarded-proto": "https" }
-    const robots: unknown = await (await load("robots"))(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
-    if (!(robots instanceof Response)) throw new TypeError("Expected a robots.txt response.")
+    // Nitro 3 passes the Web request; the request origin fills in the site.
+    const robots = await (await load("robots")).fetch(new Request("https://example.test/robots.txt"))
     expect(robots.headers.get("content-type")).toBe("text/plain; charset=utf-8")
     await expect(robots.text()).resolves.toBe("User-agent: *\nDisallow: /admin\n\nSitemap: https://example.test/sitemap.xml\n")
-    // Nitro 3 passes an H3 v2 event over a Web request.
     const sitemap = await (await load("sitemap")).fetch(new Request("https://site.test/sitemap.xml"))
     expect(sitemap.headers.get("content-type")).toBe("application/xml; charset=utf-8")
     await expect(sitemap.text()).resolves.toContain("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
@@ -923,10 +923,7 @@ export const content = defineContent(${options})
     const middleware = Reflect.get(Object(module), "default")
     if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
     // Without a published Markdown document at the path, the request passes through to the app.
-    const nodeRequest = new IncomingMessage(new Socket())
-    nodeRequest.url = "/guide.md"
-    nodeRequest.headers = { host: "example.test" }
-    await expect(middleware(createEvent(nodeRequest, new ServerResponse(nodeRequest)))).resolves.toBeUndefined()
+    await expect(middleware({ req: new Request("https://example.test/guide.md") })).resolves.toBeUndefined()
 
     await write(`{ markdown: false }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).some((handler: { route?: string }) => handler.route === "/**")).toBe(false)
@@ -1007,7 +1004,7 @@ export const content = defineContent(${options})
     expect(Reflect.get(Object(contribution), "nitro")).toEqual({
       handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), lazy: true, route: "/api/content/**" }],
       modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
-      plugins: [join(root, ".vitehub/content/preview.mjs")],
+      plugins: [join(root, ".vitehub/content/preview.mjs"), join(root, ".vitehub/content/types.mjs")],
     })
   })
 
@@ -1516,6 +1513,31 @@ export const content = defineContent(${options})
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("restores Content declarations when removing Content fails to restart the host", async () => {
+    const { root } = await createNestedProject()
+    const definition = join(root, "server/content.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, "export const content = defineContent({})")
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const types = join(root, ".vitehub/types/content.d.ts")
+    const declarations = "// Existing Content declarations\nexport {}\n"
+    await writeFile(types, declarations)
+    const restartHost = vi.fn().mockRejectedValueOnce(new Error("host restart failed")).mockResolvedValue(undefined)
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+    await rm(definition)
+    await listeners.get("unlink")?.(definition)
+    await expect(readFile(types, "utf8")).resolves.toBe(declarations)
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
+    await expect(readFile(types, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("retries when Vite fulfills a failed restart without replacing the server", async () => {
