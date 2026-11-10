@@ -2,7 +2,7 @@ import { createTraceEventLog } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent, defineCapability, runAgent, runAgentTrigger } from "../src/index.ts"
 import { runAgentInline, runAgentWithContext } from "../src/internal/agent-run.ts"
 
@@ -38,7 +38,7 @@ function interceptChannel(options: { omitMessage?: boolean } = {}) {
     from: v.string(),
     subject: v.string(),
   }), v.transform(message => ({ ...message, subject: message.subject.toUpperCase() })))
-  return defineChannel("mail", {
+  return channelAdapter("mail", {
     message: { data: messageSchema },
     messages: false,
     triggers: {

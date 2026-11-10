@@ -20,7 +20,7 @@ logs: {
 }
 ```
 
-See [Evlog documentation](https://evlog.dev) for its current configuration and drains. If your application already registers the Evlog Nitro module, keep its options there. ViteHub reuses that module rather than registering a second one.
+Read the [Evlog documentation](https://evlog.dev) for its options and drains. If your app already registers the Evlog Nitro module, keep its options there. ViteHub reuses it.
 
 ## Read an existing backend
 
@@ -30,10 +30,10 @@ Set `logs.source` to a server module that exports a `LogSource` as its default e
 logs: { source: './server/logs.ts' }
 ```
 
-The module must implement the [Server API](/docs/logs/server-api) read contract. Query your existing backend with server credentials, normalize events, and return newest events first. Advertise only filters the backend can apply. Forward the abort signal to backend requests.
+The module implements the [Server API](/docs/logs/server-api) read contract. Query your backend with server credentials, normalize events, and return the newest first. List only filters the backend can apply. Pass the abort signal to backend requests.
 
-Source mode starts no logger, drain, or local buffer. Your existing instrumentation continues to send events. The source only reads them.
+Source mode starts no logger, drain, or local buffer. Your setup keeps sending events. The source only reads them.
 
-Evlog supports export destinations such as PostHog and OTLP. Those drains do not provide a Console history reader. ViteHub currently has no built-in PostHog or OTLP history adapter. Implement a source against the destination's query API. OTLP ingestion alone cannot answer log queries.
+Evlog can export to PostHog, OTLP, and other destinations, but those drains give the Console no history. ViteHub has no built-in PostHog or OTLP history adapter. Write a source against the destination's query API, because OTLP ingestion alone cannot answer queries.
 
-Keep backend credentials in server configuration. Redact sensitive fields before returning events to the Console.
+Keep backend credentials in server config. Remove sensitive fields before you return events to the Console.

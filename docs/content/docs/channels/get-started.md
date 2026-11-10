@@ -26,6 +26,29 @@ pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
 
 Add `channels: true` and `agent: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true, channels: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: true, channels: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -34,11 +57,12 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', agent: true, channels: true })],
 })
 ```
+::::
+:::
 
 - `channels: true` finds Channel files in `server/channels`.
 - `agent: true` serves the webhook route for Channels that receive messages.
 
-Did you choose Nuxt in Installation? Then add `channels: true` and `agent: true` to the options of the `vite-hub/nuxt` module.
 
 :::details{summary="How ViteHub finds Channel files"}
 ViteHub discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers. Discovery skips modules whose default export cannot be a Channel, such as a function, an array, or an object literal without `adapter`.
