@@ -12,7 +12,6 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
-import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
@@ -127,10 +126,6 @@ const cloudflareWorkflowWrapperImport = `import worker, { runViteHubWorkflowDefi
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
-// SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
-// SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
@@ -589,11 +584,8 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }
 }
 
-function resolveWorkflowUserAppEntry(rootDir: string) {
-  const names = getViteMode() === VITEHUB_MODES.workflow
-    ? [...WORKFLOW_PRIORITY_NAMES, ...WORKFLOW_ENTRY_BASE_NAMES]
-    : [...WORKFLOW_ENTRY_BASE_NAMES]
-  return resolveUserAppEntry(rootDir, { names })
+function resolveWorkflowUserAppEntry(rootDir: string, entry: true | string) {
+  return resolveUserAppEntry(rootDir, entry === true ? {} : { names: [entry] })
 }
 
 interface ProviderEntrySpec {
@@ -657,7 +649,7 @@ interface GenerateProviderOutputsOptions {
   serverDirs?: string[]
   serverFunctionName?: string
   sourceRootDir?: string
-  includeUserAppEntry?: boolean
+  includeUserAppEntry?: boolean | string
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceRuntimeModule?: string
@@ -702,7 +694,7 @@ interface CloudflareWorkflowNitroOptions {
   nitro: Record<string, unknown>
   rootDir: string
   serverDirs?: string[]
-  includeUserAppEntry?: boolean
+  includeUserAppEntry?: boolean | string
   workflow: WorkflowModuleOptions | undefined
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -1180,7 +1172,7 @@ export async function writeProviderEntries(
   workflow: WorkflowModuleOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
-  includeUserAppEntry = true,
+  includeUserAppEntry: boolean | string = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
   generatedDir = ensureGeneratedDir(rootDir, productName),
@@ -1207,7 +1199,7 @@ export async function writeProviderEntries(
         source: "agent-workflow-recovery" as const,
       }]
     : [definition])
-  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir) : undefined
+  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir, includeUserAppEntry) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   const vercelNativeDir = resolve(generatedDir, "vercel-native")

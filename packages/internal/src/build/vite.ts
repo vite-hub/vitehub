@@ -271,8 +271,8 @@ export function resolveNitroVercelFunctionName(
     : undefined
 }
 
-export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
-  return command === "serve" || mode === "e2e"
+export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined): boolean {
+  return command === "serve"
 }
 
 // Vite concatenates arrays when it merges a config hook result. Return only the missing pattern.

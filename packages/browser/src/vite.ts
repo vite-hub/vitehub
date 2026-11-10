@@ -1,6 +1,5 @@
 import { normalize, resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import {
   contributeProviderDeploymentOutput,
@@ -284,7 +283,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
       const rootDir = resolved.root
       const clientOutDir = resolved.build.outDir
       const cloudflare = enabled
@@ -321,7 +320,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
