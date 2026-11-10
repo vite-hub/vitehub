@@ -9,6 +9,7 @@ import { expect, it } from "vitest"
 
 import { runAgentChannelReplayCli } from "../../agent/src/internal/channel-replay-cli.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../../agent/src/invocation-stream.ts"
+import { agentRuntimeModule } from "../../agent/src/vite.ts"
 
 it("journals authenticated Vite SSR dry-run replays in the configured Agent journal", async () => {
   // Load the built host integration, as an application does, without typechecking unrelated primitives here.
@@ -29,12 +30,12 @@ it("journals authenticated Vite SSR dry-run replays in the configured Agent jour
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/support.ts"), `
 import { defineAgent } from '@vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from '@vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'
 import { channelDelivery } from '@vite-hub/agent/capabilities'
 export default defineAgent({ runtime: false, workspace: { mode: 'read' },
   driver: { async run({ tools, input }) { if (input.context?.skipDelivery) return 'No delivery'; await tools.send_message.execute({ message: 'Synthetic raw draft' }); return 'Synthetic final answer' } },
   capabilities: [channelDelivery({ required: true, channel: { name: 'teams', send: async () => { throw new Error('Connector must never run') } }, options: {} , format: message => 'Formatted: ' + message })],
-  channels: { mailbox: defineChannel('mailbox', { messages: false,
+  channels: { mailbox: channelAdapter('mailbox', { messages: false,
     webhooks: { secretHeader: 'x-signature', secretToken: 'secret', signature: 'github-sha256' },
     history: { key: item => item.id, thread: item => item.thread, collection: {
       parseQuery: async query => { if (query.turns !== 'last') throw new Error('Expected turns query'); return query },
@@ -52,7 +53,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.
       resolve: { alias: {
         "@vite-hub/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
-        "vite-hub/_internal/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
+        [agentRuntimeModule("server/internal")]: join(packageRoot, "src/server/internal.ts"),
       } },
       server: { port: 0, watch: null, fs: { allow: [root, join(packageRoot, "../..")] } },
     })
