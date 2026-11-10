@@ -13,7 +13,7 @@ The Auth Definition is the `defineAuth()` file: `server/auth.ts` or `server.auth
 In Nuxt, a layer can supply `server/auth.ts`, and the app's own Definition replaces it. Definitions in two layers fail the build until the app defines one.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
@@ -132,7 +132,7 @@ export default defineConfig({
 ::
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   appName: 'Acme',
@@ -178,8 +178,8 @@ Caller runtime options override the `runtime` result, which overrides the Defini
 Use the `stateless()` preset when users sign in only with social providers and the app has no database. Each session lives in an encrypted cookie, so it survives restarts and works across replicas and Workers.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
-import { stateless } from '@vite-hub/auth/presets'
+import { defineAuth } from 'vite-hub/auth'
+import { stateless } from 'vite-hub/auth/presets'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   baseURL: requestOrigin,
@@ -229,7 +229,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 Better Auth extends a stored session once it is older than `session.updateAge`. `session.onRefresh` runs then, so you can check the user again, for example against a ban list.
 
 ```ts [server/auth.ts] fragment
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   session: {
@@ -292,11 +292,11 @@ pnpm vitehub database migrate
 - Keep one unconditional Database target. A callback must return one object with the inline call. Branches and `runtime.database` cannot pick another target. Other runtime options still work.
 - The tables use text IDs and references. Use Better Auth's default ID generator or a custom function that returns strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` need another adapter and your own schema. `authDatabase()` rejects them with `AUTH_C0053`.
 - The core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema with those columns. `authDatabase()` rejects them with `AUTH_C0055`, and a Database contribution cannot extend these tables.
-- `admin()`, `jwt()`, and `oauthProvider()` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
-- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [Console MCP OAuth](/docs/development/mcp#set-up-oauth), and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
+- `admin()`, `jwt()`, `oauthProvider()`, `organization()`, and `passkey()` from `@better-auth/passkey` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
+- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [Console MCP OAuth](/docs/development/mcp#set-up-oauth), the [`organization()`](https://www.better-auth.com/docs/plugins/organization) tables (`organization`, `member`, `invitation`, and `session.activeOrganizationId`), the [`passkey()`](https://www.better-auth.com/docs/plugins/passkey) table, and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
 - The tables use the target Database's dialect: SQLite, libSQL, Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. Server code can read them from `useDatabase(name).schema`.
-- Other plugins that add tables, such as `organization()`, need those tables in the Database Definition. A missing table fails when Better Auth uses it.
+- Other plugins that only add tables need those tables in the Database Definition. A missing table fails when Better Auth uses it. `twoFactor()` also adds `user.twoFactorEnabled`, so it needs another adapter and a matching schema.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
 
 Better Auth's own adapters still work. To use another database, return one from the Definition callback or `runtime`.
@@ -471,7 +471,7 @@ The `database` and `secondaryStorage` fields record, for inspection, which ViteH
 | `secondaryStorage: { store: 'auth' }` | The named KV Store `auth`. |
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

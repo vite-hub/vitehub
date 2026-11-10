@@ -362,6 +362,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/preview": {
+      "types": "./dist/content/preview.d.ts",
+      "import": "./dist/content/preview.js",
+      "default": "./dist/content/preview.js"
+    },
     "./content/realtime": {
       "types": "./dist/content/realtime.d.ts",
       "import": "./dist/content/realtime.js",
@@ -426,6 +431,11 @@
       "types": "./dist/email/server.d.ts",
       "import": "./dist/email/server.js",
       "default": "./dist/email/server.js"
+    },
+    "./email/test": {
+      "types": "./dist/email/test.d.ts",
+      "import": "./dist/email/test.js",
+      "default": "./dist/email/test.js"
     },
     "./env": {
       "types": "./dist/env.d.ts",
@@ -537,10 +547,25 @@
       "import": "./dist/rate-limit.js",
       "default": "./dist/rate-limit.js"
     },
+    "./rate-limit/drivers/cloudflare": {
+      "types": "./dist/rate-limit/drivers/cloudflare.d.ts",
+      "import": "./dist/rate-limit/drivers/cloudflare.js",
+      "default": "./dist/rate-limit/drivers/cloudflare.js"
+    },
+    "./rate-limit/drivers/memory": {
+      "types": "./dist/rate-limit/drivers/memory.d.ts",
+      "import": "./dist/rate-limit/drivers/memory.js",
+      "default": "./dist/rate-limit/drivers/memory.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./realtime/client": {
+      "types": "./dist/realtime/client.d.ts",
+      "import": "./dist/realtime/client.js",
+      "default": "./dist/realtime/client.js"
     },
     "./realtime/server": {
       "types": "./dist/realtime/server.d.ts",
@@ -822,6 +847,11 @@
       "import": "./dist/workflow.js",
       "default": "./dist/workflow.js"
     },
+    "./workflow/openworkflow": {
+      "types": "./dist/workflow/openworkflow.d.ts",
+      "import": "./dist/workflow/openworkflow.js",
+      "default": "./dist/workflow/openworkflow.js"
+    },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
@@ -992,6 +1022,11 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./console/setup": {
+      "types": "./dist/console/runtime/server/setup.d.ts",
+      "import": "./dist/console/runtime/server/setup.js",
+      "default": "./dist/console/runtime/server/setup.js"
     }
   },
   "scripts": {
@@ -1183,6 +1218,7 @@
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
     "nitro": "catalog:nitro-compat",
+    "openworkflow": "catalog:workflow",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
@@ -1352,6 +1388,9 @@
       "optional": true
     },
     "google-auth-library": {
+      "optional": true
+    },
+    "openworkflow": {
       "optional": true
     },
     "playwright-core": {

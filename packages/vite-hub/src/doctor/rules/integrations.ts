@@ -10,7 +10,7 @@ import { diagnostics } from "../diagnostics.ts"
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
 /** True when the project `package.json` lists `name` in any dependency field. */
-function dependsOn(ctx: RuleContext, name: string): boolean {
+export function dependsOn(ctx: RuleContext, name: string): boolean {
   const manifest: unknown = ctx.getJson("package.json")
   if (!manifest || typeof manifest !== "object") return false
   return dependencyFields.some((field) => {
@@ -279,7 +279,7 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
           why: inline.length
             ? `\`rateLimit()\` no longer accepts the inline \`${inline.join("`, `")}\` options. Without \`limiter\`, the Capability throws \`AGENT_R0162\` on the first Invocation.`
             : "`rateLimit()` needs a `limiter`. Without it, the Capability throws `AGENT_R0162` on the first Invocation.",
-          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `@vite-hub/rate-limit` and `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory`.",
+          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `vite-hub/rate-limit` and `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory`.",
         }), { range: ctx.range(node) })
       },
     }

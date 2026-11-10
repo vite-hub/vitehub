@@ -30,7 +30,7 @@ ViteHub's public API still changes.
 | Frameworks | Angular, Astro, Electron, Express, Hono, NestJS, Next.js, Nuxt, React with Vite, SvelteKit, and TanStack Start | Vite with Nitro 3, and Nuxt 5 |
 | Deploy | Built-in Vercel, Netlify, and Cloudflare deployers, or your own server | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
 | Hosted option | The Mastra platform: Observability, Studio, and Server | None. ViteHub runs on your host account. |
-| Release | `@mastra/core` 1.80.0 | `vite-hub` 0.0.x |
+| Release | `@mastra/core` 1.80.0 | `vite-hub` 0.1.x |
 | License | Apache-2.0. Code in `ee/` folders needs an enterprise license for production. | Apache-2.0 |
 
 Sources: [Mastra docs](https://mastra.ai/docs),

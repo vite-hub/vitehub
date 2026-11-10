@@ -13,6 +13,7 @@ export const connectionInspectionSchema: v.GenericSchema<unknown, ConnectionInsp
   actions: v.array(v.object({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
   connectedAt: v.optional(v.string()),
   credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
+  docs: v.optional(v.string()),
   expiresAt: v.optional(v.string()),
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   name: v.string(),

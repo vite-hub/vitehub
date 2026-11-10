@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { useIntersectionObserver } from "@vueuse/core";
 import { docsCatalog } from "@vite-hub/docs/navigation";
 
 type CatalogTile = {
   description: string | null;
   icon: string;
   key: string;
-  /** Landing scene name when the product has a looping micro-animation. */
-  scene: string | null;
   title: string;
   to: string;
 };
@@ -17,32 +14,7 @@ type CatalogRow = {
   tiles: CatalogTile[];
 };
 
-/** Products that share a looping scene with the landing page grid. */
-const scenes = new Map([
-  ["agents", "agent"],
-  ["auth", "auth"],
-  ["blob", "blob"],
-  ["browser", "browser"],
-  ["cms", "cms"],
-  ["comments", "comments"],
-  ["connections", "connections"],
-  ["content", "content"],
-  ["database", "database"],
-  ["env", "env"],
-  ["email", "email"],
-  ["channels", "channels"],
-  ["kv", "kv"],
-  ["queue", "queue"],
-  ["rate-limit", "rate-limit"],
-  ["realtime", "realtime"],
-  ["sandbox", "sandbox"],
-  ["schedule", "schedule"],
-  ["shell", "shell"],
-  ["source", "source"],
-  ["workspace", "workspace"],
-  ["workflows", "workflow"],
-]);
-
+// A tile shows the section's icon, the same one as the rail, the sidebar, and the Console.
 const icons = useDocsIcons();
 const groups = docsCatalog(useDocsManifest(), useDocsConfig().categories);
 const rows = computed<CatalogRow[]>(() => {
@@ -54,47 +26,21 @@ const rows = computed<CatalogRow[]>(() => {
           description: section.description,
           icon: icons.section(section),
           key: section.id,
-          scene: scenes.get(section.id) ?? null,
           title: section.title,
           to: section.path,
         })),
     }));
 });
-
-const catalog = useTemplateRef<HTMLElement>("catalog");
-const visible = ref(false);
-
-// Scenes loop only while the catalog is on screen.
-useIntersectionObserver(
-  catalog,
-  ([entry]) => {
-    visible.value = entry?.isIntersecting ?? false;
-  },
-  { threshold: 0.05 },
-);
-
-// Spread start points across the loop so neighboring tiles do not move together.
-function offset(index: number) {
-  return (index * 0.37) % 1;
-}
 </script>
 
 <template>
-  <div ref="catalog" class="not-prose vh-docs-wide vh-docs-catalog">
+  <div class="not-prose vh-docs-wide vh-docs-catalog">
     <section v-for="row in rows" :key="row.category" class="vh-docs-catalog-row">
       <h2 class="vh-docs-catalog-heading">{{ row.category === "Start" ? "Get started" : row.category }}</h2>
       <ul class="vh-docs-catalog-grid" role="list">
-        <li v-for="(tile, index) in row.tiles" :key="tile.key" class="min-w-0">
+        <li v-for="tile in row.tiles" :key="tile.key" class="min-w-0">
           <NuxtLink :to="tile.to" class="vh-docs-catalog-tile group">
-            <div class="vh-docs-catalog-tile-visual">
-              <LandingPrimitiveMotion
-                v-if="tile.scene"
-                :name="tile.scene"
-                :play="visible"
-                :offset="offset(index)"
-              />
-              <UIcon v-else :name="tile.icon" class="size-5" />
-            </div>
+            <UIcon :name="tile.icon" class="vh-docs-catalog-tile-icon size-6" aria-hidden="true" />
             <div class="min-w-0">
               <h3 class="vh-docs-catalog-tile-title">
                 <span>{{ tile.title }}</span>
@@ -177,15 +123,11 @@ function offset(index: number) {
 .vh-docs-catalog-tile:focus-visible {
   position: relative;
   z-index: 1;
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--ui-text-highlighted);
   outline-offset: -2px;
 }
 
-.vh-docs-catalog-tile-visual {
-  display: flex;
-  height: 2.5rem;
-  width: 100%;
-  align-items: center;
+.vh-docs-catalog-tile-icon {
   color: var(--ui-text-muted);
   transition: color 200ms ease;
 }
@@ -223,7 +165,7 @@ function offset(index: number) {
     --tile-bg: color-mix(in srgb, var(--ui-bg-muted) 35%, var(--ui-bg));
   }
 
-  .vh-docs-catalog-tile:hover .vh-docs-catalog-tile-visual {
+  .vh-docs-catalog-tile:hover .vh-docs-catalog-tile-icon {
     color: var(--ui-text-highlighted);
   }
 
@@ -241,7 +183,7 @@ function offset(index: number) {
 
 @media (prefers-reduced-motion: reduce) {
   .vh-docs-catalog-tile,
-  .vh-docs-catalog-tile-visual,
+  .vh-docs-catalog-tile-icon,
   .vh-docs-catalog-tile-arrow {
     transition: none;
     transform: none;
