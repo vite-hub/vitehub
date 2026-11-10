@@ -44,17 +44,43 @@ export default defineConfig({
 :::
 ::
 
-With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. For the other options, such as `region`, use the Queue package alone. Pass them to `hubQueue()`, or to a top-level `queue` key, which wins:
+With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. To set other options, such as `region`, pass an object to `queue`. An option that you set wins over the preset:
 
-```ts [vite.config.ts]
-import { hubQueue } from '@vite-hub/queue/vite'
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-
-export default defineConfig({
-  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' }), nitro()],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } })],
+})
+```
+:::
+::
+
+With `@vite-hub/queue` alone, pass the same options to `hubQueue()` from `@vite-hub/queue/vite`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -67,7 +93,7 @@ export default defineConfig({
 
 ### `queue: false`
 
-Turns off runtime dispatch and the generated Vercel consumer functions. Runtime calls throw `QUEUE_DISABLED`.
+Turns Queue off. `vitehub()` then adds no Queue runtime, so `sendQueue()` throws `QUEUE_DEFINITION_NOT_FOUND`. With `@vite-hub/queue` alone, `hubQueue(false)` turns off runtime dispatch and the generated Vercel consumer functions, and runtime calls throw `QUEUE_DISABLED`.
 
 ## Providers
 

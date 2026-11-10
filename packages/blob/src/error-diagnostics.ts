@@ -65,7 +65,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0017: withFix("Set `remote` to `true` or `false`, or remove it."),
     BLOB_C0018: withFix("Set a hosted `driver` on the store, for example `\"cloudflare-r2\"` or `\"vercel-blob\"`, or remove `remote: true`."),
     BLOB_B0001: withFix("Set `blob.serve.authorize: true` so that the serve route calls the `authorize` export of `server/blob.ts`. Or remove the `authorize` export."),
-    BLOB_B0002: withFix("Add `hubAuth()` from `@vite-hub/auth/vite` to the Vite plugins and create `server/auth.ts`. Or remove `blob.serve.authorize`."),
+    BLOB_B0002: withFix("Set `auth: true` in `vitehub()` and create `server/auth.ts`. With `@vite-hub/blob` alone, add `hubAuth()` from `@vite-hub/auth/vite` to the Vite plugins. Or remove `blob.serve.authorize`."),
     BLOB_B0003: withFix("Keep one `server/blob` file. Delete or merge the other files that the message lists."),
     BLOB_B0004: withFix("Install the packages that the message names with the command in the message. Or set another `driver` on the store."),
     BLOB_B0005: withFix("Install sharp with `pnpm add sharp`. Or set `blob.images.transformer` to `\"auto\"`, `\"photon\"`, or `\"passthrough\"`."),

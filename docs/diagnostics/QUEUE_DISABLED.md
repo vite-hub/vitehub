@@ -9,34 +9,33 @@ seo.title: "QUEUE_DISABLED: Queue is off in this runtime"
 
 `hubQueue()` writes the Queue config into the generated Nitro plugin `.vitehub/nitro/queue/plugin.ts`. When that config is `false`, every Queue call throws this error before it looks up the Queue Definition. The config is `false` in two cases:
 
-- The Vite config sets `queue: false`, or you pass `false` to `hubQueue()`. A top-level `queue` key replaces the options of `hubQueue()`.
+- An app that uses `@vite-hub/queue` alone passes `false` to `hubQueue()`.
 - `queue.provider` names a provider that is not the host of the Nitro preset. For example, `provider: 'cloudflare'` with the Vercel preset. ViteHub then turns Queue off and does not report the conflict at build time.
 
 `deferQueue()` does not throw. It logs the error and passes it to `onDispatchError`.
 
-With `vitehub()`, this error does not occur. When `vitehub()` has no `queue: true`, Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](/docs/queue/diagnostics/queue_definition_not_found) instead.
+With `vitehub()`, `queue: false` or no `queue` option adds no Queue runtime. Queue calls then throw [`QUEUE_DEFINITION_NOT_FOUND`](/docs/queue/diagnostics/queue_definition_not_found) instead.
 
 ## Fix it
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [hubQueue()],
--  queue: false,
+-  plugins: [hubQueue(false)],
++  plugins: [hubQueue()],
  })
 ```
 
-Remove `queue: false`. Without a `provider`, ViteHub selects the provider from the host: Cloudflare, Vercel, or `local` for a Node server.
+Remove `false`. Without a `provider`, ViteHub selects the provider from the host: Cloudflare, Vercel, or `local` for a Node server.
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [hubQueue()],
+-  plugins: [hubQueue({ provider: 'cloudflare' })],
++  plugins: [hubQueue({ provider: 'vercel' })],
    nitro: { preset: 'vercel' },
--  queue: { provider: 'cloudflare' },
-+  queue: { provider: 'vercel' },
  })
 ```
 
-Make `queue.provider` match the Nitro preset, or remove `provider`. If you use `vitehub()`, enable Queue with `vitehub({ preset, queue: true })`. It sets the provider from the preset.
+Make the `provider` of `hubQueue()` match the Nitro preset, or remove `provider`. If you use `vitehub()`, enable Queue with `vitehub({ preset, queue: true })`. It sets the provider from the preset.
 
 ## Check the fix
 
