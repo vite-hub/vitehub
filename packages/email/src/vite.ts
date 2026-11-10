@@ -35,6 +35,9 @@ export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
 export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const EMAIL_RESOLVE_ID_PATTERN = /^#vitehub\/(?:email\/definition$|emails\/)/
+const EMAIL_LOAD_ID_PATTERN = /^\0#vitehub\/email\/definition$|\?markdown-template$/
 const noExternalAddition = createNoExternalAddition("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
@@ -68,7 +71,7 @@ export interface EmailOutboxOptions {
   limit?: number
 }
 
-export interface EmailVitePluginOptions {
+export interface EmailOptions {
   driver: EmailProvider
   options?: EnvRuntimeConfigOptions
   /**
@@ -194,7 +197,7 @@ function resolveRemote(value: unknown): boolean {
   return value
 }
 
-function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
+function configuredDefinition(options: EmailOptions): Omit<GeneratedEmailDefinition, "handler"> {
   const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
   validateEmailRuntimeOptions(runtimeOptions)
   return {
@@ -419,11 +422,11 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   await rm(backupRoot, { force: true, recursive: true })
 }
 
-export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
+export function hubEmail(options: EmailOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
-  const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
+  const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
   const driverImport = resolveDriverImport(configured.driver)
   const outbox = resolveOutboxOptions(options.outbox)
@@ -431,7 +434,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const outboxRuntimeId = randomUUID()
   let command: "build" | "serve" | undefined
   const runtimeEnvImport = internalOptions.runtimeEnvImport
-    ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
+    ?? resolvePackageImport("@vite-hub/env/internal/server")
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare-email"
@@ -536,9 +539,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       if (cloudflareEmail && !cloudflare) {
         throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
       }
-      vercel = hosting === "vercel"
-        || internalOptions.workflowProvider === "vercel"
-        || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
+      vercel = hosting === "vercel" || internalOptions.workflowProvider === "vercel"
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {
@@ -668,32 +669,38 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       }
     },
-    resolveId(id) {
-      if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
-      const name = emailTemplateName(id)
-      if (name) return (async () => {
-        for (const templatesRoot of templatesRoots) {
-          const file = resolve(templatesRoot, `${name}.md`)
-          try {
-            if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+    resolveId: {
+      filter: { id: EMAIL_RESOLVE_ID_PATTERN },
+      handler(id) {
+        if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
+        const name = emailTemplateName(id)
+        if (name) return (async () => {
+          for (const templatesRoot of templatesRoots) {
+            const file = resolve(templatesRoot, `${name}.md`)
+            try {
+              if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+            }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+            }
           }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-          }
-        }
-      })()
+        })()
+      },
     },
-    load(id) {
-      if (id === resolvedEmailDefinitionId && definition) {
-        return renderEmailDefinitionModule(definition)
-      }
-      if (id.endsWith("?markdown-template")) {
-        const file = normalizeTemplateModulePath(id)
-        if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
-        return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
-          `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
-        )
-      }
+    load: {
+      filter: { id: EMAIL_LOAD_ID_PATTERN },
+      handler(id) {
+        if (id === resolvedEmailDefinitionId && definition) {
+          return renderEmailDefinitionModule(definition)
+        }
+        if (id.endsWith("?markdown-template")) {
+          const file = normalizeTemplateModulePath(id)
+          if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
+          return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
+            `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
+          )
+        }
+      },
     },
   }
 }

@@ -32,7 +32,7 @@ export default defineConfig({
       "src/runtime/dev-runs.ts",
       "src/runtime/execute.ts",
       "src/runtime/openworkflow.ts",
-      "src/runtime/openworkflow-worker.ts",
+      "src/openworkflow.ts",
       "src/runtime/state.ts",
       "src/runtime/vercel-vite.ts",
     ],
@@ -47,6 +47,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

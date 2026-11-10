@@ -74,35 +74,26 @@ describe("vitehub add", () => {
     expect(result.json.install.packages).not.toContain("posthog-node")
   })
 
-  it.each(["", "   ", "false", "0", "null"])("requires a non-empty Observability service before writing (%s)", async (service) => {
+  it("adds Observability without a service and installs the Agent package only with one", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node" }') })
-    const before = await snapshot(root)
-    let spawned = false
-    const result = await add(["observability", "--option", `observability.service=${service}`, "--yes"], root, async () => {
-      spawned = true
-      return { exitCode: 0 }
-    })
-    expect(result.exitCode, result.stdout).toBe(2)
-    expect(result.json.missing).toEqual([{ field: "observability.service" }])
-    expect(spawned).toBe(false)
-    expect(await snapshot(root)).toEqual(before)
-    expect((await runSetup<AddResult>(result.json.rerun!.split(" ").slice(1), root, {}, { spawn: async () => ({ exitCode: 0 }) })).exitCode).toBe(0)
+    const plain = await add(["observability", "--dry-run"], root)
+    expect(plain.exitCode, plain.stdout).toBe(0)
+    expect(plain.json.install.packages).toContain("evlog")
+    expect(plain.json.install.packages).not.toContain("@vite-hub/agent")
+    const telemetry = await add(["observability", "--option", "observability.service=api", "--dry-run"], root)
+    expect(telemetry.json.install.packages).toContain("@vite-hub/agent")
   })
 
-  it.each([undefined, "", "   "])("requires a Logs source before writing (%s)", async (source) => {
+  it("adds a Logs source under observability", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,
       "vite.config.ts": viteConfig('{ preset: "node" }'),
       "server/logs.ts": "export default {}\n",
     })
-    const before = await snapshot(root)
-    const result = await add(["logs", ...source === undefined ? [] : ["--option", `logs.source=${source}`], "--yes"], root)
-    expect(result.exitCode, result.stdout).toBe(2)
-    expect(result.json.missing).toEqual([{ field: "logs.source" }])
-    expect(result.json.rerun).toBeUndefined()
-    expect(await snapshot(root)).toEqual(before)
-    const applied = await add(["logs", "--option", "logs.source=./server/logs.ts", "--no-install", "--yes"], root)
+    const applied = await add(["observability", "--option", "observability.logs.source=./server/logs.ts", "--no-install", "--yes"], root)
     expect(applied.exitCode, applied.stdout).toBe(0)
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.observability).toMatchObject({ value: { logs: { source: "./server/logs.ts" } } })
   })
 
   it("enables Server Env and installs PostHog when selected", async () => {
@@ -141,7 +132,7 @@ describe("vitehub add", () => {
       expect(result.json.install.packages).not.toContain("@vite-hub/database")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.database).toMatchObject({ value: false })
-      expect(config.ok && config.site.keys.comments?.value).toBe(comments)
+      expect(config.ok && config.site.keys.comments).toEqual(comments === false ? { kind: "literal", value: false } : undefined)
     }
   })
 
@@ -235,6 +226,8 @@ describe("vitehub add", () => {
 
     const second = await add(["console", "--option", "console.auth=false", "--no-install", "--yes"], root)
     expect(second.exitCode, second.stdout).toBe(0)
+    // The Console app is hosted, so the app installs no Console package.
+    expect(second.json.install.packages).not.toContain("@vite-hub/console-client")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("console: { auth: false }")
     expect((await add(["console", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })
@@ -472,8 +465,7 @@ describe("vitehub add", () => {
   })
 
   it.each(fixtures)("adds each native feature to a copy of docs-hosts/%s once", async (fixture, host, configFile) => {
-    // `observability` has no default `service`, so it always needs input.
-    const native = featureIds.filter(id => id !== "observability" && featureSupport(id, host).level === "native")
+    const native = featureIds.filter(id => featureSupport(id, host).level === "native")
     expect(native.length).toBeGreaterThan(5)
     const files = Object.fromEntries(await Promise.all(["vite.config.ts", "nuxt.config.ts"].map(async file => [file, await readFile(join(docsHosts, fixture, file), "utf8").catch(() => undefined)] as const)))
     for (const id of native) {
@@ -482,7 +474,6 @@ describe("vitehub add", () => {
       const before = await readFile(join(root, configFile), "utf8")
       const options = [
         ...(id === "console" ? ["--option", "console.auth=false"] : []),
-        ...(id === "logs" ? ["--option", "logs.source=./server/logs.ts"] : []),
         ...(host === "node" && id === "schedule" ? ["--option", "schedule.runtime.driver=process"] : []),
         ...(featureSupport("database", host).level === "explicit" && ["comments", "connections"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
       ]
@@ -779,7 +770,7 @@ describe("vitehub add", () => {
     expect((await add(["kv", "--name", "cache"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["queue", "--name", "../escape"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["kv", "--option", "nope"], root)).json.error?.code).toBe("CLI_R0003")
-    expect((await add(["queue", "--option", "driver=x"], root)).json.error?.code).toBe("CLI_R0003")
+    expect((await add(["sandboxTask", "--option", "driver=x"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["email", "--option", "database.connection.url=libsql://example.com"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["nope"], root)).json.error?.code).toBe("CLI_R0003")
   })

@@ -17,7 +17,7 @@ async function bundleWorker(): Promise<string> {
     const entry = join(dir, "worker.mjs")
     await writeFile(entry, `
       import { seal, unseal } from ${JSON.stringify(fileURLToPath(new URL("../dist/index.js", import.meta.url)))}
-      import { runWithCloudflareEnv } from ${JSON.stringify(fileURLToPath(new URL("../dist/server.js", import.meta.url)))}
+      import { runWithCloudflareEnv } from ${JSON.stringify(fileURLToPath(new URL("../dist/internal/server.js", import.meta.url)))}
       export default {
         async fetch(request, env) {
           const { action, purpose, sealed, value } = await request.json()

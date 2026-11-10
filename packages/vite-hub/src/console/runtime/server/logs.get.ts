@@ -8,9 +8,9 @@ import {
   parseLogQuery,
 } from "../../../logs/source.ts";
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
 import { consoleHttpError } from "./http-error.ts";
-import type { ConsoleRequestEvent } from "./request.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
 import type { LogPage, LogSourceInfo } from "../../../logs/source.ts";
 
 export async function consoleLogsHandler(
@@ -49,8 +49,12 @@ export async function consoleLogsHandler(
     throw consoleHttpError(502, new Error("Could not read the log source."));
   }
 }
-const handler: ConsoleAccessRoute<typeof consoleLogsHandler> = withConsoleAccess(
+/** The log page, for the `logs.list` operation. */
+export const readConsoleLogs: ConsoleAccessRoute<typeof consoleLogsHandler> = withConsoleAccess(
   consoleLogsHandler,
   { section: "logs" },
 );
-export default handler;
+
+/** `GET <base>/api/_vitehub/console/logs` */
+const consoleLogsRoute: ConsoleRoute = consoleRoute(readConsoleLogs);
+export default consoleLogsRoute;

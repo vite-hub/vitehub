@@ -127,6 +127,8 @@ export interface CreateCommentThreadInput {
   metadata?: CommentMetadata
   /** The version of the subject, such as a document version. */
   revision?: number
+  /** A retry key. A second create with the same key and author in the same scope returns the first thread. */
+  requestId?: string
   body: string
   author: CommentUser
   /** Ids of the people that `body` names with `@`. */

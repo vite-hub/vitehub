@@ -10,7 +10,7 @@ import { rules as importRules } from "./doctor/rules/imports.ts"
 import { rules as integrationRules } from "./doctor/rules/integrations.ts"
 import { rules as resultRules } from "./doctor/rules/results.ts"
 
-export { noInternalImports, noServerImportsInClient } from "./doctor/rules/imports.ts"
+export { noInternalImports, noServerImportsInClient, preferViteHubImports } from "./doctor/rules/imports.ts"
 export { destructureResultTuples } from "./doctor/rules/results.ts"
 
 const rules = [...importRules, ...resultRules, ...envAndGuardRules, ...definitionRules, ...integrationRules]

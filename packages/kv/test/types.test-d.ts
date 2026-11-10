@@ -1,11 +1,10 @@
-import type { UserConfig } from "vite"
 import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "#vitehub/kv/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import { kv, type KVErrorCode, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVModuleOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { kv, type KVErrorCode, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
 import { hubKv } from "../src/vite.ts"
 
 describe("types", () => {
@@ -38,14 +37,12 @@ describe("types", () => {
     expectTypeOf(config.store.binding).toEqualTypeOf<string>()
   })
 
-  it("augments vite user config with kv options", () => {
-    const config: UserConfig = {
-      kv: {
-        driver: "fs-lite",
-      },
+  it("types kv options", () => {
+    const options: KVOptions = {
+      driver: "fs-lite",
     }
 
-    expectTypeOf(config.kv).toMatchTypeOf<KVModuleOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<KVOptions>()
   })
 
   it("types kv.get() and kv.getAndDelete() by their type option", () => {
