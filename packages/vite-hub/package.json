@@ -532,6 +532,11 @@
       "import": "./dist/markdown-template/file.js",
       "default": "./dist/markdown-template/file.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -1116,6 +1121,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1198,6 +1204,7 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1331,6 +1338,9 @@
       "optional": true
     },
     "@vite-hub/markdown-template": {
+      "optional": true
+    },
+    "@vite-hub/mcp": {
       "optional": true
     },
     "@vite-hub/presets": {
