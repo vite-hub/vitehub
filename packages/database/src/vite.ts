@@ -21,7 +21,7 @@ import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
-import { assertDefinitionD1Resources, dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
@@ -41,6 +41,7 @@ import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConf
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
+const DB_LIBSQL_IMPORT = "#vitehub/database/libsql"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./inspect.ts"
 export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
@@ -311,6 +312,15 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     }
   }
 
+  async function waitForGeneratedArtifacts() {
+    let generation: Promise<unknown>
+    do {
+      generation = generatedArtifacts
+      await generation
+      // A hot update may have queued another generation while this load was waiting.
+    } while (generation !== generatedArtifacts)
+  }
+
   // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
@@ -320,10 +330,15 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
-    generatedArtifacts = runtimeConfig
-      ? writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
-      : removeGeneratedDatabaseTypes(databaseRoot())
-    await generatedArtifacts
+    const config = runtimeConfig
+    const root = databaseRoot()
+    const schemaOptions = tableNameOptions(options.strict)
+    // Keep all shared artifact writes in order, including removal when Database is disabled. A failed generation
+    // still rejects its waiting imports, but must not prevent a later refresh from recovering.
+    generatedArtifacts = generatedArtifacts.catch(() => {}).then(() => config
+      ? writeGeneratedDatabaseArtifacts(config, schemaOptions)
+      : removeGeneratedDatabaseTypes(root))
+    await waitForGeneratedArtifacts()
     return runtimeConfig
   }
 
@@ -388,6 +403,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     }))
     const plugins = nitroOptions.plugins ??= []
     if (!plugins.includes(plugin)) plugins.push(plugin)
+  }
+
+  // A Cloudflare build reaches each Database through D1, or through a remote libSQL URL. Without such a URL, the Worker
+  // ships no libSQL client. Development and other hosts keep local SQLite.
+  function bundlesLibsql() {
+    if (resolved?.command !== "build" || resolveHostedProvider(resolved) !== "cloudflare") return true
+    return runtimeConfig ? usesRemoteLibsql(runtimeConfig) : false
   }
 
   async function copyNitroMigrations(serverDir: string) {
@@ -593,6 +615,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         ])
         return
       }
+      assertHostedDatabaseRuntimeResources(runtimeConfig, [provider])
       const definitionDefaults = await writeHostedDatabaseRuntimeModules(runtimeDir, runtimeConfig, [provider])
       const runtimeModule = resolve(runtimeDir, `${provider}-runtime.mjs`)
       contributeProviderRuntime(providerOutput, {
@@ -602,25 +625,35 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           : { vercel: runtimeModule, "vercel-definition-defaults": definitionDefaults },
       }, siblingRuntimeGenerations.get(this))
     },
-    resolveId(id) {
-      return resolveDatabaseVirtualId(id)
+    resolveId: {
+      filter: { id: /^(?:(?:#|virtual:)vitehub\/database\/(?:schema|databases)|#vitehub\/database\/(?:definition-defaults|libsql))$/ },
+      handler(id) {
+        if (id === DB_LIBSQL_IMPORT) return bundlesLibsql() ? undefined : resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/libsql-disabled")
+        return resolveDatabaseVirtualId(id)
+      },
     },
-    transform(code, id) {
-      if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+    transform: {
+      filter: { id: /(?:^|[\\/])(?:@vite-hub[\\/]database|database)[\\/]dist[\\/]drizzle\.js$/ },
+      handler(code, id) {
+        if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+      },
     },
-    load(id) {
-      if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return generatedArtifacts.then(() => renderSchemaModule(runtimeConfig))
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return generatedArtifacts.then(() => renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined))
-      if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
-        const options = resolvedOptions()
-        return `export default ${serializeGeneratedRegistry({
-          ...runtimeConfig?.definitionDefaults ?? {
-            ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
-            ...(options && options.connection ? { connection: options.connection } : {}),
-          },
-          ...(resolved?.command === "serve" ? { dev: true } : {}),
-        })}\n`
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/database\/(?:schema|databases|definition-defaults)$/ },
+      handler(id) {
+        if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return waitForGeneratedArtifacts().then(() => renderSchemaModule(runtimeConfig))
+        if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return waitForGeneratedArtifacts().then(() => renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined))
+        if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
+          const options = resolvedOptions()
+          return `export default ${serializeGeneratedRegistry({
+            ...runtimeConfig?.definitionDefaults ?? {
+              ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
+              ...(options && options.connection ? { connection: options.connection } : {}),
+            },
+            ...(resolved?.command === "serve" ? { dev: true } : {}),
+          })}\n`
+        }
+      },
     },
   }
 }

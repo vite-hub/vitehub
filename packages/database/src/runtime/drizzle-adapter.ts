@@ -31,6 +31,16 @@ export interface LibsqlClientFactory {
   drizzle: (client: Client, config: { casing?: "snake_case" | "camelCase", schema: Record<string, unknown> }) => unknown
 }
 
+/**
+ * libSQL for a local SQLite database, from `#vitehub/database/libsql`. A Cloudflare build without a remote libSQL URL
+ * resolves that import to `undefined`, so the Worker ships no libSQL client.
+ */
+export interface LocalSqlite extends LibsqlClientFactory {
+  /** The in-memory database of app tests. See `createTestDatabaseClient()`. */
+  createTestClient: (root: string, migrationsDir: string) => Client
+  resolveLocalUrl: (url: string) => string
+}
+
 interface DrizzleSqliteAdapterOptions {
   libsql?: LibsqlClientFactory
   requireRemoteUrl: boolean

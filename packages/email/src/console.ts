@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 
 /**
@@ -10,7 +11,8 @@ export const emailConsoleSection: ViteHubConsoleRuntimeRecordTableSection = {
   icon: "i-vitehub-email",
   id: "email",
   label: "Email",
-  runtime: { export: "readEmailOutboxConsoleRecords", module: "@vite-hub/email/runtime/console" },
+  // Generated Console code imports the reader by path.
+  runtime: { export: "readEmailOutboxConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [
       { key: "subject", label: "Subject" },

@@ -103,6 +103,18 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
+  it("filters resolveId, load, and transform to the ids Database owns", () => {
+    const plugin = hubDb()
+    const filter = (hook: unknown) => (hook as { filter: { id: RegExp } }).filter.id
+    const virtualIds = [DB_VIRTUAL_SCHEMA_ID, DB_VIRTUAL_DATABASES_ID, "#vitehub/database/definition-defaults"]
+
+    expect([...virtualIds, "virtual:vitehub/database/schema", "virtual:vitehub/database/databases", "#vitehub/database/libsql", "virtual:vitehub/database/definition-defaults", "virtual:vitehub/database/libsql", "#vitehub/database/other"]
+      .map(id => filter(plugin.resolveId).test(id))).toEqual([true, true, true, true, true, true, false, false, false])
+    expect([...virtualIds.map(id => `\0${id}`), DB_VIRTUAL_SCHEMA_ID].map(id => filter(plugin.load).test(id))).toEqual([true, true, true, false])
+    expect(["/app/node_modules/@vite-hub/database/dist/drizzle.js", "C:\\app\\packages\\database\\dist\\drizzle.js", "/app/node_modules/drizzle-orm/dist/drizzle.js", "/app/server/drizzle.js"]
+      .map(id => filter(plugin.transform).test(id))).toEqual([true, true, false, false])
+  })
+
   it("does not inspect provider output without enabled Database Definitions", async () => {
     const rootDir = await createTempProject()
     const plugin = hubDb()
@@ -657,7 +669,7 @@ describe("hubDb", () => {
     const definition = join(rootDir, "server/databases/config.ts")
     await writeFile(definition, (await readFile(definition, "utf8")).replace("  schema:", "  remote: true,\n  schema:"))
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const load = (plugin: ReturnType<typeof hubDb>) => plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const load = (plugin: ReturnType<typeof hubDb>) => (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     const render = async (command: "build" | "serve") => {
       const plugin = hubDb()
       await resolveConfigResolved(plugin)({ command, root: rootDir })
@@ -815,9 +827,9 @@ describe("hubDb", () => {
     await configResolved({ database: undefined, root: await createTempProject() })
 
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     const id = await resolveId("#vitehub/database/definition-defaults")
 
     expect(await load(id!)).toContain("libsql://database.example.turso.io")
@@ -876,9 +888,9 @@ describe("hubDb", () => {
     await resolveConfigResolved(plugin)({ database: undefined, root: rootDir })
 
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     const code = await load((await resolveId(DB_VIRTUAL_DATABASES_ID))!)
     const evaluable = code!.replace(/^import .+$/gm, "").replace("export const databases", "const databases").replace("export default databases", "return databases")
     const registry = new Function("definition_0", "schema_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", drizzle: {}, schema: {} }, { notes: "schema-marker" }, (value: unknown) => value) as Record<string, { schema: unknown }>
@@ -1193,9 +1205,9 @@ describe("hubDb", () => {
     await configResolved({ root: rootDir })
 
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
     // SAFETY: These are Vite hook handlers returned by hubDb.
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
 
     const resolvedSchemaId = await resolveId(DB_VIRTUAL_SCHEMA_ID)
     const resolvedDatabasesId = await resolveId(DB_VIRTUAL_DATABASES_ID)
