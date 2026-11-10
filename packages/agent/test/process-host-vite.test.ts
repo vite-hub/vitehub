@@ -13,7 +13,7 @@ it('generates the route used by the drain CLI by default', async () => {
     // SAFETY: This plugin config hook uses only the supplied config root, not its Vite context.
     const result = await hook.call({} as never, { root }, { command: 'build', mode: 'production' })
     const drain = await readFile(join(root, '.vitehub/process-host/drain.ts'), 'utf8')
-    const cli = await readFile(new URL('../../runtime/src/drain.ts', import.meta.url), 'utf8')
+    const cli = await readFile(new URL('../../runtime/src/internal/drain.ts', import.meta.url), 'utf8')
     expect(cli).toContain('/api/drain')
     expect(drain).toContain('host.status()')
     // The generated Nitro route must match the CLI, as well as the handler file.

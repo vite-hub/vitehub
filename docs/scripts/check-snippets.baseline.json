@@ -240,11 +240,6 @@
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
-    "label": "vite.config.ts",
-    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type 'string | undefined' is not assignable to type 'EnvRuntimeConfigValue'.\n      Type 'undefined' is not assignable to type 'EnvRuntimeConfigValue'."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
@@ -252,7 +247,7 @@
   {
     "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
     "label": "server/api/crm.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type '{ readonly githubToken: SecretEnv<string>; readonly airtableToken: SecretEnv<string>; }'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type '{ readonly token: SecretEnv<string>; }'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
@@ -325,7 +320,7 @@
     "error": "TS2339 Property 'tenantId' does not exist on type '{}'.\nTS2339 Property 'token' does not exist on type '{}'.\nTS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'.\nTS2344 Type '{ token: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
   },
   {
-    "id": "packages/blob/README.md#0f443e92375d",
+    "id": "packages/blob/README.md#45378057acd1",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
   },

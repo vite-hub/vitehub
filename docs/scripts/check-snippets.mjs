@@ -291,12 +291,22 @@ async function registryDeclarations(pageSnippets) {
 
 const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
 
+async function envPluginDeclarations(plugins, config) {
+  const plugin = await plugins
+  if (Array.isArray(plugin)) {
+    const declarations = []
+    for (const child of plugin) declarations.push(...await envPluginDeclarations(child, config))
+    return declarations
+  }
+  return plugin?.name === "@vite-hub/env/vite" ? [plugin.api.resolveDeclarations(config)] : []
+}
+
 /**
  * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
  * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
  */
 async function envDeclarations(pageSnippets) {
-  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:/.test(snippet.code))
+  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
   if (!configs.length) return []
   const env = { public: {}, server: {} }
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
@@ -315,13 +325,15 @@ async function envDeclarations(pageSnippets) {
       try {
         config = await (await import(pathToFileURL(file).href)).default
         if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
+        for (const declarations of [config?.env, ...await envPluginDeclarations(config?.plugins, config)]) {
+          Object.assign(env.public, declarations?.public)
+          Object.assign(env.server, declarations?.server)
+        }
       }
       catch {
         // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
         return []
       }
-      Object.assign(env.public, config?.env?.public)
-      Object.assign(env.server, config?.env?.server)
     }
   }
   finally {
@@ -340,7 +352,7 @@ async function envDeclarations(pageSnippets) {
     "",
   ].join("\n")
   return [
-    { code: createEnvTypes(env), file: join(pageRoot, envTypesFile) },
+    { code: createEnvTypes(env, { projectRoot: pageRoot }), file: join(pageRoot, envTypesFile) },
     { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }

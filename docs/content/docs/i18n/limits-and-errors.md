@@ -10,8 +10,14 @@ icon: i-lucide-circle-alert
 
 - **Nitro 3 only.** i18n runs in Vite with Nitro 3 and in Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
 - **Async context.** ViteHub turns on Nitro's `experimental.asyncContext`, so `t` finds the request that runs it.
-- **Catalogs at build time.** The build reads `locales/<locale>.po` when it starts. A translation that you add after the build shows after the next build.
-- **Messages that are not in the catalogs.** Run `vitehub i18n extract` before a production build. A production build keeps only message IDs in the app code, so a message that `extract` did not collect shows its ID. In development, the same message shows its source text, but its placeholders and plural forms are not filled in.
+- **Translations at build time.** The build reads `locales/<locale>/segments/` when it starts. A translation that you add after the build shows after the next build. In development, a saved record shows after a reload.
+- **Messages from files on disk.** The build reads the messages of each module from its file, so a message that another Vite plugin generates is not collected. It still works on the server, but in the browser a production build shows its ID.
+- **Build time.** A production build parses each source file that it compiles a second time, to collect the messages.
+- **A Workspace needs retained history.** `i18n.workspace` works with the Blob and Database store and the GitHub store. The local store has no `draft` and `published` refs.
+- **A Workspace is read every 5 seconds.** Each server instance reads the head of `published` at most once every 5 seconds, so another instance can show the old translations for up to 5 seconds after a publish.
+- **The catalog route ignores the app base URL.** The browser reads `/_vitehub/i18n/<locale>.json` from the origin root.
+- **`publish()` publishes every changed draft.** It does not pin the drafts that a person reviewed. A save that comes in during a publish can go out with it.
+- **Rich-text validation.** `save()` accepts at most 256 distinct numeric tag sequences at each step of expanding ICU branches, in both the source and the translation. Equal tag sequences count once. A message that exceeds this limit returns `I18N_INVALID_TRANSLATION` before any draft is saved. Split it into smaller messages.
 - **Memory on the server.** The server loads the compiled messages of every locale when it starts.
 - **Locale matching.** A locale matches by its full tag, then by its language. The first configured locale with the same language wins. With `["en", "pt-BR", "pt-PT"]`, a request for `pt` gets `pt-BR`.
 - **Top-level messages.** A `t` call at the top level of a module runs before any request and before the page picks a locale. Use [`msg` and `translate()`](/docs/i18n/server-api#msg-and-translate) there.
@@ -32,9 +38,17 @@ The app builds the server with an unsupported host. i18n needs Nitro 3, which ru
 
 `t`, `plural`, `select`, `selectOrdinal`, or `msg` from `vite-hub/i18n` ran without the ViteHub build, so it has no message ID. This happens when `i18n` is not enabled, or when a file that Vite does not build, such as a script that Node.js runs directly, imports the function. Enable `i18n` in `vitehub()` or `vite-hub/nuxt`, and import the function in a file that Vite builds.
 
+### I18N_INVALID_TRANSLATION
+
+`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text, or whose source or translation exceeds the rich-text validation limit above. Nothing was saved. Fix the translation or split the message and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
+
+### I18N_NO_WORKSPACE
+
+Server code called `useTranslations()`, and `i18n.workspace` is not set. Define a Workspace with retained history, such as `server/workspaces/translations/config.ts`, and set `i18n: { workspace: "translations" }`. Without a Workspace, translations are records in `locales/<locale>/`, and you change them with `vitehub i18n import` or a text editor.
+
 ### I18N_UNKNOWN_LOCALE
 
-`setLocale()` got a locale that is not in `i18n.locales`. Pass one of the configured locales, or add the locale to `i18n.locales` and run `vitehub i18n extract`.
+`setLocale()` got a locale that is not in `i18n.locales`, or `useTranslations()` got the source locale or a locale that is not in `i18n.locales`. Pass one of the configured locales, or add the locale to `i18n.locales`.
 
 ```ts
 import { setLocale } from "vite-hub/i18n"

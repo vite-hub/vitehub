@@ -64,7 +64,7 @@ Start with the affected package's full `test` script so every package-owned test
 corepack pnpm --dir packages/vite-hub run test
 ```
 
-For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
+For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run --cache -t <package>#build` commands (or the same commands without `--cache`) for builds it already completed.
 
 The package `typecheck` script builds the package and its workspace dependencies first. It works from a fresh install without a manual build:
 
@@ -89,6 +89,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.

@@ -1,14 +1,12 @@
-import { allowedConsoleSections, consoleAccessWrites, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest } from "./request.ts"
+import { allowedConsoleSections, consoleAccessWrites, type ConsoleAccess } from "./access.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { getConsoleAuth, getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
 import type { ConsoleContributedSection } from "../definitions.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
 
-/** The sections that this request may use. The client hides the others. Each route still checks its own section. */
-function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAccess): {
+/** The sections that this access may use. The client hides the others. Each operation still checks its own section. */
+export function listConsoleSections(access: ConsoleAccess): {
   auth?: true | "cloudflare-access"
   /** The build id of the deployed Console. An open Console that loaded another id is outdated. */
   build?: string
@@ -22,7 +20,6 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   scoped?: true
   sections: readonly string[]
 } {
-  assertConsoleRequest(event)
   const projectName = getConsoleProjectName()
   const sections = allowedConsoleSections(access, getConsoleSections())
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
@@ -43,6 +40,3 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   if (build) result.build = build
   return result
 }
-
-const guardedHandler: ConsoleAccessRoute<typeof consoleSectionsHandler> = withConsoleAccess(consoleSectionsHandler, { anySection: true })
-export default guardedHandler

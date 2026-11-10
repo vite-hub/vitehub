@@ -46,7 +46,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowModuleOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `workflow` | `boolean` or `WorkflowOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
 | `provider` | `WorkflowProvider` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |

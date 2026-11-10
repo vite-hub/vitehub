@@ -129,6 +129,14 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     content.comments = await readViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection, undefined)
     sectionOverrides.comments = describeViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection)
   }
+  // `server/forms/` runs the forms operations, so the Console section lists submissions through them.
+  const formsVite = ownerModules.formsVite
+  if (formsVite?.usesForms({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
+    content.forms = await readViteHubConsoleSection(formsVite.formsConsoleSection, undefined)
+    sectionOverrides.forms = describeViteHubConsoleSection(formsVite.formsConsoleSection)
+    // No section registers Forms, so the folder turns it on here.
+    if (!entries.includes("forms")) entries.push("forms")
+  }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))
