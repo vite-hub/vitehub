@@ -41,6 +41,8 @@ export type {
   WorkflowSharedOptions,
   WorkflowStepFunction,
   WorkflowStepOptions,
-  WorkflowStepRunner,
+  WorkflowStep,
+  WorkflowStepRegistry,
+  WorkflowSteps,
   WorkflowStartOptions,
 } from "./types.ts"

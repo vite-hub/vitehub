@@ -539,13 +539,15 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } } }
+    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } | null } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } | null } }
 
-    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } } }) => mergeConfig(input, config(input)).server?.watch?.ignored
+    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } | null } }) => mergeConfig(input, config(input)).server?.watch?.ignored
 
     expect(watchIgnored({})).toEqual(["**/.vitehub/**"])
     expect(watchIgnored({ server: { watch: { ignored: ["**/node_modules/**"] } } })).toEqual(["**/node_modules/**", "**/.vitehub/**"])
     expect(watchIgnored({ server: { watch: { ignored: ["**/.vitehub/**"] } } })).toEqual(["**/.vitehub/**"])
+    const disabledWatcher = { server: { watch: null } }
+    expect(mergeConfig(disabledWatcher, config(disabledWatcher)).server?.watch).toBeNull()
     expect(config({ root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe(JSON.stringify("/repo/apps/web"))
     expect(config({ define: { __VITEHUB_AGENT_APP_ROOT__: "configured" }, root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe("configured")
   })
@@ -9305,7 +9307,7 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
-  it("runs GitHub channel webhooks through workflow-backed agents", async () => {
+  it("runs GitHub channel webhooks through workflow-backed agents", async ({ onTestFinished }) => {
     const { defineAgent, workflow } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -9315,6 +9317,7 @@ describe("server helpers", () => {
     const runFinished = new Promise<void>((resolve) => {
       releaseRun = resolve
     })
+    onTestFinished(releaseRun)
     const run = vi.fn(async (context) => {
       await runFinished
       return `accepted ${context.prompt}`
@@ -9359,14 +9362,8 @@ describe("server helpers", () => {
         "",
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
-      const response = await Promise.race([responsePromise, new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 25))])
-
-      if (response === "blocked") {
-        releaseRun()
-        await responsePromise
-      }
-      expect(response).not.toBe("blocked")
-      if (response === "blocked") throw new Error("Workflow webhook response waited for deferred workflow completion.")
+      // The response must arrive while the Workflow is still waiting for releaseRun().
+      const response = await responsePromise
       const json = await response.json()
 
       expect(response.status).toBe(200)
@@ -15591,7 +15588,7 @@ describe("server helpers", () => {
     })
   })
 
-  it("defers manual delivery to the active Agent Workflow by default", async () => {
+  it("defers manual delivery to the active Agent Workflow by default", async ({ onTestFinished }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -15606,6 +15603,7 @@ describe("server helpers", () => {
     const blocked = new Promise<void>((resolve) => {
       release = resolve
     })
+    onTestFinished(release)
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -15631,17 +15629,12 @@ describe("server helpers", () => {
 
     try {
       await state.connect()
-      const response = await Promise.race([
-        handler(chatWebhookRequest(91_100), "telegram", {
-          agentIdentity: { name: "calories" },
-          cloudflare: { env: {} },
-          waitUntil: (task) => waitUntilTasks.push(task),
-        }),
-        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 1_000)),
-      ])
-
-      expect(response).not.toBe("blocked")
-      if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
+      // The response must arrive before the blocked Driver is released below.
+      const response = await handler(chatWebhookRequest(91_100), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: (task) => waitUntilTasks.push(task),
+      })
       expect(response.status).toBe(200)
       expect(adapter.postMessage).not.toHaveBeenCalled()
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123", messageId: "91100" })
