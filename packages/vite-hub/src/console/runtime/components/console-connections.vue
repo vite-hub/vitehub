@@ -35,7 +35,7 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
-// The connect flow needs the app session, so a Console on another origin sends it to the app's own Console.
+// The connect flow needs the app session, so it runs on the app origin.
 const remote = isRemoteProject();
 const connections = ref<readonly ConnectionInspection[]>([]);
 const pending = ref(new Map<string, number>());

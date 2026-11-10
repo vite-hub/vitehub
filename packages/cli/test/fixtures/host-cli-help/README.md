@@ -1,6 +1,6 @@
 `--help` output of the host CLIs that `vitehub deploy` runs, recorded on 2026-11-06 with color codes removed. `src/setup/deploy/*.ts` uses only the flags here. No test runs a real host CLI: `test/fixtures/fake-host-cli.cjs` stands in for all four.
 
-- Wrangler 4.158.0 (the npx cache; `.github/ci-tools/package.json` pins 4.151.1): `wrangler-deploy.txt`, `wrangler-versions-upload.txt`, `wrangler-secret-put.txt`, `wrangler-secret-list.txt`.
+- Wrangler 4.158.0 (the npx cache; the `wrangler` catalog entry in `pnpm-workspace.yaml` pins 4.147.0): `wrangler-deploy.txt`, `wrangler-versions-upload.txt`, `wrangler-secret-put.txt`, `wrangler-secret-list.txt`.
   - `--temporary` is a global flag that the help does not list. Wrangler's source names it in `WRANGLER_CLI.temporaryAccountFlag`, and a failed login suggests "rerun this command with `--temporary`". It prints `Claim within: <duration>` and `Claim URL: <url>`. Docs: https://developers.cloudflare.com/workers/wrangler/commands/#deploy
   - `secret put` reads the value from stdin when stdin is not a terminal, and creates a draft Worker without a prompt when the Worker does not exist (Wrangler source, `createDraftWorker`, `fallbackValue: true`).
   - `WRANGLER_OUTPUT_FILE_PATH` gets one JSON object per line: `{ type: "deploy", version_id, targets }` or `{ type: "version-upload", version_id, preview_url }`.

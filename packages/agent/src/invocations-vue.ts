@@ -8,7 +8,7 @@ import type {
   AgentInvocationSummary,
 } from "./invocations.ts";
 import { invocationDiagnostics } from "./invocation-diagnostics.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
@@ -74,10 +74,6 @@ export interface UseAgentInvocationReturn {
 const defaultBaseURL = "/api/invocations";
 const maximumPaginationRequestsPerLoad = 2;
 const retainedReconciliationLimit = 20;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function isInvocationStatus(value: unknown): value is AgentInvocationRecordStatus {
   return value === "pending" || value === "running" || value === "completed" || value === "failed" || value === "cancelled";
@@ -401,9 +397,9 @@ export function useAgentInvocations(
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
       const search = query?.search?.trim().toLowerCase();
-      const triggeredBy = hasRuntimeType(query?.triggeredBy, "string") ? query.triggeredBy.trim() : undefined;
+      const triggeredBy = typeof query?.triggeredBy === "string" ? query.triggeredBy.trim() : undefined;
       const matchesTriggeredBy = (invocation: AgentInvocationSummary) => !triggeredBy
-        || (hasRuntimeType(invocation.annotations?.triggeredBy, "string")
+        || (typeof invocation.annotations?.triggeredBy === "string"
           && invocation.annotations.triggeredBy.trim() === triggeredBy);
       const retainedIds = resetFirstPage
         ? []
