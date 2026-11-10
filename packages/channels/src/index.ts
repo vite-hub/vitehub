@@ -1,9 +1,11 @@
 export { stripe, webhook } from "./adapters.ts"
 export { createChannel } from "./client.ts"
 export { defineChannel } from "./definition.ts"
+export { sendChannelTrigger } from "./trigger.ts"
 export { useChannel } from "./runtime/state.ts"
 
 export type { StripeAdapterOptions, StripeEvent } from "./adapters.ts"
+export type { ChannelTriggerErrorCode, ChannelTriggerReceipt } from "./trigger.ts"
 export type {
   ChannelAdapter,
   ChannelClient,

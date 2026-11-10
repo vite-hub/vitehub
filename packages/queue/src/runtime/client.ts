@@ -82,7 +82,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   }
 }
 
-async function getDynamicQueue(name: string): Promise<QueueClient> {
+async function useDynamicQueue(name: string): Promise<QueueClient> {
   // A disabled Queue loads no definitions, so say so first: QUEUE_DEFINITION_NOT_FOUND
   // would tell the developer to add a queue file that already exists.
   const config = getActiveQueueConfig()
@@ -106,10 +106,10 @@ async function getDynamicQueue(name: string): Promise<QueueClient> {
   return await getOrCreateQueueClient(name, () => createNamedQueueClient(name))
 }
 
-async function runDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
+async function sendDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
   let queue: QueueClient
   try {
-    queue = await getDynamicQueue(name)
+    queue = await useDynamicQueue(name)
   }
   catch (error) {
     // A provider failure while the client starts is a runtime error. Config errors still throw.
@@ -122,7 +122,7 @@ async function runDynamicQueue(name: string, payload: unknown, options?: QueueEn
 function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): void {
   const request = getQueueRuntimeEvent()
   const task = async () => {
-    const [error] = await runWithQueueRuntimeEvent(request, () => runDynamicQueue(name, payload, options))
+    const [error] = await runWithQueueRuntimeEvent(request, () => sendDynamicQueue(name, payload, options))
     if (error) throw error
   }
   const handleError = async (error: unknown) => {
@@ -144,29 +144,33 @@ function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueu
 /** Dispatch externally supplied names and payloads after application validation. */
 export const dynamicQueue: {
   defer: typeof deferDynamicQueue
-  get: typeof getDynamicQueue
-  run: typeof runDynamicQueue
+  send: typeof sendDynamicQueue
+  use: typeof useDynamicQueue
 } = {
   defer: deferDynamicQueue,
-  get: getDynamicQueue,
-  run: runDynamicQueue,
+  send: sendDynamicQueue,
+  use: useDynamicQueue,
 }
 
 /**
- * Returns the QueueClient of a discovered Queue Definition. Config errors, for example an unknown name, throw.
+ * Returns the QueueClient of a discovered Queue Definition, for `sendBatch()` and provider methods. Config errors, for example an unknown name, throw.
  */
-export async function getQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueProvider, QueuePayload<TName>>> {
-  return await getDynamicQueue(name)
+export async function useQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueProvider, QueuePayload<TName>>> {
+  return await useDynamicQueue(name)
 }
 
 /**
- * Enqueues one job and returns `[error, result]`. `error.code` is a `QueueErrorCode`.
+ * Sends one job to the Queue and returns `[error, result]`. `error.code` is a `QueueErrorCode`.
  * Config errors, for example an unknown Queue name, throw.
  */
-export function runQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
-  return runDynamicQueue(name, payload, options)
+export function sendQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
+  return sendDynamicQueue(name, payload, options)
 }
 
+/**
+ * Sends one job after the response, through `waitUntil`. It returns nothing: a failure goes to the log and to the
+ * `onDispatchError` option of the Queue Definition. Call `sendQueue()` when the caller needs the message ID.
+ */
 export function deferQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): void {
   deferDynamicQueue(name, payload, options)
 }

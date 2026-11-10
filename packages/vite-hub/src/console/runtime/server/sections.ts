@@ -7,6 +7,7 @@ import type { ConsoleSectionId } from "../sections.ts"
 // Generated Console output installs its access policy from this entry, next to its sections.
 export { consoleConnectionsActor, consoleRealtimeAccess, resolveConsoleAppAuthIdentity } from "./access.ts"
 export { installConsoleAccess } from "./access-policy.ts"
+export { verifyConsoleJwt } from "./bearer-jwt.ts"
 export { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../../auth-pages.ts"
 export { installConsolePageTool } from "./page-tool.ts"
 export { installConsoleOrigins } from "./cors.ts"

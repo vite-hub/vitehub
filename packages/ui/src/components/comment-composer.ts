@@ -86,6 +86,10 @@ const pastedFiles = (clipboard: DataTransfer): File[] => {
 
 // The Figma composer. Enter sends and Shift+Enter breaks the line. Esc in an empty composer closes it. Esc in a composer
 // with text, and a click outside it, shake the box and keep the focus and the text, so a draft is never lost by accident.
+// A second Esc right after that shake means it: the text and files go and the composer closes.
+// How long a second Esc discards after the first one shook the box.
+const escapeWindow = 2000;
+
 export const CommentComposer = defineComponent({
   name: "CommentComposer",
   props: {
@@ -134,6 +138,14 @@ export const CommentComposer = defineComponent({
     const menuId = useId();
     const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Set by the shake of an Esc. The next Esc within `escapeWindow`, with nothing typed in between, discards the text
+    // and closes. The box says so while it is set.
+    const escaped = ref(false);
+    let escapeTimer: ReturnType<typeof setTimeout> | undefined;
+    watch(escaped, (value) => {
+      clearTimeout(escapeTimer);
+      if (value) escapeTimer = setTimeout(() => (escaped.value = false), escapeWindow);
+    });
     let lookup = 0;
     let mentionCaret: number | undefined;
     // The `@` whose menu Esc closed. It stays closed until the caret leaves that mention.
@@ -141,6 +153,8 @@ export const CommentComposer = defineComponent({
 
     const localFiles = ref<File[]>([]);
     const files = computed(() => props.files ?? localFiles.value);
+    // A change to the text or the files is new work, so the next Esc shakes again first.
+    watch([() => props.modelValue, files], () => (escaped.value = false));
     const attachmentsOn = computed(() => props.attachments && props.variant !== "edit");
     const allowEmpty = computed(() => props.allowEmpty ?? props.variant === "reply");
     // PromptInput shows a file as a UI part. The preview is an object URL, so no file is read before it is sent.
@@ -206,7 +220,10 @@ export const CommentComposer = defineComponent({
       timer = setTimeout(() => (shaking.value = null), 450);
       focus();
     }
-    const onShake = () => void shake();
+    const onShake = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.escape === true) escaped.value = true;
+      void shake();
+    };
     onMounted(() => {
       root.value?.addEventListener(shakeEventName, onShake);
       if (props.autofocus) void nextTick(focus);
@@ -214,6 +231,7 @@ export const CommentComposer = defineComponent({
     onBeforeUnmount(() => {
       root.value?.removeEventListener(shakeEventName, onShake);
       clearTimeout(timer);
+      clearTimeout(escapeTimer);
       for (const url of urls) URL.revokeObjectURL(url);
     });
     expose({ focus, shake });
@@ -336,8 +354,24 @@ export const CommentComposer = defineComponent({
         lookup++;
         dismissed = open.start;
         menu.value = null;
-      } else if (hasContent()) void shake();
-      else emit("cancel");
+      } else if (hasContent() && !escaped.value) {
+        escaped.value = true;
+        void shake();
+      } else void discard();
+    }
+
+    // Empties the box, then closes it once the parent has rendered the empty box, so a parent that checks for unsent text
+    // before it closes finds none.
+    async function discard() {
+      if (props.busy) return;
+      escaped.value = false;
+      if (hasContent()) {
+        emit("update:modelValue", "");
+        emit("update:mentions", []);
+        setFiles([]);
+        await nextTick();
+      }
+      emit("cancel");
     }
 
     const hasFiles = (event: DragEvent) => attachmentsOn.value && (event.dataTransfer?.types.includes("Files") ?? false);
@@ -431,6 +465,8 @@ export const CommentComposer = defineComponent({
                 )
               : null,
             (props.error ?? hint.value) ? h("p", { "data-slot": "comment-composer-error", role: "alert" }, props.error ?? hint.value) : null,
+            // The shake shows that the text stays. The line says what the next Esc does, also to a screen reader.
+            h("p", { "aria-live": "polite", "data-slot": "comment-composer-status" }, escaped.value ? "Press Esc again to discard." : ""),
           ]),
         ],
       );
