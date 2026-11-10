@@ -3394,7 +3394,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     resolveId: {
       // Run before Vite resolves installed optional peers to absolute module paths.
       order: "pre",
-      filter: { id: /^(?:@vite-hub\/kv|advocaat)$/ },
+      filter: { id: /^(?:@vite-hub\/kv|@ai-sdk\/openai|advocaat)$/ },
       async handler(source, importer, options) {
         if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
           // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the

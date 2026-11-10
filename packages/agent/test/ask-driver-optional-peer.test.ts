@@ -40,7 +40,7 @@ describe("Agent Vite plugin", () => {
     const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id
     const transformFilter = (plugin.transform as { filter: { id: RegExp } }).filter.id
 
-    expect(["advocaat", "@vite-hub/kv", "ai", "@vite-hub/kv/vite", "advocaat/sub"].map(id => resolveFilter.test(id))).toEqual([true, true, false, false, false])
+    expect(["advocaat", "@vite-hub/kv", "@ai-sdk/openai", "ai", "@vite-hub/kv/vite", "advocaat/sub", "@ai-sdk/openai/internal"].map(id => resolveFilter.test(id))).toEqual([true, true, true, false, false, false, false])
     expect([
       "/app/server/agents/reviewer.ts",
       "/app/server/agents/reviewer.MTS?v=1",
