@@ -91,6 +91,7 @@ Some rules read the whole project:
 | [`VHUB0033`](#vhub0033) | `vitehub/no-removed-apis` | Error |
 | [`VHUB0034`](#vhub0034) | `vitehub/markdown-file-path` | Warning |
 | [`VHUB0035`](#vhub0035) | `vitehub/comments-entry` | Error |
+| [`VHUB0036`](#vhub0036) | `vitehub/prefer-vite-hub-imports` | Warning |
 
 ## VHUB0001
 
@@ -406,12 +407,12 @@ Use `requireRateLimit()` when the request must fail with status 429. Read [Rate 
 
 `memoryRateLimitDriver()` keeps its counters in the driver object. A driver created in a route handler gets new counters on each request, so the limit is never reached.
 
-The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler (see [VHUB0003](#vhub0003)). It skips a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and test files.
+The rule reports `memoryRateLimitDriver()` from `vite-hub/rate-limit/drivers/memory` inside a route handler (see [VHUB0003](#vhub0003)). It skips a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and test files.
 
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
 import { createRateLimiter } from 'vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 export default defineEventHandler(async () => {
   // Invalid: every request gets new counters.
@@ -423,7 +424,7 @@ export default defineEventHandler(async () => {
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
 import { createRateLimiter } from 'vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 // Valid
 const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: '1m' })
@@ -448,9 +449,8 @@ export default defineAuth({ baseURL: 'https://example.com', emailAndPassword: { 
 import { defineAuth } from 'vite-hub/auth'
 
 // Valid
-export default defineAuth(({ env, requestOrigin }) => ({
+export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
-  secret: env.auth.secret.unseal(),
   emailAndPassword: { enabled: true },
 }))
 ```
@@ -669,13 +669,13 @@ The rule reports property reads and destructuring of names that are not `Respons
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. Without the rule, these errors appear only when the Workflow runs.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
 
-```ts [server/workflows/onboard-user/index.ts]
+```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow(async ({ payload, steps }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
   const user = await steps.createUser(payload)
   // Invalid: there is no send-welcome-email step file.
   return await steps.sendWelcomeEmail(user)
@@ -862,8 +862,8 @@ capabilities: [rateLimit({ limit: 20, window: '1m' })]
 import { rateLimit } from 'vite-hub/agent/capabilities'
 
 // Valid
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: '1m' })
 
@@ -1024,6 +1024,31 @@ export const comments = defineComments({ database: 'analytics' })
 ```
 
 Read [Comments server API](/docs/comments/server-api).
+
+## VHUB0036
+
+**Import ViteHub features from `vite-hub/*`.** Rule `vitehub/prefer-vite-hub-imports`.
+
+An app that depends on `vite-hub` imports an owner package path, such as `@vite-hub/blob`, and `vite-hub` has the same path, such as `vite-hub/blob`. Each `vite-hub/*` path re-exports its owner path. Apps use one import family, so the docs, the types, and the code show the same paths.
+
+```ts [server/api/upload.post.ts] fragment
+// Invalid
+import { blob } from '@vite-hub/blob'
+import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+
+// Valid
+import { blob } from 'vite-hub/blob'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
+```
+
+The fix names the `vite-hub/*` path. The rule reads the dependencies in the project `package.json`. It does not report:
+
+- an owner path that `vite-hub` does not export, such as `@vite-hub/blob/vite` or `@vite-hub/database/connect`
+- an app that installs owner packages without `vite-hub`, such as a docs site on `@vite-hub/docs` or Comments alone
+- the source of `vite-hub` and of the `@vite-hub/*` packages
+- generated files under `.vitehub/`
+
+[Import paths](/docs/reference/import-paths) lists every `vite-hub/*` path.
 
 ## Related
 

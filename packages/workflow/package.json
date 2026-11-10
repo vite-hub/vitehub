@@ -41,10 +41,10 @@
       "import": "./dist/runtime/openworkflow.js",
       "default": "./dist/runtime/openworkflow.js"
     },
-    "./runtime/openworkflow-worker": {
-      "types": "./dist/runtime/openworkflow-worker.d.ts",
-      "import": "./dist/runtime/openworkflow-worker.js",
-      "default": "./dist/runtime/openworkflow-worker.js"
+    "./openworkflow": {
+      "types": "./dist/openworkflow.d.ts",
+      "import": "./dist/openworkflow.js",
+      "default": "./dist/openworkflow.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",

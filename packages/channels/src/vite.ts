@@ -6,7 +6,7 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { discoverChannelDefinitions, receivesChannelWebhooks } from "./discovery.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
-export { discoverChannelDefinitions } from "./discovery.ts"
+export { discoverChannelDefinitions, isOutboundChannelSource } from "./discovery.ts"
 
 const agentVitePluginName = "@vite-hub/agent/vite"
 

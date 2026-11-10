@@ -274,7 +274,8 @@ async function startContainer(
     if (!platform || platform.OSType !== "linux"
       || typeof platform.OperatingSystem !== "string" || !platform.OperatingSystem.trim()
       || typeof platform.KernelVersion !== "string" || !platform.KernelVersion.trim()
-      || /docker desktop|orbstack|rancher desktop|colima|linuxkit|microsoft|wsl/i.test(`${platform.OperatingSystem} ${platform.KernelVersion}`)
+      || /docker desktop|orbstack|rancher desktop|colima|linuxkit/i.test(`${platform.OperatingSystem} ${platform.KernelVersion}`)
+      || /microsoft|wsl/i.test(platform.KernelVersion)
       || !Array.isArray(platform.SecurityOptions)
       || platform.SecurityOptions.some(option => typeof option !== "string" || /rootless/i.test(option)))
       throw unsupportedPlatform();

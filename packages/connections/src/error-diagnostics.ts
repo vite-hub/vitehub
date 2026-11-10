@@ -74,15 +74,11 @@ const codes = {
     },
   },
   CONNECTIONS_NOT_CONNECTED: {
-    why: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
-      if (login === "connect") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no connect flow.`
-      if (login === "credentials") return `Connection "${connection}" has no login credentials.`
+    why: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => {
       if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${arg(connection)}\` or in the Console.`
       return `Connection "${connection}" is not connected. ${connect(connection)}`
     },
-    fix: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
-      if (login === "connect") return `Do not connect Connection "${connection}". Call it, and it signs in by itself once its \`credentials\` resolve.`
-      if (login === "credentials") return `Make the \`credentials\` of the \`oauthLogin()\` provider of Connection "${connection}" resolve, for example set the Env keys that it reads.`
+    fix: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => {
       if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Set key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
       return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
     },
@@ -92,9 +88,8 @@ const codes = {
     fix: "Add the origin to the provider `origins`, or call a URL of a configured API catalog. ViteHub did not send the credential.",
   },
   CONNECTIONS_PROVIDER_FAILED: {
-    why: ({ action, connection, message, problem, provider, status }: { action?: string, connection?: string, message?: string, problem?: "invalid-json" | "login" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
+    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "invalid-json" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
       if (problem === "invalid-json") return "Provider returned invalid JSON."
-      if (problem === "login") return `The login of Connection "${connection}" failed${message ? `: ${message}` : ""}.`
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
       if (problem === "token-request") return `Provider "${provider}" rejected the token request${status === undefined ? "" : ` with ${status}`}${message ? ` (${message})` : ""}.`
       if (problem === "verify") return `Provider "${provider}" could not verify the key.`
@@ -168,10 +163,9 @@ const codes = {
       : "Use the file name of the Connection Definition, for example `useConnection('github')`.",
   },
   CONNECTIONS_INVALID_PROVIDER: {
-    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "chatgpt" | "fallback-key" | "oauth-login" }): string => {
+    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "chatgpt" | "fallback-key" }): string => {
       if (problem === "chatgpt") return "chatgpt() requires a non-empty appName and appVersion without control characters."
       if (problem === "fallback-key") return `The fallback key of Connection "${connection}" must contain 1 to 8192 visible ASCII characters.`
-      if (problem === "oauth-login") return "The OAuth login provider needs `login`, an `mcp` or `issuer` HTTPS or loopback URL, an HTTPS or loopback `redirectUri`, and origins without a path."
       if (origin) return `The API key provider origin ${origin} contains a wildcard. ViteHub sends the key only to exact origins.`
       return "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path."
     },
@@ -239,10 +233,9 @@ const codes = {
     fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
   },
   CONNECTIONS_INVALID_REQUEST: {
-    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "body" | "instances" | "login-key" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
+    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "body" | "instances" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
       if (problem === "api-key-format") return "An API key must contain 1 to 8192 visible ASCII characters."
       if (problem === "instances") return `Connection "${connection}" has instances. Use ${(instances ?? []).map(instance => `"${connection}:${instance}"`).join(", ")}.`
-      if (problem === "login-key") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no key.`
       if (problem === "not-pending") return `Approval "${approval}" is not pending.`
       if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`vitehub connections connect ${arg(connection ?? "")}\`.`
       if (problem === "redirect-uri") return "The redirect URI must use HTTPS or a loopback address."

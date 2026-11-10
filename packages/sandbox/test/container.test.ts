@@ -119,6 +119,7 @@ describe("container Sandbox runtime", () => {
   it.each([
     { KernelVersion: "6.10.14-linuxkit", OSType: "linux", OperatingSystem: "Docker Desktop", SecurityOptions: [] },
     { KernelVersion: "6.14.8-orbstack", OSType: "linux", OperatingSystem: "OrbStack", SecurityOptions: [] },
+    { KernelVersion: "4.4.0-19041-Microsoft", OSType: "linux", OperatingSystem: "Ubuntu 20.04", SecurityOptions: [] },
     { KernelVersion: "5.15.167.4-microsoft-standard-WSL2", OSType: "linux", OperatingSystem: "Ubuntu 24.04", SecurityOptions: [] },
     { KernelVersion: "6.8.0-generic", OSType: "linux", OperatingSystem: "Ubuntu 24.04", SecurityOptions: ["name=rootless"] },
     { KernelVersion: "10.0", OSType: "windows", OperatingSystem: "Windows Server", SecurityOptions: [] },
@@ -129,6 +130,24 @@ describe("container Sandbox runtime", () => {
       const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, egress, image: "node:24", kind: "container" } }, {});
       await expect(sandbox.open()).rejects.toThrow(/requires rootful Docker Engine on native Linux/);
       expect((await fake.calls()).map(call => call.argv[0])).toEqual(["version", "info"]);
+    }
+  });
+
+  it.each(["none", "open"] as const)("accepts native Azure Linux with egress %s", async (egress) => {
+    const fake = await fakeDocker({
+      serverInfo: {
+        KernelVersion: "6.6.112.1-1.azl3",
+        OSType: "linux",
+        OperatingSystem: "Microsoft Azure Linux 3.0",
+        SecurityOptions: ["name=seccomp,profile=builtin", "name=cgroupns"],
+      },
+    });
+    const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, egress, image: "node:24", kind: "container" } }, {});
+    const session = await sandbox.open();
+    try {
+      expect((await session.exec("true")).ok).toBe(true);
+    } finally {
+      await session.close();
     }
   });
 

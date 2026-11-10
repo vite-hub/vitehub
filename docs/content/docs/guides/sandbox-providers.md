@@ -221,7 +221,7 @@ Plan for these limits:
 
 ## Self-hosted sandboxes with trusted-host and Crabbox
 
-`trusted-host` runs commands as the ViteHub process's user, on the same machine. Each session gets a private Home and only the declared environment variables. It does not isolate the filesystem, the network, processes, or installed programs. On Linux, `runtime.resources` puts a session's commands in one cgroup v2 group with a memory limit.
+`trusted-host` runs commands as the ViteHub process's user, on the same machine. Each session gets a private Home and only the declared environment variables. It does not isolate the filesystem, the network, processes, or installed programs.
 
 [Crabbox](https://crabbox.sh/) is an MIT-licensed tool that runs commands on remote machines. ViteHub uses its Static SSH provider to run the same Sandbox declaration on a Linux host. Crabbox needs `cwd` or `checkout`, and keeps the private Home on the target host.
 
