@@ -40,7 +40,7 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames } from "./discovery.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -1117,6 +1117,15 @@ function discoveredAgentIdentityDecorator(definition: DiscoveredAgentDefinition)
   }
 }
 
+// A folder Agent gets its Workspace only from its `workspace` key. Without the key, it fails when it loads if it owns one.
+function declaredWorkspaceDecorators(definition: DiscoveredAgentDefinition): DiscoveredAgentExportDecorator[] {
+  if (definition.workspace || !isFolderAgentDefinition(definition)) return []
+  return [{
+    decorate: value => `vitehubWithDeclaredAgentWorkspace(${value}, ${JSON.stringify(definition.name)})`,
+    imports: [`import { withDeclaredAgentWorkspace as vitehubWithDeclaredAgentWorkspace } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
+  }]
+}
+
 // Direct imports can create derived Agents before any generated registry loads the parent.
 function decorateDiscoveredAgentExport(
   code: string,
@@ -1265,6 +1274,7 @@ async function prepareRetainedAgentSources(
     await namedAgentChannelModules(code, parse, definition.handler, channels, resolveModule)
     const skills = readColocatedAgentSkills(definition.handler)
     let transformed = decorateDiscoveredAgentExport(code, parse, [
+      ...declaredWorkspaceDecorators(definition),
       ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
       discoveredAgentIdentityDecorator(definition),
     ]) ?? code
@@ -3569,6 +3579,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         if (definition) {
           const skills = readColocatedAgentSkills(definition.handler)
           transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
+            ...declaredWorkspaceDecorators(definition),
             ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
             discoveredAgentIdentityDecorator(definition),
           ]) ?? transformed

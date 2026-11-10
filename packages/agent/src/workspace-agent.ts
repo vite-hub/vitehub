@@ -258,6 +258,16 @@ export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: str
   })
 }
 
+/**
+ * Returns a discovered folder Agent whose file declares no Workspace. Discovery reads the `workspace` key without
+ * running the module, so an Agent that gets a Workspace from a Capability, Channel, preset, parent, or configure
+ * callback fails here.
+ */
+export function withDeclaredAgentWorkspace<Agent>(agent: Agent, name: string): Agent {
+  if (workspaceAgentOwnsWorkspaceDefinition(agent)) throw agentDiagnostics.AGENT_R1036({ name })
+  return agent
+}
+
 export function markDiscoveredWorkspaceAgentDefinitionRegistered(
   agent: unknown,
   defaults: WorkspaceAgentDefaults = {},
