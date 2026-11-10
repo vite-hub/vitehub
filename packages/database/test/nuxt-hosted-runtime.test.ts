@@ -36,6 +36,7 @@ describe("Nuxt hosted Database module preparation", () => {
       expect(runtimeFile).toBe(join(projectRoot, `.vitehub/database/${provider}-runtime.mjs`))
       const runtime = await readFile(runtimeFile, "utf8")
       expect(runtime).toContain("createHostedDrizzleDb(")
+      expect(runtime).toMatch(/runtime\/d1\.(?:js|ts)"/)
       expect(runtime).toContain(`[${JSON.stringify(name)}]: {`)
       // Generated schema imports must exist when Nitro first resolves the alias.
       const schemaImport = /import schema_0, \{ relations as relations_0 \} from "([^"]+)"/.exec(runtime)?.[1]
@@ -46,7 +47,12 @@ describe("Nuxt hosted Database module preparation", () => {
 
       const explicit = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" }, preset }
       for (const hook of hooks) await hook(explicit)
-      expect(explicit.alias).toEqual({ "@vite-hub/database/drizzle": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" })
+      // Without a remote libSQL URL, the hosted Definition runtime reaches D1 only.
+      expect(explicit.alias).toEqual({
+        "@vite-hub/database/drizzle": "/custom/database.mjs",
+        "#vitehub/database/definition-defaults": "/custom/defaults.mjs",
+        "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
+      })
     }
     finally {
       await rm(root, { force: true, recursive: true })

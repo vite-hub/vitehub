@@ -1,9 +1,7 @@
 import databaseEntries from "#vitehub/database/databases"
+import { localSqlite } from "#vitehub/database/libsql"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { localLibsql } from "./local-client.ts"
-import { resolveLocalSqliteUrl } from "./local-url.ts"
-import { createTestDatabaseClient } from "./test-database.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { AnyRelations } from "drizzle-orm"
@@ -46,10 +44,10 @@ function createRuntimeDatabase(
   }
 
   return createDrizzleSqliteAdapter<Record<string, unknown>, AnyRelations>(config, relations, {
-    libsql: localLibsql,
-    missingConnection: "a Cloudflare D1 binding or `connection.url`",
+    libsql: localSqlite,
+    missingConnection: localSqlite ? "a Cloudflare D1 binding or `connection.url`" : "a Cloudflare D1 binding or `cloudflare.http`",
     requireRemoteUrl: false,
-    resolveLocalUrl: resolveLocalSqliteUrl,
+    resolveLocalUrl: localSqlite?.resolveLocalUrl,
   })
 }
 
@@ -66,12 +64,14 @@ function withTestDatabase(
 ): RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations> {
   function current(): RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations> {
     const test = getViteHubTestMode()
-    if (!test) return database
+    // App tests never run a Cloudflare production build, the only build without local SQLite.
+    if (!test || !localSqlite) return database
+    const sqlite = localSqlite
     return test.backend(`database:${name}`, () => {
       const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
-      const client = createTestDatabaseClient(test.root, directory)
+      const client = sqlite.createTestClient(test.root, directory)
       // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
-      return localLibsql.drizzle(client, { relations }) as RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations>
+      return sqlite.drizzle(client, { relations }) as RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations>
     }, db => (Reflect.get(db, "$client") as { close: () => void }).close())
   }
   // SAFETY: Every read goes to the current database, so the proxy has the full database shape.

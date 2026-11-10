@@ -11,7 +11,7 @@ import { createHash } from "node:crypto"
 
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
-import { copyD1MigrationFiles } from "../src/internal/d1-migrations.ts"
+import { copyD1MigrationFiles, d1MigrationNamesFile, listD1Migrations } from "../src/internal/d1-migrations.ts"
 import { renderMigrateOnStartPlugin } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createTestDatabaseClient } from "../src/runtime/test-database.ts"
@@ -37,7 +37,7 @@ async function nextSecond() {
 
 /** The migration folders that Drizzle Kit 1.0 wrote, oldest first, such as `20261109183119_init`. */
 async function migrationTags(migrationsDir: string) {
-  return (await readdir(migrationsDir)).sort()
+  return (await readdir(migrationsDir)).filter(name => /^\d{14}_/.test(name)).sort()
 }
 
 function realSpawn(command: string, args: string[], options: { cwd?: string, env?: NodeJS.ProcessEnv } = {}) {
@@ -525,6 +525,7 @@ describe("vitehub db migrate with D1 over HTTP", () => {
     const staged = join(project.rootDir, "staged")
     await copyD1MigrationFiles(migrationsDir, staged)
     expect((await readdir(staged)).sort()).toEqual(["0000_init.sql", "0001_add_body.sql", "0002_add_tags.sql"])
+    expect(Object.values(JSON.parse(await readFile(join(migrationsDir, d1MigrationNamesFile), "utf8"))).sort()).toEqual(["0000_init.sql", "0001_add_body.sql", "0002_add_tags.sql"])
     await expect(readFile(join(staged, "0000_init.sql"), "utf8")).resolves.toBe(await readFile(join(import.meta.dirname, "fixtures/drizzle-kit-0x-migrations/0000_init.sql"), "utf8"))
 
     const d1 = await createFakeD1(project.rootDir, [
@@ -545,6 +546,44 @@ describe("vitehub db migrate with D1 over HTTP", () => {
       d1.client.close()
     }
   }, 120_000)
+
+  it("keeps Wrangler names in d1-migrations.json, so a folder merged with an earlier timestamp takes the next number", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    const folder = async (tag: string, sql: string) => {
+      await mkdir(join(migrationsDir, tag), { recursive: true })
+      await writeFile(join(migrationsDir, tag, "migration.sql"), sql)
+    }
+    await folder("20261109120000_init", "CREATE TABLE notes (id integer);")
+    // The build stages the folders and records their names. The user commits the file with the migrations.
+    await copyD1MigrationFiles(migrationsDir, join(project.rootDir, "staged-1"))
+    await expect(readFile(join(migrationsDir, d1MigrationNamesFile), "utf8")).resolves.toBe('{\n  "20261109120000_init": "0000_init.sql"\n}\n')
+
+    // Another branch generated a folder before init's timestamp. It gets the next number, and init keeps its name.
+    await folder("20261001000000_early", "SELECT 1;")
+    expect(listD1Migrations(migrationsDir).map(file => [file.tag, file.name])).toEqual([["20261109120000_init", "0000_init.sql"], ["20261001000000_early", "0001_early.sql"]])
+    await copyD1MigrationFiles(migrationsDir, join(project.rootDir, "staged-2"))
+    expect((await readdir(join(project.rootDir, "staged-2"))).sort()).toEqual(["0000_init.sql", "0001_early.sql"])
+    await expect(readFile(join(project.rootDir, "staged-2/0000_init.sql"), "utf8")).resolves.toBe("CREATE TABLE notes (id integer);")
+    expect(JSON.parse(await readFile(join(migrationsDir, d1MigrationNamesFile), "utf8"))).toEqual({ "20261001000000_early": "0001_early.sql", "20261109120000_init": "0000_init.sql" })
+
+    // A merge that gives two folders one name fails instead of staging one file over the other.
+    await writeFile(join(migrationsDir, d1MigrationNamesFile), JSON.stringify({ "20261001000000_early": "0000_init.sql", "20261109120000_init": "0000_init.sql" }))
+    expect(() => listD1Migrations(migrationsDir)).toThrow("gives two migrations the Wrangler name 0000_init.sql")
+
+    // A merge conflict leaves markers in the file. The error names the file instead of a bare SyntaxError.
+    await writeFile(join(migrationsDir, d1MigrationNamesFile), '{\n<<<<<<< HEAD\n  "20261001000000_early": "0001_early.sql"\n=======\n  "20261002000000_other": "0001_other.sql"\n>>>>>>> branch\n}\n')
+    expect(() => listD1Migrations(migrationsDir)).toThrow(`${join(migrationsDir, d1MigrationNamesFile)} is not valid JSON. Fix the JSON.`)
+  })
+
+  it("records the Wrangler names when vitehub db generate writes a D1 migration", async () => {
+    const project = await createProject()
+    project.database.cloudflare = { binding: "DB", migrationsDir: project.database.migrationsDir }
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    const [init] = await migrationTags(project.database.migrationsDir)
+    expect(JSON.parse(await readFile(join(project.database.migrationsDir, d1MigrationNamesFile), "utf8"))).toEqual({ [init!]: "0000_init.sql" })
+  }, 60_000)
 
   it("refuses a migration folder that renumbers migrations Wrangler applied", async () => {
     const project = await createProject()

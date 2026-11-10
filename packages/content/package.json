@@ -101,7 +101,6 @@
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "diff": "catalog:runtime",
-    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "yaml": "catalog:tooling"
   },
@@ -113,6 +112,7 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
