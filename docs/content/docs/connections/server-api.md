@@ -84,6 +84,8 @@ Agent tools record every call, reads too. MCP messages record successful, denied
 
 The CLI calls the management route of a running dev server with the Console on. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so the dev server does not rebuild.
 
+For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, the commands send the same Console credentials as the other CLI commands: `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `CF_ACCESS_CLIENT_SECRET`. With `console: { auth: "token" }`, set `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. `--cookie` (or `VITEHUB_CONNECTIONS_COOKIE`) replaces the Console cookie. The dev server that the CLI finds by itself gets no credentials.
+
 | Command | Description |
 | --- | --- |
 | `vitehub connections list` | List Connections and their status. |
