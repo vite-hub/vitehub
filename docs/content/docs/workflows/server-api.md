@@ -10,15 +10,14 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineWorkflow` from `@vite-hub/workflow` | Declare a workflow. |
-| `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
-| `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
-| `normalizeWorkflowOptions` from `@vite-hub/workflow` | Turn plugin options into a concrete Workflow Provider. |
-| `ViteHubError` from `@vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
-| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
+| `defineWorkflow` from `vite-hub/workflow` | Declare a workflow. |
+| `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
+| `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
+| `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
+| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
-`@vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
+`vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
 
 ## Start a run
 
@@ -26,7 +25,7 @@ Call `startWorkflow()` from server code.
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { startWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
@@ -81,7 +80,7 @@ Call `getWorkflowRun()` to read the current run state.
 
 ```ts [server/api/workflows/[id].get.ts]
 import { defineEventHandler, getRouterParam } from 'h3'
-import { getWorkflowRun } from '@vite-hub/workflow'
+import { getWorkflowRun } from 'vite-hub/workflow'
 
 export default defineEventHandler((event) => {
   return getWorkflowRun('onboard-user', getRouterParam(event, 'id')!)
@@ -93,7 +92,7 @@ export default defineEventHandler((event) => {
 A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
+const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
   await sendWelcomeEmail(payload.email)
 })
 await welcome.start({ email: "ada@example.com" })
