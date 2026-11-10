@@ -6,12 +6,12 @@ import { blob } from "@vite-hub/blob"
 import { useDatabase } from "@vite-hub/database/drizzle"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
-import { deferQueue, runQueue } from "@vite-hub/queue"
+import { deferQueue, sendQueue } from "@vite-hub/queue"
 import { requireRateLimit } from "@vite-hub/rate-limit"
 import { runSandboxTask } from "@vite-hub/sandbox/task"
 import { useWorkspace } from "@vite-hub/workspace"
 import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
-import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
+import { deferWorkflow, getWorkflowRun, startWorkflow } from "@vite-hub/workflow"
 import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 
 const app = new H3()
@@ -226,7 +226,7 @@ app.post("/api/queues/welcome", async (event) => {
   const marker = resolveMarker(body, event)
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
 
-  const [error, result] = await runQueue(queueName, {
+  const [error, result] = await sendQueue(queueName, {
     email: body?.email || "ava@example.com",
     callbackUrl,
     marker,
@@ -381,18 +381,17 @@ app.post("/api/workflows/welcome", async (event) => {
 
   return {
     ok: true,
-    result: await runWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
+    result: await startWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
   }
 })
 
 app.post("/api/workflows/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
-
-  return {
-    ok: true,
-    result: await deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
-  }
+  // `deferWorkflow()` returns nothing, so the route picks the run ID that the caller polls.
+  const id = resolveWorkflowId(body, marker) || crypto.randomUUID()
+  deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id })
+  return { ok: true, result: { id } }
 })
 
 app.get("/api/workflows/welcome/:id", async (event) => {

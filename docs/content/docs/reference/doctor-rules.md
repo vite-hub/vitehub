@@ -99,14 +99,13 @@ Some rules read the whole project:
 
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
-- `vite-hub/_internal/*` is for generated ViteHub code only.
+- `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
 - `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
 - `.vitehub/**` and `.nuxt/vitehub/**` are build output, rewritten on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub's own runtime, such as `#vitehub/agent/registry`.
 
 ```ts [server/api/settings.get.ts] fragment
 // Invalid
-import { kv } from 'vite-hub/_internal/kv'
 import { useServerEnv } from '../../.vitehub/env/server'
 
 // Valid
@@ -125,7 +124,7 @@ Client code imports a server-only path. ViteHub does not block this, so the brow
 The rule checks Vue components and, in Nuxt, files in `app/components`, `app/composables`, `app/layouts`, `app/middleware`, `app/pages`, `app/plugins`, `app/stores`, and `app/utils`. It skips `import type`, files under `server/`, and `*.server.*` files. It reports:
 
 - `#vitehub/env/server` and `#vitehub/auth/server`
-- every `vite-hub` or `@vite-hub/*` path with a `server` segment, for example `vite-hub/email/server` and `vite-hub/agent/server/github`
+- every `vite-hub` or `@vite-hub/*` path with a `server` segment, for example `vite-hub/email/server` and `vite-hub/agent/server`
 - entries that load server code, such as generated registries, Node.js built-ins, or `process.env`: `agent`, `agent/capabilities`, `agent/channels`, `agent/mcp`, `blob`, `browser` and its subpaths, `channels`, `comments`, `content`, `database/drizzle`, `env` and its server subpaths, `forge`, `gateways`, `kv`, `markdown-template/file`, `queue`, `rate-limit`, `sandbox`, `sandbox/ssh`, `sandbox/task`, `schedule/runtime` and its subpaths, `workflow`, `workspace`, and `workspace/runtime`
 
 Each name follows `vite-hub/` or `@vite-hub/`. Browser entries such as `vite-hub/agent/vue`, `vite-hub/blob/vue`, `vite-hub/blob/client`, and `vite-hub/realtime/vue` are allowed.
@@ -154,13 +153,13 @@ const { appName } = usePublicEnv()
 
 **Read `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
 
-Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await runQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
+Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await sendQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
 
 The rule checks these calls:
 
 - every async method of the `kv` and `blob` Runtime Helpers, of stores from `.store(name)`, and of `blob.media`
 - `email.send()` from `vite-hub/email/server`
-- `runQueue()`, `dynamicQueue.run()`, and `send()` and `sendBatch()` of a client from `getQueue()`
+- `sendQueue()`, `dynamicQueue.send()`, and `send()` and `sendBatch()` of a client from `useQueue()`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
@@ -200,20 +199,20 @@ export default defineEventHandler(async () => {
 These excerpts use the app's `sync` Queue Definition.
 
 ```ts [server/utils/dispatch.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export async function dispatchSync(connectionId: string) {
   // Invalid: a failed send is silent.
-  await runQueue('sync', { connectionId })
+  await sendQueue('sync', { connectionId })
 }
 ```
 
 ```ts [server/utils/dispatch.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export async function dispatchSync(connectionId: string) {
   // Valid
-  const [error] = await runQueue('sync', { connectionId })
+  const [error] = await sendQueue('sync', { connectionId })
   if (error) throw error
 }
 ```
@@ -267,7 +266,7 @@ The rule accepts a `SecretEnv` passed to a function, which can call `.unseal()`.
 
 A credential is written in source, or a config file reads it when Vite loads. ViteHub writes the `env.server` registry and Email options into the generated server module, so these values end up in the build output.
 
-In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server`, including `vitehub.env.server` in Nuxt:
+In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server` of `vitehub()` and of the `vitehub` key in Nuxt, and in the `server` option of `hubEnv()`:
 
 - a value or a `default` that reads `process.env` or `import.meta.env`
 - a `default` on a declaration with `secret: true`
@@ -275,33 +274,39 @@ In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.ser
 
 It also reports credential options of `hubEmail()` and the `email` option that are string literals or `process.env` reads. In server code, it reports string literals for credential keys in `defineAuth()`, `google()` and `apiKey()` from `vite-hub/connections`, and the `vite-hub/gateways` Gateway presets, including their `headers`.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Invalid: the token is in the build output.
-      githubToken: env({ secret: true, default: 'ghp_123' }),
-      airtableToken: process.env.AIRTABLE_TOKEN,
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Invalid: the token is in the build output.
+        githubToken: env({ secret: true, default: 'ghp_123' }),
+        airtableToken: process.env.AIRTABLE_TOKEN,
+      },
     },
-  },
+  })],
 })
 ```
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Valid
-      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
-      airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Valid
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+      },
     },
-  },
+  })],
 })
 ```
 
@@ -507,18 +512,18 @@ Read [Blob server API](/docs/blob/server-api#use-with-other-schema-libraries).
 
 A Runtime Helper gets a literal name that matches no discovered Definition. The call fails only when it runs, for example with `QUEUE_DEFINITION_NOT_FOUND`.
 
-The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` always passes. The rule skips `runSchedule(name, { registry })`, which reads its own registry, and cannot see Workflows that another file registers with `createWorkflow()`.
+The rule checks the first argument of `sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` always passes. The rule skips `runSchedule(name, { registry })`, which reads its own registry, and cannot see Workflows that another file registers with `createWorkflow()`.
 
 This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
 
 ```ts [server/api/signup.post.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Invalid: the file is server/queues/welcome-email.ts
-const [typoError] = await runQueue('welcom-email', { email })
+const [typoError] = await sendQueue('welcom-email', { email })
 
 // Valid
-const [error] = await runQueue('welcome-email', { email })
+const [error] = await sendQueue('welcome-email', { email })
 ```
 
 Doctor runs each package's discovery. It skips a kind with no Definition files, because plugins can add Definitions that Doctor cannot see. It skips names that are not string literals.
@@ -573,18 +578,18 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 **Pass Queue options as the third argument.** Rule `vitehub/queue-payload-options`.
 
-`runQueue()`, `deferQueue()`, `dynamicQueue.run()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
+`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
 
 This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
 
 ```ts [server/api/signup.post.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Invalid
-const [wrappedError] = await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+const [wrappedError] = await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
 
 // Valid
-const [error] = await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+const [error] = await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
 ```
 
 The rule accepts a `payload` field with no option keys, because that is app data.
@@ -593,21 +598,21 @@ The rule accepts a `payload` field with no option keys, because that is app data
 
 **Dispatch jobs inside a request.** Rule `vitehub/no-module-scope-dispatch`.
 
-`runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, or `runBrowser()` runs at module scope, once, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so on Cloudflare and Vercel the call can fail or the job can be dropped.
+`sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, or `runBrowser()` runs at module scope, once, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so on Cloudflare and Vercel the call can fail or the job can be dropped.
 
 ```ts [server/plugins/warmup.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Invalid
-await runQueue('warmup', {})
+await sendQueue('warmup', {})
 ```
 
 ```ts [server/api/warmup.post.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Valid
 export default defineEventHandler(async () => {
-  const [error] = await runQueue('warmup', {})
+  const [error] = await sendQueue('warmup', {})
   if (error) throw error
 })
 ```
@@ -620,18 +625,19 @@ The rule does not check test files.
 
 Code destructures `[error, value]` from an API that returns no tuple:
 
-- `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflowSignal()`, and `getQueue()` return the value and throw on failure.
+- `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `useQueue()` return the value and throw on failure.
+- `deferWorkflow()` returns `void` and logs start failures.
 - `runSchedule()` returns a Schedule Run record. A failed handler resolves with `status: "failed"`.
 - `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/onboard.post.ts] fragment
-import { runWorkflow } from 'vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 // Invalid
-const [error, run] = await runWorkflow('onboard-user', body)
+const [error, run] = await startWorkflow('onboard-user', body)
 
 // Valid
-const run = await runWorkflow('onboard-user', body)
+const run = await startWorkflow('onboard-user', body)
 ```
 
 The rule skips `runAgent()` and `streamAgent()`, because they return error/result tuples.
@@ -914,19 +920,26 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
-- `queue: { ... }` ignores its fields. The preset selects the Queue provider.
-- In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. Put them in the top-level `env` key of the Vite config.
+- `logs` moved into `observability`, as `observability: { logs }`.
+- `contentImportBase` was removed.
+- In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
-export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
-})
-
-// Valid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
   plugins: [vitehub({ preset: 'vercel' })],
+})
+```
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+// Valid
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
 ```
 

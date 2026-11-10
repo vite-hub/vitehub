@@ -35,7 +35,53 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
+| `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `vitehub-options`
+
+`vitehub()` is the only config place, and `logs` is part of `observability`. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+
+| Old | New |
+| --- | --- |
+| `vitehub({ logs: true })` | `vitehub({ observability: { logs: true } })` |
+| `logs: { evlog, source }` | `observability: { evlog, logs: { source } }` |
+| `defineConfig({ env: { server }, plugins: [vitehub()] })` | `vitehub({ env: { server } })` |
+| `defineConfig({ env, plugins: [hubEnv()] })` | `hubEnv({ ...declarations })` |
+| `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
+| A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKv()` |
+| `contentImportBase` | removed |
+
+The report lists what the codemod cannot move: a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+
+Sandbox Task option objects belong in `hubSandboxTask()`. The codemod passes them to an existing standalone plugin call without arguments. When the config uses `vitehub()` or `vite-hub/nuxt`, it keeps the options in place and reports a manual follow-up because the framework accepts only boolean Sandbox Task enablement.
+
+```sh
+npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
+```
+
+## `queue-workflow-verbs`
+
+ViteHub renamed the Queue and Workflow verbs so that each one says what it does. `queue-workflow-verbs` rewrites the app:
+
+| Old | New |
+| --- | --- |
+| `runQueue()` | `sendQueue()` |
+| `getQueue()` | `useQueue()` |
+| `dynamicQueue.run()`, `dynamicQueue.get()` | `dynamicQueue.send()`, `dynamicQueue.use()` |
+| `runWorkflow()` | `startWorkflow()` |
+| `resumeWorkflowSignal()` | `resumeWorkflow()` |
+| `.run()` of a handle from `createWorkflow()` | `.start()` |
+| `WorkflowDeferOptions` | `WorkflowStartOptions` |
+
+`deferWorkflow()` and the `defer()` method of a Workflow handle now return nothing, like `deferQueue()`. Where the code reads the result, for example to store the run id, the codemod calls `startWorkflow()` or `.start()` instead, which return the run as `deferWorkflow()` did. Where the code only awaits the call as a statement, it removes the `await`.
+
+The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their `@vite-hub/*` forms, also namespace imports, re-exports, and `<script>` blocks of `.vue` files. Named re-exports keep their local public names as aliases so consumers of an application's barrel keep working. Star and namespace re-exports need manual changes in their consumers, which the report lists. The report also lists object keys and strings with an old name, for example in a `vi.mock()` factory, and Workflow handles that a file exports, because other files call their methods. Detection includes migrations that only need manual follow-up.
+
+```sh
+npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]
+```
 
 ## `nuxt-safe-runtime-config`
 

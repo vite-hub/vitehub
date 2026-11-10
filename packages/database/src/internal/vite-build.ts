@@ -5,7 +5,7 @@ import { readProvisionedId } from "@vite-hub/internal/provision-state"
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
+import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, mayUseRemoteLibsql, serializeGeneratedRegistry } from "../config.ts"
 import { implicitDefaultDatabaseContributions } from "../contributions.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
@@ -39,6 +39,18 @@ export function usesD1HttpOnly(runtimeConfig: ResolvedDBViteConfig) {
     && runtimeConfig.definitions.every(definition => isStaticD1HttpDefinition(definition.handler))
 }
 
+/**
+ * Reports whether a SQLite Database of the app can query a libSQL server. A hosted runtime opens libSQL only for a
+ * remote URL, so without one the build ships no libSQL client: a Cloudflare build then reaches its Databases through
+ * D1 only.
+ */
+export function usesRemoteLibsql(runtimeConfig: ResolvedDBViteConfig): boolean {
+  return runtimeConfig.definitions.some((definition) => {
+    const database = runtimeConfig.databases[definition.name]
+    return database?.dialect !== "postgresql" && (!database || mayUseRemoteLibsql(definition.handler, database))
+  })
+}
+
 function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
   const imports = runtimeConfig.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
@@ -58,7 +70,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
     imports: [
-      ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesD1HttpOnly(runtimeConfig) ? "runtime/d1" : "runtime/hosted")))}`] : []),
+      ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesRemoteLibsql(runtimeConfig) ? "runtime/hosted" : "runtime/d1")))}`] : []),
       ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
       "",
       ...imports,
