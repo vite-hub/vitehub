@@ -42,6 +42,10 @@ async function link(): Promise<void> {
       <form id="vitehub-account-link" class="grid gap-4" @submit.prevent="link">
         <ConsoleAccountSnippet />
         <UFormField label="App URL" name="url" required :error="problem">
+          <!-- Nuxt UI renders the error without a live region, so the message announces itself here. -->
+          <template #error="{ error }">
+            <span role="alert">{{ error }}</span>
+          </template>
           <UInput v-model="url" required type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" class="w-full" autofocus />
         </UFormField>
         <UFormField label="Name" name="label" hint="Optional">

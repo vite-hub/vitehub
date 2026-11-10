@@ -80,7 +80,8 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
       <p v-else class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
     </div>
 
-    <div v-if="!creating" class="grid gap-2">
+    <!-- The buttons wait for the sign-in methods in a reserved space, so GitHub does not push the passkey button down. -->
+    <div v-if="!creating" class="grid min-h-[7.75rem] content-start gap-2" :aria-busy="!methods">
       <UButton
         v-if="methods?.github"
         icon="i-lucide-github"
@@ -91,7 +92,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
         @click="run('github', () => signInWithGitHub(`${projects.pageOrigin}${invitationPath ?? '/'}`))"
       />
       <UButton
-        v-if="passkeys"
+        v-if="passkeys && methods"
         :color="methods?.github ? 'neutral' : 'primary'"
         :variant="methods?.github ? 'outline' : 'solid'"
         icon="i-lucide-key-round"
@@ -102,11 +103,11 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
         @click="run('passkey', signInWithPasskey)"
       />
       <!-- A new passkey account has no email, so it cannot accept an invitation. Invitation pages do not offer it. -->
-      <p v-if="passkeys && !invitation" class="mt-2 text-sm text-muted">
+      <p v-if="passkeys && methods && !invitation" class="mt-2 text-sm text-muted">
         New to ViteHub?
         <button ref="createLink" type="button" class="vitehub-account-sign-in__create" @click="creating = true">Create an account with a passkey</button>
       </p>
-      <p v-if="!passkeys && !methods?.github" class="vitehub-project-gate__text">This browser has no passkeys. Use a current browser to sign in.</p>
+      <p v-if="methods && !passkeys && !methods.github" class="vitehub-project-gate__text">This browser has no passkeys. Use a current browser to sign in.</p>
     </div>
 
     <form v-else class="grid gap-3" @submit.prevent="create">

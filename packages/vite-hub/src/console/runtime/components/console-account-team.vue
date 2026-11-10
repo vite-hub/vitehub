@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { canManageConsoleProjects, cancelConsoleInvitation, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
-import { reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
+import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 
 /** The Members page of an `account` Console: the people, the pending invitations, and the team name. */
@@ -23,6 +23,12 @@ const name = ref(team.value?.name ?? "");
 const renaming = ref(false);
 const removing = ref<ConsoleTeamMember>();
 const removeBusy = ref(false);
+const removeProblem = ref<string>();
+
+/** Focus a list heading once a dialog has closed, after the row that held the focused button is gone. */
+function focusHeading(id: string): void {
+  void nextTick(() => setTimeout(() => document.getElementById(id)?.focus(), 300));
+}
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
@@ -73,6 +79,7 @@ async function cancel(id: string): Promise<void> {
     await cancelConsoleInvitation(id);
     toast.show({ title: "Invitation canceled" });
     await load();
+    focusHeading(details.value?.invitations.length ? "vitehub-team-invitations" : "vitehub-team-members");
   }
   catch (error) {
     toast.show({ title: error instanceof Error ? error.message : "Try again." });
@@ -83,18 +90,19 @@ async function remove(): Promise<void> {
   const member = removing.value;
   if (!member || removeBusy.value) return;
   removeBusy.value = true;
+  removeProblem.value = undefined;
   try {
     await removeConsoleMember(member.id);
     toast.show({ title: `${member.user.name} removed from ${team.value?.name ?? "the team"}` });
+    removeBusy.value = false;
     removing.value = undefined;
     await load();
-    // The removed row took its button along, so focus goes to the list heading once the dialog has closed.
-    void nextTick(() => setTimeout(() => document.getElementById("vitehub-team-members")?.focus(), 300));
+    focusHeading("vitehub-team-members");
   }
   catch (error) {
-    toast.show({ title: error instanceof Error ? error.message : "Try again." });
+    removeProblem.value = error instanceof Error ? error.message : `${member.user.name} was not removed. Try again.`;
+    removeBusy.value = false;
   }
-  removeBusy.value = false;
 }
 
 async function copy(link: string): Promise<void> {
@@ -107,7 +115,8 @@ async function rename(): Promise<void> {
   renaming.value = true;
   try {
     await renameConsoleTeam(name.value);
-    reloadConsoleAccount();
+    // The page loads again where it is, so the new name in the field and the sidebar confirms the change.
+    window.location.reload();
   }
   catch (error) {
     toast.show({ title: error instanceof Error ? error.message : "Try again." });
@@ -162,7 +171,7 @@ async function rename(): Promise<void> {
     </section>
 
     <section v-if="details?.invitations.length" class="grid gap-3" aria-labelledby="vitehub-team-invitations">
-      <h2 id="vitehub-team-invitations" class="text-sm font-semibold text-highlighted">Pending invitations</h2>
+      <h2 id="vitehub-team-invitations" tabindex="-1" class="text-sm font-semibold text-highlighted outline-none">Pending invitations</h2>
       <ul class="vitehub-account-list">
         <li v-for="invitation in details.invitations" :key="invitation.id" class="vitehub-account-list__row">
           <span class="grid size-7 shrink-0 place-items-center rounded-full border border-dashed border-accented text-muted" aria-hidden="true"><UIcon name="i-lucide-mail" class="size-3.5" /></span>
@@ -193,12 +202,17 @@ async function rename(): Promise<void> {
       :open="removing !== undefined"
       :title="`Remove ${removing?.user.name ?? ''}?`"
       :description="`${removing?.user.name ?? 'This person'} can no longer open the apps of ${team?.name ?? 'the team'}. You can invite them again later.`"
-      :ui="{ content: 'sm:max-w-[420px]' }"
-      @update:open="(value: boolean) => { if (!value) removing = undefined; }"
+      :dismissible="!removeBusy"
+      :close="{ disabled: removeBusy }"
+      :ui="{ content: 'sm:max-w-[440px]' }"
+      @update:open="(value: boolean) => { if (!value) { removing = undefined; removeProblem = undefined; } }"
     >
+      <template v-if="removeProblem" #body>
+        <p role="alert" class="text-[13px] text-error">{{ removeProblem }}</p>
+      </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Cancel" @click="removing = undefined" />
+          <UButton color="neutral" variant="ghost" label="Cancel" :disabled="removeBusy" @click="removing = undefined; removeProblem = undefined" />
           <UButton color="error" :label="`Remove ${removing?.user.name ?? ''}`" :loading="removeBusy" @click="remove" />
         </div>
       </template>

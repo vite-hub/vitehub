@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsolePasskey } from "../client/account";
 import { addConsolePasskey, deleteConsolePasskey, linkConsoleGitHub, listConsolePasskeys, listConsoleSignInProviders, loadConsoleSignInMethods, renameConsoleAccount } from "../client/account";
-import { reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
+import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 
 /** The account settings of an `account` Console: the name, GitHub sign-in, and passkeys. */
@@ -18,6 +18,8 @@ const githubAvailable = ref(false);
 const busy = ref<string>();
 const loadProblem = ref(false);
 const removing = ref<ConsolePasskey>();
+const removeBusy = ref(false);
+const removeProblem = ref<string>();
 // The supported check is synchronous, so the passkey button never flashes.
 const passkeySupport = typeof window.PublicKeyCredential === "function";
 
@@ -59,12 +61,27 @@ async function run(id: string, action: () => Promise<void>, done?: string): Prom
 
 async function removePasskey(): Promise<void> {
   const passkey = removing.value;
-  if (!passkey) return;
-  await run(passkey.id, () => deleteConsolePasskey(passkey.id), "Passkey removed");
-  const removed = !passkeys.value?.some(item => item.id === passkey.id);
+  if (!passkey || removeBusy.value) return;
+  removeBusy.value = true;
+  removeProblem.value = undefined;
+  try {
+    await deleteConsolePasskey(passkey.id);
+    toast.show({ title: "Passkey removed" });
+    removeBusy.value = false;
+    removing.value = undefined;
+    await load();
+    // The removed row took its button along, so focus goes to the list heading once the dialog has closed.
+    void nextTick(() => setTimeout(() => document.getElementById("vitehub-settings-sign-in")?.focus(), 300));
+  }
+  catch (error) {
+    removeProblem.value = error instanceof Error ? error.message : "The passkey was not removed. Try again.";
+    removeBusy.value = false;
+  }
+}
+
+function closeRemove(): void {
   removing.value = undefined;
-  // The removed row took its button along, so focus goes to the list heading once the dialog has closed.
-  if (removed) void nextTick(() => setTimeout(() => document.getElementById("vitehub-settings-sign-in")?.focus(), 300));
+  removeProblem.value = undefined;
 }
 
 async function save(): Promise<void> {
@@ -72,7 +89,8 @@ async function save(): Promise<void> {
   saving.value = true;
   try {
     await renameConsoleAccount(name.value);
-    reloadConsoleAccount();
+    // The page loads again where it is, so the new name in the field and the sidebar confirms the change.
+    window.location.reload();
   }
   catch (error) {
     toast.show({ title: error instanceof Error ? error.message : "Try again." });
@@ -133,13 +151,18 @@ function added(value: string | undefined): string {
         :open="removing !== undefined"
         title="Remove this passkey?"
         description="You can no longer sign in with it."
+        :dismissible="!removeBusy"
+        :close="{ disabled: removeBusy }"
         :ui="{ content: 'sm:max-w-[440px]' }"
-        @update:open="(value: boolean) => { if (!value) removing = undefined; }"
+        @update:open="(value: boolean) => { if (!value) closeRemove(); }"
       >
+        <template v-if="removeProblem" #body>
+          <p role="alert" class="text-[13px] text-error">{{ removeProblem }}</p>
+        </template>
         <template #footer>
           <div class="flex w-full justify-end gap-2">
-            <UButton color="neutral" variant="ghost" label="Cancel" @click="removing = undefined" />
-            <UButton color="error" label="Remove passkey" :loading="busy === removing?.id" @click="removePasskey" />
+            <UButton color="neutral" variant="ghost" label="Cancel" :disabled="removeBusy" @click="closeRemove" />
+            <UButton color="error" label="Remove passkey" :loading="removeBusy" @click="removePasskey" />
           </div>
         </template>
       </UModal>

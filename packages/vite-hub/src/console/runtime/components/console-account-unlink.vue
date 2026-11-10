@@ -36,6 +36,7 @@ async function unlink(): Promise<void> {
     :title="`Unlink ${name}?`"
     description="The variable you set stops working. Linking the app again makes a new one."
     :dismissible="!busy"
+    :close="{ disabled: busy }"
     :ui="{ content: 'sm:max-w-[440px]' }"
   >
     <template v-if="problem" #body>

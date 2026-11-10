@@ -3,7 +3,7 @@ import { organization } from "better-auth/plugins"
 import { defineAuth } from "vite-hub/auth"
 import { authDatabase } from "vite-hub/auth/database"
 
-import { passkeySignUp, sessionTeam } from "../src/accounts.ts"
+import { adoptGitHubEmail, passkeySignUp, sessionTeam } from "../src/accounts.ts"
 
 // Anyone can sign up with GitHub or a passkey. Each account gets a personal team, and projects belong to teams.
 export default defineAuth(({ env }) => ({
@@ -12,9 +12,17 @@ export default defineAuth(({ env }) => ({
   socialProviders: env.auth.github.clientId
     ? { github: { clientId: env.auth.github.clientId, clientSecret: env.auth.github.clientSecret?.unseal() ?? "" } }
     : {},
-  // A passkey account links GitHub later. Its email is a placeholder, so the GitHub email cannot match it.
+  // A passkey account links GitHub later. Its email is a placeholder, so the GitHub email cannot match it. The account
+  // hook then gives it the verified GitHub email.
   account: { accountLinking: { allowDifferentEmails: true } },
   databaseHooks: {
+    account: {
+      create: {
+        async after(account, context) {
+          await adoptGitHubEmail(account, context)
+        },
+      },
+    },
     session: {
       create: {
         async before(session, context) {

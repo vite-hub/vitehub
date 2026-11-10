@@ -119,7 +119,7 @@ async function retry(): Promise<void> {
         </div>
       </template>
 
-      <nav class="vitehub-console__section-nav pt-2" aria-label="Console">
+      <nav class="vitehub-console__section-nav pt-3" aria-label="Console">
         <a :href="pagePath('home')" class="vitehub-console__section-link" :aria-current="page === 'home' ? 'page' : undefined" @click="follow($event, () => showConsoleAccountPage('home'))">
           <UIcon name="i-lucide-house" class="vitehub-console__section-icon" />
           <span class="truncate">Home</span>
@@ -196,7 +196,7 @@ async function retry(): Promise<void> {
             </header>
             <div class="flex flex-wrap gap-2">
               <UButton icon="i-lucide-refresh-cw" label="Try again" :loading="busy" @click="retry" />
-              <UButton v-if="projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" label="Unlink this app" @click="unlinking = true" />
+              <UButton v-if="projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${appName(projects.current.value)}`" @click="unlinking = true" />
             </div>
             <ConsoleAccountUnlink v-if="projects.current.value?.id" v-model:open="unlinking" :project-id="projects.current.value.id" :name="appName(projects.current.value)" />
           </div>

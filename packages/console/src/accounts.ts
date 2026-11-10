@@ -55,3 +55,29 @@ export const passkeySignUp = {
     return { userId: created.id }
   },
 }
+
+interface LinkedAccount { userId: string, providerId: string, accessToken?: string | null }
+
+/**
+ * A passkey account that links GitHub takes the verified primary email of that GitHub account, so invitations sent to
+ * it can match. Better Auth keeps the local email on a link on purpose, so the Console replaces only its own
+ * `passkey.invalid` placeholder, and only with an email that no other account has.
+ */
+export async function adoptGitHubEmail(account: LinkedAccount, context: GenericEndpointContext | null, fetcher: typeof fetch = fetch): Promise<void> {
+  if (!context || account.providerId !== "github" || !account.accessToken) return
+  const internal = context.context.internalAdapter
+  const user = await internal.findUserById(account.userId)
+  if (!user || !isPasskeyEmail(user.email)) return
+  const response = await fetcher("https://api.github.com/user/emails", {
+    headers: { "accept": "application/vnd.github+json", "authorization": `Bearer ${account.accessToken}`, "user-agent": "ViteHub Console" },
+  })
+  if (!response.ok) return
+  const emails: unknown = await response.json()
+  const primary = Array.isArray(emails) ? emails.find(entry => entry instanceof Object && Reflect.get(entry, "primary") === true && Reflect.get(entry, "verified") === true) : undefined
+  const address: unknown = primary instanceof Object ? Reflect.get(primary, "email") : undefined
+  if (String(address) !== address || !address.includes("@")) return
+  const email = address.toLowerCase()
+  if (await internal.findUserByEmail(email)) return
+  await internal.updateUser(account.userId, { email, emailVerified: true })
+}
+
