@@ -1352,6 +1352,15 @@ describe("vitehub", () => {
     expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 
+  it("checks the packages of each owner facade once when it builds the aliases", () => {
+    const plugin = dependencyPlugin()
+    vi.mocked(isPackageInstalled).mockClear()
+    pluginAliases(plugin)
+    const checks = vi.mocked(isPackageInstalled).mock.calls.map(([name]) => name)
+    expect(checks.filter(name => name === "@vite-hub/ui")).toHaveLength(1)
+    expect(new Set(checks).size).toBe(checks.length)
+  })
+
   it("passes the unused Upstash fallback only to provider bundlers", () => {
     vitehub({ agent: true, host: "node", workflow: true })
     const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
