@@ -14,6 +14,7 @@ icon: i-lucide-circle-alert
 - `collections` requires `workspace` or `extends: cms`, and `extends` cannot be combined with `workspace`. Every collection comes from `documents()`, and a collection name cannot match a Source name. Violations throw `CONTENT_R0006`.
 - `documents()` paths are relative globs that use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. `path` may be a list of globs that share that extension, with no repeated glob. A list that is empty, repeats a glob, mixes extensions, or has a glob without a wildcard throws `CONTENT_R0006`. `content.resolve()` throws `CONTENT_R0008` when its path is not a string. Every field is a Standard Schema validator.
 - `defineContent()` uses `AsyncLocalStorage` from `node:async_hooks`. The runtime must provide it.
+- Content HTTP routes require Nitro 3, including Nuxt 5. Handler events must expose a Web `Request` as `event.req`.
 
 ## Sources
 
@@ -44,7 +45,7 @@ icon: i-lucide-circle-alert
 
 - Preview tokens are signed with `VITEHUB_CONTENT_KEY`. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
 - A token lives from 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token before it expires. Rotating the key ends all of them.
-- Preview scopes requests that go through Nitro, on Nitro 3 and on Nuxt 4 (Nitro 2). Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Preview scopes requests that go through Nitro 3, including Nuxt 5. The preview plugin throws `CONTENT_R0008` on an app without Nitro 3's fetch entry. Outside Nitro, wrap reads in `content.preview.run(event, callback)`.
 - Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so configure it to bypass its cache for preview requests; see [Caching](/docs/content/preview#caching).
 
 ## Sessions
@@ -66,10 +67,10 @@ icon: i-lucide-circle-alert
 | `CONTENT_LEASE_HELD` | Another session holds the edit lease of the document, from `save()`, `remove()`, or `restore()`, or from a Workspace commit to the draft such as `vitehub push`. `details` carry `collection`, `id`, and `holder: { user, since, expiresAt }`; a Workspace commit adds `documents` with every held document. The Console and `workspace.commit` return it as `409`. | Wait for the holder to finish, take the lease with `content.sessions.acquire({ takeover: true })`, or pass `lease: 'override'` (`--override-lease` for [`vitehub content edit`](/docs/content/cli#edit-leases) and `vitehub push`, `metadata: { lease: 'override' }` for `history.commit()`). See [Editing together](/docs/content/editing-together). |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist, or `unschedule()` named a schedule that already ran or is gone. | Check the id, ref, or revision. |
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
-| `CONTENT_R0005` | The Content handler received an unsupported request or body. | Send a Web or Node request. |
+| `CONTENT_R0005` | The Content handler received a request that is not a Web `Request`. | Pass a Web `Request` as `event.req`. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
-| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, invalid call options, such as a malformed session token or `lease` other than `'override'`, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |
+| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, invalid call options, such as a malformed session token or `lease` other than `'override'`, `content.preview.enable()` without collections, or the preview plugin on an app without Nitro 3's fetch entry. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. Run the preview plugin on Nitro 3, including Nuxt 5. |
 | `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`, `expect` combined with `collection` or `ids`, an empty or repeated `expect` entry, or an invalid digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
 | `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on every instance. |
 | `CONTENT_R0011` | Invalid `schedule()` options: `at` not in the future or without a time zone, an invalid `expect`, every document already published as reviewed, or a document that already has a pending schedule. | Pass a future time with a zone, and `unschedule()` the existing schedule first. See [Scheduling](/docs/content/scheduling). |
