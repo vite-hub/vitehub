@@ -434,23 +434,18 @@ describe("Cloudflare Access Console Auth", () => {
     }
   })
 
-  it("warns when a Cloudflare production build uses host-managed exposure", async () => {
+  it.each(["cloudflare", "node"])("rejects host-managed production exposure on %s", async (preset) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-host-managed-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const run = async (preset: string) => {
-        const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
-        const configHook = plugin.config
-        const resolvedHook = plugin.configResolved
-        if (!configHook || !resolvedHook) throw new TypeError("Expected Console config hooks.")
-        const warn = vi.fn()
-        const config = { logger: { warn }, root }
-        await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
-        await Reflect.apply("handler" in resolvedHook ? resolvedHook.handler : resolvedHook, {}, [config])
-        return warn
-      }
-      expect(await run("cloudflare")).toHaveBeenCalledWith(expect.stringContaining('auth: { provider: "cloudflare-access" }'))
-      expect(await run("node")).not.toHaveBeenCalled()
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected Console config hook.")
+      const configure = "handler" in configHook ? configHook.handler : configHook
+      await expect(Reflect.apply(configure, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+      await expect(Reflect.apply(configure, {}, [{ root }, { command: "serve", mode: "development" }]))
+        .resolves.toBeUndefined()
     }
     finally {
       await rm(root, { recursive: true, force: true })
