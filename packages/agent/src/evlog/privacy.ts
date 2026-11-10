@@ -1,3 +1,5 @@
+import { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "@vite-hub/runtime"
+
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 const secretKey = /^(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|credentials?|prompt|messages|input|output|raw|context|headers|body|pre_context|post_context|context_line|tool[_-]?(?:input|output|arguments?|result)|(?:input|output)[_-]?body)$/i
 
@@ -8,8 +10,15 @@ function sanitizeString(value: string): string {
         const url = new URL(value)
         url.username = ''
         url.password = ''
-        url.search = ''
         url.hash = ''
+        if (url.origin === hostedConsoleOrigin && url.pathname === '/open') {
+          // Rebuild only validated destinations. Log strings can contain arbitrary outer queries, and even
+          // generated links may carry query credentials inside their encoded Console path.
+          const project = normalizeConsoleProjectUrl(url.searchParams.get('project') ?? '')
+          const path = normalizeConsolePath(url.searchParams.get('path') ?? '')?.split(/[?#]/)[0]
+          if (project && path) return hostedConsoleUrl(project, path)
+        }
+        url.search = ''
         return url.href
       }
       catch { return '[URL]' }

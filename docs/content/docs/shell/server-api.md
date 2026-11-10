@@ -10,12 +10,12 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `createShellRuntime` from `@vite-hub/shell` | Create a Shell Runtime from a provider. |
-| `analyzeShellCommand` from `@vite-hub/shell` | Parse a command and return facts about it. |
-| `createJustBashProvider` from `@vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` runtime. |
-| `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `@vite-hub/shell/workspace` | Mount Workspace files in Shell providers at `/workspace`. |
-| `runWorkspaceInspectionCommand` from `@vite-hub/shell/workspace` | Run a pre-checked, read-only Workspace inspection command. |
-| `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `@vite-hub/shell/workspace` | Normalize Workspace paths for shell use. |
+| `createShellRuntime` from `vite-hub/shell` | Create a Shell Runtime from a provider. |
+| `analyzeShellCommand` from `vite-hub/shell` | Parse a command and return facts about it. |
+| `createJustBashProvider` from `vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` runtime. |
+| `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `vite-hub/shell/workspace` | Mount Workspace files in Shell providers at `/workspace`. |
+| `runWorkspaceInspectionCommand` from `vite-hub/shell/workspace` | Run a pre-checked, read-only Workspace inspection command. |
+| `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `vite-hub/shell/workspace` | Normalize Workspace paths for shell use. |
 
 These entry points also export the Runtime, Session, Policy, Boundary, Observation, Provider, process, and Workspace filesystem types. With the `vite-hub` package, import the same APIs from `vite-hub/shell`, `vite-hub/shell/providers/*`, and `vite-hub/shell/workspace`.
 
@@ -35,7 +35,7 @@ Custom providers can return Shell Processes and Shell Observations as class inst
 A Shell Session keeps one policy across many commands: call budget, output size, timeouts, and process budget.
 
 ```ts [server/tasks/inspect-docs.ts]
-import { createShellRuntime } from '@vite-hub/shell'
+import { createShellRuntime } from 'vite-hub/shell'
 
 export async function inspect(runtime: ReturnType<typeof createShellRuntime>) {
   const session = runtime.createSession({
@@ -62,7 +62,7 @@ Session policy merges over the runtime policy. `session.startProcess()` starts a
 Command Analysis reports facts about a command before it runs. You make the final decision.
 
 ```ts [server/tasks/analyze-command.ts]
-import { analyzeShellCommand } from '@vite-hub/shell'
+import { analyzeShellCommand } from 'vite-hub/shell'
 
 const analysis = await analyzeShellCommand('rg TODO src')
 // analysis.commands: ['rg'], analysis.hasPipelines: false, analysis.ok: true

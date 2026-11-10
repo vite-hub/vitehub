@@ -66,7 +66,6 @@ const runtimeEntries = [
   "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/appearance.ts",
-  "src/console/runtime/client/build.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
@@ -117,7 +116,6 @@ const runtimeEntries = [
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
-  "src/console/runtime/server/client.get.ts",
   "src/console/runtime/server/console-preflight.ts",
   "src/console/runtime/server/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
@@ -135,8 +133,6 @@ const runtimeEntries = [
   "src/console/runtime/server/mcp-discovery.ts",
   "src/console/runtime/server/mcp-authorization-server.ts",
   "src/console/runtime/server/mcp-metadata.ts",
-  "src/console/runtime/server/page.get.ts",
-  "src/console/runtime/server/page-session.ts",
   "src/console/runtime/server/schedule-run.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sign-in.ts",
@@ -479,7 +475,6 @@ export default defineConfig({
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/appearance"];
-          delete exports["./console/runtime/client/build"];
           delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
@@ -527,7 +522,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
           delete exports["./console/runtime/server/channel-replay"];
-          delete exports["./console/runtime/server/client.get"];
           delete exports["./console/runtime/server/database"];
           delete exports["./console/runtime/server/database.get"];
           delete exports["./console/runtime/server/definitions"];
@@ -553,9 +547,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/runtime"];
-          delete exports["./console/runtime/server/page.get"];
-          delete exports["./console/runtime/server/page-session"];
-          delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/schedule-run"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sign-in"];
@@ -564,7 +555,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
-          delete exports["./console/auth-client"];
           delete exports["./console/auth-cloudflare-access"];
           delete exports["./console/auth-inline"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
@@ -573,7 +563,6 @@ export default defineConfig({
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
-            "./console/auth/client": "./dist/console/auth-client.js",
             "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
             "./console/auth/inline": "./dist/console/auth-inline.js",
             "./console/blob": "./dist/console/runtime/server/blob.js",
@@ -622,16 +611,6 @@ export default defineConfig({
         },
       },
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    },
-    {
-      // The shared browser loader bundles independently of the Console's server chunks.
-      deps: { alwaysBundle: [/./], onlyBundle: false },
-      dts: false,
-      entry: { "console/runtime/page/loader": "src/console/page/loader.ts" },
-      minify: true,
-      outExtensions: () => ({ js: ".js" }),
-      platform: "browser",
-      tsconfig: "tsconfig.build.json",
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).

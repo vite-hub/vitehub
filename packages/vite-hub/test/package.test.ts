@@ -32,7 +32,6 @@ import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
-import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
@@ -84,7 +83,6 @@ describe("Console Auth package exports", () => {
     expect(typeof defineConsoleAuth).toBe("function");
     expect(typeof createConsoleAppAuthAccess).toBe("function");
     expect(typeof createConsoleAppAuthPages).toBe("function");
-    expect(typeof defineConsoleAuthClient).toBe("function");
     expect(typeof createInlineConsoleAuth).toBe("function");
   });
 });
@@ -112,7 +110,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
-  "@vite-hub/realtime/client",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/ui/browser-support-notice",
@@ -152,7 +149,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/sandbox/task/runtime/state",
   "@vite-hub/schedule/runtime/static",
   "@vite-hub/workflow/runtime/openworkflow",
-  "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
 ]);
 
@@ -285,7 +281,6 @@ describe("framework package contract", () => {
       ".",
       "./console",
       "./console/auth",
-      "./console/auth/client",
       "./console/auth/cloudflare-access",
       "./console/auth/inline",
       "./console/blob",
@@ -730,75 +725,10 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );
-    const consoleClientFiles = globSync("console-client/dist/client/console-*.js", {
-      cwd: packagesRoot,
-    });
-    expect(consoleClientFiles).toHaveLength(1);
-    const [consoleClientFile] = consoleClientFiles;
-    if (!consoleClientFile) throw new TypeError("Expected one hashed Console client asset.");
-    const consoleClient = readFileSync(`${packagesRoot}/${consoleClientFile}`, "utf8");
-    expect(consoleClient).toContain('"bot":{"width":24');
-    expect(consoleClient).toContain('"folder-tree":{"width":24');
-    // Shared appearance and route code may move out of the entry when route chunks change.
-    const consoleClientModules = [
-      consoleClient,
-      ...globSync("console-client/dist/client/chunks/*.js", { cwd: packagesRoot })
-        .map(file => readFileSync(`${packagesRoot}/${file}`, "utf8")),
-    ];
-    const consoleAppearance = consoleClientModules.find(source => source.includes("vitehub-console:appearance"));
-    expect(consoleAppearance).toContain("prefers-color-scheme: dark");
-    expect(consoleAppearance).toMatch(/classList\.toggle\(["`]dark["`]/);
-    // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
-    expect(consoleAppearance).not.toContain("vueuse-color-scheme");
-    expect(consoleClient).not.toContain("vueuse-color-scheme");
-    const consoleClientCode = consoleClientModules.join("\n");
-    expect(consoleClientCode).toContain("ViteHub");
-    expect(consoleClientCode).toContain("/agents/:agent/invocations/:invocation");
-    expect(consoleClientCode).toContain("/blob");
-    expect(consoleClientCode).toContain("/databases");
-    expect(consoleClientCode).toContain("/kv");
-    // Owner-contributed sections get their routes from the navigation response at runtime.
-    expect(consoleClient).toContain(".addRoute(");
-    expect(consoleClient).toContain(".hasRoute(");
-    expect(consoleClient).toContain("currentRoute.value");
-    const consoleCssFiles = globSync("console-client/dist/client/console-*.css", {
-      cwd: packagesRoot,
-    });
-    expect(consoleCssFiles).toHaveLength(1);
-    const [consoleCssFile] = consoleCssFiles;
-    if (!consoleCssFile) throw new TypeError("Expected one hashed Console stylesheet asset.");
-    const consoleCss = readFileSync(`${packagesRoot}/${consoleCssFile}`, "utf8");
-    expect(consoleCss).toContain("vitehub-console");
-    expect(consoleCss).toContain("--ui-bg:oklch(100% 0 0)");
-    expect(consoleCss).toContain("--ui-text:oklch(37.1% 0 0)");
-    // Geist ships inside the stylesheet, so the Console does not depend on fonts that the host installs.
-    expect(consoleCss).toMatch(/font-family:["']?Geist Variable/);
-    // The stylesheet inlines only the Latin and Latin Extended faces of Geist and Geist Mono.
-    expect(consoleCss.match(/@font-face/g)).toHaveLength(4);
-    expect(consoleCss).not.toContain("KaTeX_");
-    const consoleMathCssFiles = globSync("console-client/dist/client/assets/katex-*.css", { cwd: packagesRoot });
-    expect(consoleMathCssFiles).toHaveLength(1);
-    const consoleMathCss = readFileSync(`${packagesRoot}/${consoleMathCssFiles[0]}`, "utf8");
-    expect(consoleMathCss).toContain("data:font/woff2;base64,");
-    expect(consoleMathCss).not.toMatch(/data:font\/(?:woff|ttf);/);
-    expect(
-      globSync("console-client/dist/client/chunks/*.js", { cwd: packagesRoot }).length,
-    ).toBeGreaterThan(0);
-    const consolePageSource = readFileSync(
-      `${packageRoot}/dist/console/runtime/server/page.get.js`,
-      "utf8",
-    );
-    expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
     const consoleRpcSource = readFileSync(
       `${packageRoot}/dist/console/runtime/server/rpc.js`,
       "utf8",
     );
-    // The page reads the hashed entry names from @vite-hub/console-client, which `vite-hub` does not ship.
-    expect(JSON.parse(readFileSync(`${packagesRoot}/console-client/dist/manifest.json`, "utf8"))).toEqual({
-      pageTool: expect.stringMatching(/^page-tool-[\w-]+\.js$/),
-      script: consoleClientFile.split("/").at(-1),
-      style: consoleCssFile.split("/").at(-1),
-    });
     expect(existsSync(`${packageRoot}/dist/console/runtime/public/console`)).toBe(false);
     expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
@@ -841,19 +771,13 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(11);
+      // Apps serve the Console endpoints only: no Console page, client script, or page tools session.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/api/status",
-        "/_vitehub/api/usage",
-        "/_vitehub",
-        "/_vitehub/**",
-        "/_vitehub/api/client.js",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",
         "/_vitehub/schedules/run",
         "/_vitehub/mcp",
-        "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
@@ -861,21 +785,14 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets).toHaveLength(3);
-      const [publicAssetDir, skillsDir] = publicAssets.map((asset) => Reflect.get(Object(asset), "dir"));
-      if (String(publicAssetDir) !== publicAssetDir || String(skillsDir) !== skillsDir)
-        throw new TypeError("Expected Console public asset paths.");
-      expect(publicAssetDir).toContain("/console-client/dist/client");
-      expect(existsSync(publicAssetDir), publicAssetDir).toBe(true);
+      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills"]);
+      const skillsDir = Reflect.get(Object(publicAssets[0]), "dir");
+      if (String(skillsDir) !== skillsDir) throw new TypeError("Expected the Console skills path.");
       // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
       const skillsIndex: { skills: Array<{ name: string, files: string[] }> } = JSON.parse(readFileSync(`${skillsDir}/index.json`, "utf8"));
       expect(skillsIndex.skills.map((skill) => skill.name)).toEqual(["vitehub"]);
       for (const file of skillsIndex.skills[0].files) expect(existsSync(`${skillsDir}/vitehub/${file}`), file).toBe(true);
       expect(skillsIndex.skills[0].files).toContain("SKILL.md");
-      // The page tools loader, so the `console` page tool works without Comments.
-      const loaderDir = Reflect.get(Object(publicAssets[2]), "dir");
-      expect(Reflect.get(Object(publicAssets[2]), "baseURL")).toBe("/_vitehub/page/assets");
-      expect(existsSync(`${String(loaderDir)}/loader.js`), String(loaderDir)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
