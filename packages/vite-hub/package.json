@@ -532,6 +532,11 @@
       "import": "./dist/markdown-template/file.js",
       "default": "./dist/markdown-template/file.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -1116,6 +1121,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1142,7 +1148,7 @@
     "google-auth-library": "catalog:storage",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
@@ -1180,6 +1186,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
@@ -1198,6 +1205,7 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1279,6 +1287,9 @@
     "@supabase/storage-js": {
       "optional": true
     },
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/agent": {
       "optional": true
     },
@@ -1331,6 +1342,9 @@
       "optional": true
     },
     "@vite-hub/markdown-template": {
+      "optional": true
+    },
+    "@vite-hub/mcp": {
       "optional": true
     },
     "@vite-hub/presets": {

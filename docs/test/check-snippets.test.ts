@@ -169,6 +169,38 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("imports the last full version of a file that the page shows above the importing block", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/version-page")
+    const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "version-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet(1, "server/content.ts", "server/content.ts", "export const content = { posts: 1 }"),
+      snippet(5, "server/api/posts.ts", "server/api/posts.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(9, "2/server/content.ts", "server/content.ts", "export const content = { settings: 'site' }"),
+      snippet(12, "3/server/content.ts", "server/content.ts", "settings: 'site',", true),
+      snippet(15, "server/api/settings.ts", "server/api/settings.ts", "import { content } from '../content'\nexport const settings: string = content.settings"),
+      snippet(20, "server/api/stale.ts", "server/api/stale.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+    ])
+
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/api/stale.ts", [2339]],
+    ])
+  }, 60_000)
+
+  it("imports the first full version when no full definition appears above the importer", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/forward-page")
+    const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "forward-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet(1, "server/api/before.ts", "server/api/before.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(5, "server/content.ts", "server/content.ts", "export const content = { excerpt: true }", true),
+      snippet(9, "server/api/after-fragment.ts", "server/api/after-fragment.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(13, "2/server/content.ts", "server/content.ts", "export const content = { posts: 1 }"),
+      snippet(17, "server/api/after.ts", "server/api/after.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(21, "3/server/content.ts", "server/content.ts", "export const content = { settings: 'site' }"),
+    ])
+
+    expect(failures).toEqual([])
+  }, 60_000)
+
   it("generates Env declarations from a page's Vite config", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/env-page")
     const label = "vite.config.ts"
@@ -327,20 +359,20 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/collection-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "collection-page.md", pageRoot })
     const collection = "defineCollection({ source: array([{ id: 'intro', title: 'Introduction' }]) })"
-    const imports = "import { array, defineCollection } from 'vite-hub/source'\n"
+    const imports = "import { array, defineCollection } from '@vite-hub/source'\n"
     const snippets = [
       snippet(`server/collections/docs/guides.${extension}`, `${imports}const local = ${collection}\nexport { local as guides }\nexport const unrelated = ${collection}`),
       snippet("server/collections/hidden.ts", `${imports}export const hidden = defineCollection({ source: array([]), route: false })`),
-      snippet("server/collections/aliased.ts", "import { array, defineCollection as make } from 'vite-hub/source'\nexport const aliased = make({ source: array([]), route: false })"),
-      snippet("server/collections/namespaced.ts", "import * as source from 'vite-hub/source'\nconst options = { source: source.array([]), route: false as const }\nexport const namespaced = source.defineCollection(options)"),
+      snippet("server/collections/aliased.ts", "import { array, defineCollection as make } from '@vite-hub/source'\nexport const aliased = make({ source: array([]), route: false })"),
+      snippet("server/collections/namespaced.ts", "import * as source from '@vite-hub/source'\nconst options = { source: source.array([]), route: false as const }\nexport const namespaced = source.defineCollection(options)"),
       snippet("server/collections/wrapped.ts", `${imports}const options = { source: array([]), ...{ route: false as const } }\nconst local = Object.freeze(defineCollection(options))\nexport { local as wrapped }`),
-      snippet("client.ts", "import { useCollection } from 'vite-hub/source/client'\nexport const guides = useCollection('docs/guides')\nexport const title: string = guides.items.value[0].title"),
-      snippet("wrong-name.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('guides')"),
-      snippet("unrelated.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('unrelated')"),
-      snippet("hidden.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('hidden')"),
-      snippet("aliased.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('aliased')"),
-      snippet("namespaced.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('namespaced')"),
-      snippet("wrapped.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('wrapped')"),
+      snippet("client.ts", "import { useCollection } from '@vite-hub/source/client'\nexport const guides = useCollection('docs/guides')\nexport const title: string = guides.items.value[0].title"),
+      snippet("wrong-name.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('guides')"),
+      snippet("unrelated.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('unrelated')"),
+      snippet("hidden.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('hidden')"),
+      snippet("aliased.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('aliased')"),
+      snippet("namespaced.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('namespaced')"),
+      snippet("wrapped.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('wrapped')"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 

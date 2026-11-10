@@ -127,6 +127,7 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/mcp/runtime",
   "@vite-hub/runtime/shutdown",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
   "@vite-hub/agent/invocations/app",
