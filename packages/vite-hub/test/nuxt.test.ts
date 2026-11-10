@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
+import ts from "typescript"
 import { resolveConfig } from "vite"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -24,6 +25,7 @@ import {
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { hubBlob } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
@@ -138,6 +140,7 @@ import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/intern
 import { logsVitePlugin } from "../src/logs-vite.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
+import { viteHubTypesPlugin } from "../src/internal/types.ts"
 import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
@@ -548,6 +551,37 @@ describe("ViteHub Nuxt integration", () => {
     const result = runNitroConfigHook({})
     if (prepare) await expect(result).resolves.toBeUndefined()
     else await expect(result).rejects.toThrow("Production Logs needs an existing source")
+  })
+
+  it("references the declarations that replayed Vite plugins write after one Nuxt prepare", async () => {
+    await rm("/tmp/vitehub-nuxt/.vitehub", { force: true, recursive: true })
+    mocks.vitehub.mockReturnValue([
+      hubBlob({ stores: { default: { driver: "fs" }, media: { driver: "fs" } } }),
+      viteHubTypesPlugin(),
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { _prepare: true })
+    await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroOptions(nuxt))
+
+    const aggregate = "/tmp/vitehub-nuxt/.vitehub/types.d.ts"
+    await expect(readFile(aggregate, "utf8")).resolves.toContain('/// <reference path="./types/blob.d.ts" />')
+    const entry = "/tmp/vitehub-nuxt/blob-store-names.mts"
+    await writeFile(entry, [
+      "import { blob } from \"@vite-hub/blob\"",
+      "blob.store(\"media\")",
+      "// @ts-expect-error The app configures no `medai` store.",
+      "blob.store(\"medai\")",
+    ].join("\n"))
+    const program = ts.createProgram([entry, aggregate], {
+      module: ts.ModuleKind.NodeNext,
+      noEmit: true,
+      paths: { "@vite-hub/blob": [fileURLToPath(new URL("../../blob/src/index.ts", import.meta.url))] },
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ESNext,
+    })
+    expect(ts.getPreEmitDiagnostics(program, program.getSourceFile(entry)).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   })
 
   it.each([false, true])("reports missing facade owners through Nuxt Nitro resolution (dev: %s)", async (dev) => {

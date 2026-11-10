@@ -1504,6 +1504,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       replayedDatabaseDiscoveryRoot,
     } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot, nitroMajorVersion)
     if (options.env !== false) await envPlugin?.api?.prepareTypes?.(envPlugin.api.resolveDeclarations?.(replayConfig), viteRoot)
+    // The replayed hooks can write declarations, such as the Blob store names. `nuxt prepare` builds nothing after this
+    // hook, so reference them in `.vitehub/types.d.ts` now.
+    await typesPlugin?.api?.prepareTypes?.({ projectRoot })
     consoleWorkflowConfigResolved = true
     // Replayed Vite plugins can change the Database configuration and its discovery root.
     const replayedDatabase = hasReplayedDatabaseDiscoveryRoot
