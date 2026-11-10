@@ -55,7 +55,7 @@ describe("Console server startup graph", () => {
         root,
         ["agents", "databases", "env", "kv", "mcp-client"],
         [],
-        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "@vite-hub/kv/console", plugin: "@vite-hub/kv/vite" }] },
+        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         [],
         undefined,
         undefined,
@@ -63,11 +63,11 @@ describe("Console server startup graph", () => {
         () => true,
         false,
         { mode: "open" },
-        { blob: "vite-hub/_internal/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/_internal/kv" },
+        { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
       )
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/console/sections"])
-      for (const module of ["vite-hub/console/server", "vite-hub/console/operations", "vite-hub/_internal/kv/console", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/_internal/kv"]) {
+      for (const module of ["vite-hub/console/server", "vite-hub/console/operations", "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 

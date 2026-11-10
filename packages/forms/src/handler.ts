@@ -1,5 +1,7 @@
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
+import { coerceFormFields } from "./schema.ts"
+
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { FormAnchor, FormDefinition, FormEmailMessage, FormIssue, FormServices, FormSubmission, FormUser } from "./types.ts"
 
@@ -219,6 +221,7 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   if (typeof trap === "string" && trap.trim()) return wantsPage(request, kind) ? back(request, page, "sent") : json(202, { ok: true })
   const anchor = readAnchor(body[anchorField])
   const fields = Object.fromEntries(Object.entries(body).filter(([key]) => key !== pageField && key !== anchorField && key !== honeypot))
+  if (kind === "form") coerceFormFields(options.schema, fields)
 
   const result = await options.schema["~standard"].validate(fields)
   if (result.issues) {
