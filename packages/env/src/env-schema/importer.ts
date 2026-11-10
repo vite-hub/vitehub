@@ -11,7 +11,7 @@ import type {
   EnvRuntimeConfigOptions,
   EnvValueSchema,
   EnvVariableDeclaration,
-  EnvViteConfigOptions,
+  EnvDeclarations,
 } from "../types.ts";
 import type { EnvSchemaField } from "./profile.ts";
 
@@ -106,7 +106,7 @@ function serverConfig(tree: Map<string, Tree>): EnvRuntimeConfigOptions {
 export function envSchema(
   file: string | URL,
   options: EnvSchemaOptions = {},
-): EnvViteConfigOptions {
+): EnvDeclarations {
   const filename = file instanceof URL ? fileURLToPath(file) : resolve(file);
   const prefix = options.prefix ?? "VITEHUB_";
   if (prefix && (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(prefix) || prefix.length > 128))
