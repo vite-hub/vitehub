@@ -782,6 +782,7 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
+      "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
       "vite-hub/dependencies",
@@ -1068,6 +1069,33 @@ describe("vitehub", () => {
         workspaceDependencyRuntimeImports: {},
       }))
     })
+  })
+
+  it("keeps the Workspace Shell loader only when the app installs the Shell package", async () => {
+    // vite-hub resolves its own development dependencies here, so only the app root can tell the two apps apart.
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-shell-"))
+    try {
+      for (const installed of [false, true]) {
+        const appRoot = join(root, installed ? "with-shell" : "without-shell")
+        await mkdir(appRoot, { recursive: true })
+        await writeFile(join(appRoot, "package.json"), JSON.stringify({ name: "app", private: true, type: "module" }))
+        if (installed) {
+          const shellRoot = join(appRoot, "node_modules/@vite-hub/shell")
+          await mkdir(shellRoot, { recursive: true })
+          await writeFile(join(shellRoot, "package.json"), JSON.stringify({ name: "@vite-hub/shell", exports: { "./package.json": "./package.json" } }))
+        }
+
+        const shellPlugin = (vitehub({ preset: "cloudflare", agent: true }).flat() as Plugin[]).find(plugin => plugin.name === "vite-hub/workspace-shell")
+        if (shellPlugin) await callHook(shellPlugin.config, [{ root: appRoot }, { command: "build", mode: "production" }])
+
+        expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+          workspaceDependencyRuntimeImports: installed ? { shellWorkspace: "vite-hub/shell/workspace" } : {},
+        }))
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("passes configured Email drivers through the canonical integration", () => {

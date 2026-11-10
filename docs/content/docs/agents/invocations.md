@@ -375,10 +375,6 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` gives the canonical Invocation ID before admission, for a live Console link in Channel activity.
 
-### Inspect a GitHub checkout
-
-For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `vite-hub/agent/server/github` gives `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and keeps no disposable checkouts.
-
 ## Errors
 
 `runAgent()` and `streamAgent()` return these codes as `[error, undefined]`. `error.cause` keeps the original failure. `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`, because a cause can contain private data. Log `cause` only on the server.

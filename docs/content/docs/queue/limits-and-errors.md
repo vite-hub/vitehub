@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle Queue errors
 
-`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. An `error` has:
+`sendQueue()`, `dynamicQueue.send()`, `send()`, and `sendBatch()` return `[error, result]`. An `error` has:
 
 - `code`: the failure name
 - `why`: what went wrong
@@ -17,11 +17,11 @@ icon: i-lucide-circle-alert
 - `cause`: the provider error
 
 ```ts [server/api/signup.post.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
-  const [error, result] = await runQueue('welcome-email', { email: body.email })
+  const [error, result] = await sendQueue('welcome-email', { email: body.email })
   if (error) {
     console.error(error.code, error.why, error.cause)
     throw error
@@ -30,16 +30,16 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`error.code` is typed as the codes that the method can return. `runQueue()` can return `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`. A Cloudflare `send()` never returns `QUEUE_PROVIDER_INVALID_RESPONSE`.
+`error.code` is typed as the codes that the method can return. `sendQueue()` can return `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`. A Cloudflare `send()` never returns `QUEUE_PROVIDER_INVALID_RESPONSE`.
 
 `JSON.stringify(error)` keeps only `name`, `code`, `why`, `fix`, and `docs`. It drops `cause` and `stack`, because provider errors can hold credentials or private data. Log `cause` only on the server.
 
-Config errors throw instead, such as an unknown queue name or a missing Cloudflare binding. The code or the deployment must change, so a retry cannot help. `getQueue()` and `createQueueClient()` also throw them, because they only prepare a client. `deferQueue()` returns nothing: it logs a failure and passes it to `onDispatchError`.
+Config errors throw instead, such as an unknown queue name or a missing Cloudflare binding. The code or the deployment must change, so a retry cannot help. `useQueue()` and `createQueueClient()` also throw them, because they only prepare a client. `deferQueue()` returns nothing: it logs a failure and passes it to `onDispatchError`.
 
 | Code | Returned by | Thrown |
 | --- | --- | --- |
-| `QUEUE_PROVIDER_FAILED` | Every send method | `getQueue()`, when the client cannot start |
-| `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `runQueue()` | |
+| `QUEUE_PROVIDER_FAILED` | Every send method | `useQueue()`, when the client cannot start |
+| `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `sendQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
 | `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
 | `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_PROVIDER`, `QUEUE_MISSING_PROVIDER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
@@ -83,7 +83,7 @@ A queue file threw when it loaded. `error.cause` holds the import error.
 
 ### QUEUE_DEFINITION_NOT_FOUND
 
-No queue has this name, or a Cloudflare queue maps to no Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the queues, so a script outside it, or an app built without Queue, finds none. With `queue: false`, `runQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
+No queue has this name, or a Cloudflare queue maps to no Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the queues, so a script outside it, or an app built without Queue, finds none. With `queue: false`, `sendQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
 
 ### QUEUE_DISABLED
 
@@ -95,11 +95,11 @@ The Cloudflare binding lacks `send()` and `sendBatch()`. Pass a Queue producer b
 
 ### QUEUE_LOCAL_MODE_MISMATCH
 
-A process has one local engine per folder. Clients that ask for different dev error display modes cannot share it. Direct clients from `createQueueClient()` always hide plain handler errors. Use `getQueue()` to share the dev runtime, or give the direct client its own `base` folder.
+A process has one local engine per folder. Clients that ask for different dev error display modes cannot share it. Direct clients from `createQueueClient()` always hide plain handler errors. Use `useQueue()` to share the dev runtime, or give the direct client its own `base` folder.
 
 ### QUEUE_MISSING_QUEUE
 
-A direct local client from `createQueueClient({ provider: 'local' })` needs `queue`, the name of the queue that runs the jobs. `getQueue()` sets it for you.
+A direct local client from `createQueueClient({ provider: 'local' })` needs `queue`, the name of the queue that runs the jobs. `useQueue()` sets it for you.
 
 ### QUEUE_MISSING_REGION
 
@@ -107,7 +107,7 @@ Your `@vercel/queue` needs a region. ViteHub reads `queue.region`, then `QUEUE_R
 
 ### QUEUE_MISSING_TOPIC
 
-A direct Vercel client from `createQueueClient()` needs a `topic`. `getQueue()` sets it for you.
+A direct Vercel client from `createQueueClient()` needs a `topic`. `useQueue()` sets it for you.
 
 ### QUEUE_PROVIDER_MISMATCH
 
@@ -175,7 +175,7 @@ The `hubQueue()` plugin does not expose the Queue Nitro config, because the app 
 
 The local provider is the Node preset's provider. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare and Vercel apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
 
-- `runQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server then runs the queue.
+- `sendQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server then runs the queue.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs per queue and deletes older ones. `vitehub queue list` counts them and shows the limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes them.
 - The attempt count is saved before the handler runs. If the process stops during a handler, the job runs again after restart with the next attempt number. If it stopped during the fourth attempt, the job becomes dead, so a handler that crashes the process cannot run on every restart.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before it saves completion, or if deleting the job and saving its state both fail. Make side effects safe to repeat.
@@ -210,7 +210,7 @@ Dev differs from the host:
 - It keeps dead jobs for you to inspect and rerun. Cloudflare deletes them or moves them to a dead-letter queue. Vercel deletes a job when it expires.
 - The handler gets a JSON copy of the payload. Cloudflare `contentType: 'v8'` can send values that JSON cannot, such as a `Map`. Dev measures size as JSON, not in the provider encoding.
 - `idempotencyKey` deduplicates only while a job is pending or running. Vercel does it for the retention time, up to 24 hours.
-- `getQueue()` returns the local client, so `client.provider` is `'local'`.
+- `useQueue()` returns the local client, so `client.provider` is `'local'`.
 
 `vitehub queue jobs list|show|retry|clear` and the Console read stored jobs through the `queue.jobs-*` operations. In `vite dev`, a plain `Error` from a handler reports its message and stack, and `jobs show` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and message there. A production local server that reopens jobs stored by `vite dev` hides their stored errors that have no code. Queue errors and `ViteHubError` keep their code and message.
 
@@ -218,7 +218,7 @@ On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, b
 
 ## Production checks
 
-- A successful `runQueue()` means the provider accepted the job. Track results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
+- A successful `sendQueue()` means the provider accepted the job. Track results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - A job can arrive more than once. Make handlers safe to rerun after a partial side effect.
 - Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --provider cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
 - The local provider keeps jobs on one host. See [Local delivery](#local-delivery).

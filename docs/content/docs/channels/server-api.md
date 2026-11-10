@@ -86,12 +86,12 @@ export default defineQueue<StripeEvent>(async ({ payload }) => {
 
 ```ts [server/channels/stripe.ts] fragment
 import { defineChannel, stripe } from 'vite-hub/channels'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineChannel({
   adapter: stripe(),
   on: {
-    'checkout.session.completed': event => runQueue('fulfil', event.data),
+    'checkout.session.completed': event => sendQueue('fulfil', event.data),
   },
 })
 ```
@@ -144,6 +144,27 @@ export default defineChannel({
 ```
 
 Next to `on` handlers, a trigger must set `webhooks: []`, because the handlers receive the webhook. It then runs through `context.dispatch()` and `context.pull()`.
+
+## Start a trigger from code
+
+`sendChannelTrigger(channel, trigger, input)` starts a trigger or an `on` handler of a Channel from server code, such as a Schedule that reconciles a webhook that a provider lost. The trigger's `invoke` gets `input` as it gets a verified webhook body, and ViteHub admits the result to the webhook queue with the same delivery ID, `serialize`, `debounce`, and Channel State rules. A delivery ID that the queue already has is a duplicate, so the reconcile and the real webhook run the work once.
+
+```ts [server/schedules/payments-reconcile.ts]
+import { sendChannelTrigger } from 'vite-hub/channels'
+import { defineSchedule } from 'vite-hub/schedule'
+
+export default defineSchedule({
+  cron: '0 * * * *',
+  async handler() {
+    const event = { id: 'evt_missed', object: 'event', type: 'checkout.session.completed', created: 0, livemode: false, pending_webhooks: 0, data: { object: { id: 'cs_missed' } } }
+    const [error, receipt] = await sendChannelTrigger('stripe', 'checkout.session.completed', event)
+    if (error) throw error
+    console.log(receipt.queued ? 'queued' : 'already queued', receipt.deliveryId)
+  },
+})
+```
+
+`sendChannelTrigger()` returns `[undefined, { deliveryId, queued }]` or `[error, undefined]` with `CHANNEL_TRIGGER_FAILED`. `queued` is `false` when the queue already had the delivery or the trigger answered without one, such as `ignored()`. The trigger's `context.dispatch()`, `context.pull()`, and `channelState.transaction()` work as on the webhook route. It needs the persistent server that hosts the Channel, with SQLite or libSQL Agent State, like `enqueueChannelTask()`.
 
 ## Send through a chat adapter
 
@@ -224,6 +245,10 @@ No Channel Definition has this name, or its file failed to load. Add `server/cha
 ### CHANNEL_INVALID_SEND
 
 The text is empty, the options are not an object, or the adapter has no `send`, such as `stripe()`. `error.why` names the problem. Pass non-empty text and an options object, and send through a Channel whose adapter sends.
+
+### CHANNEL_TRIGGER_FAILED
+
+`sendChannelTrigger()` could not start the trigger. The Channel has no trigger or `on` handler with that name, no Agent webhook queue runs in this process, the State cannot queue, or the trigger threw. `error.cause` keeps the reason.
 
 ### CHANNEL_SEND_FAILED
 
