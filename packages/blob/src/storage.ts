@@ -2,7 +2,6 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -12,7 +11,7 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
 
 import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
@@ -21,25 +20,12 @@ import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
-import { assertValidPathname } from "./internal/pathname.ts"
+import { assertValidPathname, pathnameIssue } from "./internal/pathname.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
-
-/** The request and the response fields that `serve()` reads and writes. */
-interface BlobServeEvent {
-  req: Request
-  res: { headers: Headers, status?: number }
-}
-
-function serveEvent(event: Request | ViteHubContext): BlobServeEvent {
-  const { req, res } = getStandardContext(event)
-  res.headers ??= new Headers()
-  // SAFETY: The line above gives `res` its headers, and `serve()` must write status and headers to the host's object.
-  return { req, res: res as BlobServeEvent["res"] }
-}
 
 function matchesETag(condition: string | null, etag: string | undefined): boolean {
   if (!condition) return false
@@ -70,8 +56,8 @@ function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
   return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
 }
 
-// Decode the pathname once, then reject it before a driver, filesystem, or URL can resolve it elsewhere.
-function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
+// Decode the pathname once. A pathname that is not valid percent-encoding stays as it is.
+function decodePathname(pathname: string): string {
   let decoded: string
   try {
     decoded = decodeURIComponent(pathname)
@@ -79,7 +65,12 @@ function normalizePathname(pathname: string, options?: { prefix?: boolean }): st
   catch {
     decoded = pathname
   }
-  return assertValidPathname(decoded.replace(/^\/+/, ""), options)
+  return decoded.replace(/^\/+/, "")
+}
+
+// Reject the decoded pathname before a driver, filesystem, or URL can resolve it elsewhere.
+function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
+  return assertValidPathname(decodePathname(pathname), options)
 }
 
 // `_vitehub/derived/` holds cached variants and `_vitehub/media/` holds media records and crop replacements.
@@ -94,15 +85,23 @@ function resolvedParts(pathname: string): string[] {
   return parts
 }
 
+// The fs driver keeps metadata, hashes, and multipart parts under `.vitehub/`. Every driver reserves it, so a store
+// behaves the same on every host.
 function isReservedPath(pathname: string): boolean {
-  const parts = resolvedParts(pathname)
-  return parts[0]?.toLowerCase() === "_vitehub" && (parts.length === 1 || reservedNamespaces.includes(parts[1]!.toLowerCase()))
+  const [first, second] = resolvedParts(pathname).map(part => part.toLowerCase())
+  if (first === ".vitehub") return true
+  return first === "_vitehub" && (second === undefined || reservedNamespaces.includes(second))
 }
 
 function assertWritablePath(pathname: string) {
   if (isReservedPath(pathname)) {
-    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: _vitehub/derived or _vitehub/media." })
+    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." })
   }
+}
+
+function blobErrorResponse(request: Request, status: 400 | 404, error: string): Response {
+  const response = Response.json({ error }, { status })
+  return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
 }
 
 async function hashCacheKey(value: unknown): Promise<string> {
@@ -203,22 +202,21 @@ function parseByteRange(header: string | null): BlobDriverByteRange | undefined 
  * Selects the bytes to send. Returns `undefined` to send the whole body: no range, several ranges, a stale `If-Range`,
  * or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
  */
-function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
+function selectByteRange(request: Request, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
   // RFC 9110 section 14.2 requires ignoring Range on methods other than GET.
-  if (event.req.method !== "GET") return
-  const range = parseByteRange(event.req.headers.get("range"))
+  if (request.method !== "GET") return
+  const range = parseByteRange(request.headers.get("range"))
   if (!range) return
-  const ifRange = event.req.headers.get("if-range")
+  const ifRange = request.headers.get("if-range")
   // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
   if (ifRange !== null && (!etag || ifRange !== etag)) return
   return byteRangeBounds(range, size) ?? "unsatisfiable"
 }
 
-function setNotModified(event: BlobServeEvent, headers: Headers): void {
-  for (const [name, value] of headers) event.res.headers.set(name, value)
-  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) event.res.headers.delete(name)
-  event.res.status = 304
-  event.res.headers.set("X-Content-Type-Options", "nosniff")
+function notModified(headers: Headers): Response {
+  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) headers.delete(name)
+  headers.set("X-Content-Type-Options", "nosniff")
+  return new Response(null, { headers, status: 304 })
 }
 
 /** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
@@ -340,53 +338,43 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
-    async serve(input, pathname: string, options = {}) {
-      const event = serveEvent(input)
-      const added = Object.entries(options.headers ?? {})
-      const previous = added.map(([name]) => [name, event.res.headers.get(name)] as const)
-      const previousCookies = event.res.headers.getSetCookie()
-      for (const [name, value] of added) event.res.headers.set(name, value)
-      const restoreHeaders = () => {
-        for (const [name, value] of previous) {
-          if (name.toLowerCase() === "set-cookie") {
-            event.res.headers.delete(name)
-            for (const cookie of previousCookies) event.res.headers.append(name, cookie)
-          }
-          else if (value === null) event.res.headers.delete(name)
-          else event.res.headers.set(name, value)
-        }
-      }
-      try {
-        const result = await serveRequest(event, pathname, options)
-        if (result[0]) restoreHeaders()
-        return result
-      }
-      catch (error) {
-        restoreHeaders()
-        throw error
-      }
+    async serve(request, pathname, options = {}) {
+      const decodedPath = decodePathname(pathname)
+      const issue = pathnameIssue(decodedPath)
+      if (issue) return blobErrorResponse(request, 400, `Invalid Blob pathname: it ${issue}.`)
+      if (isReservedPath(decodedPath)) return blobErrorResponse(request, 404, "Blob not found.")
+      const [error, response] = await serveRequest(request, decodedPath, options)
+      if (!error) return response
+      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, 404, "Blob not found.")
+      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, 400, error.message)
+      throw error
     },
     store() {
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
-  async function serveRequest(event: BlobServeEvent, pathname: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
-    const normalizedPath = normalizePathname(pathname)
-    if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
+  // Expects a pathname that `serve()` decoded and checked.
+  async function serveRequest(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     if (options.variant && !options.transform) {
       const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
       if (error) return [error, undefined]
-      if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
+      if (plan) return serveObject(request, plan.source, { ...options, transform: plan.transform })
     }
-    return serveObject(event, normalizedPath, options)
+    return serveObject(request, normalizedPath, options)
   }
-  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
+  // Starts from the `headers` option, so the headers that `serve()` sets replace it.
+  function responseHeaders(options: BlobServeResponseOptions): Headers {
+    const headers = new Headers(options.headers)
+    headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
+    return headers
+  }
+  async function serveObject(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
         // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
         // without holding it in memory. A video and every seek in it cost one read and only the bytes sent.
-        if (!options.transform && driver.getStream && event.req.method === "GET") {
-          const requested = parseByteRange(event.req.headers.get("range"))
+        if (!options.transform && driver.getStream && request.method === "GET") {
+          const requested = parseByteRange(request.headers.get("range"))
           let read = await driver.getStream(normalizedPath, { range: requested })
           if (read === false) return false
           if (!read) {
@@ -395,14 +383,13 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           }
           const { object } = read
           const etag = object.httpEtag ? `"${await hashCacheKey([object.httpEtag, object.contentType])}"` : undefined
-          const headers = new Headers({ "Cache-Control": options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache" })
+          const headers = responseHeaders(options)
           if (etag) headers.set("ETag", etag)
-          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
+          if (matchesETag(request.headers.get("if-none-match"), etag)) {
             await read.body.cancel()
-            setNotModified(event, headers)
-            return null
+            return notModified(headers)
           }
-          const range = selectByteRange(event, etag, object.size)
+          const range = selectByteRange(request, etag, object.size)
           if (requested && !range) {
             // A stale If-Range: send the whole body of the version just read.
             await read.body.cancel()
@@ -417,24 +404,19 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           headers.set("Accept-Ranges", "bytes")
           headers.set("Content-Type", object.contentType || guessContentType(normalizedPath))
           headers.set("X-Content-Type-Options", "nosniff")
-          let body = read.body
           if (range === "unsatisfiable") {
-            await body.cancel()
-            body = new Blob([]).stream()
+            await read.body.cancel()
             headers.set("Content-Range", `bytes */${object.size}`)
             headers.set("Content-Length", "0")
-            event.res.status = 416
+            return new Response(null, { headers, status: 416 })
           }
-          else if (range) {
+          if (range) {
             headers.set("Content-Range", `bytes ${range.start}-${range.end}/${object.size}`)
             headers.set("Content-Length", String(range.end - range.start + 1))
-            event.res.status = 206
+            return new Response(read.body, { headers, status: 206 })
           }
-          else {
-            headers.set("Content-Length", String(object.size))
-          }
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return body
+          headers.set("Content-Length", String(object.size))
+          return new Response(read.body, { headers })
         }
 
         const meta = await driver.head(normalizedPath)
@@ -461,24 +443,19 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           cachePath = `${await derivedCachePrefix(sourcePath)}${await hashCacheKey(options.transform.key)}`
         }
 
-        const cacheControl = options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache"
-        const headers = new Headers({ "Cache-Control": cacheControl })
+        const headers = responseHeaders(options)
         if (etag) headers.set("ETag", etag)
-        if (["GET", "HEAD"].includes(event.req.method)) {
-          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
-            setNotModified(event, headers)
-            return null
-          }
+        if (["GET", "HEAD"].includes(request.method) && matchesETag(request.headers.get("if-none-match"), etag)) {
+          return notModified(headers)
         }
 
-        if (event.req.method === "HEAD" && !options.transform && meta.contentType
+        if (request.method === "HEAD" && !options.transform && meta.contentType
           && meta.size !== undefined && Number.isSafeInteger(meta.size) && meta.size >= 0) {
           headers.set("Accept-Ranges", "bytes")
           headers.set("Content-Length", String(meta.size))
           headers.set("Content-Type", meta.contentType)
           headers.set("X-Content-Type-Options", "nosniff")
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return new Blob([]).stream()
+          return new Response(null, { headers })
         }
 
         const cached = cachePath
@@ -538,28 +515,28 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           body = transformed ?? null
         }
         if (!body) return
+        let status = 200
         if (!transform) {
           headers.set("Accept-Ranges", "bytes")
-          const range = selectByteRange(event, etag, body.size)
+          const range = selectByteRange(request, etag, body.size)
           if (range === "unsatisfiable") {
             headers.set("Content-Range", `bytes */${body.size}`)
             body = new Blob([])
-            event.res.status = 416
+            status = 416
           }
           else if (range) {
             headers.set("Content-Range", `bytes ${range.start}-${range.end}/${body.size}`)
             body = body.slice(range.start, range.end + 1, body.type)
-            event.res.status = 206
+            status = 206
           }
         }
-        const stream = body.stream()
         headers.set("X-Content-Type-Options", "nosniff")
         headers.set("Content-Length", String(body.size))
         headers.set("Content-Type", transform
           ? body.type || "application/octet-stream"
           : meta.contentType || body.type || guessContentType(normalizedPath))
-        for (const [name, value] of headers) event.res.headers.set(name, value)
-        return stream
+        // A HEAD response has the headers of the GET response and no body.
+        return new Response(request.method === "HEAD" ? null : body.stream(), { headers, status })
       })
       if (error) return [error, undefined]
       if (payload === false) continue

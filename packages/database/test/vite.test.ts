@@ -108,8 +108,8 @@ describe("hubDb", () => {
     const filter = (hook: unknown) => (hook as { filter: { id: RegExp } }).filter.id
     const virtualIds = [DB_VIRTUAL_SCHEMA_ID, DB_VIRTUAL_DATABASES_ID, "#vitehub/database/definition-defaults"]
 
-    expect([...virtualIds, "virtual:vitehub/database/schema", "virtual:vitehub/database/databases", "virtual:vitehub/database/definition-defaults", "#vitehub/database/other"]
-      .map(id => filter(plugin.resolveId).test(id))).toEqual([true, true, true, true, true, false, false])
+    expect([...virtualIds, "virtual:vitehub/database/schema", "virtual:vitehub/database/databases", "#vitehub/database/libsql", "virtual:vitehub/database/definition-defaults", "virtual:vitehub/database/libsql", "#vitehub/database/other"]
+      .map(id => filter(plugin.resolveId).test(id))).toEqual([true, true, true, true, true, true, false, false, false])
     expect([...virtualIds.map(id => `\0${id}`), DB_VIRTUAL_SCHEMA_ID].map(id => filter(plugin.load).test(id))).toEqual([true, true, true, false])
     expect(["/app/node_modules/@vite-hub/database/dist/drizzle.js", "C:\\app\\packages\\database\\dist\\drizzle.js", "/app/node_modules/drizzle-orm/dist/drizzle.js", "/app/server/drizzle.js"]
       .map(id => filter(plugin.transform).test(id))).toEqual([true, true, false, false])
