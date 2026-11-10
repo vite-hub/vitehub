@@ -310,6 +310,7 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "content", modulePath: contentDefinitionPath, name: "content", packageName: false, pluginName: "@vite-hub/source/vite" },
   { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle", pluginName: "@vite-hub/database/vite" },
   { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
+  { importName: "agentI18n", name: "i18n", packageName: "@vite-hub/i18n/server", pluginName: "@vite-hub/i18n/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
@@ -3468,8 +3469,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       server.watcher?.on("add", refreshDiscovery)
       server.watcher?.on("unlink", refreshDiscovery)
-      // The Dev Loop runs Agents in this process. Load the Agent runtime with the dev server, not with the Vite config.
-      const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-endpoint.ts")
+      // Register the Dev Loop route now; load the Agent runtime on its first request.
+      const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-route.ts")
       await registerAgentInvocationStreamEndpoint(server, { runtimeCapabilities })
       // Cancel runs in the Nitro dev environment, which owns the application's journals and abort handles.
       registerViteHubNitroDevEndpoint(server, {

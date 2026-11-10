@@ -8,7 +8,7 @@ const dynamicError = {
 const withFix = (fix: string) => ({ ...dynamicError, fix })
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: WORKSPACE_R0030, WORKSPACE_R0062, and WORKSPACE_R0068.
+// Retired codes. Do not reuse them: WORKSPACE_R0010, WORKSPACE_R0011, WORKSPACE_R0030 to WORKSPACE_R0032, WORKSPACE_R0062, and WORKSPACE_R0068.
 export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workspace/diagnostics",
   codes: {
@@ -48,8 +48,6 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0027: withFix("Set another `binding` in the Workspace `store` options, or set `namespace` to the namespace that Wrangler config already has for that binding."),
     WORKSPACE_R0028: withFix("The client closed the Workspace Dev connection before the command finished. Run the command again and keep the connection open."),
     WORKSPACE_R0029: withFix("Give each Cloudflare Artifacts namespace its own `binding` in the Workspace `store` options."),
-    WORKSPACE_R0031: withFix("Rename the file so that no part of its path contains `:` or `?` or ends in `$`. MountX cannot project such names."),
-    WORKSPACE_R0032: withFix("Replace the Git symlink with a normal file or folder, or read the Workspace without MountX. MountX cannot keep symlinks."),
     WORKSPACE_R0033: withFix("Run the operation again. If it fails again, check the Blob store of the project in the Vercel dashboard."),
     WORKSPACE_R0034: withFix("Pass the Workspace name, for example `createWorkspacePreparation({ workspace: \"docs\" })`."),
     WORKSPACE_R0035: withFix("Pass Source keys of the Workspace as non-empty strings, for example `sources: [\"handbook\"]`, or omit `sources`."),
@@ -89,13 +87,5 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0065: withFix("The Cloudflare Artifacts Store keeps its Git checkout in memory. A Git step used the path in the message in a way that the error code rejects, for example `ENOENT` for a missing file. Run the operation again. If it fails again, report it at https://github.com/vite-hub/vitehub/issues with the message."),
     WORKSPACE_R0066: withFix("Connect a Blob store to the Vercel project so that it gets `BLOB_STORE_ID`. Off Vercel, set `BLOB_READ_WRITE_TOKEN`."),
     WORKSPACE_R0074: withFix("The Workspace Store keeps no file revisions, so ViteHub cannot prove that the file at the path in the message is the one it started to remove. Check the file. If it must go, delete it in the Store itself, for example in its directory or bucket, because the Workspace rejects writes under a Source. Then run the Source operation again."),
-    WORKSPACE_R0010: {
-      why: ({ path }: { path: string }) => `[vitehub] Workspace Collection ${path} must be a file.`,
-      fix: "Point workspaceFile() at a JSON file, not a directory.",
-    },
-    WORKSPACE_R0011: {
-      why: ({ path }: { path: string }) => `[vitehub] Workspace Collection ${path} must contain a JSON array.`,
-      fix: "Store the Collection items as a top-level JSON array.",
-    },
   },
 })

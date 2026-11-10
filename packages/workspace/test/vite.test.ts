@@ -1331,9 +1331,9 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).rejects.toThrow()
   })
 
-  it("exposes standalone Nitro config through the Nitro subpath", async () => {
+  it("exposes standalone Nitro config through the Vite subpath", async () => {
     const root = await createViteRoot()
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       plugins: [".vitehub/nitro/workspace/plugin.ts"],
@@ -1347,7 +1347,7 @@ describe("hubWorkspace", () => {
 
   it("activates standalone Nitro Cloudflare bindings from the provided environment", async () => {
     const root = await createViteRoot()
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({
       env: { NITRO_PRESET: "cloudflare-module" },
@@ -1705,7 +1705,7 @@ describe("hubWorkspace", () => {
       code: "WORKSPACE_B0005",
       message: expect.stringContaining(`Workspace "docs" sets a store that may need a Cloudflare Artifacts binding`),
     })
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).rejects.toThrow(expected)
 
@@ -1729,7 +1729,7 @@ describe("hubWorkspace", () => {
       fix: expect.stringContaining("Set the Cloudflare Artifacts Store in the `workspace` config"),
       message: expect.stringContaining(`Workspace "docs" sets a store that may need a Cloudflare Artifacts binding`),
     })
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).rejects.toThrow(expected)
 
@@ -2264,22 +2264,22 @@ describe("hubWorkspace", () => {
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(2)
   })
 
-  it("leaves e2e hosted output to the e2e composer", async () => {
+  it("writes hosted output for a build in any Vite mode", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
-    const { VITEHUB_VITE_MODE_KEY } = await import("@vite-hub/internal/build/mode")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const configResolved = plugin.configResolved as (config: { command: "build", mode: string, root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
-    vi.stubEnv(VITEHUB_VITE_MODE_KEY, "e2e")
+    // The playground's `e2e` mode and its `VITEHUB_VITE_MODE` variable once turned this output off.
+    vi.stubEnv("VITEHUB_VITE_MODE", "e2e")
 
-    await configResolved({ command: "build", root })
+    await configResolved({ command: "build", mode: "e2e", root })
     await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
-    expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(1)
   })
 
   it("emits build-time workspace assets for Vite builds", async () => {

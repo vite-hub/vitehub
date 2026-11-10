@@ -145,7 +145,7 @@ Available namespaces:
 | `vitehub schedule cancel` | Available | Schedule Package | Cancel a started Schedule. |
 | `vitehub i18n export` | Available | i18n Package | Write the messages and translations of one locale as a PO file. |
 | `vitehub i18n import` | Available | i18n Package | Save the translations of a PO file as records in `locales/<locale>/`. |
-| `vitehub i18n prune` | Available | i18n Package | Delete the records of messages that the code no longer has. |
+| `vitehub i18n prune` | Available | i18n Package | Delete the records of messages that the code no longer has. Lists them unless --yes. Export changed messages first: prune deletes their old translations. |
 | `vitehub i18n status` | Available | i18n Package | Show how many messages each locale translates. |
 | `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
@@ -960,6 +960,22 @@ pnpm vitehub i18n prune --yes
 ## Run app tasks
 
 A task is a [Nitro task](https://nitro.build/docs/tasks): a file in `server/tasks/` that default-exports `defineTask()`. Use tasks for seeds, backfills, data repair, and one-off admin jobs. `vitehub()` registers each file and turns on Nitro tasks, so you do not set `nitro.serverDir` or `nitro.experimental.tasks`. The task name is the path with `/` replaced by `:`, so `server/tasks/db/seed.ts` is `db:seed`.
+
+This seed task adds a row to the `notes` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
 
 ```ts [server/tasks/db/seed.ts]
 import { useDatabase } from 'vite-hub/database/drizzle'
