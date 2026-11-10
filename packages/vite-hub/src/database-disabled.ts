@@ -74,7 +74,7 @@ export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, strin
               { description: "Unavailable while Database is disabled.", name: "generate", run },
               { description: "Unavailable while Database is disabled.", name: "migrate", run },
             ],
-            name: "db",
+            name: "database",
           }],
         }
       },

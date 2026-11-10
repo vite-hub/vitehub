@@ -297,6 +297,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
   "@vite-hub/runtime": [
     ".",
     "./h3",
+    "./internal/drain",
     "./internal/execution-budget",
     "./internal/grant",
     "./internal/runtime-type",

@@ -74,6 +74,7 @@
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "mlly": "catalog:unjs",
+    "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs"
   },
@@ -84,7 +85,6 @@
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
-    "mrmime": "catalog:workspace",
     "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",

@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "db:generate": "vitehub db generate",
-    "db:migrate": "vitehub db migrate"
+    "db:generate": "vitehub database generate",
+    "db:migrate": "vitehub database migrate"
   },
   "dependencies": {
     "@comark/html": "catalog:markdown",

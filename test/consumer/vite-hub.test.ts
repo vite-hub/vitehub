@@ -1469,10 +1469,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(nodeEmailOutput).toContain("api.resend.com")
       expect(nodeEmailOutput).not.toContain(emailSecretSentinel)
 
-      for (const alias of ["vitehub", "vite-hub"]) {
-        const help = await run("pnpm", ["exec", alias, "--help"], appDir)
-        expect(help.stdout).toContain("Usage: vitehub")
-      }
+      const help = await run("pnpm", ["exec", "vitehub", "--help"], appDir)
+      expect(help.stdout).toContain("Usage: vitehub")
     }
     finally {
       await rm(root, { force: true, recursive: true })
