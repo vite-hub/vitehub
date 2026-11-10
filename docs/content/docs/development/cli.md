@@ -145,7 +145,7 @@ Available namespaces:
 | `vitehub schedule cancel` | Available | Schedule Package | Cancel a started Schedule. |
 | `vitehub i18n export` | Available | i18n Package | Write the messages and translations of one locale as a PO file. |
 | `vitehub i18n import` | Available | i18n Package | Save the translations of a PO file as records in `locales/<locale>/`. |
-| `vitehub i18n prune` | Available | i18n Package | Delete the records of messages that the code no longer has. |
+| `vitehub i18n prune` | Available | i18n Package | Delete the records of messages that the code no longer has. Lists them unless --yes. Export changed messages first: prune deletes their old translations. |
 | `vitehub i18n status` | Available | i18n Package | Show how many messages each locale translates. |
 | `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |

@@ -450,9 +450,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
     )
-    await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).resolves.toBe(
-      '/// <reference path="./collections.d.ts" />\n',
-    )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
   })
 
@@ -2234,7 +2231,6 @@ export const content = defineContent(${options})
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
       await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
-      await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )
