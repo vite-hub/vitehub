@@ -347,7 +347,7 @@ Components read the site through auto-imported composables:
 | Composable | Returns |
 | --- | --- |
 | `useDocsConfig()` | The `docs` options, with every default filled. |
-| `useDocsManifest()` | Every section and page. |
+| `useDocsManifest()` | Every section and page. A page has its navigation fields, `title`, `sourceTitle`, `description`, and `layout`. The page route returns the rest, such as `seo` and `credits`. |
 | `useDocsPage()` | The current route's page and section, or `null`. |
 | `useDocsSection()` | The current route's section. |
 | `useDocsIcons()` | The icon of a page, section, or rail entry, after the `icons` option. |

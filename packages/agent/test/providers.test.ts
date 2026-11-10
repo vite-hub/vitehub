@@ -1618,7 +1618,9 @@ describe("agent Vite plugin", () => {
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = configResolvedHook as (config: { command: "build" | "serve", plugins: Array<{ name: string }>, root: string }) => Promise<void>
       await configResolved({ command: "serve", plugins: [], root })
-      expect(await readFile(handler, "utf8")).toContain("import { defineEventHandler, handleAgentInvocationsDevRequest as handleViteHubDevRequest } from \"@vite-hub/agent/runtime/invocations-dev\"")
+      const source = await readFile(handler, "utf8")
+      expect(source).toContain("import { handleAgentInvocationsDevRequest as handleViteHubDevRequest } from \"@vite-hub/agent/runtime/invocations-dev\"")
+      expect(source).toContain("fetch: request => handleViteHubDevRequest(request")
     }
     finally {
       await rm(root, { force: true, recursive: true })
