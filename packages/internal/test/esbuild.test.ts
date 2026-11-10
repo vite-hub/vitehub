@@ -24,6 +24,83 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("skips package alias probes for an explicitly selected entry", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, 'export const value = "entry"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const probedAliases: string[] = []
+    const plugin: Plugin = {
+      name: "unrelated-package-alias",
+      setup(build) {
+        build.onResolve({ filter: /^unrelated-package$/ }, args => {
+          probedAliases.push(args.path)
+          return { path: entry }
+        })
+      },
+    }
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "unrelated-package": replacement },
+      platform: "node",
+      plugins: [plugin],
+      resolveEntryPackageAliases: false,
+    })
+
+    expect(probedAliases).toEqual([])
+    expect((await import(pathToFileURL(outfile).href)).value).toBe("entry")
+  })
+
+  it.each(["cloudflare", "vercel", "netlify"] as const)("bundles the selected %s entry without probing package aliases by default", async provider => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    await Promise.all([
+      writeFile(entry, 'export const value = "entry"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    for (const resolveEntryPackageAliases of [undefined, true]) {
+      const probedAliases: string[] = []
+      const plugin: Plugin = {
+        name: "provider-entry-package-alias",
+        setup(build) {
+          build.onResolve({ filter: /^entry-package$/ }, args => {
+            probedAliases.push(args.path)
+            return { path: entry }
+          })
+        },
+      }
+      const bundleOptions: NonNullable<Parameters<typeof bundleEsmEntry>[2]> = {
+        alias: { "entry-package": replacement },
+        platform: "node",
+        plugins: [plugin],
+        resolveEntryPackageAliases,
+      }
+      const outputRoot = resolve(rootDir, resolveEntryPackageAliases ? "reverse" : "selected")
+      await writeProviderDeploymentOutputs({
+        rootDir,
+        clientOutDir: "client",
+        ...(provider === "cloudflare" ? {
+          cloudflare: { bundleEntry: entry, bundleOptions, bundleOutfileName: "index.mjs", outputRoot, wranglerConfig: { main: "index.mjs" } },
+        } : provider === "vercel" ? {
+          vercel: { bundleEntry: entry, bundleOptions, outputRoot },
+        } : {
+          netlify: { functions: [{ bundleEntry: entry, bundleOptions, functionName: "handler" }], outputRoot },
+        }),
+      })
+      const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : "functions/handler.mjs")
+      expect(probedAliases).toEqual(resolveEntryPackageAliases ? ["entry-package"] : [])
+      expect((await import(pathToFileURL(outfile).href)).value).toBe(resolveEntryPackageAliases ? "replacement" : "entry")
+    }
+  })
+
   it.each(["cloudflare", "vercel", "vercel-isolated", "netlify", "netlify-config"] as const)("minifies final %s output with independent opt-outs and preserved runtime behavior", async (provider) => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")
