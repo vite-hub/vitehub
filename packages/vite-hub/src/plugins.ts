@@ -1530,6 +1530,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     imports: {
       runtime: "vite-hub/forms/runtime",
+      operations: "vite-hub/forms/operations",
       database: "vite-hub/forms/database",
       databases: "vite-hub/database/drizzle",
       email: "vite-hub/email/server",
