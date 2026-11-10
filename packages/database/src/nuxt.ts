@@ -23,7 +23,7 @@ import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContrib
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
-import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -301,7 +301,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           const d1Only = runtime && usesD1HttpOnly(runtime)
           // A separate Nuxt Content D1 resource does not make Node's local Databases hosted.
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1Only || (provider && d1) ? "cloudflare" : provider
-          if (d1Only) {
+          // A hosted Definition runtime without a remote libSQL URL reaches D1 only, so the build ships no libSQL client.
+          if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") && !usesRemoteLibsql(runtime)) {
             const alias = ensureRecord(config, "alias")
             alias["#vitehub/database/definition-runtime"] ??= resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/d1")
           }

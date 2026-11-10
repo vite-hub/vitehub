@@ -432,8 +432,9 @@ export default defineConfig({
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        // Agent-only apps need the client-free journal constructor without installing the optional Database package.
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
@@ -607,8 +608,8 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
           neverBundle: ["esbuild", "vite"],

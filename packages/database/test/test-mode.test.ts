@@ -10,24 +10,31 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setu
 import { db } from "../src/runtime/drizzle-runtime.ts"
 
 const fixture = vi.hoisted(() => ({ enabled: true }))
-vi.mock("#vitehub/database/databases", () => ({
-  get default() {
-    return fixture.enabled ? {
-      default: {
-        config: {
-          connection: { url: "file:unused.sqlite" },
-          dialect: "sqlite",
-          generatedSchemaFile: ".vitehub/database/schema/default.ts",
-          migrationsDir: "server/databases/migrations",
-          mode: "default",
-          name: "default",
-          orm: "drizzle",
+vi.mock("#vitehub/database/databases", async () => {
+  const { integer, sqliteTable, text } = await import("drizzle-orm/sqlite-core")
+  const notes = sqliteTable("notes", {
+    id: integer().primaryKey({ autoIncrement: true }),
+    title: text().notNull(),
+  })
+  return {
+    get default() {
+      return fixture.enabled ? {
+        default: {
+          config: {
+            connection: { url: "file:unused.sqlite" },
+            dialect: "sqlite",
+            generatedSchemaFile: ".vitehub/database/schema/default.ts",
+            migrationsDir: "server/databases/migrations",
+            mode: "default",
+            name: "default",
+            orm: "drizzle",
+          },
+          schema: { notes },
         },
-        schema: {},
-      },
-    } : { missing: { schema: {} } }
-  },
-}))
+      } : { missing: { schema: {} } }
+    },
+  }
+})
 
 let root: string
 
@@ -48,6 +55,7 @@ afterAll(async () => {
 it("gives the default database an in-memory SQLite with the app's migrations, empty after each reset", async () => {
   const mode = enableViteHubTestMode({ root })
 
+  expect(Object.keys(db.query)).toEqual(["notes"])
   await db.run(sql`INSERT INTO notes (title) VALUES ('first')`)
   expect(await db.all(sql`SELECT id, title FROM notes`)).toEqual([{ id: 1, title: "first" }])
 
