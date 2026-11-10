@@ -51,7 +51,11 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {
       if (getOptionalBucket(config)) return nativeDriver
-      fallbackDriver ||= importRuntimeDriverModule(config)
+      // A failed load lets the next call try again.
+      fallbackDriver ||= importRuntimeDriverModule(config).catch((error: unknown) => {
+        fallbackDriver = undefined
+        throw error
+      })
       return fallbackDriver
     }
     // Multipart uploads use the R2 binding API; the HTTP fallback has no multipart support.

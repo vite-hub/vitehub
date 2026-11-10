@@ -41,7 +41,11 @@ const pendingState = (refetch: Callable) => ({ data: null, error: null, isPendin
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
-  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)))
+  // A failed load, such as a chunk that a flaky network did not deliver, lets the next call try again.
+  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)).catch((error: unknown) => {
+    loaded = undefined
+    throw error
+  }))
 
   function hook(name: string, args: unknown[]) {
     const scope = getCurrentScope()
