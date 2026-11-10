@@ -196,7 +196,7 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
 | `typesafeEnv({ model? })` | The Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey` (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`, default `jev-latest`). |
 
-The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
+The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })` uses `typesafe()` when it gets no other gateway, and it reads this group:
 
 ```ts fragment
 env: {

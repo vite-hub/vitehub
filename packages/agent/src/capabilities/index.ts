@@ -13,9 +13,6 @@ export type {
   BrowserCapabilityOptions,
 } from "./browser.ts"
 export {
-  chatSummary,
-} from "./chat-summary.ts"
-export {
   channelDelivery,
 } from "./channel-delivery.ts"
 export type {
@@ -76,9 +73,6 @@ export {
   inputCommands,
 } from "./input-commands.ts"
 export {
-  llmGate,
-} from "./llm-gate.ts"
-export {
   rateLimit,
 } from "./rate-limit.ts"
 export {
@@ -91,9 +85,6 @@ export {
 export {
   progressSummary,
 } from "./progress-summary.ts"
-export {
-  llmRoute,
-} from "./llm-route.ts"
 export {
   sandbox,
 } from "./sandbox.ts"
@@ -115,9 +106,6 @@ export {
 export {
   elevenLabsScribe,
 } from "./transcription-elevenlabs.ts"
-export {
-  openRouterTranscriptionModel,
-} from "./transcription-openrouter.ts"
 export {
   diagnostics,
 } from "./diagnostics.ts"
@@ -226,12 +214,6 @@ export type {
   AgentChannelWebhookRegistrationDefinition,
 } from "../types.ts"
 export type {
-  ChatSummaryCommandOptions,
-  ChatSummaryExecuteInput,
-  ChatSummaryExecuteResult,
-  ChatSummaryOptions,
-} from "./chat-summary.ts"
-export type {
   TitleExecuteInput,
   TitleExecuteResult,
   TitleOptions,
@@ -269,14 +251,6 @@ export type {
   InputCommandRunInput,
   InputCommandsOptions,
 } from "./input-commands.ts"
-export type {
-  LlmDecisionChoiceDefinition,
-  LlmDecisionChoiceMap,
-} from "./llm-decision-shared.ts"
-export type {
-  LlmGateDecision,
-  LlmGateOptions,
-} from "./llm-gate.ts"
 export type {
   RateLimitCapabilityLimiter,
   RateLimitDecision,
@@ -320,10 +294,6 @@ export type {
   PosthogPapercutsOptions,
 } from "./papercuts.ts"
 export type {
-  LlmRouteDecision,
-  LlmRouteOptions,
-} from "./llm-route.ts"
-export type {
   StreamTranscriptionOptions,
   StreamingTranscription,
   TranscribeArtifactTemplateInput,
@@ -355,9 +325,6 @@ export type {
 export type {
   ElevenLabsScribeOptions,
 } from "./transcription-elevenlabs.ts"
-export type {
-  OpenRouterTranscriptionModelOptions,
-} from "./transcription-openrouter.ts"
 export type {
   BlobCapabilityOptions,
 } from "./storage/blob.ts"

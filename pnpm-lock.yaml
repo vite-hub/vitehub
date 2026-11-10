@@ -909,9 +909,6 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
-      '@vite-hub/decisions':
-        specifier: workspace:*
-        version: link:../decisions
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email

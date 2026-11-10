@@ -464,7 +464,7 @@ State, instructions, and criteria accept JSON. Root numbers and booleans become 
 
 `driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/agents/ai-gateways#errors).
 
-The Console and `vitehub agent info` show the Driver kind as `ask`. In an ask Agent, [`llmGate()`](/docs/agents/capabilities/llm-gate) and [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model` also decide through Jev, with their own `gateway` or `typesafe()`.
+The Console and `vitehub agent info` show the Driver kind as `ask`.
 
 Each question is a trace step, so the journal and Console show what Jev was asked and answered:
 
