@@ -19,6 +19,7 @@ not these files.
 | `.vitehub/env/public.mjs` | Env Package | Public Env runtime module. |
 | `.vitehub/env/server.mjs` | Env Package | Server Env runtime module. |
 | `.vitehub/types/env.d.ts` | Env Package | Public Env and Server Env types. |
+| `.vitehub/types/blob.d.ts` | Blob Package | Blob store names from `blob.stores`. |
 | `.vitehub/types/browser.d.ts` | Browser Package | Browser Definition names and input/result module types. |
 | `.vitehub/types/email.d.ts` | Email Package | Exact module declarations for discovered `#vitehub/emails/<name>` imports. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Workspace name types. |

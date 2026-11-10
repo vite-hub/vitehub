@@ -701,7 +701,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("missing").get("notes/missing.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"missing\".",
+      message: "Unknown Blob store \"missing\". Configured stores: \"default\".",
     })
   })
 
@@ -752,7 +752,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("inherited").get("notes/inherited.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"inherited\".",
+      message: "Unknown Blob store \"inherited\". Configured stores: \"default\".",
     })
     expect(vercelBlobMock.get).not.toHaveBeenCalled()
   })
