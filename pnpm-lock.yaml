@@ -203,6 +203,10 @@ catalogs:
     comark-ui:
       specifier: ^0.9.1
       version: 0.9.1
+  nitro-compat:
+    nitro:
+      specifier: 3.0.261102-rc || ^3.0.261103-rc
+      version: 3.0.261102-rc
   nuxt:
     '@nuxt/ui':
       specifier: ^4.12.0
@@ -1642,9 +1646,6 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.261102-rc
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -1676,6 +1677,9 @@ importers:
       modern-screenshot:
         specifier: 4.7.0
         version: 4.7.0
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.261102-rc
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
@@ -3563,9 +3567,6 @@ importers:
       nanotar:
         specifier: ^0.3.0
         version: 0.3.0
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.261102-rc
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -3846,6 +3847,9 @@ importers:
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.261102-rc
       nuxt:
         specifier: catalog:nuxt
         version: 4.6.4(f86673714709c46a39915a1b1d06e41c)
