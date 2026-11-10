@@ -22,7 +22,7 @@ import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContrib
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
-import { assertDefinitionD1Resources, hasRemoteDefinitionRuntime, usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -75,6 +75,8 @@ type NuxtLike = {
   options: Record<string, unknown> & {
     alias?: Record<string, string>
     _layers?: NuxtServerDirOptions["_layers"]
+    /** True for `nuxt prepare`, which loads Nuxt with `dev: false` and writes types without a build. */
+    _prepare?: boolean
     buildDir?: string
     dev?: boolean
     modules?: unknown[]
@@ -264,7 +266,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           serverDirs,
         })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
-        if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
+        // `nuxt prepare` writes the same output as the build, so the types match, but it skips the checks that only
+        // a deployable build needs. An app runs it in `postinstall`, before it has D1 resources.
+        const building = !nuxtOptions.dev && !nuxtOptions._prepare
+        if (building && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
             throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })
           }
@@ -286,7 +291,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             provisionRoot,
             serverDirs,
           })
-          if (provider === "cloudflare") {
+          if (building && provider === "cloudflare") {
             assertDistinctNuxtD1Bindings(runtime, d1, config)
             // Without a D1 resource, the Vite build removes the hosted runtime and Nitro cannot load the
             // `@vite-hub/database/drizzle` alias. An alias that the app sets does not load that runtime.
@@ -295,7 +300,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           const d1Only = runtime && usesD1HttpOnly(runtime)
           // A separate Nuxt Content D1 resource does not make Node's local Databases hosted.
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1Only || (provider && d1) ? "cloudflare" : provider
-          if (d1Only) {
+          // A hosted Definition runtime without a remote libSQL URL reaches D1 only, so the build ships no libSQL client.
+          if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") && !usesRemoteLibsql(runtime)) {
             const alias = ensureRecord(config, "alias")
             alias["#vitehub/database/definition-runtime"] ??= resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/d1")
           }
@@ -311,6 +317,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             await removeGeneratedDatabaseTypes(root)
           }
           if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel")) {
+            if (building) assertHostedDatabaseRuntimeResources(runtime, [runtimeProvider])
             await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
           }
           const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
@@ -329,6 +336,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             for (const binding of unresolved) {
               if (hasRemoteDefinitionRuntime(runtime.databases[binding.database]!)) continue
               if (d1 && binding.binding === d1.bindingName && runtime.definitionDefaults.cloudflareProjections[binding.database]?.resource === "inherited" && findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved?.databaseName)) continue
+              if (!building) continue
               const missing = binding.reason === "missing-database-name" ? "`cloudflare.databaseName`" : "`cloudflare.databaseId` or provision state"
               throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [binding.database], missing })
             }
@@ -376,7 +384,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)
-          if (hasNuxtContentModule(nuxtOptions.modules) && !d1) {
+          if (building && hasNuxtContentModule(nuxtOptions.modules) && !d1) {
             const content = isRecord(nuxtOptions.content) ? nuxtOptions.content : undefined
             const database = content && isRecord(content.database) ? content.database : undefined
             const bindingName = database?.type === "d1" && typeof database.bindingName === "string" ? database.bindingName : "DB"

@@ -36,6 +36,21 @@ describe("commentsRealtime", () => {
     expect(await definition.authorize!({ ...context, documentId: commentRoom(room), mode: "read", user: user ?? null })).toBe(allowed)
   })
 
+  it("checks the subject that `page` maps the page to, and keeps the room of the page path", async () => {
+    const definition = commentsRealtime(defineComments({
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+      authorize: ({ subject }) => subject?.kind === "drop" && subject.id === "abc",
+    }))
+    const join = async (page: string, room: string) => {
+      const context = { definition: "comments", event: event(), request: new Request(`http://site.test?page=${encodeURIComponent(page)}`) }
+      await definition.identify!(context)
+      return await definition.authorize!({ ...context, documentId: commentRoom(room), mode: "read", user: null })
+    }
+    expect(await join("/d/abc", "/d/abc")).toBe(true)
+    expect(await join("/d/xyz", "/d/xyz")).toBe(false)
+    expect(await join("/d/abc", "/d/xyz")).toBe(false)
+  })
+
   it("allows a page-only policy without needing a context-free read", async () => {
     const definition = commentsRealtime(defineComments({ authorize: ({ subject }) => subject?.id === "/public" }))
     const context = { definition: "comments", event: event(), request: new Request("http://site.test?page=%2Fpublic") }
