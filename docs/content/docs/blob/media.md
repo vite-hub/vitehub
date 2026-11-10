@@ -147,8 +147,9 @@ In your own routes, pass the variant to `blob.serve()`:
 ```ts fragment
 import { blob, parseImageVariant } from '@vite-hub/blob'
 
-const [error, stream] = await blob.serve(event, pathname, {
-  variant: parseImageVariant(getQuery(event)) ?? { width: 640 },
+const url = new URL(request.url)
+return blob.serve(request, pathname, {
+  variant: parseImageVariant(url.searchParams) ?? { width: 640 },
 })
 ```
 

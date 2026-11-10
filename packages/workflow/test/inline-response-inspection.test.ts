@@ -13,7 +13,7 @@ it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable acro
     headers: { "content-type": "application/octet-stream", "x-result": "original" },
   }))
   const workflow = createWorkflow("repeated-inspection", handler)
-  await workflow.run(undefined, { id: "run-1" })
+  await workflow.start(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
   const first = await workflow.getRun("run-1")
@@ -21,7 +21,7 @@ it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable acro
   await expect(first.result.arrayBuffer()).resolves.toEqual(new Uint8Array([0, 128, 255]).buffer)
   first.result.headers.set("x-result", "changed by reader")
 
-  for (const read of [() => workflow.getRun("run-1"), () => workflow.run(undefined, { id: "run-1" })]) {
+  for (const read of [() => workflow.getRun("run-1"), () => workflow.start(undefined, { id: "run-1" })]) {
     const next = await read()
     expect(next.status).toBe("completed")
     assert(next.result instanceof Response)
@@ -36,7 +36,7 @@ it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable acro
 it("keeps the stored output when an inspector cancels its response", async () => {
   setWorkflowRuntimeConfig({ provider: "vercel" })
   const workflow = createWorkflow("cancelled-inspection", () => new Response("saved output"))
-  await workflow.run(undefined, { id: "run-1" })
+  await workflow.start(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
   const first = await workflow.getRun("run-1")
@@ -51,7 +51,7 @@ it("keeps the stored output when an inspector cancels its response", async () =>
 it("preserves a null response body across inspections", async () => {
   setWorkflowRuntimeConfig({ provider: "vercel" })
   const workflow = createWorkflow("empty-inspection", () => new Response(null, { status: 204 }))
-  await workflow.run(undefined, { id: "run-1" })
+  await workflow.start(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
   for (let index = 0; index < 2; index++) {
@@ -68,7 +68,7 @@ it("records a failed run when its response body cannot be retained", async () =>
   const workflow = createWorkflow("failed-output", () => new Response(new ReadableStream({
     start(controller) { controller.error(cause) },
   })))
-  await workflow.run(undefined, { id: "run-1" })
+  await workflow.start(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
   expect(await workflow.getRun("run-1")).toMatchObject({ status: "failed", metadata: cause, result: undefined })

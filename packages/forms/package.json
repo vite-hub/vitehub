@@ -41,6 +41,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -61,7 +66,8 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
@@ -69,8 +75,8 @@
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
+    "strip-ansi": "7.2.0",
     "typescript": "catalog:tooling",
-    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

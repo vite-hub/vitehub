@@ -82,9 +82,17 @@ export const d1MigrationNamesFile = "d1-migrations.json"
 function readD1MigrationNames(migrationsDir: string): Record<string, string> {
   const file = join(migrationsDir, d1MigrationNamesFile)
   if (!existsSync(file)) return {}
-  const value: unknown = JSON.parse(readFileSync(file, "utf8"))
+  const shape = `${file} must map each migration folder to its Wrangler file name, such as { "20261109120000_init": "0000_init.sql" }.`
+  let value: unknown
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"))
+  }
+  catch (error) {
+    // For example the markers of a merge conflict.
+    throw new Error(`${file} is not valid JSON. Fix the JSON. ${shape}`, { cause: error })
+  }
   const valid = isRecord(value) && !Array.isArray(value) && Object.values(value).every(name => typeof name === "string" && name.endsWith(".sql"))
-  if (!valid) throw new Error(`${file} must map each migration folder to its Wrangler file name, such as { "20261109120000_init": "0000_init.sql" }.`)
+  if (!valid) throw new Error(shape)
   return value as Record<string, string>
 }
 

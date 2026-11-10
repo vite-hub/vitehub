@@ -86,7 +86,7 @@ export function bindMessageChannelInstructions(
   if (instructions) messageChannelInvocationInstructions.set(context, instructions)
 }
 
-/** The built-in guidance of a Channel, then the instructions that the app set with `defineChannel(kind, { instructions })`. */
+/** The built-in guidance of a Channel, then the instructions that the app set with `instructions`. */
 function channelInstructions(channel: object): string | undefined {
   // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
   const value = channel as { [messageChannelInstructions]?: string, instructions?: unknown }
