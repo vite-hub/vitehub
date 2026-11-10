@@ -103,7 +103,6 @@ const runtimeEntries = [
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
   "src/console/runtime/client/sign-in.ts",
-  "src/console/runtime/client/time.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
   "src/console/runtime/definitions.ts",
@@ -353,7 +352,8 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-env-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-credential-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-activity-feed.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
         {
           from: "src/console/runtime/components/console-auth.vue",
@@ -369,6 +369,8 @@ export default defineConfig({
         },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
+        // The copied invocation helpers import the formatters as TypeScript.
+        { from: "src/console/runtime/client/format.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/highlight-languages.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
@@ -378,7 +380,6 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-code-text.vue", to: "dist/console/runtime/components" },
@@ -418,9 +419,12 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-date-input.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
-        { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-facts.ts", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-section.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-stat-grid.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-confirm.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
@@ -513,7 +517,6 @@ export default defineConfig({
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
           delete exports["./console/runtime/client/sign-in"];
-          delete exports["./console/runtime/client/time"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/definitions"];
