@@ -35,8 +35,6 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { formatRetentionPercentage } from "./internal/retention-policy.ts"
-import type { NormalizedRetention } from "./internal/retention-policy.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
@@ -876,16 +874,6 @@ function providerResolverKind(value: unknown): "dynamic" | "static" {
     : "static"
 }
 
-function retentionMetadata(retention: NormalizedRetention): NonNullable<AgentInspectionProviderMetadata["retention"]> {
-  return {
-    ...(retention.maxAgeMs === false ? {} : { maxAge: retention.maxAgeMs }),
-    ...(retention.maxRecords === false ? {} : { maxRecords: retention.maxRecords }),
-    ...(retention.maxSize === false
-      ? {}
-      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${formatRetentionPercentage(retention.maxSize.fraction)}%` }),
-  }
-}
-
 function providerMetadata(driver: {
   credentialProfile?: string
   credentials?: unknown
@@ -900,7 +888,6 @@ function providerMetadata(driver: {
   providerSettings?: Record<string, unknown>
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
-  retention?: NormalizedRetention
   sessionStorePath?: string
   toolchain?: AgentInspectionProviderMetadata["toolchain"]
 }): AgentInspectionProviderMetadata {
@@ -922,7 +909,6 @@ function providerMetadata(driver: {
     ...(providerSettings.length ? { providerSettings } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
-    ...(driver.retention ? { retention: retentionMetadata(driver.retention) } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),
     ...(driver.toolchain !== undefined ? { toolchain: driver.toolchain } : {}),
   }
