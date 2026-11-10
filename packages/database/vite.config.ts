@@ -14,6 +14,7 @@ const privateEntries = new Set([
   "./runtime/libsql",
   "./runtime/libsql-disabled",
   "./runtime/migrate-on-start",
+  "./runtime/pglite",
   "./runtime/postgres",
   "./runtime/use-database",
   "./runtime/virtual-databases",
@@ -29,7 +30,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
+      neverBundle: ["vite", "postgres", "@electric-sql/pglite", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
       onlyBundle: false,
     },
     plugins: [{
@@ -65,6 +66,7 @@ export default defineConfig({
       "src/runtime/libsql-disabled.ts",
       "src/runtime/libsql-drizzle.ts",
       "src/runtime/migrate-on-start.ts",
+      "src/runtime/pglite.ts",
       "src/runtime/postgres.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",

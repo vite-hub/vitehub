@@ -110,10 +110,18 @@ export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
 }
 
+/**
+ * `pglite` runs a Postgres Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ * `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ */
+export type PostgresDatabaseDriver = "pglite"
+
 export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
+  /** Without it, a Database that has no URL or PG* variables still runs on PGlite in development. */
+  driver?: PostgresDatabaseDriver
   name?: string
   /** Only D1 has a remote development mode. */
   remote?: never
@@ -124,6 +132,7 @@ export interface PostgresDatabaseDefinition<TSchema extends Record<string, unkno
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
+  driver?: PostgresDatabaseDriver
   name: string
   schema: TSchema
 }
@@ -213,6 +222,8 @@ export interface ResolvedCloudflareHyperdriveConfig {
 export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseConfig {
   cloudflare?: ResolvedCloudflareD1BindingConfig
   dialect: DatabaseDialect
+  /** Postgres Definitions only. */
+  driver?: PostgresDatabaseDriver
   generatedSchemaFile: string
   /** Postgres Definitions only. */
   hyperdrive?: ResolvedCloudflareHyperdriveConfig

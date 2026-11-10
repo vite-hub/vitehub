@@ -78,6 +78,7 @@ catalogs:
     chat: 4.44.0
     chat-state-cloudflare-do: ^0.2.0
   database:
+    "@electric-sql/pglite": ^0.5.15
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
     drizzle-kit: 1.0.0-rc.5

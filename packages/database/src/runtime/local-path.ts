@@ -7,3 +7,8 @@ export function resolveLocalSqlitePath(url: string) {
   }
   return /^file:/i.test(path) ? decodeURIComponent(path.slice("file:".length)) : path
 }
+
+/** The PGlite folder of a Postgres Database in development, relative to the project root, beside the SQLite files. */
+export function localPgliteDir(name: string) {
+  return name === "default" ? ".vitehub/data/database/pglite" : `.vitehub/data/database/${name}.pglite`
+}
