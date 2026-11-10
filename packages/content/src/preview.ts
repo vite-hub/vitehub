@@ -607,15 +607,25 @@ function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | unde
   }
 }
 
+/** Whether a URL can carry `name` in its query. A `%` counts, since percent-encoding can spell the name another way. */
+function mayCarryParameter(url: string, name: string): boolean {
+  return url.includes(name) || url.includes("%")
+}
+
 /**
  * Whether a request asks for published reads: its URL has `?vitehub-content-published`, or its `Referer` is a page of
  * the same origin with it, such as a fetch from the page in the Published view. It only takes draft access away.
  */
 function publishedRequest(event: ContentPreviewEvent): boolean {
+  // Most requests carry the parameter in neither their URL nor their referer, so they skip parsing both.
+  const raw = eventParts(event).url
+  const text = raw instanceof URL ? raw.href : raw
+  const referer = requestHeader(event, "referer")
+  if (String(text) === text && !mayCarryParameter(text, contentPreviewPublishedParameter)
+    && (!referer || !mayCarryParameter(referer, contentPreviewPublishedParameter))) return false
   const url = requestUrl(event)
   if (!url) return false
   if (url.searchParams.has(contentPreviewPublishedParameter)) return true
-  const referer = requestHeader(event, "referer")
   if (!referer) return false
   try {
     const from = new URL(referer)
@@ -948,7 +958,8 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     if (nitroApp.fetch instanceof Function) {
       const fetch = nitroApp.fetch
       nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
-        const url = request instanceof Request ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
+        // Only a POST can be a preview frame, so other requests skip parsing their URL.
+        const url = request instanceof Request && String(request.method).toUpperCase() === "POST" ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
         if (!(request instanceof Request) || !isFrameRequest(request.method, url)) {
           return scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
         }

@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
@@ -101,6 +102,18 @@ export function isPackageInstalled(packageName: string): boolean {
       return false
     }
   })
+}
+
+/**
+ * Whether the app at `root` installed `packageName` in its own `node_modules` or one of its parents. `isPackageInstalled`
+ * resolves from `vite-hub`, which also sees the development dependencies of a source checkout. `require.resolve` also
+ * reads `NODE_PATH`, which pnpm bin scripts point at every hoisted package.
+ */
+export function isPackageInstalledInApp(root: string, packageName: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(join(directory, "node_modules", packageName, "package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
 }
 
 /** Loads a module of an optional owner package, or returns `undefined` when the app did not install the package. */
