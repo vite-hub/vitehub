@@ -644,7 +644,7 @@ interface GeneratedWorkflowArtifacts {
 
 interface GenerateProviderOutputsOptions {
   artifacts?: GeneratedWorkflowArtifacts
-  agentImportBase?: string
+  agentModules?: AgentWorkflowModules
   clientOutDir: string
   bundleDefines?: Record<string, string>
   hosting?: string
@@ -660,7 +660,7 @@ interface GenerateProviderOutputsOptions {
   includeUserAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
-  workspaceImportBase?: string
+  workspaceRuntimeModule?: string
   transformRegistry?: (code: string, id: string) => string | Promise<string>
   /** Nitro's Worker holds the Cloudflare Workflows, so no separate Cloudflare Workflow Worker is written. */
   cloudflareInNitro?: boolean
@@ -672,10 +672,18 @@ interface WorkspaceDependencyRuntimeImports {
   shellWorkspace?: string
 }
 
+/** The Agent files that a generated Workflow registry imports, by path. `agentRuntimeModule()` in `@vite-hub/agent/vite` gives them. */
+export interface AgentWorkflowModules {
+  index: string
+  runtimeWorkflow: string
+  serverInternal: string
+}
+
 interface WorkflowImportBases {
-  agent?: string
+  agent?: AgentWorkflowModules
   workflow?: string
-  workspace?: string
+  /** The Workspace runtime module, when the app has Workspace dependencies such as Sandbox Tasks. */
+  workspaceRuntime?: string
   workspaceDependencies?: WorkspaceDependencyRuntimeImports
 }
 
@@ -690,7 +698,7 @@ interface CloudflareWorkflowConfig {
 }
 
 interface CloudflareWorkflowNitroOptions {
-  agentImportBase?: string
+  agentModules?: AgentWorkflowModules
   nitro: Record<string, unknown>
   rootDir: string
   serverDirs?: string[]
@@ -698,7 +706,7 @@ interface CloudflareWorkflowNitroOptions {
   workflow: WorkflowModuleOptions | undefined
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
-  workspaceImportBase?: string
+  workspaceRuntimeModule?: string
   transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
@@ -793,9 +801,9 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
   if (!config || config.provider !== "cloudflare") return options.nitro
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
-    agent: options.agentImportBase,
+    agent: options.agentModules,
     workflow: options.workflowImportBase,
-    workspace: options.workspaceImportBase,
+    workspaceRuntime: options.workspaceRuntimeModule,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry)
   if (!artifacts.providerDefinitions.length) return options.nitro
@@ -975,6 +983,24 @@ function renderWorkflowRegistryEntry(
   ].filter(Boolean).join("\n")
 }
 
+/** Without `hubAgent()`, Agent Workflows load the Agent package that the app installs, by the paths it hands out. */
+async function installedAgentWorkflowModules(rootDir: string): Promise<AgentWorkflowModules | undefined> {
+  let agentVite: string
+  try {
+    agentVite = createRequire(resolve(rootDir, "package.json")).resolve("@vite-hub/agent/vite")
+  }
+  catch {
+    return undefined
+  }
+  // SAFETY: Workflow does not depend on the Agent package, so its types are not available here.
+  const { agentRuntimeModule } = await import(pathToFileURL(agentVite).href) as { agentRuntimeModule: (entry: string) => string }
+  return {
+    index: agentRuntimeModule("index"),
+    runtimeWorkflow: agentRuntimeModule("runtime/workflow"),
+    serverInternal: agentRuntimeModule("server/internal"),
+  }
+}
+
 export function createWorkflowRegistryContents(
   registryFile: string,
   definitions: DiscoveredWorkflowDefinition[],
@@ -982,20 +1008,21 @@ export function createWorkflowRegistryContents(
   vercelNativeFiles: Record<string, string> = {},
   retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ): string {
-  const agentImportBase = importBases.agent ?? "@vite-hub/agent"
   const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  const workspaceDependencyRuntimeImports = importBases.workspace ? importBases.workspaceDependencies : undefined
+  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime ? importBases.workspaceDependencies : undefined
+  const agent = importBases.agent
+  if (needsAgentRuntime && !agent) throw workflowErrorDiagnostics.WORKFLOW_B0003()
   const imports = [
-    ...(needsAgentRuntime
+    ...(needsAgentRuntime && agent
       ? [
-          `import { agentWithColocatedInstructions } from ${JSON.stringify(agentImportBase)}`,
-          `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
-          `import { installAgentChannelDeliveryWorkflowResolver, runAgentInline } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`,
+          `import { agentWithColocatedInstructions } from ${JSON.stringify(agent.index)}`,
+          `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(agent.runtimeWorkflow)}`,
+          `import { installAgentChannelDeliveryWorkflowResolver, runAgentInline } from ${JSON.stringify(agent.serverInternal)}`,
           ...(installAgentWorkflowRuntime
-            ? [`import { setAgentWorkflowRuntimeLoaders } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`]
+            ? [`import { setAgentWorkflowRuntimeLoaders } from ${JSON.stringify(agent.serverInternal)}`]
             : []),
         ]
       : []),
@@ -1006,7 +1033,7 @@ export function createWorkflowRegistryContents(
         ]
       : []),
     ...(workspaceDependencyRuntimeImports
-      ? [`import { setWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(`${importBases.workspace}/runtime`)}`]
+      ? [`import { setWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(importBases.workspaceRuntime)}`]
       : []),
   ]
 
@@ -1191,10 +1218,13 @@ export async function writeProviderEntries(
     await writeFile(nativeFile, createVercelNativeWorkflowContents(definition), "utf8")
   }))
   const registryRuntimeFile = resolve(generatedDir, generatedRegistryRuntimeFileName)
+  const agentModules = importBases.agent ?? (providerDefinitions.some(definition => definition.source === "agent-workflow")
+    ? await installedAgentWorkflowModules(rootDir)
+    : undefined)
   const registryContents = createWorkflowRegistryContents(
     registryRuntimeFile,
     providerDefinitions,
-    importBases,
+    { ...importBases, agent: agentModules },
     vercelNativeFiles,
     retainedAgentInstructions,
   )
@@ -1507,9 +1537,9 @@ async function generateProviderOutputsWithinLock(
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
 ): Promise<GeneratedWorkflowArtifacts> {
   let artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
-    agent: options.agentImportBase,
+    agent: options.agentModules,
     workflow: options.importBase,
-    workspace: options.workspaceImportBase,
+    workspaceRuntime: options.workspaceRuntimeModule,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
   const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)

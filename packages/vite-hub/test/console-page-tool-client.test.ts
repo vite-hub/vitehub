@@ -36,8 +36,9 @@ it("remembers only the document actually opened when a leave guard cancels navig
   expect(postMessage).toHaveBeenCalledWith({ type: "vitehub:route", path: "/content/pages/second?embed=1" }, "http://site.test")
 })
 
-afterEach(() => {
+afterEach(async () => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Turn off ViteHub tools"]')?.click()
+  await new Promise(resolve => setTimeout(resolve, 0))
   for (const element of document.querySelectorAll("vitehub-tools-off")) element.remove()
   localStorage.removeItem("vitehub-tools-off")
   history.replaceState(null, "", "/")

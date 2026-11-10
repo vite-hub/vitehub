@@ -1,13 +1,13 @@
 import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "@vite-hub/agent/invocations/default"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
-import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
-import { isDefaultAgentJournal } from "../../agent-invocations-setting.ts"
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { isDefaultAgentJournal } from "../agent-invocations-setting.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
 import type { AgentInvocationObservationOptions, AgentInvocationsOptions, AgentInvocationStore, AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { DatabaseAgentInvocationStoreOptions } from "../../agent/invocations/database.ts"
+import type { DatabaseAgentInvocationStoreOptions } from "../agent/invocations/database.ts"
 
 /** Built-in Invocation journal stores. `database` uses the app's ViteHub Database. `memory` keeps records in the server process. */
 export type AgentInvocationsStoreName = "database" | "memory"
