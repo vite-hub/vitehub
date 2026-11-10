@@ -7,17 +7,17 @@ navigation.order: 1
 icon: i-lucide-list-ordered
 ---
 
-::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
+::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Node, Docker, Cloudflare, Vercel"}
   :::code-tree{feature="queue"}
   ```ts [server/api/signup.post.ts]
   import { defineEventHandler, readValidatedBody } from 'h3'
   import * as v from 'valibot'
-  import { runQueue } from 'vite-hub/queue'
+  import { sendQueue } from 'vite-hub/queue'
 
   // Returns when the queue accepts the job, before it runs
   export default defineEventHandler(async (event) => {
     const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
-    const [error, result] = await runQueue('welcome-email', { email })
+    const [error, result] = await sendQueue('welcome-email', { email })
     if (error) throw error
     return result
   })
@@ -39,12 +39,12 @@ icon: i-lucide-list-ordered
   ```ts [server/api/reminder.post.ts]
   import { defineEventHandler, readValidatedBody } from 'h3'
   import * as v from 'valibot'
-  import { runQueue } from 'vite-hub/queue'
+  import { sendQueue } from 'vite-hub/queue'
 
   // Run the same job in 10 minutes
   export default defineEventHandler(async (event) => {
     const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
-    const [error, result] = await runQueue('welcome-email', { email }, { delaySeconds: 600 })
+    const [error, result] = await sendQueue('welcome-email', { email }, { delaySeconds: 600 })
     if (error) throw error
     return result
   })
@@ -101,11 +101,11 @@ icon: i-lucide-list-ordered
 
 ::product-features
   :::product-feature-item{title="One file per queue" icon="i-lucide-file-code-2" to="/docs/queue/configure#define-a-queue"}
-  Add a file to `server/queues`. Its name is the queue name, and its function runs each job.
+  Add a file to `server/queues`. The file name is the queue name, and its function runs each job.
   :::
 
   :::product-feature-item{title="Reply first, work later" icon="i-lucide-list-ordered" to="/docs/queue/server-api#enqueue-work"}
-  `runQueue()` returns when the queue accepts the job. The job runs after your route replies.
+  `sendQueue()` returns when the queue accepts the job. The job runs after your route replies.
   :::
 
   :::product-feature-item{title="Wait before a job runs" icon="i-lucide-clock-3" to="/docs/queue/server-api#queue-enqueue-options"}
@@ -117,11 +117,11 @@ icon: i-lucide-list-ordered
   :::
 
   :::product-feature-item{title="Failed jobs run again" icon="i-lucide-refresh-cw" to="/docs/queue/server-api#handle-failures"}
-  A job that fails can run again. Write each job so that a second run is safe.
+  A failed job can run again, so make a second run safe.
   :::
 
-  :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  Jobs run on Cloudflare Queues or Vercel Queues. They do not run on your own machine.
+  :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
+  On Node, jobs run in the server process. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
   :::
 ::
 

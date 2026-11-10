@@ -46,12 +46,12 @@ icon: i-lucide-workflow
 
   ```ts [server/api/onboard.post.ts]
   import { defineEventHandler, readBody } from 'h3'
-  import { runWorkflow } from 'vite-hub/workflow'
+  import { startWorkflow } from 'vite-hub/workflow'
 
   // Start a run and return its id at once
   export default defineEventHandler(async (event) => {
     const body = await readBody<{ email: string }>(event)
-    return runWorkflow('onboard-user', body)
+    return startWorkflow('onboard-user', body)
   })
   ```
 
@@ -74,23 +74,23 @@ icon: i-lucide-workflow
   :::
 
   :::product-feature-item{title="Split work into steps" icon="i-lucide-list-checks" to="/docs/workflows/get-started#define-the-workflow-steps"}
-  Put numbered files in a workflow folder. If a step fails, a durable host can run that step again.
+  Put numbered files in a workflow folder. A durable host can retry a failed step.
   :::
 
   :::product-feature-item{title="Start now, check later" icon="i-lucide-play-circle" to="/docs/workflows/server-api#start-a-run"}
-  `runWorkflow()` starts a run and returns its id. Your route does not wait for the work.
+  `startWorkflow()` starts a run and returns its id. Your route does not wait for the work.
   :::
 
   :::product-feature-item{title="Status and result" icon="i-lucide-activity" to="/docs/workflows/server-api#inspect-a-run"}
-  `getWorkflowRun()` tells you if a run is queued, running, completed, or failed, and gives the result.
+  `getWorkflowRun()` returns the status (queued, running, completed, or failed) and the result.
   :::
 
   :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#providers"}
-  Use Cloudflare, Vercel, or OpenWorkflow with Postgres or SQLite on your own server. Your routes do not change.
+  Use Cloudflare, Vercel, or OpenWorkflow with Postgres or SQLite on your own server. Routes stay the same.
   :::
 
   :::product-feature-item{title="Clear error codes" icon="i-lucide-circle-alert" to="/docs/workflows/limits-and-errors#structured-errors"}
-  Throw an error with a fixed code. The code is the same on every host.
+  Throw an error with a fixed code that is the same on every host.
   :::
 ::
 
