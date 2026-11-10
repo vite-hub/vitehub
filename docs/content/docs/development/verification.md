@@ -16,7 +16,7 @@ verify the provider behavior that local checks cannot exercise.
 | Tier | How to run it | Proves |
 | --- | --- | --- |
 | Unit or application test | Your test runner with [`vite-hub/test`](/docs/development/testing) | Runtime behavior, config handling, and error branches. |
-| Provider Output Contract | `pnpm build`, then `vitehub inspect provider-output` | Generated Provider Output shape without cloud execution. |
+| Provider Output Contract | `pnpm build`, then `vitehub inspect output` | Generated Provider Output shape without cloud execution. |
 | Local Provider Run | Start the built output locally, for example `node .output/server/index.mjs` | Built Provider Output can serve the application behavior. |
 | Live Smoke | A deployment to a separate environment | Thin real-provider coverage for the same application behavior. |
 | Agent Eval | `vitehub agent eval` | Agent Definition behavior and scored Agent Invocations. |
@@ -37,7 +37,7 @@ Use them when the change affects bindings, worker bundles, Vercel Build Output, 
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output --json
+pnpm vitehub inspect output --json
 ```
 
 The [Provider output reference](/docs/reference/provider-output) lists the expected artifact families.

@@ -12,7 +12,7 @@ import type {
   DenoKVStoreConfig,
   FsLiteKVStoreConfig,
   InferredKVStoreConfig,
-  KVModuleOptions,
+  KVOptions,
   KVStoreConfig,
   KVStoresConfig,
   RedisKVStoreConfig,
@@ -130,13 +130,13 @@ function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: 
   return stores ? { store, stores: { default: store, ...stores } } : { store }
 }
 
-function hasStoresConfig(options: KVModuleOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
+function hasStoresConfig(options: KVOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
   // SAFETY: The own-property check establishes stores exists; its value stays unknown until isPlainObject validates it.
   return !!options && Object.hasOwn(options, "stores") && isPlainObject(stores)
 }
 
 export function normalizeKVOptions(
-  options: KVModuleOptions | undefined,
+  options: KVOptions | undefined,
   input: KVResolutionInput = {},
 ): ResolvedKVModuleOptions | undefined {
   if (options === false) return
@@ -178,30 +178,16 @@ export function normalizeKVOptions(
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
   if (input.dev) return inferred(resolveFsLiteStore())
-  // Node and other servers. The server picks `redis` when `REDIS_URL` is set at runtime, see `resolveInferredStore()`.
+  // Node and other servers keep the build-selected driver. Redis requires an explicit driver.
   if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
   return inferred({ ...resolveFsLiteStore(), inferred: true })
 }
 
-/**
- * The store that an inferred build store uses on this server: `redis` when `REDIS_URL` is set now, else the build
- * store. Explicit stores do not change.
- */
-/**
- * The line that a server prints at boot for an inferred store: which driver this process uses and why. Processes
- * with different `REDIS_URL` values use different stores, so each one says what it picked.
- */
+/** The line that a server prints at boot for its build-selected inferred store. */
 export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig): string | undefined {
   if (!("inferred" in store) || !store.inferred) return
-  const runtime = resolveInferredStore(store, globalThis.process?.env ?? {})
-  if (runtime.driver === "redis") return `[vitehub] KV store "${name}" uses Redis, because ${redisUrlEnvName} is set. Every server process needs the same ${redisUrlEnvName}.`
-  if (runtime.driver === "database") return `[vitehub] KV store "${name}" uses the table vitehub_kv of the Database "${runtime.database}", because ${redisUrlEnvName} is not set.`
-  if (runtime.driver === "fs-lite") return `[vitehub] KV store "${name}" uses fs-lite in ${runtime.base}, because ${redisUrlEnvName} is not set. Other server processes cannot read its keys.`
-}
-
-export function resolveInferredStore(store: ResolvedKVStoreConfig, env: Record<string, string | undefined>): ResolvedKVStoreConfig {
-  if (!("inferred" in store) || !store.inferred || !readEnv(env, redisUrlEnvName)) return store
-  return resolveRedisStore({}, "default")
+  if (store.driver === "database") return `[vitehub] KV store "${name}" uses the table vitehub_kv of the Database "${store.database}", selected at build time.`
+  if (store.driver === "fs-lite") return `[vitehub] KV store "${name}" uses fs-lite in ${store.base}, selected at build time. Other server processes cannot read its keys.`
 }
 
 export function warnVercelKVFallback(

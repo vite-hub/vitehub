@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { kvInferredStoreNotice, normalizeKVOptions, resolveInferredStore, warnVercelKVFallback } from "../src/config.ts"
+import { kvInferredStoreNotice, normalizeKVOptions, warnVercelKVFallback } from "../src/config.ts"
 import { configureCloudflareKV } from "../src/integrations/cloudflare.ts"
 
 describe("normalizeKVOptions", () => {
-  it("falls back to fs-lite locally, and lets REDIS_URL select Redis on the server", () => {
+  it("falls back to fs-lite on Node", () => {
     expect(normalizeKVOptions(undefined, {
       env: {},
       hosting: "",
@@ -63,24 +63,12 @@ describe("normalizeKVOptions", () => {
   })
 })
 
-describe("resolveInferredStore", () => {
-  const inferredFsLite = { base: ".vitehub/data/kv", driver: "fs-lite" as const, inferred: true as const }
-  const inferredDatabase = { database: "default", driver: "database" as const, inferred: true as const, namespace: "default" }
-
-  it("selects Redis when REDIS_URL is set on the server", () => {
-    const redis = { base: "vitehub:kv:default", driver: "redis", url: "env:REDIS_URL" }
-    expect(resolveInferredStore(inferredFsLite, { REDIS_URL: "redis://localhost:6379" })).toEqual(redis)
-    expect(resolveInferredStore(inferredDatabase, { REDIS_URL: "redis://localhost:6379" })).toEqual(redis)
-  })
-
-  it("keeps the build store without REDIS_URL", () => {
-    expect(resolveInferredStore(inferredDatabase, {})).toBe(inferredDatabase)
-    expect(resolveInferredStore(inferredFsLite, { REDIS_URL: " " })).toBe(inferredFsLite)
-  })
-
-  it("never changes an explicit store", () => {
-    const explicit = { base: ".data", driver: "fs-lite" as const }
-    expect(resolveInferredStore(explicit, { REDIS_URL: "redis://localhost:6379" })).toBe(explicit)
+describe("build-selected Node stores", () => {
+  it.each([false, true])("ignores unrelated REDIS_URL values when Postgres is %s", (postgresDatabase) => {
+    const input = { env: {}, hosting: "node-server", postgresDatabase }
+    const config = normalizeKVOptions(undefined, input)
+    expect(normalizeKVOptions(undefined, { ...input, env: { REDIS_URL: "redis://localhost:6379" } })).toEqual(config)
+    expect(config?.store.driver).toBe(postgresDatabase ? "database" : "fs-lite")
   })
 })
 
@@ -89,9 +77,9 @@ describe("kvInferredStoreNotice", () => {
 
   it("says which driver this process picked for an inferred store, and why", () => {
     vi.stubEnv("REDIS_URL", "redis://localhost:6379")
-    expect(kvInferredStoreNotice("default", inferred)).toBe("[vitehub] KV store \"default\" uses Redis, because REDIS_URL is set. Every server process needs the same REDIS_URL.")
+    expect(kvInferredStoreNotice("default", inferred)).toContain("selected at build time")
     vi.stubEnv("REDIS_URL", "")
-    expect(kvInferredStoreNotice("default", inferred)).toBe("[vitehub] KV store \"default\" uses the table vitehub_kv of the Database \"default\", because REDIS_URL is not set.")
+    expect(kvInferredStoreNotice("default", inferred)).toBe("[vitehub] KV store \"default\" uses the table vitehub_kv of the Database \"default\", selected at build time.")
     expect(kvInferredStoreNotice("default", { base: ".vitehub/data/kv", driver: "fs-lite", inferred: true })).toContain("Other server processes cannot read its keys.")
     vi.unstubAllEnvs()
   })

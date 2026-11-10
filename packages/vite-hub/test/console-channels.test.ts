@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { agentChannelOperations } from "@vite-hub/agent/operations"
+import { agentChannelOperations } from "../../agent/dist/operations.js"
 import { installChannelsConsoleHost } from "@vite-hub/agent/server/internal"
 
 import { consoleOperationCall } from "../src/console/runtime/client/request.ts"

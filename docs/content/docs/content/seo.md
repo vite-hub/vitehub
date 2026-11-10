@@ -21,7 +21,8 @@ Content handles the SEO parts that depend on your documents: each document's URL
 Set `url` on a collection or singleton to give its documents a public URL. A pattern replaces `:id` with the document id and `:<field>` with a text or number field:
 
 ```ts [server/content.ts]
-import { defineContent, documents, seo, singleton } from 'vite-hub/content'
+import { defineContent, seo } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -46,7 +47,7 @@ A read-only Source (files Content does not edit) gets a `url` from `contentSourc
 
 ```ts [server/content.ts]
 import { contentSource, defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
   source: contentSource(glob({ cwd: 'content', include: 'guides/*.md' }), { url: '/:id' }),
@@ -62,7 +63,8 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but 
 
 ```ts [server/content.ts]
 import { z } from 'zod'
-import { documents, image, seo } from 'vite-hub/content'
+import { image, seo } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 
 const posts = documents({
   path: 'posts/**/*.md',
@@ -171,7 +173,7 @@ await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://v
 content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
 ```
 
-In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
+In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.
 
 ## Console
 

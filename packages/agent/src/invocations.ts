@@ -1,6 +1,6 @@
 import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
@@ -635,6 +635,7 @@ function boundedString(value: string | undefined): string | undefined {
 }
 
 function isDateValue(value: unknown): value is Date {
+  if (isUnbrandedValue(value)) return false
   try {
     Date.prototype.getTime.call(value)
     return true
@@ -646,6 +647,7 @@ function isDateValue(value: unknown): value is Date {
 
 
 function arrayBufferByteLength(value: unknown): number | undefined {
+  if (isUnbrandedValue(value)) return undefined
   try {
     const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
     // SAFETY: The intrinsic byteLength getter returns a number for a branded ArrayBuffer.
@@ -822,6 +824,7 @@ function isAggregateErrorValue(value: unknown): value is AggregateError {
 }
 
 function isRegExpValue(value: unknown): value is RegExp {
+  if (isUnbrandedValue(value)) return false
   try {
     Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return true
@@ -879,6 +882,7 @@ interface BoundedObservationBuiltIn {
 }
 
 function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  if (isUnbrandedValue(value)) return
   try {
     return Set.prototype.values.call(value)
   }
@@ -888,7 +892,7 @@ function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
 }
 
 function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || !hasRuntimeType(value, "object") || isUnbrandedValue(value)) return
   try {
     return Map.prototype.entries.call(value)
   }

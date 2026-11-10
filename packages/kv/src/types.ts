@@ -141,8 +141,7 @@ export interface ResolvedDatabaseKVStoreConfig extends DatabaseKVStoreConfig {
   /** The value of the `namespace` column for the keys of this store: the store name. */
   namespace: string
   /**
-   * The build inferred this store on Node. When `REDIS_URL` is set at runtime, the store uses the `redis` driver
-   * instead.
+   * The build inferred this store on Node. The server keeps this driver regardless of `REDIS_URL`.
    */
   inferred?: true
 }
@@ -161,7 +160,7 @@ export interface KVStoresConfig {
   stores: Record<string, KVStoreConfig>
 }
 
-export type KVModuleOptions = KVStoreConfig | InferredKVStoreConfig | KVStoresConfig | false
+export type KVOptions = KVStoreConfig | InferredKVStoreConfig | KVStoresConfig | false
 
 export interface ResolvedKVModuleOptions {
   store: ResolvedKVStoreConfig

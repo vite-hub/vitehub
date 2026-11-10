@@ -9,7 +9,7 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { kvTable } from "../src/runtime/database.ts"
-import { normalizeKVOptions, resolveInferredStore } from "../src/config.ts"
+import { normalizeKVOptions } from "../src/config.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
@@ -247,6 +247,17 @@ describe.runIf(postgresUrl)("database on Postgres table setup", () => {
   })
 })
 
+it("fails an explicit Redis store with a missing runtime URL instead of falling back", async () => {
+  vi.stubEnv("REDIS_URL", "")
+  const storage = track(createHostedKVStorage(normalizeKVOptions({ driver: "redis" }, { env: {} })))
+  try {
+    await expect(storage.setItem("claim", "first")).rejects.toMatchObject({ code: "KV_MISSING_ENV" })
+  }
+  finally {
+    vi.unstubAllEnvs()
+  }
+})
+
 describe.runIf(redisUrl)("redis URL", () => {
   it("reads the URL from the environment variable when the store starts", async () => {
     vi.stubEnv("VITEHUB_TEST_KV_REDIS", redisUrl!)
@@ -297,12 +308,12 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
     expect(await redis.get("bull:emails:1")).toBe("job")
   })
 
-  it("prefixes the inferred store that REDIS_URL selects", async () => {
-    const store = resolveInferredStore({ base: ".vitehub/data/kv", driver: "fs-lite", inferred: true }, { REDIS_URL: url })
+  it("prefixes an explicit Redis store using its runtime URL", async () => {
+    const store = normalizeKVOptions({ driver: "redis" }, { env: {} })!.store
     expect(store).toMatchObject({ base: "vitehub:kv:default", driver: "redis" })
     vi.stubEnv("REDIS_URL", url)
     try {
-      const storage = track(createHostedKVStorage({ store: { base: ".vitehub/data/kv", driver: "fs-lite", inferred: true } }))
+      const storage = track(createHostedKVStorage({ store }))
       await storage.setItem("inferred", 1)
       await storage.clear()
       expect(await redis.get("token")).toBe("foreign")
@@ -312,7 +323,7 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
     }
   })
 
-  it("continues a listing on another server process from the cursor alone", async () => {
+  it.each([false, true])("continues a listing across processes while deleting pages: %s", async (removePages) => {
     const config = normalizeKVOptions({ driver: "redis", base: `list-${randomUUID()}`, url }, { env: {} })
     const writer = track(createHostedKVStorage(config))
     const expected = Array.from({ length: 40 }, (_, index) => `item:${String(index).padStart(2, "0")}`)
@@ -326,9 +337,11 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
       const page = await reader.listKeys({ limit: 3, ...(cursor ? { cursor } : {}) })
       expect(page.keys.length).toBeLessThanOrEqual(3)
       keys.push(...page.keys)
+      if (removePages) await Promise.all(page.keys.map(key => reader.removeItem(key)))
       cursor = page.cursor
     } while (cursor)
     expect([...new Set(keys)].sort()).toEqual(expected)
+    if (removePages) expect(await writer.getKeys()).toEqual([])
   })
 })
 
@@ -367,6 +380,51 @@ describe("database sweep", () => {
       : [],
   ]
 
+  it("bounds a sweep and leaves other namespaces alone", async () => {
+    const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
+    cleanups.push(async () => client.close())
+    const config = store()
+    const storage = track(createHostedKVStorage({ store: config }, "default", async () => ({ default: { db: { $client: client } } })))
+    await storage.setItem("live", "value")
+    await client.execute({
+      sql: `with recursive counters(n) as (select 1 union all select n + 1 from counters where n < 1100)
+        insert into ${kvTable} (namespace, "key", value, expires_at) select ?, cast(n as text), '0', 0 from counters`,
+      args: [config.namespace],
+    })
+    await client.execute({ sql: `insert into ${kvTable} values (?, 'foreign', '0', 0)`, args: [`${config.namespace}-other`] })
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000)
+    try {
+      await storage.setItem("live", "updated")
+      await vi.waitFor(async () => {
+        const result = await client.execute({ sql: `select count(*) as count from ${kvTable} where namespace = ?`, args: [config.namespace] })
+        expect(Number(result.rows[0]!.count)).toBe(101)
+      })
+      expect(Number((await client.execute(`select count(*) as count from ${kvTable} where "key" = 'foreign'`)).rows[0]!.count)).toBe(1)
+    }
+    finally {
+      clock.mockRestore()
+    }
+  })
+
+  it("keeps inferred Database claims shared with or without an unrelated REDIS_URL", async () => {
+    const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
+    cleanups.push(async () => client.close())
+    const config = { store: { ...store(), inferred: true as const } }
+    const databases = async () => ({ default: { db: { $client: client } } })
+    vi.stubEnv("REDIS_URL", "")
+    try {
+      const first = track(createHostedKVStorage(config, "default", databases))
+      expect(await first.setIfAbsentItem!("claim", "first", 30)).toBe(true)
+      vi.stubEnv("REDIS_URL", "redis://unrelated-service:6379")
+      const second = track(createHostedKVStorage(config, "default", databases))
+      expect(await second.setIfAbsentItem!("claim", "second", 30)).toBe(false)
+      expect(await second.getItem("claim")).toBe("first")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("keeps writes working when the sweep fails, warns once, and tries again a minute later", async () => {
     const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
     cleanups.push(async () => client.close())
@@ -374,7 +432,7 @@ describe("database sweep", () => {
     // A client whose sweep statement fails, as on a lock timeout. Every other statement runs.
     const failingSweep = {
       execute: async (statement: { sql: string, args: (string | number | null)[] }) => {
-        if (statement.sql.startsWith(`delete from ${kvTable} where expires_at <=`)) {
+        if (statement.sql.startsWith(`delete from ${kvTable} where (namespace`)) {
           sweeps++
           throw new Error("lock timeout")
         }
@@ -389,11 +447,11 @@ describe("database sweep", () => {
       expect(await storage.incrementItem!("window:a", 30)).toBe(1)
       expect(await storage.setIfAbsentItem!("ticket", "first", 30)).toBe(true)
       await storage.setItem("settings", "dark")
-      expect(sweeps).toBe(1)
+      await vi.waitFor(() => expect(sweeps).toBe(1))
 
       clock.mockReturnValue(now + 61_000)
       expect(await storage.incrementItem!("window:a", 30)).toBe(2)
-      expect(sweeps).toBe(2)
+      await vi.waitFor(() => expect(sweeps).toBe(2))
       expect(warn).toHaveBeenCalledOnce()
       expect(warn.mock.calls[0]![0]).toContain("could not delete expired rows")
     }
@@ -419,7 +477,6 @@ describe("database sweep", () => {
     finally {
       clock.mockRestore()
     }
-    expect(await rows()).toBe(1)
+    await vi.waitFor(async () => expect(await rows()).toBe(1))
   })
 })
-

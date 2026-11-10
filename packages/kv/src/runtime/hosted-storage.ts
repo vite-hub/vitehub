@@ -2,7 +2,6 @@ import { destr } from "destr"
 import { normalizeKey } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
-import { resolveInferredStore } from "../config.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createLazyKVRuntimeDriver, type KVDatabasesLoader } from "./driver.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
@@ -74,12 +73,9 @@ export function resolveHostedKVStore(config: false | ResolvedKVModuleOptions | u
   return store
 }
 
-/**
- * Creates the storage of one store. An inferred Node store becomes `redis` here when `REDIS_URL` is set, so the
- * variable is read on the server, not at build time.
- */
+/** Creates storage with the build-selected driver; connection credentials are resolved at runtime. */
 export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default", loadDatabases?: KVDatabasesLoader): RuntimeStorage {
-  const store = resolveInferredStore(resolveHostedKVStore(config, name), globalThis.process?.env ?? {})
+  const store = resolveHostedKVStore(config, name)
   const notice = kvRemoteNotice(name, store)
   if (notice) console.warn(notice)
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }, loadDatabases)
