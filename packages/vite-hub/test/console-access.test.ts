@@ -507,7 +507,7 @@ describe("generated Console access", () => {
     expect(plugin).not.toContain('from "#vitehub/auth/server"')
     expect(plugin).toContain('const vitehubAuthServer = () => import("#vitehub/auth/server")')
     expect(plugin).toContain('const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/_vitehub/api/**"}], getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession })')
-    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/_vitehub/sign-in" })')
+    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event), verify: vitehubVerifyConsoleJwt }, signInPage: "/_vitehub/sign-in" })')
   })
 
   it.each(["/", "/portal/"])("installs the app Auth sign-in page and MCP OAuth below %s", async (base) => {
@@ -516,7 +516,7 @@ describe("generated Console access", () => {
       console: { auth: "app", signInPage: "/sign-in" },
       resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, method: "GET", route: `${mount}/_vitehub/api/**` }]),
     }, "build", { base })
-    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/sign-in" })`)
+    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event), verify: vitehubVerifyConsoleJwt }, signInPage: "/sign-in" })`)
   })
 
   it.each(["/", "/portal/"])("registers the page sign-in middleware before app Auth below %s", async (base) => {

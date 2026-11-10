@@ -3,6 +3,7 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { consoleBearerChallenge, consoleDataRoutes } from "./cors.ts"
 
 import type { JSONWebKeySet } from "jose"
+import type { verifyConsoleJwt } from "./bearer-jwt.ts"
 import type { ConsoleUser } from "../../auth-types.ts"
 import type { ConsoleDiagnosticCode } from "../diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -43,6 +44,8 @@ export interface ConsoleOAuthConfig {
   path: string
   /** Resource identifier of the endpoint, `<origin>/_vitehub/mcp`. Absolute. Without it, the origin below plus `path`. */
   resource?: string
+  /** Checks a token's signature and claims. Pass `verifyConsoleJwt` from `vite-hub/console/sections`. */
+  verify: typeof verifyConsoleJwt
 }
 
 /**
@@ -309,9 +312,7 @@ export async function verifyConsoleBearer(request: Request, event: ConsoleReques
     const jwks = jwksOf(await state.auth.api.getJwks())
     const algorithms = [...new Set((jwks?.keys ?? []).flatMap(key => typeof key.alg === "string" ? [key.alg] : []))]
     if (!jwks || !algorithms.length) return { audience, ok: false, state }
-    // Only a request with a token needs jose, so the server starts without it.
-    const { createLocalJWKSet, jwtVerify } = await import("jose")
-    const { payload } = await jwtVerify(token, createLocalJWKSet(jwks), {
+    const payload = await config.verify(token, jwks, {
       algorithms,
       audience: audience === "mcp" ? state.resource : state.console.resource,
       clockTolerance: clockToleranceSeconds,

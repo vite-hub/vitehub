@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -13,7 +14,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
-import { discoverRateLimitCatalog } from "./discovery.ts"
+import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
@@ -25,6 +26,10 @@ import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
+// Generated code imports these modules by path, so they need no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
+const runtimeModule = ownModule(import.meta.url, "runtime")
+
 export { discoverRateLimitDeclarations } from "./discovery.ts"
 export { inspectRateLimitDefinitions, type RateLimitInspectionOptions, rateLimitConsoleSection } from "./inspect.ts"
 
@@ -32,10 +37,6 @@ const packageName = "@vite-hub/rate-limit"
 const pluginName = "@vite-hub/rate-limit/vite"
 const generatedNitroPlugin = ".vitehub/nitro/rate-limit/plugin.ts"
 const mergeNoExternal = createNoExternalAddition(packageName)
-
-interface InternalRateLimitModuleOptions extends RateLimitModuleOptions {
-  importBase?: string
-}
 
 export type RateLimitVitePluginOptions = RateLimitModuleOptions
 export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
@@ -73,10 +74,10 @@ function mergeNitroConfig(
   return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
 }
 
-function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig, importBase: string): string {
+function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig): string {
   return [
     "import { definePlugin } from 'nitro'",
-    `import { setRateLimitRuntimeConfig } from ${JSON.stringify(`${importBase}/runtime`)}`,
+    `import { setRateLimitRuntimeConfig } from ${JSON.stringify(runtimeModule)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,
     "export default definePlugin(() => {",
@@ -110,7 +111,6 @@ function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitMod
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
-  const importBase = (options as InternalRateLimitModuleOptions).importBase ?? packageName
   let rateLimit: RateLimitModuleOptions = options
   let declarations: RateLimitDeclaration[] = []
   let cloudflareBindings = false
@@ -119,6 +119,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   let provider: "cloudflare" | "memory" = "memory"
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
+
+  const discoverRateLimitCatalog = createRateLimitCatalogDiscovery()
 
   const collectDeclarations = (): void => {
     if (!projectRoot) return
@@ -144,8 +146,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     // regardless of plugin registration order.
     enforce: "pre",
     vitehub: {
-      // The Console, `vitehub rate-limit`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "rateLimitOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).rateLimitOperations, module: "@vite-hub/rate-limit/operations" }],
+      // The Console, `vitehub rate-limit`, and agents run these.
+      operations: [{ export: "rateLimitOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).rateLimitOperations, module: operationsModule }],
       cli: async () => {
         const { createRateLimitCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return createRateLimitCliContributor()
@@ -182,7 +184,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
           projectRoot,
         )
         ;(config as { nitro?: unknown }).nitro = nitro
-        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/rate-limit/operations")
+        return installStandaloneOperationRpc(config, env?.command ?? "build", operationsModule)
       },
     },
     async configResolved(config) {
@@ -208,7 +210,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       await writeRateLimitManifest(projectRoot, declarations, provider)
       const pluginFile = resolve(projectRoot, generatedNitroPlugin)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
-      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase))
+      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig))
     },
     configureServer(server) {
       publishStandaloneOperationServer(server)

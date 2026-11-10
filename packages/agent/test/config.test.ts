@@ -145,8 +145,6 @@ describe("agent config", () => {
       expect(publicServer).not.toHaveProperty("createChannelChatRouteHandler")
       expect(publicServer).not.toHaveProperty("createChannelWebhookRouteHandler")
       expect(publicServer).not.toHaveProperty("createGitHubHost")
-      const githubServer = await import("../src/server/github.ts")
-      expect(githubServer.createGitHubHost).toBeTypeOf("function")
       const server = await import("../src/server/internal.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")

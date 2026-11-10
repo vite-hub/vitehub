@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { consoleMcpOAuth, consoleResourceOf } from "../src/console/auth.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
 import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
@@ -99,7 +100,7 @@ beforeEach(async () => {
   await (await real(new Request(app)).$context).runMigrations()
   // SAFETY: Better Auth's plugins add the OAuth endpoints to this instance at runtime.
   const auth = (request: Request) => real(request) as unknown as ConsoleOAuthAuth
-  installConsoleAccess({ check: async () => Response.json({ message: "Sign in." }, { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource: mcpResource } })
+  installConsoleAccess({ check: async () => Response.json({ message: "Sign in." }, { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource: mcpResource, verify: verifyConsoleJwt } })
   installConsoleOrigins([hosted, local])
   installConsoleOperations([{ operations: [greet, save], plugin: "fixture" }])
 })
@@ -538,7 +539,7 @@ describe("OAuth Console tokens", () => {
       authorize: ({ request }) => request.headers.get("authorization") === "Bearer app-key",
       check: async () => undefined,
       mode: "auth",
-      oauth: { auth: request => real(request) as unknown as ConsoleOAuthAuth, path: "/_vitehub/mcp", resource: mcpResource },
+      oauth: { auth: request => real(request) as unknown as ConsoleOAuthAuth, path: "/_vitehub/mcp", resource: mcpResource, verify: verifyConsoleJwt },
     })
     const response = await defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__call`, {
       body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
