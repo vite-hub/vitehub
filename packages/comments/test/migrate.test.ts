@@ -110,7 +110,11 @@ describe("migrateComments", () => {
     await client.execute("INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('custom', 'site', 1, '/custom', 'null', 'open', '{\"id\":\"ada\"}', 1, 1)")
     await client.execute("INSERT INTO vitehub_comment_scope_counters (scope, last_number) VALUES ('site', 8)")
     if (migration === "runtime") await migrateComments(db)
-    else await client.executeMultiple(readFileSync(new URL("../../../playground/content/server/databases/content/migrations/0007_comments_one_model.sql", import.meta.url), "utf8").replaceAll("--> statement-breakpoint", ""))
+    else {
+      for (const name of ["0007_comments_one_model.sql", "0009_comments_request_id.sql"]) {
+        await client.executeMultiple(readFileSync(new URL(`../../../playground/content/server/databases/content/migrations/${name}`, import.meta.url), "utf8").replaceAll("--> statement-breakpoint", ""))
+      }
+    }
     const comments = defineComments({ subjects })
     installComments(comments, { database: db })
     expect((await comments.get("custom"))[1]).toMatchObject({ scope: "site", n: 1, subject: { kind: "site", id: "/custom" } })
@@ -169,10 +173,11 @@ describe("migrateComments", () => {
     ].join("\n"))
     // SAFETY: libSQL implements the batch contract of the Database runtime.
     const db = drizzle(client) as unknown as CommentsDatabase
-    expect(await commentsSchemaState(db)).toEqual({ state: "outdated", missing: ["metadata", "context", "revision"] })
+    expect(await commentsSchemaState(db)).toEqual({ state: "outdated", missing: ["metadata", "context", "revision", "request_id"] })
     expect((await migrateComments(db)).from).toBe("outdated")
     expect(await commentsSchemaState(db)).toEqual({ state: "current", missing: [] })
     expect((await migrateComments(db)).statements).toEqual([])
+    expect((await client.execute("SELECT name FROM sqlite_master WHERE name = 'vitehub_comment_threads_scope_request'")).rows).toHaveLength(1)
     const comments = defineComments()
     installComments(comments, { database: db })
     expect((await comments.get("t"))[1]).toMatchObject({ n: 1, subject: { kind: "page", id: "/" } })
@@ -207,10 +212,12 @@ describe("migrateComments", () => {
     }
     const migration = await migrateComments(postgres, { dialect: "postgresql" })
     expect(migration.from).toBe("outdated")
-    expect(ran.slice(0, 3)).toEqual([
+    expect(ran.slice(0, 5)).toEqual([
       "ALTER TABLE \"vitehub_comment_threads\" ADD COLUMN IF NOT EXISTS \"metadata\" text",
       "ALTER TABLE \"vitehub_comment_threads\" ADD COLUMN IF NOT EXISTS \"context\" text",
       "ALTER TABLE \"vitehub_comment_threads\" ADD COLUMN IF NOT EXISTS \"revision\" bigint",
+      "ALTER TABLE \"vitehub_comment_threads\" ADD COLUMN IF NOT EXISTS \"request_id\" text",
+      "CREATE UNIQUE INDEX IF NOT EXISTS \"vitehub_comment_threads_scope_request\" ON \"vitehub_comment_threads\" (\"scope\",\"request_id\")",
     ])
     expect(ran.some(statement => statement.startsWith("CREATE TABLE IF NOT EXISTS \"vitehub_comment_forge\""))).toBe(true)
     expect(() => commentsMigrationSql({ dialect: "postgresql", from: "live" })).toThrow("no Postgres tables")
@@ -229,7 +236,9 @@ describe("the custom migration of a ViteHub Database", () => {
     }
     await client.execute({ sql: "INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('t', 'pages', 2, '/', ?, 'open', ?, 1, 1)", args: [JSON.stringify(anchor), JSON.stringify(author)] })
     await client.execute({ sql: "INSERT INTO vitehub_comments (id, thread_id, body, mentions, author, created_at) VALUES ('c', 't', 'Hello', '[]', ?, 1)", args: [JSON.stringify(author)] })
-    await client.executeMultiple(migration("0007_comments_one_model.sql").replaceAll("--> statement-breakpoint", ""))
+    for (const name of ["0007_comments_one_model.sql", "0009_comments_request_id.sql"]) {
+      await client.executeMultiple(migration(name).replaceAll("--> statement-breakpoint", ""))
+    }
     // SAFETY: libSQL implements the batch contract of the Database runtime.
     const db = drizzle(client) as unknown as CommentsDatabase
     expect((await commentsSchemaState(db)).state).toBe("current")

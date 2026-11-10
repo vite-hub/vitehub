@@ -117,14 +117,13 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/database#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/database#build && vp test"
+    "test": "vp run --cache -t @vite-hub/database#build && vp test"
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
-    "h3": "catalog:unjs",
     "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
@@ -133,6 +132,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
@@ -149,6 +149,9 @@
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "drizzle-kit": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     },

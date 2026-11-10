@@ -42,15 +42,6 @@ export default defineConfig({
         cache: false,
         command: "vp run --filter vitehub-docs build",
       },
-      "docs:dev": {
-        cache: false,
-        command: "vp run --filter vitehub-docs dev",
-      },
-      "examples:verify": {
-        cache: false,
-        command: "node test/package-examples.mjs",
-        dependsOn: ["build"],
-      },
       "e2e:local": {
         cache: false,
         command: "node test/local/local.mjs",
@@ -89,10 +80,6 @@ export default defineConfig({
         command: "cd playground/vite && vp build",
         dependsOn: ["build"],
       },
-      "playground:vite:build:cloudflare": {
-        cache: false,
-        command: "vp run playground:vite:build --mode chat",
-      },
       "playground:vite:build:local": {
         cache: false,
         command: "node test/local/build-playground.mjs",
@@ -100,8 +87,8 @@ export default defineConfig({
       },
       "playground:vite:provision": {
         cache: false,
-        command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
-        dependsOn: ["@vite-hub/cli#build"],
+        command: "cd playground/vite && node ../../packages/vite-hub/dist/bin.js provision run",
+        dependsOn: ["vite-hub#build"],
       },
       preflight: {
         cache: false,

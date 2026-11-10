@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Host output
 
-Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to the generated `wrangler.json`. Put bucket names, tokens, and bindings in integration config or deployment setup. Your code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
+Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to the generated `wrangler.json`. Put bucket names, tokens, and bindings in integration config or deployment setup. Your code keeps importing `blob` from `vite-hub/blob` when you switch providers.
 
 ## Read and write blobs during development
 
@@ -21,7 +21,7 @@ pnpm vitehub blob list --prefix avatars/
 pnpm vitehub blob head avatars/ada.png --json
 pnpm vitehub blob put avatars/ada.png ./ada.png
 pnpm vitehub blob get avatars/ada.png --output ./copy.png
-pnpm vitehub blob del avatars/ada.png
+pnpm vitehub blob delete avatars/ada.png
 pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png
 ```
