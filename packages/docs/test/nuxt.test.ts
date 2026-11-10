@@ -67,13 +67,14 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ config: Record<string, unknown> }> = []) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
-    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
+    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: layers,
+    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } } },
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
     imports: { dirs: [] }, watch: [] as string[], docs,
   }
@@ -120,6 +121,17 @@ describe("docs Nuxt setup", () => {
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true })
     for (const hook of hooks.get("build:before") ?? []) await hook()
     expect(readdirSync(stylesDir)).toEqual([file])
+  })
+
+  it("prefetches a link when the reader points at it or focuses it, not when it scrolls into view", async () => {
+    const options = await setupDocs({})
+    expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
+  })
+
+  it("keeps the app's own choice of when links prefetch", async () => {
+    const prefetchOn = { visibility: true }
+    const options = await setupDocs({}, "/", false, [{ config: { srcDir: "/app", experimental: { defaults: { nuxtLink: { prefetchOn } } } } }])
+    expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual(prefetchOn)
   })
 
   it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
@@ -226,6 +238,7 @@ describe("docs Nuxt setup", () => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
+    expect(templates.get("docs/manifest.d.ts")?.()).toContain("declare const manifest: DocsManifest\n")
     expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })

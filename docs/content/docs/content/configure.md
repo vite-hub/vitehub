@@ -33,8 +33,8 @@ Plugin options are read once. Rebuild the runtime to change them.
 | Source definition, such as `glob()` or `defineSource()` | Opens a new Reader per load. Overlapping refreshes, snapshots, and document reads keep their selected revisions. |
 | Registered Source name | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
-| Explicit reader with `items()` | Keeps its caller-owned lifecycle and revision across refreshes. |
-| `glob()` from `vite-hub/source/glob` | Serves project files, such as `glob('content/docs/**/*.md')`. The build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
+| Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
+| `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
 An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
@@ -60,7 +60,7 @@ export const content = defineContent({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
+Run `vitehub database generate` and `vitehub database migrate` before the first save. `vitehub()` needs no feature settings for the preset.
 
 To use your own Workspace, pass its name as `workspace` instead of `extends`. Its Store must keep history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. For presence and edit leases, add `contentSessionsSchema` from `vite-hub/content/database` to that Database. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
@@ -391,7 +391,7 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 - `refresh()` parses the Source again.
 - A `glob()` whose options are not literals reads its files from disk at run time, so the server parses it.
 
-The parsed documents add to the server bundle. The 344 pages of the ViteHub docs add about 5 MB, or 1.1 MB with gzip.
+The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
 
 ## Providers
 
@@ -407,7 +407,7 @@ pnpm add comark-content
 import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
 	plugins: [sqliteFullTextSearch({ database: sqlite() })],

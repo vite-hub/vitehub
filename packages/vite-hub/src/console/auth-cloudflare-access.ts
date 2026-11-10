@@ -1,4 +1,4 @@
-import { SecretEnv } from "@vite-hub/env/secret"
+import { SecretEnv } from "@vite-hub/env"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose"
 

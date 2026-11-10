@@ -1,7 +1,7 @@
 import { H3, readValidatedBody } from "h3"
 import * as v from "valibot"
 
-import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
+import { deferWorkflow, getWorkflowRun, startWorkflow } from "@vite-hub/workflow"
 
 const app = new H3()
 const workflowName = "welcome"
@@ -27,17 +27,17 @@ app.post("/api/workflows/welcome", async (event) => {
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
   return {
     ok: true,
-    result: await runWorkflow(workflowName, buildPayload(body, marker), { id: resolveId(body, marker) }),
+    result: await startWorkflow(workflowName, buildPayload(body, marker), { id: resolveId(body, marker) }),
   }
 })
 
 app.post("/api/workflows/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
-  return {
-    ok: true,
-    result: await deferWorkflow(workflowName, buildPayload(body, marker), { id: resolveId(body, marker) }),
-  }
+  // `deferWorkflow()` returns nothing, so the route picks the run ID that the caller polls.
+  const id = resolveId(body, marker) || crypto.randomUUID()
+  deferWorkflow(workflowName, buildPayload(body, marker), { id })
+  return { ok: true, result: { id } }
 })
 
 app.get("/api/workflows/welcome/:id", async (event) => {

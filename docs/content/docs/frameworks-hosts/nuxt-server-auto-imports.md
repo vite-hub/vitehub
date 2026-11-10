@@ -15,14 +15,14 @@ import { defineEventHandler, readBody } from 'nitro/h3'
 
 export default defineEventHandler(async (event) => {
   const { email } = await readBody<{ email: string }>(event)
-  const [error] = await runQueue('welcome-email', { email })
+  const [error] = await sendQueue('welcome-email', { email })
   if (error) throw error
   await kv.set(`welcome:${email}`, 'queued')
   return { queued: true }
 })
 ```
 
-`runQueue` and `kv` need no import. Nuxt 5 does not auto-import Nitro and H3
+`sendQueue` and `kv` need no import. Nuxt 5 does not auto-import Nitro and H3
 helpers such as `defineEventHandler` unless you turn on
 `experimental.nitroAutoImports`, so this example imports them.
 
@@ -45,12 +45,12 @@ The module scans the server directory of the app and of each Nuxt layer.
 | Email | `email` | `server/emails/` (Markdown templates) | `email` |
 | Env | On unless `env: false` | None | `useServerEnv` |
 | KV | `kv` | None | `kv` |
-| Queue | `queue` | `server/queues/` | `defineQueue`, `deferQueue`, `getQueue`, `runQueue` |
+| Queue | `queue` | `server/queues/` | `defineQueue`, `deferQueue`, `useQueue`, `sendQueue` |
 | Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()` and `checkRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `requireRateLimit`, `resetRateLimit` |
 | Realtime | `realtime` | `server/realtime/` | `defineRealtime`, `isRealtimeAvailable`, `refreshRealtimeDocument` |
 | Sandbox Task | `sandboxTask` | `server/sandbox-tasks/` | `runSandboxTask` |
 | Schedule | `schedule` | `server/schedules/` | `defineSchedule`, `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
-| Workflow | `workflow` | `server/workflows/` | `defineWorkflow`, `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflowSignal`, `runWorkflow` |
+| Workflow | `workflow` | `server/workflows/` | `defineWorkflow`, `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
 | Workspace | `workspace` | `server/workspaces/` | `useWorkspace` |
 
 - A feature that is off adds no auto-imports. A host without the service adds

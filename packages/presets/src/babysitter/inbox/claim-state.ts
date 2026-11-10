@@ -1,5 +1,5 @@
 import { hasRuntimeType } from '../../internal/runtime-type.ts'
-import type { PullRequest } from '@vite-hub/agent/server/github'
+import type { PullRequest } from '../../github/index.ts'
 import type { Claim, Snapshot } from './store.ts'
 
 /** REST fields are authoritative; older persisted GraphQL aliases may be stale. */

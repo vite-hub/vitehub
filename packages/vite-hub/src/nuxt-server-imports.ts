@@ -2,7 +2,7 @@
  * The server helpers that `vite-hub/nuxt` auto-imports in Nitro code, per ViteHub feature. This table is the only list.
  *
  * Rules for an entry:
- * - Runtime helpers that server code calls in a handler, such as `kv` or `runQueue`.
+ * - Runtime helpers that server code calls in a handler, such as `kv` or `sendQueue`.
  * - `define*` helpers only when Nitro alone loads their Definition files. ViteHub also loads Agent, Auth, Comments,
  *   Database, and Workspace Definitions outside Nitro (Vite SSR, jiti, or `runnerImport`), where Nitro auto-imports
  *   do not exist. Those files keep explicit imports.
@@ -22,12 +22,12 @@ export const viteHubServerImports = {
   // Each app generates its own `#vitehub/env/server` from its Env declarations. Nitro and its types alias it.
   env: { "#vitehub/env/server": ["useServerEnv"] },
   kv: { "vite-hub/kv": ["kv"] },
-  queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "getQueue", "runQueue"] },
+  queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
   rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"] },
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
   schedule: { "vite-hub/schedule": ["defineSchedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
-  workflow: { "vite-hub/workflow": ["defineWorkflow", "cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflowSignal", "runWorkflow"] },
+  workflow: { "vite-hub/workflow": ["defineWorkflow", "cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
   workspace: { "vite-hub/workspace": ["useWorkspace"] },
 } as const satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
 
