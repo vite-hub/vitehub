@@ -153,7 +153,7 @@ async function createStageFixture(): Promise<string> {
   await mkdir(join(root, "server"), { recursive: true })
   // The provider reveals which region value won without printing it.
   await writeFile(join(root, "server", "region-provider.mjs"), [
-    "import { defineEnvProvider } from \"@vite-hub/env/provider\"",
+    "import { defineEnvProvider } from \"@vite-hub/env\"",
     "export default defineEnvProvider({",
     "  read: ({ env }) => ({ regionToken: env.region === \"process-region\" ? \"process-won\" : undefined }),",
     "})",
@@ -260,7 +260,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await mkdir(join(root, "server", "utils"), { recursive: true })
     await writeFile(join(root, "server", "utils", "token.mjs"), 'export const token = "untransformed"\n')
     await writeFile(join(root, "server", "token-provider.mjs"), [
-      'import { defineEnvProvider } from "@vite-hub/env/provider"',
+      'import { defineEnvProvider } from "@vite-hub/env"',
       'import { token } from "#server/utils/token.mjs"',
       'import { stage } from "virtual:env-stage"',
       `export default defineEnvProvider({ read: () => ({ token: stage === "production" && token === ${JSON.stringify(secretValue)} ? token : undefined }) })`,

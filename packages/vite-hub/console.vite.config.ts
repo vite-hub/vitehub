@@ -1,5 +1,6 @@
 import ui from "@vite-hub/ui/vite";
 import vue from "@vitejs/plugin-vue";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
@@ -7,6 +8,7 @@ import { consoleAppConfig } from "./src/console/app.config";
 import { consoleContributedSectionIcons } from "./src/console/contributions";
 
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
+const consoleClientOutDir = resolve(import.meta.dirname, "../console-client/dist/client");
 
 const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
@@ -23,6 +25,21 @@ export default defineConfig({
     dedupe: ["vue", "vue-router"],
   },
   plugins: [
+    {
+      // `vite-hub` reads the hashed entry names from `manifest.json` when it serves the Console page. This build writes
+      // `script` and `style`; page-tool.vite.config.ts reads the file and adds `pageTool`. Writing them here keeps the
+      // file in step with this build when the task cache replays the page tool build.
+      name: "vitehub-console-client-manifest",
+      writeBundle(options, bundle) {
+        // console.hosted.vite.config.ts reuses these plugins for a site with its own output folder and no manifest.
+        if (options.dir !== consoleClientOutDir) return
+        const files = Object.values(bundle)
+        const script = files.find(file => file.type === "chunk" && file.isEntry)?.fileName
+        const style = files.find(file => file.type === "asset" && file.names.includes("main.css"))?.fileName
+        if (!script || !style) throw new TypeError("The Console build wrote no entry script or stylesheet.")
+        writeFileSync(resolve(consoleClientOutDir, "../manifest.json"), `${JSON.stringify({ script, style }, null, 2)}\n`)
+      },
+    },
     {
       // KaTeX is loaded after the first render. Keep its embedded fonts out of the blocking stylesheet.
       name: "vitehub-console-deferred-katex-styles",
@@ -63,7 +80,8 @@ export default defineConfig({
     // Keep font assets portable in pnpm patches and self-contained Console bundles.
     assetsInlineLimit: filePath => /\.(?:woff2?|ttf|otf)$/.test(filePath) ? true : undefined,
     emptyOutDir: true,
-    outDir: resolve(import.meta.dirname, ".vitehub/console"),
+    // The Console app ships in its own package, @vite-hub/console-client. An app installs it only to serve the Console.
+    outDir: consoleClientOutDir,
     rolldownOptions: {
       // The `console` page tool is built after this, by page-tool.vite.config.ts, so it shares no chunks with the app.
       input: { main: resolve(clientRoot, "main.js") },

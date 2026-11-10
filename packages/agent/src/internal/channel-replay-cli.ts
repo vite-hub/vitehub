@@ -1,7 +1,7 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 import { readAgentDevLoopTokenHeaders } from "./agent-info-cli.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ChannelReplayCliContext {
   env: NodeJS.ProcessEnv
@@ -184,7 +184,7 @@ async function sendReplay(target: ReplayTarget, replay: Record<string, unknown>,
     json = undefined
   }
   if (!response.ok) {
-    const message = isRuntimeRecord(json) && hasRuntimeType(json.message, "string") ? json.message : text.slice(0, 500)
+    const message = isRuntimeRecord(json) && typeof json.message === "string" ? json.message : text.slice(0, 500)
     throw cliError(`Channel replay failed with HTTP ${response.status}${message ? `: ${message}` : "."}`)
   }
   if (!isRuntimeRecord(json)) throw cliError("Channel replay returned an invalid response.")
@@ -203,11 +203,11 @@ export function channelReplayQueryHelp(schema: unknown): string[] {
   if (!properties) return ["  This history query has no JSON Schema. Use --filter key=value."]
   const required = isRuntimeRecord(schema) && Array.isArray(schema.required) ? schema.required : []
   return Object.entries(properties).map(([name, property]) => {
-    const values = Array.isArray(property.enum) ? property.enum.map(String).join("|") : hasRuntimeType(property.type, "string") ? property.type : "value"
+    const values = Array.isArray(property.enum) ? property.enum.map(String).join("|") : typeof property.type === "string" ? property.type : "value"
     const notes = [
       required.includes(name) ? "required" : undefined,
       property.type === "array" ? "repeatable" : undefined,
-      hasRuntimeType(property.description, "string") ? property.description : undefined,
+      typeof property.description === "string" ? property.description : undefined,
     ].filter(Boolean).join(", ")
     return `  ${valueOptions.has(`--${name}`) ? `--query ${name}=<${values}>` : `--${name} <${values}>`}${notes ? `  ${notes}` : ""}`
   })
@@ -235,15 +235,15 @@ function writeItems(context: ChannelReplayCliContext, items: unknown): number {
   if (!Array.isArray(items)) return 0
   for (const item of items) {
     if (!isRuntimeRecord(item)) continue
-    const reason = hasRuntimeType(item.reason, "string") ? ` (${item.reason})` : ""
-    const error = hasRuntimeType(item.error, "string") ? `: ${item.error}` : ""
+    const reason = typeof item.reason === "string" ? ` (${item.reason})` : ""
+    const error = typeof item.error === "string" ? `: ${item.error}` : ""
     context.stdout.write(`${String(item.status).padEnd(9)} ${String(item.key)}${reason}${error}\n`)
   }
   return items.length
 }
 
 function count(result: Record<string, unknown>, key: "failed" | "processed" | "skipped"): number {
-  return hasRuntimeType(result[key], "number") ? result[key] : 0
+  return typeof result[key] === "number" ? result[key] : 0
 }
 
 export async function runAgentChannelReplayCli(
@@ -293,7 +293,7 @@ export async function runAgentChannelReplayCli(
       totals.processed += count(result, "processed")
       totals.skipped += count(result, "skipped")
       remaining -= read
-      const nextCursor = hasRuntimeType(result.nextCursor, "string") ? result.nextCursor : undefined
+      const nextCursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined
       if (nextCursor && seenCursors.has(nextCursor)) throw cliError("Channel replay returned a repeated pagination cursor.")
       if (nextCursor) seenCursors.add(nextCursor)
       cursor = nextCursor
