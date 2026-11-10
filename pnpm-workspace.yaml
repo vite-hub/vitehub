@@ -62,8 +62,6 @@ catalogs:
     drizzle-kit: ^0.31.11
     drizzle-orm: ^0.45.3
     postgres: ^3.4.9
-  effect:
-    effect: 4.0.0-rc.112
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
