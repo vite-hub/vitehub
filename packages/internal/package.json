@@ -83,11 +83,6 @@
       "import": "./dist/dev-peer.js",
       "default": "./dist/dev-peer.js"
     },
-    "./dev-token": {
-      "types": "./dist/dev-token.d.ts",
-      "import": "./dist/dev-token.js",
-      "default": "./dist/dev-token.js"
-    },
     "./hosting": {
       "types": "./dist/hosting.d.ts",
       "import": "./dist/hosting.js",
@@ -188,11 +183,6 @@
       "import": "./dist/inspect.js",
       "default": "./dist/inspect.js"
     },
-    "./source-scanner": {
-      "types": "./dist/source-scanner.d.ts",
-      "import": "./dist/source-scanner.js",
-      "default": "./dist/source-scanner.js"
-    },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
       "import": "./dist/runtime/random.js",
@@ -277,11 +267,6 @@
       "types": "./dist/build/deno-runtime-packages.d.ts",
       "import": "./dist/build/deno-runtime-packages.js",
       "default": "./dist/build/deno-runtime-packages.js"
-    },
-    "./build/mode": {
-      "types": "./dist/build/mode.d.ts",
-      "import": "./dist/build/mode.js",
-      "default": "./dist/build/mode.js"
     },
     "./build/page-tools": {
       "types": "./dist/build/page-tools.d.ts",
@@ -387,7 +372,7 @@
   },
   "scripts": {
     "build": "vp pack",
-    "test": "vp run -t @vite-hub/internal#build && vp run -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
+    "test": "vp run --cache -t @vite-hub/internal#build && vp run --cache -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
     "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {

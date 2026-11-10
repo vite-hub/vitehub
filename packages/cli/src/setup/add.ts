@@ -5,9 +5,9 @@ import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
-import { consoleFeaturePackages, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join, relative, resolve } from "pathe"
+import { dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -89,11 +89,11 @@ function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessE
 }
 
 /** Features whose key accepts only a boolean. */
-const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
+const booleanFeatures: readonly FeatureId[] = ["sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], logs: ["source"], observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"] }
 
 /** Match the Auth package's file locations without loading application code. */
 function hasAuthDefinition(project: SetupProject): boolean {
@@ -149,15 +149,6 @@ function setPath(target: Record<string, JsonValue>, path: readonly string[], val
 
 export function isRecord(value: JsonValue | undefined): value is { readonly [key: string]: JsonValue } {
   return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-/** Additional Console owners selected by its access policy and enabled features. */
-export function setupConsolePackages(value: JsonValue | undefined, enabled: ReadonlySet<FeatureId>): string[] {
-  const packages: string[] = []
-  if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
-  const auth = isRecord(value) ? value.auth : "app"
-  if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
-  return packages
 }
 
 /** Reads the arguments. Throws `CLI_R0003` for an unknown flag, feature, or option. */
@@ -262,7 +253,7 @@ export function toSource(value: JsonValue): string {
   return JSON.stringify(value)
 }
 
-/** A unified diff of `path`. An empty `before` is a new file, and an empty `after` is a deleted file. */
+/** A unified diff of `path`. Empty `before` creates a file; empty `after` deletes it. */
 export function setupDiff(path: string, before: string, after: string): string {
   return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", after ? `b/${path}` : "/dev/null", before, after, undefined, undefined, { context: 3 })
     .replace(/^=+\n/u, "")
@@ -423,19 +414,17 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       }
     }
     for (const key of requiredOptions[id] ?? []) {
-      if (id === "observability" || id === "logs") {
-        const selected = isRecord(value) ? value[key] : undefined
-        if (typeof selected === "string" && selected.trim()) continue
-      }
-      else if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
+      if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      if (id === "observability") setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
-      else rerunnable = false
+      rerunnable = false
     }
   }
   const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
   const agent = valueFor("agent")
-  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && enabledAfter("agent")
+  const observabilityValue = valueFor("observability")
+  // Only `observability.service` installs Agent telemetry, which needs Nitro-hosted Agents.
+  const telemetry = isRecord(observabilityValue) && typeof observabilityValue.service === "string"
+  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && telemetry && enabledAfter("agent")
     && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), setupExitCodes.conflict)
   }
@@ -510,9 +499,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
-  const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
-  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host))
-  if (enabled.has("console")) packages.push(...setupConsolePackages(valueFor("console"), enabled))
+  const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures, ...(enabled.has("console") ? ["console" as const] : [])])]
+  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host, [...enabled]))
   const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),

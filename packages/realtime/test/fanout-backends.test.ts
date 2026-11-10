@@ -4,7 +4,7 @@ import postgres from "postgres"
 import type { RealtimeBus } from "../src/bus-protocol.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
 import { defineDatabase } from "@vite-hub/database"
-import { createPostgresDatabase } from "@vite-hub/database/runtime/postgres"
+import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
 import { createPostgresRealtimeBus, createRealtimeNodeBus, createRedisRealtimeBus } from "../src/bus.ts"
 import { appendParagraph, createClientAwareness, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, presence } from "./harness.ts"

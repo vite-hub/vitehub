@@ -210,7 +210,7 @@ export interface DiscoveredRealtimeDefinition {
   source: "contributed" | "server-realtime"
 }
 
-export interface RealtimeModuleOptions {
+export interface RealtimeOptions {
   /**
    * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
    * picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default Database when it

@@ -12,12 +12,15 @@ export function cloudflareShSyntaxPlugin(): Plugin {
     name: "vite-hub/cloudflare-sh-syntax",
     apply: "build",
     enforce: "pre",
-    async resolveId(id, importer, options) {
-      // Development runs on Node, which reads main.wasm from disk.
-      if (id !== "sh-syntax" || this.meta.watchMode) return
-      const resolved = await this.resolve(id, importer, { ...options, skipSelf: true })
-      if (!resolved) return
-      return { ...resolved, id: resolved.id.replace(/lib[\\/]index\.js$/, "lib/browser.js") }
+    resolveId: {
+      filter: { id: /^sh-syntax$/ },
+      async handler(id, importer, options) {
+        // Development runs on Node, which reads main.wasm from disk.
+        if (id !== "sh-syntax" || this.meta.watchMode) return
+        const resolved = await this.resolve(id, importer, { ...options, skipSelf: true })
+        if (!resolved) return
+        return { ...resolved, id: resolved.id.replace(/lib[\\/]index\.js$/, "lib/browser.js") }
+      },
     },
   }
 }

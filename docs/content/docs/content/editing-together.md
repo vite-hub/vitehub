@@ -25,7 +25,7 @@ export default defineDatabase({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate`. Content finds the Database through the Workspace Store, so `defineContent()` needs no new option.
+Run `vitehub database generate` and `vitehub database migrate`. Content finds the Database through the Workspace Store, so `defineContent()` needs no new option.
 
 Without the table, `content.sessions` throws `CONTENT_R0012` with this fix. Saves skip the lease check. The Console stays editable and says it cannot see who else edits.
 

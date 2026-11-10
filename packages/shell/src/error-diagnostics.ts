@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SHELL_R0005.
 export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/shell/diagnostics",
   codes: {
@@ -12,7 +13,6 @@ export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SHELL_R0002: dynamicError,
     SHELL_R0003: dynamicError,
     SHELL_R0004: dynamicError,
-    SHELL_R0005: dynamicError,
     SHELL_R0006: dynamicError,
     SHELL_R0007: dynamicError,
     SHELL_R0008: dynamicError,

@@ -59,7 +59,7 @@ describe("agent CLI", () => {
         name: "agent",
       }, {
         description: "External Channel registration workflows.",
-        features: [expect.objectContaining({ name: "export" }), expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "replay" }), expect.objectContaining({ name: "sync" })],
+        features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "replay" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
       }, {
         description: "Export Channel conversations.",
@@ -83,7 +83,7 @@ describe("agent CLI", () => {
         name: "agent",
       }, {
         description: "External Channel registration workflows.",
-        features: [expect.objectContaining({ name: "export" }), expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "replay" }), expect.objectContaining({ name: "sync" })],
+        features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "replay" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
       }, {
         description: "Export Channel conversations.",
@@ -2347,7 +2347,7 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "!pnpm", "test", "--filter", "api"], {
+      const exitCode = await runAgentDevCli(["--agent", "chat", "--input", "@payload.json", "!pnpm", "test", "--filter", "api"], {
         cwd: rootDir,
         env: {},
         rootDir,
@@ -2461,7 +2461,7 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "--cli", "inventory", "--", "list", "--json"], {
+      const exitCode = await runAgentDevCli(["--agent", "chat", "--input", "@payload.json", "--cli", "inventory", "--", "list", "--json"], {
         cwd: rootDir,
         env: {},
         rootDir,
@@ -2616,7 +2616,7 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "review", "--payload", "payload.json", "--prompt=/summary"], {
+      const exitCode = await runAgentDevCli(["--agent", "review", "--input", "@payload.json", "--prompt=/summary"], {
         cwd: workspaceDir,
         env: {},
         rootDir,
@@ -2670,7 +2670,7 @@ describe("agent CLI", () => {
         root: rootDir,
       }))
 
-      const exitCode = await runAgentDevCli(["--agent", "support", "--payload", "payload.json"], {
+      const exitCode = await runAgentDevCli(["--agent", "support", "--input", "@payload.json"], {
         cwd: rootDir,
         env: {},
         rootDir,
@@ -2691,13 +2691,13 @@ describe("agent CLI", () => {
     }
   })
 
-  it("rejects non-object Agent Dev Loop payload files", async () => {
+  it("rejects an Agent Dev Loop --input that is not a JSON object", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-payload-"))
     try {
       await writeFile(join(rootDir, "payload.json"), "[1,2,3]", "utf8")
       const stderr = stream()
       const fetchAgentStream = vi.fn()
-      const exitCode = await runAgentDevCli(["--payload", "payload.json", "hello"], {
+      const exitCode = await runAgentDevCli(["--input", "@payload.json", "hello"], {
         cwd: rootDir,
         env: {},
         rootDir,
@@ -2709,7 +2709,21 @@ describe("agent CLI", () => {
 
       expect(exitCode).toBe(1)
       expect(fetchAgentStream).not.toHaveBeenCalled()
-      expect(stderr.output()).toContain("Agent Dev Loop payload file must contain a JSON object.")
+      expect(stderr.output()).toContain("Agent Dev Loop --input must be a JSON object.")
+
+      const inlineStderr = stream()
+      const inlineExitCode = await runAgentDevCli(["--input", "[1,2,3]", "hello"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr: inlineStderr,
+        stdout: stream(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }, { fetch: fetchAgentStream as never })
+      expect(inlineExitCode).toBe(1)
+      expect(fetchAgentStream).not.toHaveBeenCalled()
+      expect(inlineStderr.output()).toContain("Agent Dev Loop --input must be a JSON object.")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -2920,7 +2934,7 @@ describe("agent CLI", () => {
     try {
       const payloadPath = join(rootDir, "payload.json")
       await writeFile(payloadPath, "{}", "utf8")
-      const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--payload", "payload.json"], {
+      const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--input", "@payload.json"], {
         cwd: rootDir,
         env: {},
         rootDir,

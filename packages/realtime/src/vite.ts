@@ -17,7 +17,7 @@ import { summarizeRealtimeDefinitions } from "./inspect.ts"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
-import type { DiscoveredRealtimeDefinition, RealtimeModuleOptions } from "./types.ts"
+import type { DiscoveredRealtimeDefinition, RealtimeOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import unavailable from "./internal/runtime/unavailable.ts"
 
@@ -42,7 +42,7 @@ export interface RealtimeContribution {
   plugins?: string[]
 }
 
-export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
+export interface RealtimeVitePluginOptions extends RealtimeOptions {
   /** Module that exports the app's `databases`, for the Postgres bus. Defaults to `@vite-hub/database/drizzle`. */
   databaseImport?: string
   importBase?: string
