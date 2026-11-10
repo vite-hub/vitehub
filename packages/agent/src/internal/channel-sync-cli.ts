@@ -10,6 +10,7 @@ import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from ".
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
 import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
+import type { ViteDevServer } from "vite"
 import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -323,18 +324,32 @@ function uniqueAgentDefinitions(
 }
 
 /**
- * Resolves the stage config and loads modules in its SSR environment. A dev server would also start every other
- * environment, such as Nitro's dev worker and the Agents in it, and the Channel commands never use them.
+ * Keep Vite's server plugin lifecycle, but load modules only in a runnable SSR environment.
+ * The client container supports Vite's server APIs; Nitro workers and other runtime environments are unused.
  */
 async function createStageModuleLoader(vite: typeof import("vite"), config: ViteStageServerConfig) {
   const nitro = createCliDiscoveryNitroCloser()
+  let server: ViteDevServer | undefined
   try {
-    const resolved = await vite.resolveConfig({ ...config, plugins: [nitro.plugin] }, "serve")
-    const environment = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false })
-    await environment.init()
+    const resolved = await vite.resolveConfig({ ...config, plugins: [nitro.plugin, {
+      name: "vite-hub/channel-stage-server",
+      configureServer: { order: "pre", handler: (value) => { server = value } },
+    }] }, "serve")
+    // Nitro's server hook requires its worker environment. Keep its config hooks and generated modules,
+    // while Vite runs the remaining plugins' configureServer hooks with a real server.
+    for (const plugin of resolved.plugins) {
+      if (plugin.name === "nitro:main") delete plugin.configureServer
+    }
+    resolved.environments = { client: resolved.environments.client, ssr: resolved.environments.ssr }
+    resolved.environments.client.dev.createEnvironment = (name, config) => new vite.DevEnvironment(name, config, { hot: false })
+    resolved.environments.ssr.dev.createEnvironment = (name, config) => vite.createRunnableDevEnvironment(name, config, { hot: false })
+    server = await vite.createServer(resolved)
+    const environment = server.environments.ssr
+    if (!vite.isRunnableDevEnvironment(environment)) throw new Error("Channel target loading requires a runnable SSR environment.")
+    const stageServer = server
     return {
       close: async () => {
-        try { await environment.close() }
+        try { await stageServer.close() }
         finally { await nitro.close() }
       },
       config: resolved,
@@ -342,7 +357,8 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: Vite
     }
   }
   catch (error) {
-    await nitro.close()
+    try { await server?.close() }
+    finally { await nitro.close() }
     throw error
   }
 }
