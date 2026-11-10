@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const marker = typeof body?.marker === "string" ? body.marker : event.headers.get("x-vitehub-e2e-marker") || undefined
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
 
-  const [error, result] = await runQueue(queueName, {
+  const [error, result] = await sendQueue(queueName, {
     email: body?.email || "ava@example.com",
     callbackUrl,
     marker,

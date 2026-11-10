@@ -1,16 +1,11 @@
-import { fileURLToPath } from "node:url";
-
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    alias: {
-      undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
-    },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/, /^@vite-hub\/forge/, /^@vercel\/blob/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
         "vite",
         "#vitehub-workspace-assets-registry",

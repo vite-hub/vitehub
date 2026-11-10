@@ -279,9 +279,9 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
       snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
-      snippet("server/api/signup.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
-      snippet("server/api/typo.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
-      snippet("server/api/payload.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
+      snippet("server/api/signup.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcome-email', { email: 'ada@example.com' })"),
+      snippet("server/api/typo.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcom-email', { email: 'ada@example.com' })"),
+      snippet("server/api/payload.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcome-email', { address: 'ada@example.com' })"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
@@ -352,19 +352,17 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
-  it("excludes inbound Agent Channels while retaining outbound Channels", async () => {
+  it("types Agent Channels and outbound Channels with their adapters", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/channel-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
     const snippets = [
-      snippet("server/channels/inbox.ts", "import { defineChannel } from 'vite-hub/agent/channels'\nexport default defineChannel('inbox', { messages: false, triggers: {} })"),
+      snippet("server/channels/inbox.ts", "import { webChat } from 'vite-hub/agent/channels'\nimport { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
       snippet("server/channels/alerts.ts", "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
-      snippet("inbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
+      snippet("agent.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
-    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
-      ["inbound.ts", [2769]],
-    ])
+    expect(failures).toEqual([])
   }, 60_000)
 
   it.each(["ts", "cts"])("excludes helpers inside indexed Channel folders with %s indexes", async (extension) => {
