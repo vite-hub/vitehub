@@ -12,11 +12,11 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `createSource`, `combineSources`, `splitSource` from `vite-hub/source` | Define loaders, open readers, combine readers, and split items into parts. |
-| `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the in-process Source registry. |
-| `sourceIgnores` from `vite-hub/source` | Ignore patterns for dependencies, build output, media, secrets, and system files. |
-| `file` from `vite-hub/source/file`, `glob` from `vite-hub/source/glob`, `markdown` from `vite-hub/source/markdown`, `github` from `vite-hub/source/github`, `mcpResources` from `vite-hub/source/mcp` | One built-in loader each. Each path also exports its option types. |
-| `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or your loader into a typed, paged HTTP route. |
+| `defineSource`, `defineSources`, `createSource`, `combineSources`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, combine keyed readers, and split items into parts. |
+| `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
+| `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
+| `file`, `files`, `glob`, `markdown`, and `github` from `vite-hub/source`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each entry also exports the option types of its loaders. `mcpResources` has its own entry because it loads the MCP SDK. |
+| `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
 | `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
@@ -58,9 +58,7 @@ export default defineEventHandler(async () => {
 Register Sources only to look them up by name. `createSource()` calls do not need it.
 
 ```ts [server/sources.ts]
-import { defineSources, registerSources } from 'vite-hub/source'
-import { file } from 'vite-hub/source/file'
-import { github } from 'vite-hub/source/github'
+import { defineSources, registerSources, file, github } from 'vite-hub/source'
 
 export const sources = defineSources({
   readme: file('README.md'),
@@ -105,8 +103,7 @@ For typed lookup, declare `ViteHubSourceMap` entries as `typeof` each definition
 Use `splitSource()` when one file holds many items, such as Markdown sections or CSV rows. `split()` gets one parent item and returns its parts. Each part becomes an item with the key `<parent key>#<part key>`.
 
 ```ts [server/sections.ts]
-import { createSource, splitSource } from 'vite-hub/source'
-import { glob } from 'vite-hub/source/glob'
+import { createSource, splitSource, glob } from 'vite-hub/source'
 
 export const sections = splitSource({
   source: glob({ cwd: 'docs', include: '**/*.md' }),
