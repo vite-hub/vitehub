@@ -62,7 +62,7 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       nitroOwnsPaths: true,
       projectRoot: root,
       root,
-      runtimeImport: fileURLToPath(import.meta.resolve("@vite-hub/schedule/runtime/static")),
+      runtimeImport: fileURLToPath(new URL("../dist/runtime/static.js", import.meta.url)),
     } as Parameters<typeof createScheduleNitroConfig>[0]
     let instance: Nitro | undefined
     // Database registers its migration writer after Schedule's configured Nitro module in direct Vite apps.
