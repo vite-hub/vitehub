@@ -59,7 +59,6 @@ export interface AgentWorkflowRuntimeBinding {
   name?: string
 }
 export type AgentWaitUntil = RuntimeWaitUntil
-export type AgentIntegrationOption = "auto" | boolean
 export interface AgentHealthDescriptor {
   handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
 }
@@ -2326,22 +2325,7 @@ export interface AgentStateProviderOptions {
 export type ResolvedAgentStateProviderOptions =
   Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
 
-export interface AgentSchedulerProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
-}
-
-export interface AgentSandboxProviderOptions {
-  provider?: "auto" | "cloudflare" | "vercel" | (string & {})
-}
-
-export interface AgentIntegrationsOptions {
-  sandbox?: AgentIntegrationOption
-  workflow?: AgentIntegrationOption
-}
-
 export interface AgentProvidersOptions {
-  sandbox?: AgentSandboxProviderOptions
-  scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
 }
 
@@ -2416,7 +2400,6 @@ export interface AgentOptions {
   execution?: AgentExecution
   eval?: AgentEvalOptions
   imports?: boolean
-  integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
@@ -2432,10 +2415,7 @@ export interface ResolvedAgentModuleOptions {
   execution: AgentExecution
   shutdown: false | AgentShutdownOptions
   imports: boolean
-  integrations: Required<AgentIntegrationsOptions>
   providers: {
-    sandbox: Required<AgentSandboxProviderOptions>
-    scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
   routes: ResolvedAgentRoutesOptions
