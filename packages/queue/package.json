@@ -52,33 +52,39 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/queue#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/queue#build && vp test"
+    "test": "vp run --cache -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:vercel",
-    "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:tooling",
-    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "pathe": "catalog:unjs",
-    "undici": "8.12.2"
+    "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "undici": "8.12.2",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
+    "@vercel/queue": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
