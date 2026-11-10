@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Limits
 
-- **Nitro 3 only.** i18n runs in Vite with Nitro 3 and in Nuxt 5. Nuxt 4 builds the server with Nitro 2, which has no request context on every host, so the build stops with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
+- **Nitro 3 only.** i18n runs in Vite with Nitro 3 and in Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
 - **Async context.** ViteHub turns on Nitro's `experimental.asyncContext`, so `t` finds the request that runs it.
 - **Translations at build time.** The build reads `locales/<locale>/segments/` when it starts. A translation that you add after the build shows after the next build. In development, a saved record shows after a reload.
 - **Messages from files on disk.** The build reads the messages of each module from its file, so a message that another Vite plugin generates is not collected. It still works on the server, but in the browser a production build shows its ID.
@@ -31,7 +31,7 @@ A config error throws when the build starts. A runtime error comes back as `[err
 
 ### I18N_UNSUPPORTED_HOST
 
-The app builds the server with Nitro 2. i18n needs Nitro 3, which runs each request in an async context. Upgrade to Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.
+The app builds the server with an unsupported host. i18n needs Nitro 3, which runs each request in an async context. Use Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.
 
 ### I18N_MACRO_NOT_COMPILED
 

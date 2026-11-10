@@ -115,7 +115,7 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   }
   let result
   try {
-    result = await dynamicQueue.run(queue, input.payload, options)
+    result = await dynamicQueue.send(queue, input.payload, options)
   }
   catch (error) {
     throw failure(error)

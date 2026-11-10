@@ -8,22 +8,49 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Create a SQLite `notes` table, insert a note from an API route, and read it back in a second request. You will define the schema with Drizzle and apply a migration before using the table.
+A Database is where your app keeps data that must stay after a restart, such as notes, users, or orders. You describe your tables in one file. ViteHub gives your server code a client to read and write them.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup. Run every command from the app root so the CLI and server use the same local database. This tutorial needs no provider account. The default SQLite file is `.vitehub/data/database/sqlite.db`.
+In this tutorial, you create a `notes` table, add a note from one API route, and read it back from another.
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). You need no account and no API key. The data goes in a SQLite file on your computer, at `.vitehub/data/database/sqlite.db`. Run every command from the app root, so the CLI and the server use the same file.
 
 ::tutorial-step{title="Enable Database"}
 ## Enable Database
 
-Install the Database package, Drizzle for the schema, and Drizzle Kit for migration commands. The existing `vite-hub` dependency provides the CLI.
+Database is a separate package. Add it, with [Drizzle](https://orm.drizzle.team) to write your tables and Drizzle Kit to make migrations:
 
-```bash [commands/install]
+```bash pm [commands/install]
 pnpm add @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Add `database: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
+Then add `database: true` to the ViteHub options of your app. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', database: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'node', database: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -33,15 +60,17 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', database: true })],
 })
 ```
+::::
+:::
 
-If you chose Nuxt in Installation, add `database: true` to the options of the existing `vite-hub/nuxt` module. Use the same Definition and server routes below.
+If you use Nuxt, add `database: true` to the `vite-hub/nuxt` module options instead. The other steps are the same.
 
 ::
 
 ::tutorial-step{title="Create and migrate the table"}
 ## Create and migrate the table
 
-Create `server/databases/config.ts`. ViteHub discovers this file as the `default` Database Definition. The schema has an auto-incrementing integer ID and a required title.
+Create `server/databases/config.ts`. This file is the Definition of your `default` database: it lists its tables.
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -57,23 +86,27 @@ export default defineDatabase({
 })
 ```
 
-If your app already has a default Definition, add `notes` to its schema instead of creating a second Definition. A Definition describes tables; it does not create them in the database.
+- `notes` gets an `id` that counts up by itself and a `title` that must have a value.
+- If your app already has `server/databases/config.ts`, add `notes` to its `schema`. Do not make a second file.
 
-Generate and apply the migration from the app root:
+The Definition only describes the table. To create the table in the database, make a migration and apply it:
 
 ```bash [commands/generate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-`generate` writes SQL and migration metadata to `server/databases/migrations/`. `migrate` applies pending SQL to the local SQLite file. Neither command needs a running server or a previous build. Check that both commands finish successfully before querying the table.
+- `generate` writes the SQL for your tables to `server/databases/migrations/`.
+- `migrate` runs that SQL on the SQLite file.
+
+You do not need a running server for these commands. Make sure both finish without an error before you go on.
 
 ::
 
 ::tutorial-step{title="Insert a note"}
 ## Insert a note
 
-Create `server/api/notes.post.ts`. Nitro maps this file to `POST /api/notes`. The route checks the title, inserts a row, and returns the inserted rows as an array.
+Create `server/api/notes.post.ts`. This file is the route `POST /api/notes`. It checks the title, adds a row, and sends back the new row.
 
 ```ts [server/api/notes.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
@@ -92,14 +125,15 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`useDatabase('default')` returns the Drizzle client and the schema. Drizzle queries return rows or driver results directly. They reject on failure, so do not destructure a query as an `[error, data]` tuple. See [Limits and errors](/docs/database/limits-and-errors).
+- `useDatabase('default')` gives you `db`, the Drizzle client, and `schema`, your tables.
+- A query returns the rows. If it fails, it throws an error. It does not return an `[error, data]` pair. See [Limits and errors](/docs/database/limits-and-errors).
 
 ::
 
 ::tutorial-step{title="Read the notes"}
 ## Read the notes
 
-Create `server/api/notes.get.ts`. This route reads rows in ID order without changing them.
+Create `server/api/notes.get.ts`. This route reads all notes, in ID order.
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
@@ -111,20 +145,18 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The explicit H3 imports work with the Vite and Nuxt setups from Installation. Run these routes through the app so ViteHub can load the generated Database registry.
-
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start or restart the app after the config change:
+Start the dev server. If it already runs, restart it, so it reads the new config:
 
 ```bash [commands/start]
 pnpm dev
 ```
 
-Keep it running. In another terminal, insert a note:
+Open a second terminal in the same folder, and add a note:
 
 ```bash [commands/request]
 curl -X POST http://localhost:3000/api/notes \
@@ -132,27 +164,42 @@ curl -X POST http://localhost:3000/api/notes \
   -d '{"title":"My first note"}'
 ```
 
-On a fresh database, the response is:
+On a new database, the response is:
 
 ```json [output/insert.json]
 [{ "id": 1, "title": "My first note" }]
 ```
 
-Read the table in a separate request:
+Read the notes:
 
 ```bash [commands/read]
 curl http://localhost:3000/api/notes
 ```
 
-After that first insert, the response is:
+The response has your note:
 
 ```json [output/response.json]
 [{ "id": 1, "title": "My first note" }]
 ```
 
-Every POST adds a row with a new ID. GET returns all rows, so an existing database can return more notes. Before the first insert, GET returns `[]`. The rows remain after an app restart.
+Each POST adds a row with a new ID, and GET returns all rows. Restart the server and send the GET again: the note is still there.
 
-If the route reports a missing table, run `pnpm vitehub db migrate` from the same app root. After schema changes, run both `generate` and `migrate` again. Keep the schema and generated migrations in version control.
+If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub database migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
-Continue with [Server API](/docs/database/server-api) for queries and [Hosts](/docs/database/hosts) for hosted databases.
+::
+
+## Next steps
+
+::card-group
+:::card{title="Server API" icon="i-lucide-code" to="/docs/database/server-api"}
+Write queries and use more than one database.
+:::
+
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/database/configure"}
+Run migrations when the server starts, and see every option.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/database/hosts"}
+Use Cloudflare D1, Turso, or Postgres when you deploy.
+:::
 ::
