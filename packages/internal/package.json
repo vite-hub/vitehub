@@ -248,6 +248,11 @@
       "import": "./dist/build/included-nitro.js",
       "default": "./dist/build/included-nitro.js"
     },
+    "./build/included-nitro-registry": {
+      "types": "./dist/build/included-nitro-registry.d.ts",
+      "import": "./dist/build/included-nitro-registry.js",
+      "default": "./dist/build/included-nitro-registry.js"
+    },
     "./build/nitro-cache-bypass": {
       "types": "./dist/build/nitro-cache-bypass.d.ts",
       "import": "./dist/build/nitro-cache-bypass.js",

@@ -16,7 +16,7 @@ import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readStaticScheduleTiming, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -317,6 +317,8 @@ interface RenderNitroSchedulePluginOptions {
   /** Set when a Definition has no `cron`: the registry of those Definitions, for `startSchedule()` and the tick. */
   startedRegistryFile?: string
   processRuntime?: ScheduleProcessRuntimeOptions
+  /** The static cron and time zone of each Process Runtime Schedule, so the runtime loads its module when it is due. */
+  processTimings?: Record<string, { cron: string, timeZone?: string }>
   providerDefinitions: DiscoveredScheduleDefinition[]
   providerRegistryFile: string
   staticRegistryFile: string
@@ -337,6 +339,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
         ...(processRuntime.catchUpMs !== undefined ? { catchUpMs: processRuntime.catchUpMs } : {}),
         ...(processRuntime.concurrency !== undefined ? { concurrency: processRuntime.concurrency } : {}),
         ...(processRuntime.intervalMs !== undefined ? { intervalMs: processRuntime.intervalMs } : {}),
+        ...(options.processTimings && Object.keys(options.processTimings).length ? { timings: options.processTimings } : {}),
       }
     : undefined
   const scheduleStoreOptions = processRuntime?.prefix !== undefined ? { prefix: processRuntime.prefix } : {}
@@ -575,6 +578,7 @@ interface WriteNitroSchedulePluginOptions {
   importBase?: string
   netlifySchedules: NitroNetlifySchedule[]
   processRuntime?: ScheduleProcessRuntimeOptions
+  processTimings?: Record<string, { cron: string, timeZone?: string }>
   providerDefinitions: DiscoveredScheduleDefinition[]
   staticDefinitions: DiscoveredScheduleDefinition[]
   runtimeImport?: string
@@ -595,6 +599,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       pluginFile,
       startedRegistryFile,
       processRuntime: options.processRuntime,
+      ...(options.processTimings ? { processTimings: options.processTimings } : {}),
       providerDefinitions: options.providerDefinitions,
       providerRegistryFile,
       staticRegistryFile,
@@ -701,6 +706,18 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const crons = [...new Set(nitroCrons.values())]
   const netlifySchedules = [...nitroCrons].map(([name, cron]) => ({ cron, ...(Object.hasOwn(timeZoneCrons, name) ? { inTimeZone: true } : {}), name }))
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
+  const staticDefinitions = definitions.filter(definition =>
+    !nitroDefinitionNames.has(definition.name)
+    && !(processRuntime && options.providerOutput === "standalone")
+  )
+  // A build reads each static cron from source, so the server starts without importing the Schedule modules and what
+  // they import. `vite dev` loads them at startup, so an edited cron applies without a new plugin file.
+  const processTimings = processRuntime && options.command === "build"
+    ? Object.fromEntries(staticDefinitions.flatMap((definition) => {
+        const timing = readStaticScheduleTiming(definition.handler)
+        return timing ? [[definition.name, timing]] : []
+      }))
+    : undefined
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
     crons,
@@ -708,12 +725,10 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     netlifySchedules,
     timeZoneCrons,
     processRuntime,
+    ...(processTimings ? { processTimings } : {}),
     providerDefinitions: nitroDefinitions,
     startableDefinitions,
-    staticDefinitions: definitions.filter(definition =>
-      !nitroDefinitionNames.has(definition.name)
-      && !(processRuntime && options.providerOutput === "standalone")
-    ),
+    staticDefinitions,
     runtimeImport: (options as InternalScheduleVitePluginOptions).runtimeImport,
   })
   return mergeNitroScheduleConfig(nitro, {
@@ -882,21 +897,25 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         artifactDir = resolve(rootDir, ".vitehub/schedule-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
-        const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+        // Only provider functions bundle with these aliases, and resolving every owner package export costs time.
+        const bundles = definitions.length > 0 || Boolean(workflow)
+        const contributedAliases = bundles
+          ? await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+          : {}
         const aliases = {
           ...resolveStringAliases(config),
           ...contributedAliases,
           ...internalOptions.providerImportAliases,
           ...workflow?.bundleAlias,
         }
-        const retainedSources = definitions.length || workflow
+        const retainedSources = bundles
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
               paths: [...definitions.map(definition => definition.handler), ...providerOutputAliasSources(aliases, [rootDir])],
               roots: [rootDir],
             })
           : { resolve: (path: string) => path }
-        if (definitions.length || workflow) {
+        if (bundles) {
           // SAFETY: Configured plugins may expose the optional ViteHub provider contribution contract.
           await prepareViteHubProviderSources((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>, retainedSources)
         }

@@ -131,6 +131,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
   "@vite-hub/realtime/client",
+  "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/ui/browser-support-notice",
   "@vite-hub/ui/connect-panel",
@@ -300,7 +301,7 @@ describe("framework package contract", () => {
 
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
-      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+      .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);

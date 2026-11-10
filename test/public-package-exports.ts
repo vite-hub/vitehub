@@ -89,6 +89,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./drivers/uploadthing",
     "./drivers/vercel",
     "./ensure",
+    "./internal/vercel-blob",
     "./media",
     "./reference",
     "./runtime/state",
@@ -246,6 +247,14 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     ".",
     "./package.json",
   ],
+  "@vite-hub/forms": [
+    ".",
+    "./client",
+    "./database",
+    "./runtime",
+    "./vite",
+    "./package.json",
+  ],
   "@vite-hub/gateways": [
     ".",
     "./ai-sdk",
@@ -383,6 +392,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./multi-file-diff",
     "./nuxt",
     "./patch-diff",
+    "./playground",
     "./primitive-rail",
     "./prompt-input",
     "./sync-status",
@@ -566,6 +576,10 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./env/seal",
     "./env/secret",
     "./env/server",
+    "./forms",
+    "./forms/client",
+    "./forms/database",
+    "./forms/runtime",
     "./gateways",
     "./gateways/ai-sdk",
     "./kv",
@@ -803,7 +817,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent` and `vite-hub/_internal/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

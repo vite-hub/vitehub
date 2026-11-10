@@ -28,11 +28,12 @@ import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
-import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
-import { vitehub, type ViteHubOptions } from "./index.ts"
+import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
+import { viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
+import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
@@ -400,6 +401,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
   "vite-hub/optional-owner-imports",
+  "vite-hub/cloudflare-sh-syntax",
   "vite-hub/unavailable-services",
 ])
 
@@ -598,8 +600,10 @@ async function installConsole(
       addViteHubDevPeerDevHandler(nitro.options.devHandlers)
     }])
     // WebSocket upgrades, such as Realtime rooms of the Console, skip Nitro's dev handlers. Sign them on the listener.
-    Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer) => {
+    Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer & { address?: () => { address: string } | string | null }) => {
       addViteHubDevPeerUpgradeSigner(server)
+      const notice = consoleDevAccessNotice(access?.mode, server.address?.())
+      if (notice) console[notice.level](notice.message)
     }])
     const tab = consoleNuxtDevToolsTab(nuxt.options.app?.baseURL)
     // Nuxt DevTools 3 and 4 read this hook. DevTools 4 shows the tab in its Devframe dock.
@@ -995,6 +999,7 @@ type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
   getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
+    compatibility: { server: "nitro3" }
     configKey: "vitehub"
     name: "vite-hub/nuxt"
   }>
@@ -1291,7 +1296,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
-  const installedPlugins = flattenPlugins(vitehub(markCmsPresetFeaturesResolved({
+  const installedPlugins = flattenPlugins(viteHubPlugins(markCmsPresetFeaturesResolved({
     ...options,
     ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
   } as ViteHubOptions)))
@@ -1843,6 +1848,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 }
 
 viteHubNuxtModule.getMeta = async () => ({
+  // Nuxt 5 then skips its Nitro 2 compatibility scan of this package, which parses every file that the
+  // module's server entries import.
+  compatibility: { server: "nitro3" },
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })
