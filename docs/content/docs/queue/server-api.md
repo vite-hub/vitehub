@@ -27,7 +27,15 @@ Set `queue: true` in your ViteHub config, then import from `vite-hub/queue`. Rou
 
 ## Queue job
 
-The handler gets one job in the same shape on every provider.
+The handler gets one job in the same shape on every provider. The examples on this page enqueue the `welcome-email` Definition from Get started:
+
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload, id }) => {
+  console.log(`Processing welcome job ${id} for ${payload.email}`)
+})
+```
 
 | Field | Type | Description |
 | --- | --- | --- |
