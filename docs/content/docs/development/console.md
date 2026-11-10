@@ -789,13 +789,12 @@ A finished session shows **Abort stale execution**. It sends an abort signal to 
 
 Nuxt needs no SEO module for the `X-Robots-Tag` default. If the app uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route rules so its robots and sitemap modules skip the Console routes:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  routeRules: {
-    '/_vitehub': { robots: false },
-    '/_vitehub/**': { robots: false },
-  },
-})
+```ts [nuxt.config.ts] fragment
+// With @nuxtjs/robots or @nuxtjs/seo in `modules`
+routeRules: {
+  '/_vitehub': { robots: false },
+  '/_vitehub/**': { robots: false },
+},
 ```
 
 Do not use `robots.txt` as access control. Crawlers can ignore it, and a blocked URL can still be listed. Read [Auth](/docs/auth/server-api#authorize-access-routes) for the full callback contract.

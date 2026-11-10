@@ -413,24 +413,29 @@ A Custom Source can read files already in the Workspace through `ctx.workspaceFi
 
 A Source can pick its origin and mount per invocation from trusted runtime context. Use this when one Source key needs a narrower origin after Access selects a Workspace Scope.
 
-```ts
+```ts [server/workspaces/support/config.ts]
+import { defineWorkspace, github } from 'vite-hub/workspace'
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: { meta?: { customer?: string } }
+    'support.customerScope': { customers: string[] }
   }
 }
 
-github(({ channel, invocation }) => {
-  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-  const customer = channel?.meta?.customer ?? scope?.customers[0]
-  if (!customer)
-    return false
+export default defineWorkspace({
+  sources: {
+    ingestion: github(({ invocation }) => {
+      const customer = invocation.context.get('support.customerScope')?.customers[0]
+      if (!customer)
+        return false
 
-  return {
-    repo: 'quiverdk/ingestion',
-    root: `dbt/${customer}`,
-    mount: `ingestion/${customer}`,
-  }
+      return {
+        repo: 'quiverdk/ingestion',
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+      }
+    }),
+  },
 })
 ```
 

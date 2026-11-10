@@ -85,7 +85,6 @@ Available namespaces:
 | `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
-| `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
 | `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |

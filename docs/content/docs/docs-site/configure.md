@@ -410,8 +410,10 @@ The server parses every page with [Comark](https://comark.dev) and comark-ui's p
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
+import emoji from 'comark/plugins/emoji'
 
 export default {
+  plugins: [emoji()],
   comarkUi: { chips: true },
   examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
 } satisfies DocsParserOptions
