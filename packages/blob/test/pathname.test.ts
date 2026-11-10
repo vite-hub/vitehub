@@ -3,10 +3,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { getRouterParam, H3, H3Event } from "h3"
+import { memory } from "files-sdk/memory"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createDriver as createR2Driver } from "../src/drivers/cloudflare.ts"
 import { createDriver as createR2NativeDriver } from "../src/drivers/cloudflare-native.ts"
+import { createFilesSdkDriver } from "../src/drivers/files-sdk.ts"
 import { createDriver as createFsDriver } from "../src/drivers/fs.ts"
+import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
 import type { BlobDriverAdapter, BlobObject, BlobStorage } from "../src/types.ts"
@@ -27,10 +31,10 @@ afterEach(async () => {
   await rm(root, { force: true, recursive: true })
 })
 
-function spyDriver(): BlobDriverAdapter<{ driver: "fs" }> {
+function spyDriver(name = "spy"): BlobDriverAdapter<{ driver: "fs" }> {
   const object: BlobObject = { contentType: undefined, customMetadata: {}, httpEtag: undefined, httpMetadata: {}, pathname: "x", uploadedAt: new Date() }
   return {
-    name: "spy",
+    name,
     options: { driver: "fs" },
     createMultipartUpload: vi.fn(async () => { throw new Error("driver called") }),
     delete: vi.fn(async () => {}),
@@ -47,17 +51,36 @@ function spyDriver(): BlobDriverAdapter<{ driver: "fs" }> {
 describe("blob pathname validation", () => {
   const unsafe = ["", "/", "..", ".", "a/../b", "a/./b", "..%2Fsecret", "%2e%2e/secret", "a\\..\\b", "a%5C..%5Cb", "a\u0000b", "a%00b", "a\nb", "a%7Fb", "a\uD800b", "a\uDC00b"]
 
+  it.each([
+    { name: "invalid", pathname: "..%2Fsecret", status: 400 },
+    { name: "reserved", pathname: ".vitehub/blob-meta/x.json", status: 404 },
+    { name: "missing", pathname: "missing.txt", status: 404 },
+    { name: "over the R2 key limit", pathname: "a".repeat(1025), status: 400 },
+  ])("returns a bodyless HEAD response for a pathname that is $name", async ({ pathname, status }) => {
+    const storage = createBlobStorage(spyDriver("cloudflare-r2"), "default")
+    const get = await storage.serve(new Request("https://example.test/x"), pathname)
+    const head = await storage.serve(new Request("https://example.test/x", { method: "HEAD" }), pathname)
+
+    expect(get.status).toBe(status)
+    expect(await get.json()).toEqual({ error: expect.any(String) })
+    expect(head.status).toBe(status)
+    expect([...head.headers]).toEqual([...get.headers])
+    expect(head.body).toBeNull()
+    expect(await head.text()).toBe("")
+  })
+
   it.each(unsafe)("rejects %j before any driver call", async (pathname) => {
     const driver = spyDriver()
     const storage = createBlobStorage(driver, "default")
-    const event = { "~standard": { vendor: "test", req: new Request("https://example.test/x"), res: { headers: new Headers(), status: 200 } } }
 
     await expect(storage.get(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.head(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.delete(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.delete(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
     await expect(storage.put(pathname, "x")).rejects.toMatchObject(invalidPathname)
-    await expect(storage.serve(event, pathname)).rejects.toMatchObject(invalidPathname)
+    const served = await storage.serve(new Request("https://example.test/x"), pathname)
+    expect(served.status).toBe(400)
+    expect(await served.json()).toEqual({ error: expect.stringMatching(/^Invalid Blob pathname: it must /) })
     await expect(storage.sign(pathname, { expiresIn: 60, method: "GET" })).rejects.toMatchObject(invalidPathname)
     await expect(storage.sign(pathname, { expiresIn: 60, method: "PUT" })).rejects.toMatchObject(invalidPathname)
     await expect(storage.createMultipartUpload(pathname)).rejects.toMatchObject(invalidPathname)
@@ -107,14 +130,65 @@ describe("blob pathname validation", () => {
   })
 })
 
+describe("reserved serve pathnames", () => {
+  const reserved = [".vitehub", ".vitehub/blob-meta/x.json", ".VITEHUB/blob-hashes/x.json", "%2Evitehub/multipart/x", "_vitehub", "_VITEHUB/", "_vitehub/derived/x", "_vitehub/media/records/x.jpg.json", "%5Fvitehub/derived/x"]
+
+  it.each(reserved)("answers 404 to %j before any driver call", async (pathname) => {
+    const driver = spyDriver()
+    const response = await createBlobStorage(driver, "default").serve(new Request("https://example.test/x"), pathname)
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "Blob not found." })
+    for (const method of ["get", "head", "getArrayBuffer"] as const) expect(driver[method], method).not.toHaveBeenCalled()
+  })
+
+  it("answers 404 to the fs driver's own metadata files", async () => {
+    await storage.put("hello.txt", "hello")
+    const [meta] = await readdir(join(base, ".vitehub/blob-meta"))
+    for (const pathname of [`.vitehub/blob-meta/${meta}`, ".vitehub/blob-meta", "./.vitehub/blob-meta"]) {
+      expect((await storage.serve(new Request("https://example.test/x"), pathname)).status, pathname).toBe(pathname.startsWith("./") ? 400 : 404)
+    }
+  })
+
+  it("answers 404 on Files SDK and R2 stores too", async () => {
+    const files = createBlobStorage(createFilesSdkDriver({ base: ".data/blob", driver: "fs" }, () => memory()), "default")
+    setActiveCloudflareEnv({ BLOB: { get: vi.fn(async () => { throw new Error("driver called") }), head: vi.fn(async () => { throw new Error("driver called") }) } })
+    try {
+      const r2 = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default")
+      for (const store of [files, r2]) {
+        for (const pathname of [".vitehub/blob-meta/x.json", "_vitehub/derived/x"]) {
+          expect((await store.serve(new Request("https://example.test/x"), pathname)).status, pathname).toBe(404)
+        }
+        expect((await store.serve(new Request("https://example.test/x"), "dir/..%2F..%2Fpackage.json")).status).toBe(400)
+      }
+    }
+    finally {
+      clearActiveCloudflareEnv()
+    }
+  })
+
+  it("rejects writes to .vitehub on every driver", async () => {
+    const driver = spyDriver()
+    const storage = createBlobStorage(driver, "default")
+    for (const pathname of [".vitehub/blob-meta/x.json", ".VITEHUB/x"]) {
+      await expect(storage.put(pathname, "x")).rejects.toThrow("reserved ViteHub namespace")
+      await expect(storage.createMultipartUpload(pathname)).rejects.toThrow("reserved ViteHub namespace")
+      await expect(storage.sign(pathname, { expiresIn: 60, method: "PUT" })).rejects.toThrow("reserved ViteHub namespace")
+    }
+    expect(driver.put).not.toHaveBeenCalled()
+  })
+
+  it("answers 400 to a pathname above the R2 key limit", async () => {
+    const driver = spyDriver("cloudflare-r2")
+    const response = await createBlobStorage(driver, "default").serve(new Request("https://example.test/x"), "a".repeat(1025))
+    expect(response.status).toBe(400)
+    expect(driver.head).not.toHaveBeenCalled()
+  })
+})
+
 describe("HTTP routes", () => {
   function app() {
     return new H3()
-      .get("/blob/**:pathname", async (event) => {
-        const [error, stream] = await storage.serve(event, getRouterParam(event, "pathname", { decode: false }) || "")
-        if (error) throw error
-        return stream
-      })
+      .get("/blob/**:pathname", event => storage.serve(event.req, getRouterParam(event, "pathname", { decode: false }) || ""))
       .post("/upload", async (event) => {
         const [error, objects] = await storage.handleUpload(event, { put: { prefix: "uploads" } })
         if (error) throw error
@@ -127,9 +201,13 @@ describe("HTTP routes", () => {
     const [error] = await storage.put("public.txt", "public")
     expect(error).toBeUndefined()
 
-    const response = await app().fetch(new Request("http://localhost/blob/..%2Fsecret.txt"))
-    expect(response.status).toBe(400)
+    for (const path of ["..%2Fsecret.txt", "dir/..%2F..%2F..%2Fsecret.txt", "%2E%2E%2Fsecret.txt"]) {
+      const response = await app().fetch(new Request(`http://localhost/blob/${path}`))
+      expect(response.status, path).toBe(400)
+      expect(response.headers.get("content-type")).toContain("application/json")
+    }
     expect((await app().fetch(new Request("http://localhost/blob/public.txt"))).status).toBe(200)
+    expect((await app().fetch(new Request("http://localhost/blob/.vitehub/blob-meta/x.json"))).status).toBe(404)
   })
 
   it("keeps an uploaded file inside the prefix", async () => {

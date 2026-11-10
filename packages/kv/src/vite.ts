@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
@@ -36,16 +36,19 @@ import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig } from "vite"
 
+// Generated code imports these modules by path, so they need no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
+
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
-const KV_ERRORS_IMPORT_ID = new URL(import.meta.url.endsWith(".ts") ? "./errors.ts" : "./errors.js", import.meta.url).href
+const KV_ERRORS_IMPORT_ID = ownModule(import.meta.url, "errors")
 const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
-const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
-  ? "@vite-hub/kv/runtime/cloudflare-kv"
-  : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
-// Nitro registers middleware by file path. The file is in `dist` after a build and in `src` in this repository.
-const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runtime/cloudflare-request-env.ts" : "./runtime/cloudflare-request-env.js", import.meta.url))
+const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = ownModule(import.meta.url, "runtime/cloudflare-kv")
+// Nitro registers middleware by file path.
+const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = ownModule(import.meta.url, "runtime/cloudflare-request-env")
+/** The unstorage driver that Nitro's `cache` mount uses to store its entries in the app's default KV store. */
+export const kvNitroCacheDriver: string = ownModule(import.meta.url, "runtime/nitro-cache")
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
@@ -323,8 +326,8 @@ export function hubKV(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
           resources: () => inspectKVResources(configuredOptions, projectRoot),
         }
       },
-      // The Console, `vitehub kv`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "kvOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).kvOperations, module: "@vite-hub/kv/operations" }],
+      // The Console, `vitehub kv`, and agents run these.
+      operations: [{ export: "kvOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).kvOperations, module: operationsModule }],
       cli: async () => {
         const { createKVCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return {
@@ -343,7 +346,7 @@ export function hubKV(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, readProvisionStateSync(projectRoot))
-        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/kv/operations")
+        return installStandaloneOperationRpc(config, env?.command ?? "build", operationsModule)
       },
     },
     configResolved: {

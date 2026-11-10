@@ -169,7 +169,7 @@ describe("hubKV", () => {
 
   it("registers the Cloudflare request env middleware once, before other middleware", async () => {
     const { hubKV } = await import("../src/vite.ts")
-    const middleware = resolve(import.meta.dirname, "../src/runtime/cloudflare-request-env.ts")
+    const middleware = resolve(import.meta.dirname, "../dist/runtime/cloudflare-request-env.js")
     const plugin = hubKV({ binding: "KV", driver: "cloudflare-kv-binding" })
     const config = { nitro: { handlers: [{ handler: "server/middleware/auth.ts", middleware: true }] } }
     const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
@@ -197,7 +197,7 @@ describe("hubKV", () => {
 
   it.each(["before", "after"])("reconciles the request env middleware when Nitro setup runs %s config resolution", async (setupOrder) => {
     const { hubKV } = await import("../src/vite.ts")
-    const middleware = resolve(import.meta.dirname, "../src/runtime/cloudflare-request-env.ts")
+    const middleware = resolve(import.meta.dirname, "../dist/runtime/cloudflare-request-env.js")
     const plugin = hubKV({ binding: "KV", driver: "cloudflare-kv-binding" })
     const auth = { handler: "server/middleware/auth.ts", middleware: true }
     const options = { handlers: [auth] }

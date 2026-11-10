@@ -454,7 +454,7 @@ describe("hubKV", () => {
   it("contributes the kv operations and the CLI namespace", async () => {
     const plugin = hubKV()
     expect(plugin.vitehub.cli).toEqual(expect.any(Function))
-    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "kvOperations", module: "@vite-hub/kv/operations" })])
+    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "kvOperations", module: join(import.meta.dirname, "../dist/operations.js") })])
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
     expect(operations.map(operation => operation.name)).toEqual(["kv.list", "kv.get", "kv.has", "kv.set", "kv.delete"])
   })

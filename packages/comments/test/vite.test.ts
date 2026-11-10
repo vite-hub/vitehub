@@ -297,7 +297,10 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
       definition: { export: "commentsSchema", module: "@vite-hub/comments/database" },
       name: "comments",
     })])
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("selectCommentsDatabase(databases, \"content\")")
+    const pluginSource = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(pluginSource).toContain(".databases, \"content\")")
+    // The Database registry imports the app's schema and drizzle-orm. It loads on the first Comments call.
+    expect(pluginSource).not.toMatch(/^import .* from "[^"]*database\/drizzle"/m)
   })
 
   it.each([
@@ -341,7 +344,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     expect(contributions).toHaveLength(1)
     if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
     else expect(contributions[0]).toHaveProperty("database", database)
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`selectCommentsDatabase(databases${database ? `, ${JSON.stringify(database)}` : ""})`)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`.databases${database ? `, ${JSON.stringify(database)}` : ""})`)
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {

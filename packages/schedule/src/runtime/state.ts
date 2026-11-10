@@ -2,7 +2,10 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { createMemoryScheduleRunStore } from "./store.ts"
 
-import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
+
+/** The cron and time zone of a Schedule that the Process Runtime runs. */
+type ProcessScheduleTimingRecord = Pick<ScheduleDefinition, "cron" | "timeZone">
 
 /** What `startSchedule()` and the started-Schedule tick use. The generated Nitro plugin installs it. */
 export interface StartedScheduleRuntime {
@@ -16,7 +19,7 @@ export interface StartedScheduleRuntime {
 }
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
-const processDefinitions = new Set<ReadonlyMap<string, ScheduleRegistryDefinition>>()
+const processDefinitions = new Set<ReadonlyMap<string, ProcessScheduleTimingRecord>>()
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
 let startedRuntime: StartedScheduleRuntime | undefined
@@ -50,12 +53,12 @@ export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undef
 }
 
 /** Publish only ready runtimes, retaining earlier snapshots until their controllers close. */
-export function registerProcessScheduleDefinitions(definitions: ReadonlyMap<string, ScheduleRegistryDefinition>): () => void {
+export function registerProcessScheduleDefinitions(definitions: ReadonlyMap<string, ProcessScheduleTimingRecord>): () => void {
   processDefinitions.add(definitions)
   return () => { processDefinitions.delete(definitions) }
 }
 
-export function getProcessScheduleDefinitions(): ReadonlyMap<string, ScheduleRegistryDefinition> | undefined {
+export function getProcessScheduleDefinitions(): ReadonlyMap<string, ProcessScheduleTimingRecord> | undefined {
   return [...processDefinitions].at(-1)
 }
 

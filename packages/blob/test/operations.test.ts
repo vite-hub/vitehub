@@ -2,7 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { H3Event } from "h3"
 import sharp from "sharp"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -139,7 +138,7 @@ describe("blob operations", () => {
     const media = await run({ operation: "media", pathname: "images/hero.png" })
     expect(media).toMatchObject({ body: { record: { alt: "Hero", contentType: "image/png", height: 300, pathname: "images/hero.png", width: 600 }, store: "default" }, status: 200 })
     expect(await run({ operation: "variants", pathname: "images/hero.png" })).toEqual({ body: { pathname: "images/hero.png", store: "default", variants: [] }, status: 200 })
-    await blob.serve(new H3Event(new Request("https://example.test/")), "images/hero.png", { variant: { width: 128 } })
+    await (await blob.serve(new Request("https://example.test/"), "images/hero.png", { variant: { width: 128 } })).body?.cancel()
     const variants = await run({ operation: "variants", pathname: "images/hero.png" })
     expect(variants.body.variants).toEqual([expect.objectContaining({ contentType: "image/webp", key: "image:v1;src=original;out=128x64;fmt=webp;q=75;engine=sharp", source: "images/hero.png" })])
     expect(await run({ operation: "media", pathname: "images/missing.png" })).toMatchObject({ body: { error: { code: "BLOB_NOT_FOUND" } }, status: 404 })

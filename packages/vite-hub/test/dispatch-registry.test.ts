@@ -56,12 +56,12 @@ it.each([
     // Static Schedules need no generated type map.
     await expect(readFile(join(root, ".vitehub/schedule.d.ts"), "utf8")).rejects.toThrow()
     await writeFile(join(root, "consumer.mts"), [
-      'import { runQueue, getQueue } from "vite-hub/queue"',
-      'const [error] = await runQueue("welcome", { email: "ada@example.test" })',
+      'import { sendQueue, useQueue } from "vite-hub/queue"',
+      'const [error] = await sendQueue("welcome", { email: "ada@example.test" })',
       'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
-      'await (await getQueue("welcome")).send({ email: "ada@example.test" })',
+      'await (await useQueue("welcome")).send({ email: "ada@example.test" })',
       '// @ts-expect-error Queue payload comes from the generated public map.',
-      'await runQueue("welcome", { count: 1 })',
+      'await sendQueue("welcome", { count: 1 })',
     ].join("\n"))
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({
       compilerOptions: {

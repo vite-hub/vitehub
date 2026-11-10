@@ -1,5 +1,5 @@
 import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { importSealKey, seal, unseal } from "@vite-hub/env/seal"
+import { importSealKey, sealWithKey, unsealWithKey } from "@vite-hub/env/seal"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
@@ -181,7 +181,7 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
     if (!sealed) return undefined
     let value: unknown
     try {
-      value = JSON.parse(await unseal(key, encoder.encode(name), sealed))
+      value = JSON.parse(await unsealWithKey(key, encoder.encode(name), sealed))
     }
     catch {
       // A record sealed with another key, such as before a key rotation, reads as missing.
@@ -191,7 +191,7 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
     return parsed.success ? parsed.output : undefined
   }
   async function write(name: string, value: unknown): Promise<void> {
-    unwrap(await kv.set(name, { sealed: await seal(key, encoder.encode(name), JSON.stringify(value)) }))
+    unwrap(await kv.set(name, { sealed: await sealWithKey(key, encoder.encode(name), JSON.stringify(value)) }))
   }
   const connectionKey = async (owner: string, id: string) => `${prefix}:connections:${await hashed(owner)}:${id}`
   const clientKey = async (name: string) => `${prefix}:clients:${await hashed(name)}`

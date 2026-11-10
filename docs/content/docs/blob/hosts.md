@@ -8,15 +8,13 @@ icon: i-lucide-cloud-cog
 
 ## Host output
 
-Nitro writes the host output. `hubBlob()` adds a Nitro plugin that selects the default or named store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's generated `wrangler.json`. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
-
-Application code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
+Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to the generated `wrangler.json`. Put bucket names, tokens, and bindings in integration config or deployment setup. Your code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
 
 ## Read and write blobs during development
 
 `vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
-`hubBlob()` contributes the `vitehub blob` CLI namespace. Start the Vite Development Server, then read and write blobs from another terminal.
+`hubBlob()` adds the `vitehub blob` CLI commands. Start the dev server, then run them from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub blob list --prefix avatars/
@@ -28,49 +26,147 @@ pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png
 ```
 
-`media` prints the [media record](/docs/blob/media) of an object, and `variants` lists its cached image variants. The commands call the same Blob storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. `get` writes the bytes unchanged to a file or to stdout. `put` sends the file as base64 JSON, so it accepts files up to 8 MiB, and `get` returns files up to 8 MiB. The commands do not print blob URLs. Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uploads and deletes objects with the same operations. Read [CLI](/docs/development/cli#read-and-write-blobs) for every command and option.
+`media` prints the [media record](/docs/blob/media) of a file, and `variants` lists its cached image variants. The commands use the same storage as the running app:
+
+- Pass `--store <name>` for a named store.
+- Write commands print what they changed.
+- `get` writes the bytes unchanged to a file or stdout.
+- `put` sends the file as base64 JSON, so `put` and `get` handle files up to 8 MiB.
+- The commands do not print blob URLs.
+
+Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/development/cli#read-and-write-blobs) for every option.
 
 ## Cloudflare R2 bucket
 
-Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub add the matching Cloudflare R2 bucket binding to Nitro's generated `wrangler.json`.
+An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`.
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  blob: {
-    driver: 'cloudflare-r2',
-    binding: 'BLOB',
-    bucketName: 'assets',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'cloudflare-r2',
+      binding: 'BLOB',
+      bucketName: 'assets',
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        binding: 'BLOB',
+        bucketName: 'assets',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        binding: 'BLOB',
+        bucketName: 'assets',
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 ### Jurisdictional buckets
 
-Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions). The values are `eu`, `fedramp`, and `us`.
+Set `jurisdiction` to `eu`, `fedramp`, or `us` when the bucket uses a [Cloudflare R2 jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions).
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  blob: {
-    driver: 'cloudflare-r2',
-    bucketName: 'assets',
-    jurisdiction: 'eu',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'cloudflare-r2',
+      bucketName: 'assets',
+      jurisdiction: 'eu',
+    },
   },
 })
 ```
+:::
 
-ViteHub uses the jurisdiction in three places:
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-- The generated `r2_buckets` entry gets `jurisdiction`, so the Worker binding opens the correct bucket.
-- `vitehub provision run` sends the `cf-r2-jurisdiction` header when it lists and creates buckets. Without it, Cloudflare does not show the jurisdictional bucket, and provisioning creates a second bucket with the same name in the default jurisdiction.
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        bucketName: 'assets',
+        jurisdiction: 'eu',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        bucketName: 'assets',
+        jurisdiction: 'eu',
+      },
+    }),
+  ],
+})
+```
+:::
+::
+
+ViteHub uses it in three places:
+
+- The `r2_buckets` entry, so the Worker binding opens the right bucket.
+- `vitehub provision run` sends the `cf-r2-jurisdiction` header when it lists and creates buckets. Without it, Cloudflare hides the bucket, and provisioning creates a second bucket with the same name in the default jurisdiction.
 - HTTP fallback and `blob.sign()` use the jurisdiction S3 API host, `https://<account-id>.<jurisdiction>.r2.cloudflarestorage.com`.
 
-You cannot change the jurisdiction of a bucket after Cloudflare creates it. If your `wrangler` config already has an `r2_buckets` entry with the same `binding` and a different `jurisdiction`, the build fails. Set `jurisdiction` in the Blob config and remove the duplicate entry.
+You cannot change a bucket's jurisdiction after Cloudflare creates it. If your `wrangler` config has an `r2_buckets` entry with the same `binding` and another `jurisdiction`, the build fails. Set `jurisdiction` in the Blob config and remove that entry.
 
-When no runtime binding exists, ViteHub falls back to R2 HTTP access through its bundled Files SDK adapter. Set `accessKeyId` and `secretAccessKey` with runtime env, not `vite.config.ts`; non-secret values such as `bucketName` can stay in config.
+Without a runtime binding, ViteHub uses R2 over HTTP through its bundled Files SDK adapter. Set `accessKeyId` and `secretAccessKey` in runtime env, not app config. Values that are not secret, such as `bucketName`, can stay in config.
 
 ```env [.env]
 R2_ACCOUNT_ID=account-id
@@ -84,10 +180,10 @@ R2_BUCKET_NAME=assets
 | `accountId` | `R2_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCOUNT_ID`, `CLOUDFLARE_ACCOUNT_ID` |
 | `accessKeyId` | `R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID` |
 | `secretAccessKey` | `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY` |
-| `bucketName` | `bucketName` config, or `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, `R2_BUCKET_NAME` read at config/build time for generated Cloudflare `r2_buckets`. HTTP fallback can also read these names from active runtime env. |
-| `jurisdiction` | `jurisdiction` config, or `R2_JURISDICTION`, `CLOUDFLARE_R2_JURISDICTION` read at config/build time. Runtime env does not change it. |
+| `bucketName` | `bucketName` config, or `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, `R2_BUCKET_NAME` read at build time for the generated `r2_buckets`. HTTP fallback can also read them from runtime env. |
+| `jurisdiction` | `jurisdiction` config, or `R2_JURISDICTION`, `CLOUDFLARE_R2_JURISDICTION` read at build time. Runtime env does not change it. |
 
-Install the optional R2 HTTP dependencies only when you rely on fallback access.
+Install these packages only when you use HTTP fallback.
 
 ```bash [Terminal]
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
@@ -95,47 +191,120 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 
 ## S3-compatible object storage
 
-Use `driver: 's3'` for production S3-compatible object storage that is not one of ViteHub's provider-specific drivers.
+Use `driver: 's3'` for production S3-compatible storage that has no driver of its own in ViteHub.
 
 ```bash [Terminal]
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  blob: {
-    driver: 's3',
-    bucket: 'app-assets',
-    endpoint: process.env.S3_ENDPOINT,
-    region: process.env.S3_REGION,
-    publicBaseUrl: 'https://assets.example.com',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 's3',
+      bucket: 'app-assets',
+      endpoint: process.env.S3_ENDPOINT,
+      region: process.env.S3_REGION,
+      publicBaseUrl: 'https://assets.example.com',
+    },
   },
 })
 ```
+:::
 
-Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Put non-secret routing values such as `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-Use Cloudflare R2 when the app runs with an R2 binding or R2 HTTP credentials. Use MinIO when local development or Docker Compose needs to exercise S3-compatible behavior.
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 's3',
+        bucket: 'app-assets',
+        endpoint: process.env.S3_ENDPOINT,
+        region: process.env.S3_REGION,
+        publicBaseUrl: 'https://assets.example.com',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 's3',
+        bucket: 'app-assets',
+        endpoint: process.env.S3_ENDPOINT,
+        region: process.env.S3_REGION,
+        publicBaseUrl: 'https://assets.example.com',
+      },
+    }),
+  ],
+})
+```
+:::
+::
+
+Keep S3 credentials in Server Env or the S3 SDK credential chain. Put `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
+
+With an R2 binding or R2 HTTP credentials, use Cloudflare R2 instead. To test S3 behavior locally or in Docker Compose, use MinIO.
 
 ## MinIO object storage
 
-Use MinIO when you want Docker Compose or local staging to exercise object-storage semantics instead of a mounted filesystem.
+Use MinIO to test real object storage, not a mounted folder, in Docker Compose or local staging.
 
 ```bash
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  blob: {
-    driver: 'minio',
-  },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { blob: { driver: 'minio' } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { driver: 'minio' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { driver: 'minio' } })],
+})
+```
+:::
+::
 
 ```env [.env]
 MINIO_ENDPOINT=http://minio:9000
@@ -144,18 +313,20 @@ MINIO_ROOT_PASSWORD=password
 BLOB_BUCKET_NAME=vitehub-blob
 ```
 
-ViteHub reads MinIO credentials from runtime env and masks them in generated provider output. It accepts the Files SDK names `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, plus Docker Compose aliases such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. For production Docker deployments, use managed `s3` or a production S3-compatible store instead of a single-host Compose MinIO service.
+ViteHub reads MinIO credentials from runtime env and hides them in generated output. It accepts `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, and Docker Compose names such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. In production Docker, use managed `s3` or a production S3-compatible store, not a one-host Compose MinIO.
 
 ## Preview deployments
 
-A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production objects ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `bucket_name` share objects ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview bucket in `previews.r2_buckets` of the project Wrangler config, because ViteHub does not write that block.
+> [!WARNING]
+> A Cloudflare Version URL uses the production resources of its Worker version, so it reads and writes production files ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)).
 
-For a preview Worker of its own, set `BLOB_BUCKET_NAME` in its build with `bucketName` unset, or configure `bucketName` with the preview bucket name. A configured `bucketName` takes precedence over `BLOB_BUCKET_NAME`.
+A Cloudflare Preview uses only the bindings in the Wrangler `previews` block. Two Previews that bind the same `bucket_name` share files ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). ViteHub does not write that block, so declare a preview bucket in `previews.r2_buckets` yourself.
 
-On Vercel, a preview deployment uses the Blob store that is connected to the project in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --provider vercel` connects one store to Production, Preview, and Development, so previews share production blobs. To isolate them, connect a second store in the Preview environment in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+For a separate preview Worker, set `BLOB_BUCKET_NAME` in its build and leave `bucketName` unset, or set `bucketName` to the preview bucket. `bucketName` wins over `BLOB_BUCKET_NAME`.
+
+On Vercel, a preview uses the Blob store connected in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --provider vercel` connects one store to Production, Preview, and Development, so previews share production files. To separate them, connect a second store to Preview in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Related guides
 
-Use [Cloudflare R2](/docs/guides/cloudflare-r2) or
-[private Vercel Blob storage](/docs/guides/vercel-blob) for configuration and
-file upload checks.
+Read [Cloudflare R2](/docs/guides/cloudflare-r2) or
+[private Vercel Blob storage](/docs/guides/vercel-blob) for setup and upload checks.

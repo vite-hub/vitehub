@@ -2,7 +2,6 @@ import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
 import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -25,6 +24,10 @@ function usesComments(project: { projectRoot: string, serverDirs?: readonly stri
   return ownerModules.commentsVite?.usesComments(project) ?? false
 }
 
+function usesForms(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.formsVite?.usesForms(project) ?? false
+}
+
 /** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()
 
@@ -45,8 +48,9 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
   const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
-  // Comments need the Database only.
-  return options.database === undefined && options.comments !== false && (options.comments || usesComments(project)) ? { ...options, database: true } : options
+  // Comments and Forms need the Database only.
+  if (options.database !== undefined) return options
+  return (options.comments !== false && (options.comments || usesComments(project))) || usesForms(project) ? { ...options, database: true } : options
 }
 
 /** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
@@ -62,17 +66,8 @@ function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "git
   return cmsStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
-/**
- * The nested list of Nitro plugins that `vitehub()` includes. Both cases build the same Nitro, so the list stays one
- * unit: its plugins keep the `apply` that steps aside for an app's own `nitro()`, and Nuxt can still find and drop them.
- */
-function isIncludedNitroList(option: unknown): option is Plugin[] {
-  return Array.isArray(option) && option.length > 0 && option.every(item => isPluginObject(item) && isIncludedNitroPlugin(item))
-}
-
 function flattenPluginOptions(option: unknown, plugins: unknown[]): unknown[] {
-  if (isIncludedNitroList(option)) plugins.push(option)
-  else if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
+  if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
   else if (option) plugins.push(option)
   return plugins
 }
@@ -100,11 +95,12 @@ function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean):
   return option
 }
 
-function selectsComments(config: CmsPresetConfig): boolean {
+function selectsDatabaseOwner(config: CmsPresetConfig): boolean {
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  return usesComments({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+  const project = { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
+  return usesComments(project) || usesForms(project)
 }
 
 /**
@@ -157,17 +153,11 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
   const flushAlt = (until?: Plugin) => {
     while (altIndex < alt.length && alt[altIndex] !== until) {
       const option = alt[altIndex++]
-      // The plain list's Nitro serves both cases.
-      if (isIncludedNitroList(option)) continue
       if (!isPluginObject(option) || !paired.has(option)) merged.push(applyWhen(option, selects))
     }
     if (until) altIndex++
   }
   for (const option of plain) {
-    if (isIncludedNitroList(option)) {
-      merged.push(option)
-      continue
-    }
     const other = isPluginObject(option) ? pairs.get(option) : undefined
     if (!other || !isPluginObject(option)) {
       merged.push(applyWhen(option, config => !selects(config)))
@@ -182,15 +172,15 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
 
 /**
  * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the `cms` preset in
- * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` or the `comments` option turns it on. The project root is known
+ * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts`, the `comments` option, or `server/forms/` turns it on. The project root is known
  * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
  * does. An explicit `false` is never overridden.
  */
 export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
   if (resolvedFeatureOptions.has(options)) return create(options)
   const cmsUnset = hasUnsetCmsPresetFeature(options)
-  const commentsUnset = options.database === undefined && options.comments !== false
-  if (!cmsUnset && !commentsUnset) return create(options)
+  const databaseUnset = options.database === undefined
+  if (!cmsUnset && !databaseUnset) return create(options)
   const attempt = (variant: T): unknown[] | { error: unknown } => {
     try {
       return flattenPluginOptions(create(variant), [])
@@ -203,10 +193,10 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   const failing = (error: unknown): unknown[] => [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
   const blob = cmsUnset ? attempt(withCmsPresetFeatures(options, "blob-database")) : undefined
   const github = cmsUnset ? attempt(withCmsPresetFeatures(options, "github")) : undefined
-  const comments = commentsUnset ? attempt({ ...options, database: true }) : undefined
+  const comments = databaseUnset ? attempt({ ...options, database: true }) : undefined
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   let merged = flattenPluginOptions(create(options), [])
-  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsComments(config) && !(cmsUnset && selectedCmsPresetStore(config)))
+  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config) && !(cmsUnset && selectedCmsPresetStore(config)))
   if (blob) merged = composeVariants(merged, "error" in blob ? failing(blob.error) : blob, config => selectedCmsPresetStore(config) === "blob-database")
   if (github) merged = composeVariants(merged, "error" in github ? failing(github.error) : github, config => selectedCmsPresetStore(config) === "github")
   // SAFETY: The merged list holds the Vite plugin options of every build.

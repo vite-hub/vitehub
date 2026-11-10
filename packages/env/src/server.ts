@@ -34,6 +34,9 @@ import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
 
 export type { ServerEnvInspection, ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "./types.ts"
+// The generated `#vitehub/env/server` module builds its `seal()` and `unseal()` with it.
+export { createSealing, seal, unseal } from "./seal-value.ts"
+export type { SealOptions, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 
 type RuntimeEnv = Record<string, unknown>
 

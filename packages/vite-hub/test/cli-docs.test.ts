@@ -11,6 +11,7 @@ import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
+import { hubI18n } from "@vite-hub/i18n/vite";
 import { hubKV } from "@vite-hub/kv/vite";
 import { hubQueue } from "@vite-hub/queue/vite";
 import { hubRateLimit } from "@vite-hub/rate-limit/vite";
@@ -85,6 +86,7 @@ describe("CLI documentation contract", () => {
       // `hubCms()` contributes this only for an app with server/content.ts.
       { vitehub: { cli: createCmsCliContributor() } },
       hubEnv(),
+      hubI18n({ locales: ["en", "es"] }),
       emailPlugin,
       hubKV(),
       hubQueue(),
@@ -131,7 +133,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["init", "add", "catalog", "status", "link", "unlink", "deploy"]);
+    expect(projectCommands).toEqual(["init", "add", "remove", "catalog", "status", "link", "unlink", "deploy", "deployments"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

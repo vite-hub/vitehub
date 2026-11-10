@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -60,8 +61,8 @@ describe("Workflow registry", () => {
     }])
 
     expect(contents).toBe([
-      'import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"',
-      'import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"',
+      `import { createWorkflowSteps } from ${JSON.stringify(workflowRuntimeModule("execute"))}`,
+      `import { takeInlineWorkflowDefinitionForModule } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
       "",
       "const registryEntryCache = new Map()",
       "",
