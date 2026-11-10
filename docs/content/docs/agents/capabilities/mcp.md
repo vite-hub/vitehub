@@ -250,8 +250,8 @@ Before each run, `mcp()` connects to each server and lists its tools.
 - Normalized tool names get a `mcp_<server>_` prefix. Duplicate normalized names are rejected.
 - Use a resolver or config when the run owns the connection, and a static client when your app owns it.
 - An absent entry adds no tools and creates no client.
-- A temporary transport failure marks only that server unavailable.
-- Authentication, configuration, cancellation, protocol, integrity, cleanup, and other resolver failures stop the run.
+- A server that fails, including one that rejects its credential, is marked unavailable and the run continues without it.
+- Configuration, cancellation, protocol, integrity, cleanup, and other resolver failures stop the run.
 
 Client configs set `protocolVersionDiscovery` to `false` by default, so older servers that expect `initialize` first work. Set `true` when the server supports discovery.
 
@@ -311,12 +311,12 @@ Each server is fingerprinted separately, before renaming. Fingerprints cover too
 
 The server owns its credentials, availability, and tool behavior.
 
-A temporary failure during resolution or discovery makes only that server unavailable:
+A server that fails during resolution or discovery is left out, and the run continues with the other servers:
 
-- Temporary means HTTP 408, 409, 429, and 5xx, recognized network errors, and bounded timeouts.
-- Each adds an entry at `vitehub.mcp.warnings` in the input context, with server, phase, and HTTP status when available. Inspection marks the server `Unavailable`.
+- A failure is any HTTP error from the server, including 401 and 403 for an expired or revoked credential, a Connection that cannot authorize (`CONNECTIONS_NEEDS_RECONNECT`, `CONNECTIONS_NOT_CONNECTED`, `CONNECTIONS_PROVIDER_FAILED`, `CONNECTIONS_UNAVAILABLE`), recognized network errors, and bounded timeouts.
+- Each adds an entry at `vitehub.mcp.warnings` in the input context, with server, phase, and the HTTP status or Connection error code when available. Inspection marks the server `Unavailable`.
 
-Authentication, configuration, cancellation, protocol errors, duplicate tools, and integrity drift stop the run.
+Configuration errors, including a Connection whose access denies the Agent, cancellation, protocol errors, duplicate tools, and integrity drift stop the run.
 
 ## Driver support
 

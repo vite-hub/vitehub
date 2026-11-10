@@ -41,10 +41,10 @@
       "import": "./dist/runtime/openworkflow.js",
       "default": "./dist/runtime/openworkflow.js"
     },
-    "./runtime/openworkflow-worker": {
-      "types": "./dist/runtime/openworkflow-worker.d.ts",
-      "import": "./dist/runtime/openworkflow-worker.js",
-      "default": "./dist/runtime/openworkflow-worker.js"
+    "./openworkflow": {
+      "types": "./dist/openworkflow.d.ts",
+      "import": "./dist/openworkflow.js",
+      "default": "./dist/openworkflow.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
@@ -66,7 +66,6 @@
   },
   "dependencies": {
     "@valibot/to-json-schema": "catalog:runtime",
-    "@vercel/functions": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
@@ -78,6 +77,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
@@ -87,6 +87,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/database": "workspace:*",
     "@workflow/builders": "catalog:workflow",
     "openworkflow": "catalog:workflow",
@@ -94,6 +95,9 @@
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },
