@@ -11,9 +11,10 @@ import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
+  isHydrating?: boolean
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
+type RouteLike = { path: string, fullPath: string, redirectedFrom?: object, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
 type EventLike = { node?: { res?: { appendHeader?: (name: string, value: string) => void } }, res?: { headers?: Headers } }
 
@@ -27,14 +28,6 @@ function hasSessionCookie(cookie: string | undefined): boolean {
   if (!cookie) return false
   const names = cookie.split(";").map(part => part.split("=")[0]?.trim() ?? "")
   return names.some(name => name === viteHubSessionMarkerCookie || /(?:^|\.)session_(?:token|data)$/.test(name))
-}
-
-/** When a session ends, in milliseconds, from Better Auth's `session.expiresAt`. `Infinity` without a valid date. */
-function sessionEnd(data: unknown): number {
-  const session: unknown = typeof data === "object" && data !== null ? Reflect.get(data, "session") : undefined
-  const expiresAt: unknown = typeof session === "object" && session !== null ? Reflect.get(session, "expiresAt") : undefined
-  const time = expiresAt instanceof Date || typeof expiresAt === "string" || typeof expiresAt === "number" ? new Date(expiresAt).getTime() : Number.NaN
-  return Number.isNaN(time) ? Infinity : time
 }
 
 const isoDate = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
@@ -108,12 +101,15 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
-    // In the browser, whether the visitor has a session: the server's answer, then the last read. `undefined` is unknown.
-    // A known session counts only until its `expiresAt`, because an expired session can keep its cookies.
-    let known: boolean | undefined = stale || seed.value === undefined ? undefined : Boolean(seed.value)
-    let knownUntil = sessionEnd(seed.value)
+    // The server's answer for this page, while the browser hydrates it. `undefined` is unknown.
+    const hydrated: boolean | undefined = stale || seed.value === undefined ? undefined : Boolean(seed.value)
+    // The answer that made the guard redirect, for the redirect only. Vue Router gives each redirect of a navigation
+    // the same `redirectedFrom` object, so a later navigation never matches it.
+    let redirected: { loggedIn: boolean, from: object } | undefined
 
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
+      const kept = redirected
+      redirected = undefined
       const meta = to.meta.auth
       if (meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
@@ -122,20 +118,18 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
         // A redirect to the page itself would loop: the guard of that page sends the visitor away again.
         if (!target || target.split(/[?#]/)[0] === to.path) return
+        redirected = { loggedIn, from: to.redirectedFrom ?? to }
         return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
       }
       // Decide synchronously on the server to keep Nuxt's request context.
       if (!("window" in globalThis)) return decide(Boolean(seed.value))
-      // The marker cookie appears on sign-in and goes on sign-out, also in other tabs. While it agrees with the known
-      // session, decide without a request. Otherwise read the session directly, without a composable's watchers.
-      if (known !== undefined && Date.now() < knownUntil && known === hasSessionCookie((globalThis as { document?: { cookie?: string } }).document?.cookie)) return decide(known)
-      const loggedIn = client.getSession().then((result) => {
-        const value = Boolean(result.data?.session && result.data?.user)
-        // After a failed read the session stays unknown, so the next navigation reads it again.
-        known = result.error ? undefined : value
-        knownUntil = sessionEnd(result.data)
-        return value
-      })
+      // Use an answer only in the navigation that got it: the hydration of the page that the server read, or the
+      // redirect that the answer caused. Every other navigation reads the session, so Better Auth extends an active
+      // session and the guard sees a sign-in or a sign-out that page scripts cannot see in `document.cookie`.
+      if (nuxtApp.isHydrating && hydrated !== undefined) return decide(hydrated)
+      if (kept && to.redirectedFrom === kept.from) return decide(kept.loggedIn)
+      // Read the session directly, without a composable's watchers.
+      const loggedIn = client.getSession().then(result => Boolean(result.data?.session && result.data?.user))
       // In the browser, keep the Nuxt app for the navigation after Better Auth answers.
       const app = tryUseNuxtApp() as NuxtApp | undefined
       return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))

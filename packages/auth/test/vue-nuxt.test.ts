@@ -10,7 +10,7 @@ import hubAuthNuxt from "../src/nuxt.ts"
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
 import type { createAuthClient } from "../src/vue.ts"
 
-type Route = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
+type Route = { path: string, fullPath: string, redirectedFrom?: object, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
 type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { login: string, guest: string } } }
 
@@ -45,8 +45,10 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
+type App = { isHydrating?: boolean, payload: { prerenderedAt?: number, isCached?: boolean } }
+
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
-  default: { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
+  default: { setup: (app: App) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
 }
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
@@ -83,10 +85,12 @@ const userPage: Route = { path: "/private", fullPath: "/private", meta: { auth: 
 const guestPage: Route = { path: "/login", fullPath: "/login", meta: { auth: "guest" } }
 
 /** Sets up the plugin as the browser, with the cookies that page scripts can read. */
-async function setupBrowser(cookie = "", payload: { prerenderedAt?: number, isCached?: boolean } = {}) {
+async function setupBrowser(cookie = "", payload: App["payload"] = {}, isHydrating = false): Promise<App> {
   vi.stubGlobal("window", {})
   vi.stubGlobal("document", { cookie })
-  await plugin.setup({ payload })
+  const app: App = { isHydrating, payload }
+  await plugin.setup(app)
+  return app
 }
 
 describe("Nuxt session and page guard", () => {
@@ -135,56 +139,26 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
   })
 
-  it("reads an unknown session once from the configured client endpoint without session watchers", async () => {
+  it("reads the session from the configured client endpoint without session watchers", async () => {
     await configure("/auth", "/app/")
     await setupBrowser("vitehub_session=1")
 
-    for (let i = 0; i < 3; i++) expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
 
     expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth" })
     expect(mocks.useSession).not.toHaveBeenCalled()
     expect(mocks.getSession).toHaveBeenCalledTimes(1)
   })
 
-  it("decides browser navigations from the session that the server read", async () => {
+  it("decides the hydration of a page from the session that the server read", async () => {
     mocks.state.value = session
-    await setupBrowser("vitehub_session=1")
+    await setupBrowser("vitehub_session=1", {}, true)
 
-    for (let i = 0; i < 3; i++) expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
     expect(await mocks.middleware?.(guestPage)).toBe("/")
 
     expect(mocks.getSession).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
-  })
-
-  it("redirects a signed-out visitor and opens the login page without a session read", async () => {
-    mocks.state.value = null
-    await setupBrowser()
-
-    expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
-    expect(await mocks.middleware?.(guestPage)).toBeUndefined()
-
-    expect(mocks.getSession).not.toHaveBeenCalled()
-  })
-
-  it("reads the session again when the session cookie shows a sign-in", async () => {
-    mocks.state.value = null
-    await setupBrowser("vitehub_session=1")
-
-    for (let i = 0; i < 2; i++) expect(await mocks.middleware?.(userPage)).toBeUndefined()
-
-    expect(mocks.getSession).toHaveBeenCalledTimes(1)
-  })
-
-  it("reads the session again when the session cookie shows a sign-out", async () => {
-    mocks.state.value = session
-    mocks.getSession.mockResolvedValue({ data: null })
-    await setupBrowser()
-
-    expect(await mocks.middleware?.(guestPage)).toBeUndefined()
-    expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
-
-    expect(mocks.getSession).toHaveBeenCalledTimes(1)
   })
 
   it("provides the configured client for browser composables", async () => {
@@ -198,32 +172,74 @@ describe("Nuxt session and page guard", () => {
   it.each([
     ["prerendered", { prerenderedAt: 1 }],
     ["cached", { isCached: true }],
-  ])("reads the session of a %s page once", async (_, payload) => {
+  ])("reads the session while it hydrates a %s page", async (_, payload) => {
     mocks.state.value = null
-    await setupBrowser("vitehub_session=1", payload)
+    await setupBrowser("vitehub_session=1", payload, true)
 
-    for (let i = 0; i < 2; i++) expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
 
     expect(mocks.getSession).toHaveBeenCalledTimes(1)
   })
 
-  it("reads the session again when the known session expires", async () => {
-    mocks.state.value = { ...session, session: { ...session.session, expiresAt: new Date("2027-01-01T00:00:00.000Z") } }
-    mocks.getSession.mockResolvedValue({ data: { ...session, session: { ...session.session, expiresAt: new Date("2027-02-01T00:00:00.000Z") } } })
-    await setupBrowser("vitehub_session=1")
-    vi.useFakeTimers({ now: new Date("2026-12-31T23:59:59.000Z") })
+  it("opens the login page of its own redirect without a second read", async () => {
+    mocks.getSession.mockResolvedValue({ data: null })
+    await setupBrowser()
+    const from = { ...userPage }
 
-    expect(await mocks.middleware?.(userPage)).toBeUndefined()
-    expect(mocks.getSession).not.toHaveBeenCalled()
+    expect(await mocks.middleware?.(from)).toEqual({ path: "/login", query: { redirect: "/private" } })
+    expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: from })).toBeUndefined()
 
-    vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"))
-    for (let i = 0; i < 2; i++) expect(await mocks.middleware?.(userPage)).toBeUndefined()
     expect(mocks.getSession).toHaveBeenCalledTimes(1)
+  })
 
-    vi.setSystemTime(new Date("2027-02-01T00:00:00.000Z"))
+  it("uses the answer of a redirect only for that redirect", async () => {
+    mocks.getSession.mockResolvedValue({ data: null })
+    await setupBrowser()
+    const from = { ...userPage }
+    await mocks.middleware?.(from)
+
+    // A new navigation, also after a redirect that did not complete, reads the session.
+    expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: { ...userPage } })).toBeUndefined()
+    expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: from })).toBeUndefined()
+
+    expect(mocks.getSession).toHaveBeenCalledTimes(3)
+  })
+
+  it("reads the session on each navigation, so Better Auth extends an active session", async () => {
+    mocks.state.value = session
+    await setupBrowser("vitehub_session=1")
+    vi.useFakeTimers({ now: new Date("2026-12-01T00:00:00.000Z") })
+
+    for (const day of [2, 3, 4]) {
+      vi.setSystemTime(new Date(`2026-12-0${day}T00:00:00.000Z`))
+      expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    }
+
+    expect(mocks.getSession).toHaveBeenCalledTimes(3)
+  })
+
+  it("sees a sign-in when page scripts cannot read the session cookies", async () => {
+    // With `advanced.cookies.session_token.attributes.path: "/api/auth"`, `document.cookie` on pages stays empty.
+    mocks.state.value = null
+    mocks.getSession.mockResolvedValue({ data: null })
+    const app = await setupBrowser("", {}, true)
+    expect(await mocks.middleware?.(guestPage)).toBeUndefined()
+    app.isHydrating = false
+
+    mocks.getSession.mockResolvedValue({ data: session })
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(mocks.navigateTo).not.toHaveBeenCalled()
+    expect(mocks.getSession).toHaveBeenCalledTimes(1)
+  })
+
+  it("sees a sign-out after hydration", async () => {
+    mocks.state.value = session
+    const app = await setupBrowser("vitehub_session=1", {}, true)
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    app.isHydrating = false
+
     mocks.getSession.mockResolvedValue({ data: null })
     expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
-    expect(mocks.getSession).toHaveBeenCalledTimes(2)
   })
 
   it("reads the session again after a failed read", async () => {
@@ -237,7 +253,7 @@ describe("Nuxt session and page guard", () => {
   })
 
   it("keeps the redirectTo of a page", async () => {
-    mocks.state.value = null
+    mocks.getSession.mockResolvedValue({ data: null })
     await setupBrowser()
 
     expect(await mocks.middleware?.({ path: "/team", fullPath: "/team", meta: { auth: { only: "user", redirectTo: "/join" } } })).toEqual({ path: "/join", query: { redirect: "/team" } })
