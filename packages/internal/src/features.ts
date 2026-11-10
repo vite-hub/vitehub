@@ -20,6 +20,7 @@ export const featureIds = [
   "env",
   "i18n",
   "kv",
+  "mcp",
   "observability",
   "queue",
   "rateLimit",
@@ -271,9 +272,9 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    // The prebuilt Console app. `vite-hub` serves it at `/_vitehub` when the app installed it.
-    packages: ["@vite-hub/console-client"],
-    summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
+    // The Console app is hosted at console.vitehub.dev. The app serves only its Operations endpoint and MCP.
+    packages: [],
+    summary: "The Operations endpoint and MCP at `/_vitehub`, which the hosted Console at console.vitehub.dev and the CLI call.",
     title: "Console",
   }),
   database: feature({
@@ -359,6 +360,14 @@ export default defineDatabase({
     packages: ["@vite-hub/kv"],
     summary: "Key-value storage with one API on every host.",
     title: "KV",
+  }),
+  mcp: feature({
+    docs: "/docs/development/app-mcp",
+    hosts: everywhere("nitro", "Nitro"),
+    id: "mcp",
+    packages: ["@vite-hub/mcp"],
+    summary: "The app's own MCP server, with one tool per file in `server/mcp/tools/`.",
+    title: "MCP server",
   }),
   observability: feature({
     docs: "/docs/agents/observability",
@@ -532,8 +541,8 @@ function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean
   })
 }
 
-/** Packages needed by a feature and its statically selected provider. */
-export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown"): string[] {
+/** Packages needed by a feature, its provider, and its enabled feature integrations. */
+export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown", enabled: readonly FeatureId[] = []): string[] {
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
@@ -549,6 +558,11 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  if (id === "console") {
+    if (enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
+    const auth = options ? options.auth : "app"
+    if ((isPlainObject(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.includes("auth"))) selected.push(...consoleFeaturePackages.signIn)
+  }
   return [...new Set([...definition.packages, ...selected])]
 }
 

@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
 import { editRecord, parseRecord, verifyRecord } from "@diglot/core"
 import { readRecord, serialiseRecord } from "@diglot/store"
+import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 import { lock } from "proper-lockfile"
 
 import { diglotSegment, isVisible, messageSegment, recordPath, recordSegment, validateMessagePlaceholders } from "./record-format.ts"
@@ -20,7 +21,7 @@ export { isVisible, messageSegment, recordPath } from "./record-format.ts"
  * by this ID. The record of the message has Diglot's hash as its name.
  */
 export function messageId(source: string, context?: string): string {
-  return createHash("sha256").update(`${source}\u001F${context ?? ""}`).digest("base64url").slice(0, 6)
+  return generateMessageId(source, context)
 }
 
 export interface RecordProblem {

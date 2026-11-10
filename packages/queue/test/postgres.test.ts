@@ -27,6 +27,14 @@ const engines: PostgresQueueEngine[] = []
 const children: ChildProcess[] = []
 const tables: string[] = []
 
+function createGate() {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 function table(): string {
   const name = `q_${randomUUID().replaceAll("-", "").slice(0, 12)}`
   tables.push(name)
@@ -164,7 +172,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
         enable_hashjoin: "off", enable_mergejoin: "off", enable_material: "off", enable_hashagg: "off", enable_sort: "off",
       },
     })
-    const gate = Promise.withResolvers<void>()
+    const gate = createGate()
     let active = 0
     let peak = 0
     const handler = async () => {
@@ -194,7 +202,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
 
   it("keeps an expired local delivery tracked when renewals fail", async () => {
     const name = table()
-    const gate = Promise.withResolvers<void>()
+    const gate = createGate()
     const started: QueueJob[] = []
     const handler = async (job: QueueJob) => {
       started.push(job)
@@ -240,7 +248,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
 
   it.each(["complete", "retry", "dead"] as const)("does not %s or renew a superseded claim with the same worker ID", async (outcome) => {
     const name = table()
-    const gate = Promise.withResolvers<void>()
+    const gate = createGate()
     let started = false
     const consumer = engine({
       handler: async () => {

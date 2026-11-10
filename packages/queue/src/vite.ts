@@ -1,4 +1,3 @@
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -432,7 +431,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       // SAFETY: Vite's environment config has the resolved config used to record this build state.
       const config = (this.environment?.config as ResolvedConfig | undefined) ?? resolved
       const state = config ? buildStates.get(config) : undefined
-      if (error || !state || shouldSkipViteProviderBuild(state.resolved.command, getViteMode())) return
+      if (error || !state || shouldSkipViteProviderBuild(state.resolved.command)) return
       if (state.resolveNuxtDefinitions && state.nuxtConfiguredDefinitions) {
         resolveStableQueueDefinitions(state.resolveNuxtDefinitions, state.nuxtConfiguredDefinitions, "Nuxt")
       }

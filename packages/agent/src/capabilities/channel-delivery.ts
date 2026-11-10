@@ -2,7 +2,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 
 import { capabilityFinishDeliveryEffectSymbol, capabilityFinishDeliveryReminderSymbol, defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { traceAgentChannelDeliveryEffect } from "../trace.ts"
 
 import type {
@@ -74,7 +74,7 @@ export interface ChannelDeliveryReminderOptions {
 }
 
 function isOptionsResolver<TOptions>(value: TOptions | ChannelDeliveryOptionsResolver<TOptions>): value is ChannelDeliveryOptionsResolver<TOptions> {
-  return hasRuntimeType(value, "function")
+  return typeof value === "function"
 }
 
 interface ChannelDeliveryState {
@@ -109,7 +109,7 @@ export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptio
   if (reminder && (!Number.isInteger(reminderTurns) || reminderTurns < 1)) {
     throw new TypeError("[vitehub] channelDelivery({ reminder: { turns } }) must be a positive integer.")
   }
-  if (reminder?.instruction !== undefined && (!hasRuntimeType(reminder.instruction, "string") || !reminder.instruction.trim())) {
+  if (reminder?.instruction !== undefined && (typeof reminder.instruction !== "string" || !reminder.instruction.trim())) {
     throw new TypeError("[vitehub] channelDelivery({ reminder: { instruction } }) must be a non-empty string.")
   }
   const reminderInstruction = reminder?.instruction
@@ -117,7 +117,7 @@ export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptio
   if (!Number.isInteger(maxCalls) || maxCalls < 1) {
     throw new TypeError("[vitehub] channelDelivery({ maxCalls }) must be a positive integer.")
   }
-  if (!isRuntimeRecord(options.channel) || !hasRuntimeType(options.channel.send, "function")) {
+  if (!isRuntimeRecord(options.channel) || typeof options.channel.send !== "function") {
     throw new TypeError("[vitehub] channelDelivery({ channel }) requires a Channel client, for example useChannel(\"teams\").")
   }
   const channelName = options.channel.name ? ` "${options.channel.name}"` : ""
@@ -170,7 +170,7 @@ export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptio
           metadata: { vitehubChannelDelivery: true },
           async execute(input) {
             checkLimit()
-            const message = isRuntimeRecord(input) && hasRuntimeType(input.message, "string") ? input.message.trim() : ""
+            const message = isRuntimeRecord(input) && typeof input.message === "string" ? input.message.trim() : ""
             if (!message) throw new TypeError(`[vitehub] ${name} requires a non-empty message.`)
             await options.validate?.(message)
             const text = options.format ? await options.format(message, context) : message
