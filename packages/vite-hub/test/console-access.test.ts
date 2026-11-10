@@ -13,24 +13,27 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import { createConnectionsHandler } from "@vite-hub/connections/http"
+import { createConnectionsHandler } from "@vite-hub/connections"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
 import { bindConsoleAccess, consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
-import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import { requestEvent } from "./console-event.ts"
 import { consoleEvent } from "./console-event.ts"
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
@@ -400,13 +403,9 @@ describe("Connections manager from Console access", () => {
     installConsoleAccess({ mode: "auth", check: async () => undefined })
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST" })
-    const event = requestEvent(request)
-    const actor = vi.fn((_request: Request, context?: ViteHubContext) => {
-      expect(context).toBe(event)
-      return consoleConnectionsActor(event, async () => undefined)
-    })
-    const response = await createConnectionsHandler({ actor, runtime })(event)
-    expect(actor).toHaveBeenCalledWith(request, event)
+    const actor = vi.fn((input: Request) => consoleConnectionsActor(input, async () => undefined))
+    const response = await createConnectionsHandler({ actor, runtime }).fetch(request)
+    expect(actor).toHaveBeenCalledWith(request)
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_MANAGER_REQUIRED", fix: expect.stringContaining("sign in again"), ok: false })
     expect(runtime).not.toHaveBeenCalled()
@@ -419,11 +418,7 @@ describe("Connections manager from Console access", () => {
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const call = (headers: Record<string, string>) => {
       const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local", ...headers }, method: "POST" })
-      const event = requestEvent(request)
-      return createConnectionsHandler({ actor: (_request, context) => {
-        expect(context).toBe(event)
-        return consoleConnectionsActor(event)
-      }, runtime })(event)
+      return createConnectionsHandler({ actor: input => consoleConnectionsActor(input), runtime }).fetch(request)
     }
     expect((await call({})).status).toBe(403)
     expect(runtime).not.toHaveBeenCalled()

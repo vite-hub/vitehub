@@ -11,7 +11,7 @@ export type {
   KVGetTypeMap,
   KVListOptions,
   KVListPage,
-  KVModuleOptions,
+  KVOptions,
   KVOperation,
   KVSetIfAbsentOptions,
   KVStorage,

@@ -1,8 +1,9 @@
 import { resolve } from "node:path"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
+import { installAgentInvocationsOverride } from "@vite-hub/agent/invocations/app"
 
-import { createConsoleInvocationsIdentity, installConsoleInvocationFallback, markConsoleFixtureInvocations, resolveConsoleInvocationsByIdentity, resolveConsoleInvocationsRevision } from "../../internal.ts"
+import { createConsoleInvocationsIdentity, installConsoleInvocationFallback, markConsoleFixtureInvocations, resolveConsoleFixtureInvocations, resolveConsoleInvocationsByIdentity, resolveConsoleInvocationsRevision } from "../../internal.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 import { defaultAgentInvocationsMetadataContent } from "@vite-hub/agent/invocations/default"
 
@@ -20,6 +21,8 @@ function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): A
   }
   const invocations = defineAgentInvocations({ configuration: "content", metadataContent: defaultAgentInvocationsMetadataContent, store })
   markConsoleFixtureInvocations(invocations)
+  // A fixture journal replaces the app-wide journal of Agents that set no journal.
+  installAgentInvocationsOverride(resolveConsoleFixtureInvocations)
   return invocations
 }
 
