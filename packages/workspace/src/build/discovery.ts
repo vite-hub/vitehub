@@ -252,6 +252,7 @@ function createContributedWorkspaceRegistryEntry(definition: DiscoveredWorkspace
     `  [${JSON.stringify(definition.name)}]: async () => {`,
     `    const mod = await ${importExpression}`,
     `    const definition = ${workspaceDefinitionExpression(definition)}`,
+    // Internal invariant: this line runs in the generated registry module, which does not import the Workspace catalog.
     `    if (!definition) throw new TypeError(${JSON.stringify(missingExport)})`,
     override ? `    return { default: { ...definition, store: ${JSON.stringify(override.store)} } }` : "    return { default: definition }",
     "  },",

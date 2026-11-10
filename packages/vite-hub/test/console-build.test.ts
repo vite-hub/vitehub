@@ -8,16 +8,15 @@ import { consoleBuildKey, consoleBuildRegistryKey, consoleBuildRootKey, consoleS
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleBuildCheckInterval, useConsoleUpdate, watchConsoleBuild } from "../src/console/runtime/client/build.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
-import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
+import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleBuild, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
-import { allowed } from "./support/console-access.ts"
+import { consoleAccess } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 
-const sectionsHandler = allowed(sectionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
 const buildPattern = /installConsoleBuild\("[^"]+", "([0-9a-f]{16})"\)\n$/
 
@@ -76,7 +75,7 @@ describe("Console build id", () => {
       const first = await generatedBuild(file, root, ["kv"])
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
-      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleClient, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
       expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {
@@ -90,7 +89,7 @@ describe("Console build id", () => {
     installConsoleSections("/second", ["kv"])
     installConsoleBuild("/second", "bbbbbbbbbbbbbbbb")
 
-    await expect(sectionsHandler(event())).resolves.toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
+    expect(listConsoleSections(await consoleAccess(event()))).toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
   })
 
   it("is read with the Console navigation", async () => {
