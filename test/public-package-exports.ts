@@ -288,6 +288,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
   "@vite-hub/rate-limit": [
     ".",
     "./drivers/cloudflare",
+    "./drivers/kv",
     "./drivers/memory",
     "./runtime",
     "./vite",
