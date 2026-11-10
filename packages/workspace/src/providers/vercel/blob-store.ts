@@ -5,6 +5,7 @@ import { ownedBlobPrefix } from "../../storage/owned-blob-prefix.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createCurrentSnapshotFromStore, diffSnapshots } from "../../storage/utils.ts"
 
+import type { VercelBlobSdk } from "@vite-hub/blob/internal/vercel-blob"
 import type {
   DiffOptions,
   GlobOptions,
@@ -85,30 +86,6 @@ function parseBlobListResponse(value: unknown): BlobListResult {
     hasMore: hasMore === undefined ? undefined : hasMore,
     items,
   }
-}
-
-type VercelBlobModule = {
-  // The SDK maps the Vercel Blob API code `not_found` to this class. Its `name` stays "Error".
-  BlobNotFoundError: abstract new (...args: never[]) => Error
-  del(key: string, options?: { token?: string }): Promise<void>
-  get(key: string, options: { access: "private" | "public", token?: string, useCache?: boolean, headers?: Record<string, string> }): Promise<{
-    blob: { contentType: string, size: number }
-    statusCode: 200
-    stream: ReadableStream<Uint8Array>
-  } | { statusCode: 304, stream: null } | null>
-  head(key: string, options?: { token?: string }): Promise<{ contentType?: string, pathname: string, size: number, uploadedAt: Date }>
-  list(options: { cursor?: string, limit?: number, prefix: string, token?: string }): Promise<{
-    blobs: Array<{ pathname: string, size?: number, uploadedAt?: Date }>
-    cursor?: string
-    hasMore?: boolean
-  }>
-  put(key: string, body: Blob | Uint8Array | string, options: {
-    access: "private" | "public"
-    addRandomSuffix: boolean
-    allowOverwrite: boolean
-    contentType?: string
-    token?: string
-  }): Promise<unknown>
 }
 
 function joinBlobPath(...parts: string[]) {
@@ -193,10 +170,10 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   }
 }
 
-async function importVercelBlobPeer(): Promise<VercelBlobModule> {
+async function importVercelBlobPeer(): Promise<VercelBlobSdk> {
   const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
   // @vercel/blob is about 480 KB. Load it with the first Blob call, not with every server start.
-  return testImport ? await testImport() as VercelBlobModule : await import("@vercel/blob") as VercelBlobModule
+  return testImport ? await testImport() as VercelBlobSdk : (await import("@vite-hub/blob/internal/vercel-blob")).vercelBlob
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 
-import { installArguments, missingFeaturePackagesError } from "../src/internal/optional-owners.ts"
+import { installArguments, isPackageInstalled, missingFeaturePackagesError } from "../src/internal/optional-owners.ts"
 
 const sha = "52e6aba01356ffd6c5f1d0d6e8dafc3d63788b82"
 
@@ -40,4 +40,11 @@ it.each([
 it("names the packages of the Console MCP client and of the Console components", () => {
   expect(missingFeaturePackagesError(["console mcp-client"]).message).toContain("The console mcp-client feature needs @modelcontextprotocol/sdk.")
   expect(missingFeaturePackagesError(["console ui"]).message).toContain("The console ui feature needs @vite-hub/ui, @json-render/core, @json-render/vue, @vueuse/core.")
+})
+
+it("finds installed packages, including one that does not export its manifest", () => {
+  expect(isPackageInstalled("@vite-hub/kv")).toBe(true)
+  // drizzle-orm does not export ./package.json.
+  expect(isPackageInstalled("drizzle-orm")).toBe(true)
+  expect(isPackageInstalled("@vite-hub/not-a-package")).toBe(false)
 })
