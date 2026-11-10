@@ -596,11 +596,17 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const module = context.server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
       if (module) context.server.moduleGraph.invalidateModule(module);
     },
-    resolveId(id) {
-      if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+    resolveId: {
+      filter: { id: /^#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+      },
     },
-    load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+    load: {
+      filter: { id: /^\0#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+      },
     },
   };
 }

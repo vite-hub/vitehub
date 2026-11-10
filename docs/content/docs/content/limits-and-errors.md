@@ -21,7 +21,7 @@ icon: i-lucide-circle-alert
 - Two items with one public path fail the load (`CONTENT_R0003`).
 - An item without `content` or `data` fails to parse (`CONTENT_R0002`).
 - Raw media uses the newest Source revision that finished enumeration.
-- A build ships the parsed documents of `glob()` and `files()` Sources in the server bundle, next to the files. Parsed pages are larger than their Markdown, so check the bundle size against the host limit, such as the Cloudflare Workers limit. Cloudflare Workers compile every module when an isolate starts, so the parsed pages also add to startup time: in local workerd, the 5 MB of the ViteHub docs added about 170 ms. See [Sources parsed at build](/docs/content/configure#sources-parsed-at-build).
+- A build ships the parsed documents of `glob()` and `files()` Sources in the server bundle, next to the files. With gzip they add a little more than the gzipped Markdown, so check the bundle size against the host limit, such as the Cloudflare Workers limit. Cloudflare Workers compile every module when an isolate starts, so the parsed pages also add to startup time: in local workerd, the 1.5 MB of the ViteHub docs added about 45 ms. See [Sources parsed at build](/docs/content/configure#sources-parsed-at-build).
 
 ## Collections
 

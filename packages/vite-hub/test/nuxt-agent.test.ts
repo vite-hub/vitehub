@@ -195,7 +195,7 @@ it.each([false, true])("compiles generated Agent TypeScript when Nuxt moves buil
   const route = join(buildDir, "vitehub/agent/chat-webhook-route.ts")
   // The same TypeScript forms as the generated Chat Webhook Route.
   const source = [
-    'import { type AgentInput, agentWithColocatedInstructions } from "vite-hub/_internal/agent/server/internal"',
+    'import { type AgentInput, agentWithColocatedInstructions } from "/agent/dist/server/internal.js"',
     'import { defineEventHandler, type H3Event } from "h3"',
     "type ViteHubGeneratedEvent = H3Event & { env?: Record<string, unknown> }",
     "const agents: Record<string, AgentInput> = {}",

@@ -475,11 +475,6 @@
     "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
-    "label": "vite.config.ts",
-    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type 'string | undefined' is not assignable to type 'EnvRuntimeConfigValue'.\n      Type 'undefined' is not assignable to type 'EnvRuntimeConfigValue'."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
     "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
@@ -523,11 +518,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#317457c7fc34",
     "label": "server/api/warmup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
-    "label": "vite.config.ts",
-    "error": "TS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'vitehub'.\nTS2304 Cannot find name 'vitehub'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
@@ -583,11 +573,6 @@
     "id": "packages/agent/README.md#866f0b9e1b4d",
     "label": null,
     "error": "TS2339 Property 'tenantId' does not exist on type '{}'.\nTS2339 Property 'token' does not exist on type '{}'.\nTS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'.\nTS2344 Type '{ token: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
-  },
-  {
-    "id": "packages/agent/README.md#f017c18ce15f",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'checkRuns'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'headSha'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'statuses'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'createGitHubRequiredCheckPolicyReader'.\nTS2304 Cannot find name 'evaluateGitHubRequiredChecks'.\nTS2304 Cannot find name 'github'.\nTS7006 Parameter 'branch' implicitly has an 'any' type.\nTS7006 Parameter 'repository' implicitly has an 'any' type."
   },
   {
     "id": "packages/auth/README.md#73fb174ae71d",
