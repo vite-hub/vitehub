@@ -241,6 +241,26 @@ describe("AutoForm", () => {
     expect(await store.list()).toHaveLength(1)
   })
 
+  it("removes the result through Vue Router when the app has one", async () => {
+    history.replaceState(null, "", "/contact?plan=pro&form=contact.sent#top")
+    try {
+      const replace = vi.fn(async () => {})
+      const root = document.createElement("div")
+      document.body.append(root)
+      const app = createApp(AutoForm, { name: "contact", schema: ContactSchema })
+      // The router keeps its own copy of the address, so native history would come back on the next navigation.
+      app.config.globalProperties.$router = { currentRoute: { value: { query: { plan: "pro", form: "contact.sent" }, hash: "#top" } }, replace }
+      app.mount(root)
+      await nextTick()
+      expect(root.querySelector("[role=status]")?.textContent).toBe("Thanks. Your message was sent.")
+      expect(replace).toHaveBeenCalledWith({ query: { plan: "pro" }, hash: "#top" })
+      expect(location.search).toBe("?plan=pro&form=contact.sent")
+    }
+    finally {
+      history.replaceState(null, "", "/")
+    }
+  })
+
   it("ignores the result of another form on the page", async () => {
     history.replaceState(null, "", "/contact?form=newsletter.sent")
     try {

@@ -1,5 +1,5 @@
 import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, validate } from "@formisch/vue"
-import { computed, defineComponent, h, nextTick, onMounted, ref, useId } from "vue"
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
 import { unwrap } from "./schema.ts"
@@ -11,6 +11,12 @@ import type { SchemaNode } from "./schema.ts"
 
 export { FormSubmitError, formRoute, submitForm } from "./client.ts"
 export type { FormAnchor, FormIssue, SubmitFormOptions } from "./client.ts"
+
+/** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */
+interface QueryRouter {
+  currentRoute: { value: { query: Record<string, unknown>, hash: string } }
+  replace: (to: { query: Record<string, unknown>, hash: string }) => Promise<unknown>
+}
 
 /** What `useFormSubmit()` returns. */
 export interface FormSubmitState {
@@ -230,14 +236,22 @@ export const AutoForm = defineComponent({
     // The browser checks `required` and `type` itself until the app runs, so a post without JavaScript is checked too.
     const mounted = ref(false)
     const statusElement = ref<HTMLElement>()
+    // Vue Router keeps its own copy of the address, so the query goes through it when the app has one.
+    const router = getCurrentInstance()?.appContext.config.globalProperties.$router as QueryRouter | undefined
     onMounted(() => {
       mounted.value = true
       const url = globalThis.location ? new URL(globalThis.location.href) : undefined
       returned.value ??= resultOf(url?.searchParams.get("form"))
-      // A reload or a shared link must not show the result again. `history.state` keeps the state of a router.
+      // A reload, a shared link, or a later navigation back must not show the result again.
       if (url && resultOf(url.searchParams.get("form"))) {
-        url.searchParams.delete("form")
-        history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`)
+        if (router) {
+          const { form: _form, ...query } = router.currentRoute.value.query
+          void router.replace({ query, hash: router.currentRoute.value.hash })
+        }
+        else {
+          url.searchParams.delete("form")
+          history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`)
+        }
       }
       // The page loads at the top after the redirect, and initial text is not announced. Move focus to the result.
       // Not when the visitor is already in a field: that would close the keyboard on a phone.
