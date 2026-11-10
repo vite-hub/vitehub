@@ -1,4 +1,4 @@
-import type { EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
+import type { EnvSchemaModuleReference, EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { envValueTypeName, parseEnvValue, stringValueSchema } from "./values.ts"
@@ -48,6 +48,11 @@ interface EnvNamespace {
   number: (options?: EnvTypedVariableOptions<number>) => EnvVariableDeclaration
   packageJson: (path: string) => EnvSource
   provider: (provider: string, key: string) => EnvSource
+  /**
+   * Validate a Server Env value with a Standard Schema exported by a module, for example `env.schemaFrom("./server/env.schema.ts", "apiUrl")`.
+   * The server build imports the module, so refinements and transforms run on every resolution.
+   */
+  schemaFrom: (module: string, exportName?: string) => EnvSchemaModuleReference
   source: (name: string | string[], options?: { canonical?: boolean, skipEmpty?: boolean }) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
 }
@@ -150,6 +155,29 @@ function provider(provider: string, key: string): EnvSource {
     label: "provider",
     provider: provider.trim(),
     serializable: true,
+  }
+}
+
+function schemaFrom(module: string, exportName = "default"): EnvSchemaModuleReference {
+  if (!hasRuntimeType(module, "string") || !module.trim()) {
+    throw envErrorDiagnostics.ENV_R0029({ message: "env.schemaFrom() requires a non-empty module specifier." })
+  }
+  if (!hasRuntimeType(exportName, "string") || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportName)) {
+    throw envErrorDiagnostics.ENV_R0029({ message: "env.schemaFrom() requires an export name that is a JavaScript identifier." })
+  }
+  return Object.freeze({ kind: "schema-module", module: module.trim(), export: exportName })
+}
+
+/** Return the module reference of a declaration whose schema comes from `env.schemaFrom()`. */
+export function schemaModuleReference(schema: unknown): EnvSchemaModuleReference | undefined {
+  try {
+    if (!isRuntimeRecord(schema) || schema.kind !== "schema-module") return undefined
+    return hasRuntimeType(schema.module, "string") && hasRuntimeType(schema.export, "string")
+      ? { kind: "schema-module", module: schema.module, export: schema.export }
+      : undefined
+  }
+  catch {
+    return undefined
   }
 }
 
@@ -267,6 +295,7 @@ export const env: EnvNamespace = Object.assign(variable, {
   number: numberVariable,
   packageJson: packageJson,
   provider: provider,
+  schemaFrom: schemaFrom,
   source: source,
   variable: variable,
 })

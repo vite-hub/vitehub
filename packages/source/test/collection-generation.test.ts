@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -81,6 +81,20 @@ it.each([
     await mkdir(join(projectRoot, "server/collections"), { recursive: true })
     await writeFile(join(projectRoot, "server/collections/articles.ts"), source)
     expect(await prepareSourceGeneration({ projectRoot })).toEqual([])
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+it("removes the Collection types wrapper that earlier versions wrote", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    const wrapper = join(projectRoot, ".vitehub/types/source/vitehub-source-registry.d.ts")
+    await mkdir(join(projectRoot, ".vitehub/types/source"), { recursive: true })
+    await writeFile(wrapper, '/// <reference path="./collections.d.ts" />\n')
+    expect(await prepareSourceGeneration({ projectRoot })).toEqual([])
+    await expect(access(wrapper)).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {
     await rm(projectRoot, { recursive: true, force: true })

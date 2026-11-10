@@ -15,7 +15,9 @@ import {
   assertConsoleRequest,
   consoleRequestError,
   consoleRequestJSON,
+  consoleRoute,
   type ConsoleRequestEvent,
+  type ConsoleRoute,
 } from "./request.ts";
 import { getConsoleSections } from "./sections.ts";
 
@@ -170,10 +172,11 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     );
   }
 }
-const guarded: ConsoleAccessRoute<typeof handler> = withConsoleCors(
-  withConsoleAccess(handler, {
-    section: "auth",
-    user: true,
-  }),
-);
-export default guarded;
+const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, {
+  section: "auth",
+  user: true,
+});
+
+/** `POST <base>/_vitehub/auth/manage` */
+const consoleAuthManageRoute: ConsoleRoute = consoleRoute(withConsoleCors(guarded));
+export default consoleAuthManageRoute;

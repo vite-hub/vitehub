@@ -25,7 +25,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-// The package root has drizzle-kit in its dependencies, like a project that uses `vitehub db`.
+// The package root has drizzle-kit in its dependencies, like a project that uses `vitehub database`.
 const projectRoot = resolve(import.meta.dirname, "..")
 const drizzleKitBin = join(projectRoot, "node_modules", "drizzle-kit", "bin.cjs")
 
