@@ -30,7 +30,7 @@ export type {
   WorkflowExecutionContext,
   WorkflowHandle,
   WorkflowHandler,
-  WorkflowModuleOptions,
+  WorkflowOptions,
   WorkflowModuleProviderOptions,
   WorkflowProviderContext,
   WorkflowProviderStep,
@@ -43,6 +43,8 @@ export type {
   WorkflowSharedOptions,
   WorkflowStepFunction,
   WorkflowStepOptions,
-  WorkflowStepRunner,
+  WorkflowStep,
+  WorkflowStepRegistry,
+  WorkflowSteps,
   WorkflowStartOptions,
 } from "./types.ts"

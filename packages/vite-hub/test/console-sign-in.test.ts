@@ -8,7 +8,9 @@ import { consoleSignInURL } from "../src/console/runtime/client/sign-in.ts"
 import { consoleRequest, installConsoleAccess, isConsoleSignInPage } from "../src/console/runtime/server/access.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import consoleSignInMiddleware from "../src/console/runtime/server/sign-in.ts"
-import { requestEvent } from "./console-event.ts"
+import { requestEvent, routeRequest } from "./console-event.ts"
+
+import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 const origin = "http://vitehub.local"
 const unsafePages = ["/..//evil.example/sign-in", "/%2e%2e//evil.example/sign-in"]
@@ -33,7 +35,7 @@ describe("Console sign-in URL normalization", () => {
 
   it.each(["", "/portal"])("preserves the sign-in fragment below mount %s", async (mount) => {
     installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/?from=console#/sign-in" })
-    const response = await consolePageHandler(visit(`${mount}/_vitehub/auth?tab=users`))
+    const response = await consolePageHandler.fetch(routeRequest(visit(`${mount}/_vitehub/auth?tab=users`)))
     expect(response.status).toBe(302)
     expect(response.headers.get("location")).toBe(`${mount}/?from=console&redirect=${encodeURIComponent(`${mount}/_vitehub/auth?tab=users`)}#/sign-in`)
   })
@@ -44,7 +46,7 @@ describe("Console sign-in URL normalization", () => {
 
   it("normalizes the configured page before adding the mount base", async () => {
     installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/../sign-in" })
-    const response = await consolePageHandler(visit("/portal/_vitehub/auth"))
+    const response = await consolePageHandler.fetch(routeRequest(visit("/portal/_vitehub/auth")))
     expect(response.headers.get("location")).toBe("/portal/sign-in?redirect=%2Fportal%2F_vitehub%2Fauth")
   })
 })
@@ -100,7 +102,7 @@ describe("Console sign-in before app Auth", () => {
       installConsoleAccess({ mode: "auth", check: async () => denied, ...(signInPage ? { signInPage } : {}) })
       const request = (path: string) => (requestEvent(new Request(`${origin}${path}`, init)))
       await expect(consoleSignInMiddleware(request("/_vitehub/kv/dev"))).resolves.toBeUndefined()
-      const response = await consolePageHandler(request("/_vitehub/kv/dev"))
+      const response = await consolePageHandler.fetch(routeRequest(request("/_vitehub/kv/dev")))
       expect(response, JSON.stringify(init)).toBe(denied)
       expect(response.headers.get("location")).toBeNull()
     }
@@ -110,7 +112,7 @@ describe("Console sign-in before app Auth", () => {
     for (const accept of ["text/html", "application/json, text/html;q=0.5", "TEXT/HTML; Q=1"]) {
       installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/sign-in" })
       const request = () => (requestEvent(new Request(`${origin}/_vitehub/auth`, { headers: { accept } })))
-      for (const handler of [consoleSignInMiddleware, consolePageHandler]) {
+      for (const handler of [consoleSignInMiddleware, (event: ConsoleRequestEvent) => consolePageHandler.fetch(routeRequest(event))]) {
         const response = await handler(request())
         expect(response?.status, accept).toBe(302)
         expect(response?.headers.get("location")).toBe("/sign-in?redirect=%2F_vitehub%2Fauth")
@@ -121,7 +123,7 @@ describe("Console sign-in before app Auth", () => {
   it("passes a Response from console.authorize through to a request that is not a page visit", async () => {
     const notFound = new Response("Not found", { status: 404 })
     installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "u1", email: "member@vitehub.dev" }), authorize: () => notFound, signInPage: "/sign-in" })
-    const response = await consolePageHandler(requestEvent(new Request(`${origin}/_vitehub/unknown`, { headers: { accept: "application/json" } })))
+    const response = await consolePageHandler.fetch(new Request(`${origin}/_vitehub/unknown`, { headers: { accept: "application/json" } }))
     expect(response).toBe(notFound)
   })
 

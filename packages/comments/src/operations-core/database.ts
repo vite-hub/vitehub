@@ -24,10 +24,13 @@ export const commentThreads = sqliteTable("vitehub_comment_threads", {
   context: text("context"),
   /** The version of the subject that the thread was started on. */
   revision: integer("revision"),
+  /** The retry key of `comments.create`. Unique inside `scope`. */
+  requestId: text("request_id"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, table => [
   uniqueIndex("vitehub_comment_threads_scope_n").on(table.scope, table.n),
+  uniqueIndex("vitehub_comment_threads_scope_request").on(table.scope, table.requestId),
   index("vitehub_comment_threads_subject").on(table.subjectKind, table.subjectId),
   index("vitehub_comment_threads_status").on(table.status, table.updatedAt),
 ])
