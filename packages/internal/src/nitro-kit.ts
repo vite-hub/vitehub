@@ -1,3 +1,5 @@
+import { isRecordOrFunction as isRecord } from "./object.ts"
+
 /**
  * The small internal seam between ViteHub packages and Nitro configuration.
  *
@@ -23,10 +25,6 @@ export interface NitroServerKit {
 
 function cloneArray(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : []
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function sameHandler(left: Record<string, unknown>, right: NitroServerHandler): boolean {

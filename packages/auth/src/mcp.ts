@@ -5,6 +5,7 @@ import { verifyJwsAccessToken } from "better-auth/oauth2"
 import { jwt } from "better-auth/plugins"
 
 import { getAuthForRequest } from "./server.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Result } from "@vite-hub/runtime"
 import type { BetterAuthPlugin } from "better-auth"
@@ -77,10 +78,6 @@ export type McpOAuthPlugins = [ReturnType<typeof jwt>, ReturnType<typeof oauthPr
 
 const baseScopes = ["openid", "profile", "email", "offline_access"]
 const registerPath = "/oauth2/register"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 /** Bounds RFC 7591 client metadata without restricting the private-use redirect schemes of native MCP clients. */
 function registrationProblem(body: unknown, maxBytes: number): string | undefined {

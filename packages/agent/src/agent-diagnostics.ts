@@ -5,8 +5,6 @@ import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const agentTypeDiagnosticCodes = new Set([
-  "AGENT_R1006",
-  "AGENT_R1008",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -1462,9 +1460,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ trigger }: { trigger: string }) => `[vitehub] Channel trigger "${trigger}" declares durableState: true, but it ran without the Channel's State.`,
       fix: "Run the trigger through the Channel's webhook route, its webhook queue or context.dispatch(), and give the Agent a durable state provider.",
     },
-    AGENT_R1006: dynamicError,
     AGENT_R1007: dynamicError,
-    AGENT_R1008: dynamicError,
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
     AGENT_R1013: dynamicError,
@@ -1480,6 +1476,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1029: {
       why: "The default Agent Invocation journal cannot open a file: URL in a Cloudflare Worker.",
       fix: "Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL or agent.invocations.databaseUrl to a remote libSQL URL, or remove the file URL to use the host default journal.",
+    },
+    AGENT_R1036: {
+      why: "The default Agent Invocation journal selected SQLite or libSQL, but the server was built without the libSQL driver.",
+      fix: "Set agent.invocations.databaseUrl to the libSQL URL in the build, so a Cloudflare build includes the driver, or remove VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to use D1 or memory.",
     },
     AGENT_R1024: {
       why: "The ChatGPT access token expired during this Invocation.",

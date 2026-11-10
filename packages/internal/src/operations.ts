@@ -3,6 +3,7 @@ import { findViteHubDevServerUrl } from "./cli.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { standardJsonSchema } from "./standard-schema.ts"
 import { withValibotJsonSchema } from "./valibot.ts"
+import { isRecordOrFunction as isObject } from "./object.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -184,10 +185,6 @@ export type OperationResult<Output = unknown> =
 
 const nameFormat = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 const kinds: ReadonlySet<string> = new Set<OperationKind>(["read", "write", "destructive"])
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 function invalidDefinition(name: unknown, reason: string): Error {
   return internalErrorDiagnostics.INTERNAL_R0020({ message: `[vitehub] Operation ${JSON.stringify(name)} is invalid: ${reason}` })
@@ -601,13 +598,23 @@ export interface OperationTarget {
 
 export const operationCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 
-/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
-export function operationHeaders(env: Record<string, string | undefined>): Headers {
-  const headers = new Headers({ "accept": "application/json", "content-type": "application/json", [operationRpcHeader]: "1", [operationSurfaceHeader]: "cli" })
+/** The Console credentials that CLI commands send to a deployed app, read from the environment. */
+export function consoleCredentialHeaders(env: Record<string, string | undefined>): Headers {
+  const headers = new Headers()
   if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
   if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
   if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
   if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
+  return headers
+}
+
+/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
+export function operationHeaders(env: Record<string, string | undefined>): Headers {
+  const headers = consoleCredentialHeaders(env)
+  headers.set("accept", "application/json")
+  headers.set("content-type", "application/json")
+  headers.set(operationRpcHeader, "1")
+  headers.set(operationSurfaceHeader, "cli")
   return headers
 }
 
