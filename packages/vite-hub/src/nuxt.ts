@@ -12,7 +12,7 @@ import { transform } from "esbuild"
 import { findNearestFile } from "pkg-types"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
-import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroGeneratedRelativeImports } from "./internal/nitro-generated-imports.ts"
@@ -201,6 +201,8 @@ type NuxtLike = {
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
+    /** True for `nuxt prepare`, which loads Nuxt with `dev: false` and writes types without a build. */
+    _prepare?: boolean
     alias?: Record<string, string>
     app?: {
       baseURL?: string
@@ -875,6 +877,7 @@ async function applyNitroConfig(
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3
+    [VITEHUB_PREPARE]?: true
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     [VITEHUB_APP_BASE_URL]?: string
@@ -900,6 +903,8 @@ async function applyNitroConfig(
     config[VITEHUB_PROJECT_ROOT] = projectRoot
     config[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
     if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
+    // `nuxt prepare` replays the hooks as a build so the types match it, but it builds nothing.
+    if (nuxt.options._prepare) config[VITEHUB_PREPARE] = true
     // A CLI command loads the project while its dev server may run. Plugins that see the flag do not rewrite the
     // generated files that the dev server watches, as they do when the CLI resolves a plain Vite config.
     if (nuxt.options.vitehubCliDiscovery) config.vitehubCliDiscovery = true
@@ -1087,7 +1092,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // An explicit `databaseUrl` keeps libSQL.
     const d1Binding = agentJournal?.databaseUrl ? undefined : defaultDatabaseD1Binding(plan.preset, database, { root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
     assertAgentInvocationsRetention(agentJournal?.retention, d1Binding !== undefined, agentJournal?.databaseUrl)
-    assertAgentInvocationsUrl(plan.preset, agentJournal?.databaseUrl)
+    if (!nuxt.options._prepare) assertAgentInvocationsUrl(plan.preset, agentJournal?.databaseUrl)
     ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_D1] = { binding: d1Binding }
     await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, projectRoot })
   }
