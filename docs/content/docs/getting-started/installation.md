@@ -223,6 +223,7 @@ Each feature other than Env, Source, Logs, and the Console needs its own package
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
+| `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
 | `queue` | `@vite-hub/queue` |
 | `rateLimit` | `@vite-hub/rate-limit` |

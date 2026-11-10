@@ -144,7 +144,7 @@ const runtimeEntries = [
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
-const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)
@@ -423,6 +423,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-date-input.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
