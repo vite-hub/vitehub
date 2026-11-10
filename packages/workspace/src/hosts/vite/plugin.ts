@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
@@ -515,25 +515,36 @@ async function sourceModuleMayUseCloudflareArtifacts(
   resolveModule?: SourceModuleResolver,
   visited = new Set<string>(),
   exportedName = "default",
-): Promise<boolean> {
+): Promise<boolean | "unknown"> {
   const loaded = await readSourceModule(file)
-  if (!loaded) return false
+  if (!loaded) return "unknown"
   const visitKey = `${loaded.file}\0${exportedName}`
   if (visited.has(visitKey)) return false
   visited.add(visitKey)
   if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
+  let hasUnknownImport = false
   for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
     if (!importedName) return true
-    const resolvedModule = specifier.startsWith(".")
+    let resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
+    if (!resolvedModule) {
+      const resolved = loader.esmResolve(specifier, { parentURL: pathToFileURL(loaded.file).href, try: true })
+      resolvedModule = resolved?.startsWith("file:") ? fileURLToPath(resolved) : resolved
+    }
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
-    if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
+    if (!resolvedFile || !isAbsolute(resolvedFile)) {
+      hasUnknownImport = true
+      continue
+    }
+    if (extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
     const requestedName = selectedName ?? importedName
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)) return true
+    const usage = await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)
+    if (usage === true) return true
+    if (usage === "unknown") hasUnknownImport = true
   }
-  return false
+  return hasUnknownImport ? "unknown" : false
 }
 
 function sourceImportsFeedingWorkspaceStore(
@@ -1124,9 +1135,10 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   for (const definition of definitions) {
     const definitionFile = resolveWorkspaceDefinitionModule(loader, definition, rootDir)
     const definitionKey = JSON.stringify([definitionFile, definition.export ?? "default"])
-    // Config inspection already loads Definitions; those modules can skip the expensive source walk.
-    const loadFirst = inspection?.artifactsOnly || inspection?.loadedDefinitions?.has(definitionKey)
-    if (!loadFirst && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
+    // Builds collect every Store provider. Definitions already loaded during config can also skip the source walk.
+    const loadFirst = inspection?.storeUsage !== undefined || inspection?.loadedDefinitions?.has(definitionKey)
+    let artifactsUsage = loadFirst ? undefined : await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)
+    if (artifactsUsage === false) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition, rootDir)
@@ -1135,7 +1147,9 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       inspection?.loadedDefinitions?.add(definitionKey)
     }
     catch (error) {
-      if (loadFirst && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) {
+      // Unknown imports can load at runtime; if config-time loading fails, keep the previous skip behavior.
+      artifactsUsage ??= await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)
+      if (artifactsUsage !== true) {
         inspection?.storeUsage?.add("unknown")
         continue
       }
@@ -1946,7 +1960,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command)) return
       const workspaceOptions = resolvedOptions
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
@@ -1983,7 +1997,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         providerOutputGenerations.ready(this)
         await finalizeProviderDeploymentOutputs(providerOutput)
       },

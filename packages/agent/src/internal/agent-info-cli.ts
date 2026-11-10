@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
@@ -51,7 +51,7 @@ export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: st
     return {}
   }
   const discovery: unknown = await response.json().catch(() => undefined)
-  if (!isRuntimeRecord(discovery) || !hasRuntimeType(discovery.root, "string") || !hasRuntimeType(discovery.workspaceDevTokenServerId, "string")) return {}
+  if (!isRuntimeRecord(discovery) || typeof discovery.root !== "string" || typeof discovery.workspaceDevTokenServerId !== "string") return {}
   if (!isCompatibleAgentDevServerRoot(rootDir, discovery.root)) return {}
   const token = await readWorkspaceDevToken(discovery.root, { serverId: discovery.workspaceDevTokenServerId })
   return token ? { [workspaceDevTokenHeader]: token } : {}
@@ -298,7 +298,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
     return 1
   }
-  if (hasRuntimeType(result.root, "string") && !isCompatibleAgentDevServerRoot(context.rootDir, result.root)) {
+  if (typeof result.root === "string" && !isCompatibleAgentDevServerRoot(context.rootDir, result.root)) {
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${result.root}\n`)
     return 1
   }

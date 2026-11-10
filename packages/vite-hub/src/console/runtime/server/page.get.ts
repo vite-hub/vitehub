@@ -2,10 +2,11 @@ import { consoleDocumentMetadata } from "../../document-metadata.ts"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleAllowsRequest, consoleAppAuthBasePath, consolePageRejection, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
 import { isConsoleDevelopmentBuild } from "./development.ts"
+import { consoleClientAssets } from "./client-assets.ts"
 
-import type { ConsoleRequestEvent } from "./request.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
 
 // The ViteHub mark of the rail's home item, so the first paint already has the rail of the loaded Console.
 const consoleMarkSvg = '<svg class="vitehub-console-boot__mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>'
@@ -24,12 +25,12 @@ const page = `<!doctype html>
     <meta name="theme-color" data-vitehub-console-theme="dark" content="#0a0a0a" media="(prefers-color-scheme: dark)">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>ViteHub Console</title>
-    <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
+    <link rel="stylesheet" href="/_vitehub/assets/__STYLE__">
   </head>
   <body>
     <div id="app"><div class="vitehub-console-boot"><div class="vh-primitive-rail"><div class="vh-primitive-rail__surface"><div class="vh-primitive-rail__header"><span class="vh-primitive-rail__item"><span class="vh-primitive-rail__icon">${consoleMarkSvg}</span></span></div></div></div><div class="vitehub-console-boot__panel"><div class="vitehub-console-boot__header"></div><p role="status" class="vitehub-console-opening">${consoleSpinnerSvg}Opening Console…</p><noscript class="vitehub-console-opening">Enable JavaScript to use the Console.</noscript></div></div></div>
     <script type="module" src="/_vitehub/api/client.js"></script>
-    <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
+    <script type="module" src="/_vitehub/assets/__SCRIPT__"></script>
   </body>
 </html>`;
 
@@ -83,7 +84,7 @@ async function rejectedPage(rejection: Response): Promise<Response> {
   })
 }
 
-export default async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response> {
+async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response> {
   assertConsoleRequest(event);
   // With a sign-in page, a signed-out visit goes there and comes back, as with Console Auth.
   const signIn = await consoleSignInRedirect(event)
@@ -98,7 +99,17 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
   const authBase = await consoleAppAuthBasePath(event)
   const authMeta = authBase ? `\n    <meta name="vitehub-console-auth-base" content="${escapeAttribute(authBase)}">` : ""
   const signInMeta = signInPage ? `\n    <meta name="vitehub-console-sign-in" content="${escapeAttribute(signInPage)}">` : ""
+  // Generated Console output installs the entry names of @vite-hub/console-client. Without them there is no app to load.
+  const client = consoleClientAssets()
+  if (!client) {
+    return new Response("The Console needs @vite-hub/console-client. Install it in your app with: pnpm add @vite-hub/console-client", {
+      headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" },
+      status: 503,
+    })
+  }
   const mountedPage = page
+    .replace("__STYLE__", client.style)
+    .replace("__SCRIPT__", client.script)
     .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}${authMeta}`)
     .replaceAll('href="/_vitehub/assets/', `href="${mountBase}/_vitehub/assets/`)
     .replaceAll('src="/_vitehub/api/client.js"', `src="${mountBase}/_vitehub/api/client.js"`)
@@ -120,3 +131,7 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
     },
   });
 }
+
+/** `<base>/_vitehub` and `<base>/_vitehub/**`: the Console page. */
+const consolePageRoute: ConsoleRoute = consoleRoute(consolePageHandler)
+export default consolePageRoute
