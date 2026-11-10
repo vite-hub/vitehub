@@ -4,7 +4,7 @@ import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
@@ -135,7 +135,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginBearerCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
+  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")

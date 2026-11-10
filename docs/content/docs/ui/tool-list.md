@@ -3,7 +3,7 @@ title: Tool List
 description: "Render Agent tool contracts with labels, schemas, MCP origin, and call counts."
 navigation.order: 35
 navigation.group: Agent work
-icon: i-ph-wrench-light
+icon: i-lucide-wrench
 ---
 
 `ToolList` shows a list of tool contracts (what each tool takes and returns). Use it to show which tools an Agent had and which it used. The inspectors and the Capability reference pages in these docs use it.

@@ -14,7 +14,7 @@ An [Agent Skill](https://agentskills.io) is a folder with a `SKILL.md` and optio
 | Agent Skills Discovery v0.1.0 | `/.well-known/skills/index.json`, `<name>/<path>` | `npx skills add https://app.example.com` and Executor |
 | MCP Skills extension | `skills/list`, `skills/get`, `resources/list`, `resources/read` for `skill://<name>/<path>` | MCP clients of your MCP server |
 
-It uses only `Request`, `Response`, and Web Crypto, so it runs on every host, also Cloudflare Workers. The [Console](/docs/development/console) serves the ViteHub skill separately, at `/_vitehub/.well-known/skills`.
+It uses only `Request`, `Response`, and Web Crypto, so it runs on every host, also Cloudflare Workers. The [Console](/docs/development/console) endpoint serves the ViteHub skill separately, at `/_vitehub/.well-known/skills`.
 
 ## Define the skills
 

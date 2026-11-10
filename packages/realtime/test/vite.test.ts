@@ -9,6 +9,13 @@ import { realtimeDurableObjectKey } from "../src/durable-key.ts"
 
 const tempDirs: string[] = []
 
+function hookHandler(hook: unknown): (id: string) => string {
+  const handler: unknown = typeof hook === "function" ? hook : Reflect.get(Object(hook), "handler")
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: The Realtime availability hooks take an id and return module source or a resolved id.
+  return handler as (id: string) => string
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
@@ -39,8 +46,17 @@ describe("hubRealtime", () => {
     tempDirs.push(root)
     const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
     await hook({ root, nitro: { preset: "node" } }, { command: "build" })
-    const id = (plugin.resolveId as (id: string) => string)("#vitehub/realtime/availability")
-    expect((plugin.load as (id: string) => string)(id)).toBe("export default { available: true }\n")
+    const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
+    expect(hookHandler(plugin.load)(id)).toBe("export default { available: true }\n")
+  })
+
+  it("filters the resolveId and load hooks to the availability module", async () => {
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({ authority: "memory" })
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const ids = ["\0#vitehub/realtime/availability", "#vitehub/realtime/availability", "#vitehub/realtime/availability.mjs", "@vite-hub/realtime", "/app/server/api/rooms.ts"]
+    expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/realtime/availability"])
+    expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(["\0#vitehub/realtime/availability"])
   })
 
   it("reads the package fallback when no Realtime integration runs", async () => {
@@ -328,8 +344,8 @@ describe("hubRealtime", () => {
     expect(registry).toContain("content.mjs")
     const durable = authority === "cloudflare" ? [join(root, ".vitehub/nitro/realtime/durable-object.mjs")] : []
     expect(config.nitro).toMatchObject({ plugins: [...durable, join(root, ".vitehub/nitro/realtime/content-live.mjs")] })
-    const id = (plugin.resolveId as (id: string) => string)("#vitehub/realtime/availability")
-    expect((plugin.load as (id: string) => string)(id)).toBe("export default { available: true }\n")
+    const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
+    expect(hookHandler(plugin.load)(id)).toBe("export default { available: true }\n")
   })
 
   it.each(["vercel", "netlify", "deno-deploy"])("leaves contributions out without an error on %s", async (preset) => {
@@ -347,8 +363,8 @@ describe("hubRealtime", () => {
     await expect(hook(config, { command: "build" })).resolves.toBeUndefined()
     expect(called).toBe(false)
     expect(config.nitro).toEqual({ preset })
-    const id = (plugin.resolveId as (id: string) => string)("#vitehub/realtime/availability")
-    const source = (plugin.load as (id: string) => string)(id)
+    const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
+    const source = hookHandler(plugin.load)(id)
     const { default: availability } = await import(`data:text/javascript,${encodeURIComponent(source)}`)
     expect(availability).toMatchObject({ available: false })
   })

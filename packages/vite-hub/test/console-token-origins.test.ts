@@ -14,7 +14,8 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import consolePreflightPlugin from "../src/console/runtime/server/console-preflight.ts"
 import { consoleTokenMatchesHash } from "../src/console/runtime/server/console-token.ts"
-import { answerConsolePreflight, installConsoleOrigins, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import { answerConsolePreflight, installConsoleOrigins, isConsoleCrossOriginCall, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import envManageHandler from "../src/console/runtime/server/env-manage.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
@@ -53,6 +54,7 @@ function send(request: Request): Promise<Response> {
 }
 
 afterEach(() => {
+  installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   Reflect.deleteProperty(globalThis, originsKey)
@@ -217,7 +219,7 @@ describe("console.origins", () => {
   it.each([
     ["an open Console", { mode: "open" }],
     ["a session Console", { check: async () => undefined, mode: "auth" }],
-  ] satisfies Array<[string, ConsoleAccessPolicy]>)("never lets %s take a cross-origin call, even from a listed origin with a bearer header", async (_name, policy) => {
+  ] satisfies Array<[string, ConsoleAccessPolicy]>)("never lets %s in production take a cross-origin call, even from a listed origin with a bearer header", async (_name, policy) => {
     install(policy)
     const response = await send(rpc({ authorization: `Bearer ${token}`, cookie: "better-auth.session_token=abc", origin: consoleOrigin, "sec-fetch-site": "cross-site" }))
     expect(response.status).toBe(403)
@@ -235,6 +237,32 @@ describe("console.origins", () => {
     expect(response.status).toBe(403)
     expect(response.headers.has("access-control-allow-origin")).toBe(false)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED" })
+  })
+
+  it.each(["local", "open"] as const)("lets the hosted Console call a %s development server from a listed origin without a token", (mode) => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin, "sec-fetch-site": "cross-site" }), { mode, sections: "all" })).toBe(true)
+  })
+
+  it.each(["local", "open"] as const)("refuses a listed origin without a token on a %s production server", (mode) => {
+    installConsoleDevelopment("/test/app", false)
+    install({ mode })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode, sections: "all" })).toBe(false)
+  })
+
+  it("refuses an unlisted origin on a development server without sign-in", () => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode: "open" })
+    expect(isConsoleCrossOriginCall(rpc({ origin: "https://evil.example" }), { mode: "open", sections: "all" })).toBe(false)
+  })
+
+  it("still needs a bearer token for the token mode, in development too", () => {
+    installConsoleDevelopment("/test/app", true)
+    install({ mode: "token" })
+    expect(isConsoleCrossOriginCall(rpc({ origin: consoleOrigin }), { mode: "token", sections: "all" })).toBe(false)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "token", sections: "all", via: "token" })).toBe(true)
+    expect(isConsoleCrossOriginCall(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }), { mode: "auth", sections: "all" })).toBe(false)
   })
 
   it("keeps same-origin calls as they were", async () => {
@@ -410,11 +438,13 @@ describe("Console data route responses", () => {
 })
 
 describe("Console origin and token options", () => {
-  it("defaults origins to the hosted Console and keeps them only for the bearer modes", () => {
+  it("defaults origins to the hosted Console and keeps them for bearer modes and development without sign-in", () => {
     expect(resolveConsoleOrigins(undefined)).toEqual([consoleOrigin])
     expect(resolveConsoleAccessBuild({ auth: "token" }, { root: process.cwd() })).toEqual({ mode: "token", origins: [consoleOrigin] })
     expect(resolveConsoleAccessBuild({ auth: "token", origins: [] }, { root: process.cwd() })).toEqual({ mode: "token", origins: [] })
-    expect(resolveConsoleAccessBuild({ auth: false, origins: [consoleOrigin] }, { root: process.cwd() })).not.toHaveProperty("origins")
+    expect(resolveConsoleAccessBuild({ auth: false }, { root: process.cwd() })).toEqual({ mode: "open", origins: [consoleOrigin] })
+    expect(resolveConsoleAccessBuild({ auth: false, origins: [] }, { root: process.cwd() })).toEqual({ mode: "open", origins: [] })
+    expect(resolveConsoleAccessBuild({ auth: "app" }, { root: process.cwd() })).not.toHaveProperty("origins")
     expect(resolveConsoleOptions({ auth: "token" })).toEqual({ auth: "token" })
   })
 

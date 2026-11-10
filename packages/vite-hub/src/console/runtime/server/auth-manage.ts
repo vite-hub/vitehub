@@ -12,7 +12,7 @@ import {
   type ConsoleAccess,
   type ConsoleAccessRoute,
 } from "./access.ts";
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts";
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts";
 import {
   assertConsoleRequest,
   consoleRequestError,
@@ -113,7 +113,7 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
       site === "cross-site" ||
       site === "same-site" ||
       (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)) &&
-    !isConsoleCrossOriginBearerCall(request, access)
+    !isConsoleCrossOriginCall(request, access)
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);

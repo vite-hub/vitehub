@@ -6,7 +6,7 @@ import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
-const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff" }
+const headers = { "cache-control": "no-store", "vary": "Origin", "x-content-type-options": "nosniff" }
 
 /**
  * OAuth 2.0 protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource` and its path-suffixed
@@ -27,7 +27,8 @@ async function metadata(event: ConsoleRequestEvent, request: Request): Promise<R
   if (!oauth) return Response.json({ code: "CONSOLE_NOT_FOUND", message: "This Console does not use OAuth sign-in for MCP." }, { headers, status: 404 })
   const state = await resolveConsoleOAuth(oauth, event, request, isConsoleDevelopmentRuntime())
   if (!state.ready) return Response.json({ ...consoleDiagnosticBody(state.code, state.message), ok: false, status: 503 }, { headers, status: 503 })
-  // `/.well-known/oauth-protected-resource<path>` describes the resource at <path>. The bare form describes the endpoint.
+  // `/.well-known/oauth-protected-resource<path>` describes the resource at <path>: the MCP endpoint, or the Console
+  // resource `<base>/_vitehub` that a hosted Console signs in for. The bare form describes the MCP endpoint.
   const suffix = new URL(request.url).pathname.slice("/.well-known/oauth-protected-resource".length).replace(/\/+$/, "")
   const document = (resource: string, name: string) => Response.json({
     authorization_servers: [state.issuer],

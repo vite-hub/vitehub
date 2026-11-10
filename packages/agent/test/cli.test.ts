@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -54,7 +54,6 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
-          expect.objectContaining({ name: "codex-home" }),
         ],
         name: "agent",
       }, {
@@ -78,7 +77,6 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
-          expect.objectContaining({ name: "codex-home" }),
         ],
         name: "agent",
       }, {
@@ -583,7 +581,7 @@ describe("agent CLI", () => {
       expect(results.sort()).toEqual([0, 1])
       await expect(readdir(rootDir)).resolves.toEqual(["export"])
       const published: unknown = JSON.parse(await readFile(join(rootDir, "export/history.json"), "utf8"))
-      if (!isRuntimeRecord(published) || !hasRuntimeType(published.marker, "string")) throw new TypeError("Expected exported history metadata.")
+      if (!isRuntimeRecord(published) || typeof published.marker !== "string") throw new TypeError("Expected exported history metadata.")
       expect(["first", "second"]).toContain(published.marker)
     }
     finally {
@@ -884,7 +882,7 @@ describe("agent CLI", () => {
     const requests: Array<{ body?: string, method?: string, url: string }> = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
-      requests.push({ body: hasRuntimeType(init?.body, "string") ? init.body : undefined, method: init?.method, url })
+      requests.push({ body: typeof init?.body === "string" ? init.body : undefined, method: init?.method, url })
       if (init?.method === "HEAD") {
         return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
       }

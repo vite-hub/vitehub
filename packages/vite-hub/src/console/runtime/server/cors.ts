@@ -3,13 +3,12 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 
 import type { ConsoleAccess } from "./access.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
+import { isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 
 /**
  * Browser origins that may call Console data routes from another origin, from `console.origins`. Generated Console
- * output installs them with `auth: "token"` and with an Auth that issues OAuth access tokens, the modes that verify a
- * bearer token on these routes. The OAuth client allow list of `consoleMcpOAuth()` reads the same list. Without an
- * installed list, every cross-origin call is rejected.
+ * output installs them for bearer modes and for development without sign-in. The OAuth client allow list of
+ * `consoleMcpOAuth()` reads the same list. Without an installed list, every cross-origin call is rejected.
  */
 const originsKey: unique symbol = Symbol.for("vitehub.console.origins")
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
@@ -48,12 +47,19 @@ export function listedConsoleOrigin(origin: string | null | undefined): string |
   return origin && installedConsoleOrigins().includes(origin) ? origin : undefined
 }
 
+/** Whether `console.origins` lists the `Origin` of a request. */
+export function isListedConsoleOrigin(origin: string | null | undefined): boolean {
+  return listedConsoleOrigin(origin) !== undefined
+}
+
 /**
  * Whether a cross-origin request may reach a Console data route: `console.origins` lists its `Origin`, and the access
- * check accepted its `Authorization: Bearer` token (`access.via`: the Console token or an OAuth access token). A cookie
- * or a session never authorizes a cross-origin call.
+ * check accepted its `Authorization: Bearer` token (`access.via`: the Console token or an OAuth access token), or the
+ * development server has no sign-in. A cookie or a session never authorizes a cross-origin call.
  */
-export function isConsoleCrossOriginBearerCall(request: Request, access: ConsoleAccess): boolean {
+export function isConsoleCrossOriginCall(request: Request, access: ConsoleAccess): boolean {
+  if (listedConsoleOrigin(request.headers.get("origin")) === undefined) return false
+  if (access.mode === "local" || access.mode === "open") return isConsoleDevelopmentRuntime()
   return access.via !== undefined
     && listedConsoleOrigin(request.headers.get("origin")) !== undefined
     && /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "")
@@ -133,6 +139,11 @@ function withHeaders(response: Response, origin: string | undefined): Response {
     if (challenge) headers.set("www-authenticate", consoleBearerChallenge())
     if (origin) addCorsHeaders(headers, origin)
   })
+}
+
+/** Add the CORS headers of a listed origin to a response that a Console data route did not build, such as an Auth rejection. */
+export function withListedOriginHeaders(request: Request, response: Response): Response {
+  return withHeaders(response, listedConsoleOrigin(request.headers.get("origin")))
 }
 
 function errorResponse(error: unknown): Response {

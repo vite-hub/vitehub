@@ -1,6 +1,7 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { jwt } from "better-auth/plugins"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { consoleAuthPath } from "./auth-path.ts"
 import { consoleMcpScopes } from "./runtime/server/bearer.ts"
@@ -10,10 +11,6 @@ import type { CimdOptions } from "@better-auth/cimd"
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider"
 import type { BetterAuthPlugin } from "better-auth"
 import type { GenericEndpointContext } from "better-auth"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 /** A redirect that only a program on this machine can receive: a loopback address or a private-use scheme. */
 function isNativeRedirect(value: unknown): boolean {
@@ -220,6 +217,11 @@ export function consoleOAuthClients(options: ConsoleOAuthClientsOptions): Better
   ]
 }
 
+/** Resources of the built-in Console Auth, including its hosted Console resource. */
+function withConsoleResource(mcpResource: string): string[] {
+  return mcpResource.endsWith("/_vitehub/mcp") ? [mcpResource, mcpResource.slice(0, -"/mcp".length)] : [mcpResource]
+}
+
 /** Options of {@link consoleMcpOAuth}. */
 export interface ConsoleMcpOAuthOptions {
   /** The absolute URL of the MCP endpoint, the same as `console.mcp.resource`: `https://app.example.com/_vitehub/mcp`. */
@@ -286,10 +288,10 @@ export function consoleOAuthPlugins(options: { defaults?: boolean, mountBaseURL:
           oauthProvider({
             allowDynamicClientRegistration: true,
             allowUnauthenticatedClientRegistration: true,
-            clientRegistrationDefaultResources: [resource],
+            clientRegistrationDefaultResources: withConsoleResource(resource),
             consentPage: page,
             loginPage: page,
-            resources: [resource],
+            resources: withConsoleResource(resource),
             scopes: ["openid", "profile", "email", "offline_access", ...consoleMcpScopes],
           }),
         ]),

@@ -59,16 +59,15 @@ describe("mcp capability", () => {
 
     it.each([
       undefined, null, false, 0, "",
-      Object.assign(new Error("Unauthorized"), { statusCode: 401 }),
-      Object.assign(new Error("Forbidden"), { status: 403 }),
-      Object.assign(new Error("Bad request"), { statusCode: 400 }),
       Object.assign(new Error("Request aborted"), { name: "AbortError" }),
       Object.assign(new Error("Unsupported protocol version"), { name: "MCPClientError" }),
       Object.assign(new Error("Invalid maxRetries"), { name: "MCPClientError" }),
       new Error("Invalid network configuration"),
-      ...[400, 401, 403, 404, 405].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Request failed`), { name: "MCPClientError" })),
       Object.assign(new Error("MCP client initialization was aborted", { cause: new TypeError("fetch failed") }), { name: "MCPClientError" }),
       Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError", code: -32602 }),
+      // Configuration errors are the app's to fix, so they still stop the run.
+      Object.assign(new Error("Access denied"), { code: "CONNECTIONS_DENIED" }),
+      Object.assign(new Error("Unknown connection"), { code: "AGENT_R0082" }),
     ])("preserves hard rejection %#", async (error) => {
       await expect(resolveFailure(error)).rejects.toBe(error)
     })
@@ -84,7 +83,14 @@ describe("mcp capability", () => {
       Object.assign(new Error("MCP client initialization timed out after 5ms"), { name: "MCPClientError" }),
       Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError" }),
       new Error("MCP transport failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
-    ])("degrades transient rejection %#", async (error) => {
+      Object.assign(new Error("Unauthorized"), { statusCode: 401 }),
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+      Object.assign(new Error("Bad request"), { statusCode: 400 }),
+      Object.assign(new Error("MCP HTTP Transport Error: POSTing to endpoint (HTTP 401): Directus session expired"), { name: "MCPClientError", statusCode: 401 }),
+      ...[400, 401, 403, 404, 405].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Request failed`), { name: "MCPClientError" })),
+      ...["CONNECTIONS_NEEDS_RECONNECT", "CONNECTIONS_NOT_CONNECTED", "CONNECTIONS_PROVIDER_FAILED", "CONNECTIONS_UNAVAILABLE"].map(code => Object.assign(new Error("Connection failed"), { code })),
+      new Error("MCP transport failed", { cause: Object.assign(new Error("Token mutation in progress"), { code: "CONNECTIONS_UNAVAILABLE" }) }),
+    ])("degrades a server failure %#", async (error) => {
       const resolved = await resolveFailure(error)
       expect(resolved.tools).toEqual({})
       await resolved.close()
