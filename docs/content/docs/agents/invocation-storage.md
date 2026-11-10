@@ -595,7 +595,7 @@ import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
 
-`tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub db generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
+`tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub database generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
 
 - D1 batches make creation and retention atomic.
 - Conditional updates retry when another Worker changes the record, so concurrent observations survive.
