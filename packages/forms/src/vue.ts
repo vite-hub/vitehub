@@ -153,6 +153,8 @@ const AutoFormControl = defineComponent({
         control = h(tag, {
           ...common,
           ...(tag === "input" ? { type: field.inputType ?? "text" } : { rows: 5 }),
+          // The browser checks a number input before the app runs. Its default step of 1 would refuse 1.5.
+          ...(field.inputType === "number" ? { step: "any" } : {}),
           ...(field.maxLength ? { maxlength: field.maxLength } : {}),
           ...(field.inputType === "email" ? { autocomplete: "email", spellcheck: false } : {}),
           value: value ?? "",
@@ -243,16 +245,12 @@ export const AutoForm = defineComponent({
       if (form.isSubmitting || checking) return
       // A new send replaces the result of an earlier post without JavaScript.
       returned.value = undefined
-      // Validate without focus, then focus after the render, so the field already points to its error. Formisch
-      // `handleSubmit()` focuses before Vue renders the error.
+      // Formisch `handleSubmit()` focuses the first invalid field before Vue renders its error. Validate and render
+      // first, so the field already points to its error when `handleSubmit()` focuses it. It also marks the form
+      // submitted, so a corrected field validates again as the user types.
       checking = true
       const result = await validate(form).finally(() => { checking = false })
-      if (!result.success) {
-        await nextTick()
-        const path = result.issues[0].path?.map(item => item.key as string | number)
-        if (path?.length) (focus as (form: FormStore, config: { path: (string | number)[] }) => void)(form, { path })
-        return
-      }
+      if (!result.success) await nextTick()
       await submit(event)
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.

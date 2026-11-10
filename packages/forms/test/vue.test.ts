@@ -59,6 +59,8 @@ describe("AutoForm", () => {
     }
     const submit = async () => {
       element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
+      // AutoForm validates before Formisch marks the form as submitting, so let that run first.
+      await new Promise(resolve => setTimeout(resolve, 10))
       await vi.waitFor(async () => {
         await nextTick()
         if (root.querySelector("button")?.getAttribute("aria-disabled") === "true") throw new Error("still sending")
@@ -98,6 +100,10 @@ describe("AutoForm", () => {
     // One announcement: focus goes to the field, which reads its error. Field errors are not alerts.
     expect(root.querySelectorAll("[data-field] [role=alert]")).toHaveLength(0)
     expect(await store.list()).toEqual([])
+    // The form is submitted, so fixing the field clears its error as the user types.
+    await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
+    await vi.waitFor(() => expect(root.querySelector("[data-field=email] [data-error]")).toBeNull())
+    expect(root.querySelector("[data-field=email] input")?.hasAttribute("aria-invalid")).toBe(false)
   })
 
   it("renders the result of a post without JavaScript on the server", async () => {
@@ -106,6 +112,8 @@ describe("AutoForm", () => {
     expect(html).toContain("The message was not sent. Check the form and try again.")
     // Until the app runs, the browser checks `required` and `type` itself.
     expect(html).not.toContain("novalidate")
+    // A number input allows decimals, as `v.number()` does.
+    expect(await renderToString(createSSRApp(AutoForm, { name: "contact", schema: v.object({ price: v.number() }) }))).toContain('step="any"')
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {
