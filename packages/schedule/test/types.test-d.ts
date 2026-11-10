@@ -83,6 +83,7 @@ it("types the Process Schedule Runtime", () => {
     onError?: (error: unknown) => void
     registry: ScheduleDefinitionRegistry
     scheduleRunStore: ScheduleRunStore
+    timings?: Readonly<Record<string, { cron: string, timeZone?: string }>>
   }>()
   expectTypeOf(installProcessScheduleRuntime).parameter(0).toEqualTypeOf<ProcessScheduleRuntimeOptions>()
   expectTypeOf(installProcessScheduleRuntime).returns.toEqualTypeOf<Promise<ScheduleRuntimeController>>()

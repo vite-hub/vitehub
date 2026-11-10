@@ -26,6 +26,30 @@ pnpm add @vite-hub/kv
 
 Add `kv: true` to the existing `vitehub()` options in `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', kv: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'node', kv: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -35,6 +59,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', kv: true })],
 })
 ```
+::::
+:::
 
 Did you choose Nuxt in Installation? Then add `kv: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 

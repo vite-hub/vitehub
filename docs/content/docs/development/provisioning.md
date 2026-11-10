@@ -1,16 +1,16 @@
 ---
 title: Provisioning
-description: Create missing provider resources and write non-secret provider ids into local provision state.
+description: Create the cloud resources your app needs and save their ids in a local file.
 navigation.order: 33
 navigation.group: Build state
 icon: i-lucide-cloud-cog
 ---
 
-Use Provision to create the provider resources that your Definitions need before
-the first deploy. Each enabled package contributes Provision Steps. The steps are
-idempotent and never delete resources. They change an existing resource only when
-the plan shows an `update` action: D1 read replication for a Database that sets
-`readReplication`.
+Provision creates the cloud resources your Definitions need before the first
+deploy. Each enabled package adds Provision Steps. You can run them many times
+with the same result, and they never delete resources. They change an existing
+resource only for an `update` action: D1 read replication for a Database that
+sets `readReplication`.
 
 | Provider | Resources that Provision can create | Owner package |
 | --- | --- | --- |
@@ -20,22 +20,31 @@ the plan shows an `update` action: D1 read replication for a Database that sets
 | Cloudflare | Queues | Queue |
 | Vercel | Blob stores, connected to the project | Blob |
 
-`vitehub provision` accepts `--provider cloudflare` and `--provider vercel`
-only.
+`vitehub provision` accepts only `--provider cloudflare` and `--provider vercel`.
 
 ## Preview the plan
 
-Run a dry run first.
-The CLI loads the Vite config, collects Provision Steps from active package integrations, and prints the actions for one provider.
+Run a dry run first. The CLI loads the Vite config, collects Provision Steps
+from active packages, and prints the actions for one provider.
 
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
-Provider steps use read credentials during planning to distinguish existing resources from resources to create. Each step reads every page of the provider's resource list, so an account with many D1 databases, KV namespaces, R2 buckets, or Queues does not plan a create for a resource that already exists. A dry run does not call `apply()` or write Provision State. A dry run without credentials does not fail. Steps that cannot look up current state skip their actions, and the CLI prints `provision: plan not checked.` instead of `no ... resources to create`. Database, KV, Blob, and Queue steps all report a skipped lookup this way.
+Planning uses read credentials to tell existing resources from new ones. Each
+step reads every page of the provider's list, so an account with many D1
+databases, KV namespaces, R2 buckets, or Queues never plans a create for an
+existing resource.
 
-Each line shows the action status, the resource kind, and the resource name. An `update` line also shows the change.
+A dry run does not call `apply()` or write Provision State. Without
+credentials it does not fail. Steps that cannot look up current state skip
+their actions, and the CLI prints `provision: plan not checked.` instead of
+`no ... resources to create`. Database, KV, Blob, and Queue steps all report a
+skipped lookup this way.
+
+Each line shows the status, resource kind, and name. An `update` line also
+shows the change.
 
 ```txt [Output]
 create  cloudflare-d1            app-content
@@ -48,19 +57,21 @@ exists  cloudflare-r2-bucket     uploads
 | --- | --- |
 | `create` | The resource does not exist. `provision run` creates it. |
 | `update` | The resource exists, but a setting differs. `provision run` changes only that setting. |
-| `pending` | The resource exists but needs provider-side setup, such as a Vercel Blob project connection. |
+| `pending` | The resource exists but needs provider setup, such as a Vercel Blob project connection. |
 | `exists` | The resource exists. `provision run` only records its id. |
 
 ## Apply the plan
 
-The apply command uses the same provider credentials as the plan. Without them, `provision run` exits with code 1 before it plans. Cloudflare and Vercel use different credential sets.
+Apply uses the same credentials as the plan. Without them, `provision run` exits with code 1 before it plans. Cloudflare and Vercel need different credentials.
 
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
 ```
 
-Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can connect the store to the target project. The connection adds `BLOB_STORE_ID`, which the driver uses for OIDC on Vercel. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` supplies an optional team scope.
+Vercel Blob needs `VERCEL_PROJECT_ID` to connect the store to the project. The
+connection adds `BLOB_STORE_ID`, which the driver uses for OIDC on Vercel.
+`VERCEL_TEAM_ID` or `VERCEL_ORG_ID` sets an optional team scope.
 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.
@@ -88,8 +99,9 @@ R2 buckets are recorded as `<jurisdiction>/<bucket-name>` (using `default` when 
 
 ## Check provision status
 
-`provision status` shows the ids recorded in `.vitehub/provision.json` for one provider and the actions that the current plan would apply.
-It runs the same plan phase as `provision run`, but it never calls `apply()`, creates resources, or writes Provision State.
+`provision status` shows the ids saved in `.vitehub/provision.json` for one
+provider, and what the current plan would do. It plans like `provision run`,
+but never calls `apply()`, creates resources, or writes Provision State.
 
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision status --provider cloudflare
@@ -132,9 +144,10 @@ The plan is also not checked when an applicable Provision Step skips its lookup.
 
 ## JSON output
 
-Add `--json` to `provision run` or `provision status` when CI or an Agent reads the result.
-The command writes one JSON document to stdout. Step messages and warnings stay out of stdout; warnings are included in the `warnings` array.
-Output never contains provider credentials. Recorded ids are non-secret.
+Add `--json` when CI or an Agent reads the result. The command writes one JSON
+document to stdout. Step messages and warnings stay out of stdout, and warnings
+go in the `warnings` array. Output never has credentials. Saved ids are not
+secret.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run --json
@@ -158,29 +171,64 @@ pnpm vitehub provision status --provider cloudflare --json
 ```
 
 `undeclared` lists each recorded id that no Definition declares, as `{ category, key, id, fix }`.
-`provision run --json` returns `mode` (`dry-run` or `apply`), the planned `actions`, the `ids` written by this run, `stateFile` (`null` when nothing was written), and `warnings`.
-An action may include `pending` to report required provider-side setup independently of resource existence. Without this field, an action is pending when `exists` is `false`. Vercel Blob includes the field because an existing store may still need a project connection.
-An action with `update` changes an existing resource. It has `exists: true` and `pending: true`, and `update` describes the change, for example `"read replication: disabled -> auto"`.
-Both commands exit with code `0` when the plan phase succeeds, also when actions are pending.
-For `provision status --json`, require `plan.checked === true` before checking `plan.pending === 0` to gate a CI step. An unchecked plan can have zero pending actions because resource lookups were skipped.
+`provision run --json` returns `mode` (`dry-run` or `apply`), the planned
+`actions`, the `ids` this run wrote, `stateFile` (`null` when nothing was
+written), and `warnings`.
+
+An action can have `pending` to report needed provider setup apart from
+existence. Without it, an action is pending when `exists` is `false`. Vercel
+Blob sets it, because an existing store can still need a project connection.
+An `update` action changes an existing resource. It has `exists: true` and
+`pending: true`, and `update` describes the change, for example
+`"read replication: disabled -> auto"`.
+
+Both commands exit with code `0` when planning succeeds, also with pending
+actions.
+
+::warning
+To gate CI on `provision status --json`, require `plan.checked === true` before
+you check `plan.pending === 0`. An unchecked plan can show zero pending actions
+because lookups were skipped.
+::
 
 ## Preview deployments share data
 
-Provision creates one resource for each resource name. A preview deployment that binds the same resource reads and writes the same rows, keys, objects, and messages as production.
+Provision creates one resource per name. A preview deployment bound to the same
+resource reads and writes the same rows, keys, objects, and messages as
+production.
 
 | Host | What a preview uses by default | Source |
 | --- | --- | --- |
 | Cloudflare Version URLs | The production resources of that Worker version: the same D1 databases, KV namespaces, R2 buckets, and Queues. | [Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/) |
-| Cloudflare Previews | Only the bindings in the `previews` block of the Wrangler config. ViteHub does not write that block for its bindings. Two Previews bound to the same D1 `database_id`, KV `id`, R2 `bucket_name`, or queue name share its data. | [Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/), [Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/) |
-| Vercel preview deployments | The Blob store that is connected to the project in the Preview environment. `vitehub provision run --provider vercel` connects its store to Production, Preview, and Development. | [Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects) |
+| Cloudflare Previews | Only the bindings in the `previews` block of the Wrangler config. ViteHub does not write that block. Two Previews bound to the same D1 `database_id`, KV `id`, R2 `bucket_name`, or queue name share its data. | [Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/), [Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/) |
+| Vercel preview deployments | The Blob store connected to the project in the Preview environment. `vitehub provision run --provider vercel` connects its store to Production, Preview, and Development. | [Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects) |
 
 How you isolate a preview depends on how you deploy it.
 
-**Cloudflare Previews.** Previews never read the top-level bindings that ViteHub writes, so changing ViteHub config or env does not move them. Declare preview resources in the `previews` block of the project Wrangler config: `previews.d1_databases`, `previews.kv_namespaces`, `previews.r2_buckets`, and `previews.queues.producers`, with the same binding names as production. Cloudflare does not accept Queue consumers in `previews`. Point them at staging or test resources, never at production ids. ViteHub does not write this block. After a build, check that the generated config still has it with `vitehub inspect provider-output --json`.
+**Cloudflare Previews.** Previews never read ViteHub's top-level bindings, so
+ViteHub config or env does not move them. Declare preview resources yourself in
+the `previews` block of the project Wrangler config: `previews.d1_databases`,
+`previews.kv_namespaces`, `previews.r2_buckets`, and
+`previews.queues.producers`, with the production binding names. Cloudflare does
+not accept Queue consumers in `previews`. Point them at staging or test
+resources, never production ids. After a build, check that the generated
+config still has the block with `vitehub inspect provider-output --json`.
 
-For D1, apply migrations before deploying the Preview. Create `wrangler.preview-migrations.jsonc` with a top-level `d1_databases` entry whose `database_name` and `database_id` match the Preview binding. Give it the binding name `PREVIEW_DB`, set `migrations_dir` to the Definition's migration directory relative to this file, and copy `migrations_table` if configured. Run `pnpm exec wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc`. ViteHub stages migrations for its generated top-level binding, so use this separate config to target the Preview database. Read [Cloudflare's D1 migration procedure](https://developers.cloudflare.com/workers/previews/resources/#d1-migrations).
+For D1, apply migrations before you deploy the Preview:
 
-**A preview Worker of its own.** When a preview deploys as a separate Worker, ViteHub's top-level bindings are the ones it uses. Give that build its own resource names through env, and provision them in the same job:
+1. Create `wrangler.preview-migrations.jsonc` with a top-level `d1_databases`
+   entry. Its `database_name` and `database_id` match the Preview binding.
+2. Name the binding `PREVIEW_DB`. Set `migrations_dir` to the Definition's
+   migration directory, relative to this file. Copy `migrations_table` if set.
+3. Run `pnpm exec wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc`.
+
+ViteHub stages migrations for its own top-level binding, so this separate config
+targets the Preview database. Read
+[Cloudflare's D1 migration procedure](https://developers.cloudflare.com/workers/previews/resources/#d1-migrations).
+
+**A separate preview Worker.** Here the Worker uses ViteHub's top-level
+bindings. Give that build its own resource names through env, and provision
+them in the same job:
 
 | Resource | Set a preview name or id with |
 | --- | --- |
@@ -189,31 +237,54 @@ For D1, apply migrations before deploying the Preview. Create `wrangler.preview-
 | R2 | `BLOB_BUCKET_NAME` |
 | Cloudflare Queues | `queue.namePrefix` |
 
-For D1, leave `cloudflare.databaseId` unset to use the provisioned id, or set it to the preview id directly or through an Env declaration. A configured `cloudflare.databaseId` takes precedence over provision state; changing only `cloudflare.databaseName` does not override it.
+For D1, leave `cloudflare.databaseId` unset to use the provisioned id, or set
+it to the preview id directly or with an Env declaration. A set
+`cloudflare.databaseId` wins over provision state. Changing only
+`cloudflare.databaseName` does not override it.
 
-The env values are fallbacks: a store's configured `namespaceId` takes precedence over `KV_NAMESPACE_ID`, and its configured `bucketName` takes precedence over `BLOB_BUCKET_NAME`. Leave those config fields unset to use the fallbacks, or explicitly configure them with the preview resources instead of production resources.
+The env values are fallbacks. A store's `namespaceId` wins over
+`KV_NAMESPACE_ID`, and its `bucketName` wins over `BLOB_BUCKET_NAME`. Leave
+those fields unset to use the fallbacks, or set them to preview resources.
 
-The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it sets `VITEHUB_CLOUDFLARE_WORKER_NAME`, `BLOB_BUCKET_NAME`, and `VITEHUB_KV_NAMESPACE_NAME` to scratch resource names for each run before provisioning and building its own Worker.
+The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml)
+does this. Each run sets `VITEHUB_CLOUDFLARE_WORKER_NAME`, `BLOB_BUCKET_NAME`,
+and `VITEHUB_KV_NAMESPACE_NAME` to scratch names, then provisions and builds its
+own Worker.
 
-A Version URL of the production Worker uses the bindings of that version. Do not use it to test writes.
+A Version URL of the production Worker uses that version's bindings. Do not use
+it to test writes.
 
-**Vercel preview deployments.** Connect one store to the project in Production and a second store in Preview, in the Vercel dashboard.
+**Vercel preview deployments.** In the Vercel dashboard, connect one store to
+the project in Production and another in Preview.
 
-`.vitehub/provision.json` keys D1 and KV ids by Definition or store name, not by stage. A preview provision run in the same checkout replaces the production ids. Run it in its own CI job or checkout, and check the recorded ids with `vitehub provision status` before you deploy.
+::warning
+`.vitehub/provision.json` keys D1 and KV ids by Definition or store name, not by
+stage. A preview provision run in the same checkout replaces the production
+ids. Run it in its own CI job or checkout, and check the ids with
+`vitehub provision status` before you deploy.
+::
 
-`provision run --provider vercel` expects one store connected in all three environments. After you split the stores by environment, planning fails with `BLOB_R0020`. Manage the connections in the Vercel dashboard and do not run Vercel provisioning for that project.
+`provision run --provider vercel` expects one store connected in all three
+environments. After you split stores by environment, planning fails with
+`BLOB_R0020`. Manage the connections in the Vercel dashboard, and do not run
+Vercel provisioning for that project.
 
 ## Resources without provisioning
 
-Provision creates only resources that a provider requires before first use. These providers need no ViteHub Provision Step:
+Provision creates only resources a provider needs before first use. These need
+no Provision Step:
 
 | Provider resource | Provisioning | Source |
 | --- | --- | --- |
-| Vercel Queues topics and consumer groups | None. A topic exists when a message is sent to it. Push consumers come from the deployed function configuration. | [Vercel Queues concepts](https://vercel.com/docs/queues/concepts) |
+| Vercel Queues topics and consumer groups | None. A topic exists once a message is sent to it. Push consumers come from the deployed function configuration. | [Vercel Queues concepts](https://vercel.com/docs/queues/concepts) |
 | Netlify Blobs stores | None. A store is created on first write and needs no site setting. | [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/) |
 | Node and self-hosted drivers, such as KV `fs-lite` and Blob `fs` | None. They use the local filesystem. | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) |
 
-Deno KV on Deno Deploy needs a KV database that is created and assigned to the app before `Deno.openKv()` can use it. ViteHub does not provision it: the Deno Deploy API can create a database instance, but it has no lookup for an idempotent plan, and assignment creates a new app revision. Create and assign the database in the Deno Deploy dashboard. Read [Deno KV on Deno Deploy](https://docs.deno.com/deploy/reference/deno_kv/).
+Deno KV on Deno Deploy needs a KV database created and assigned to the app
+before `Deno.openKv()` works. ViteHub does not provision it. The Deno Deploy API
+can create one, but has no lookup for a repeatable plan, and assignment creates
+a new app revision. Create and assign it in the Deno Deploy dashboard. Read
+[Deno KV on Deno Deploy](https://docs.deno.com/deploy/reference/deno_kv/).
 
 ## Resource ownership
 
@@ -221,20 +292,22 @@ Deno KV on Deno Deploy needs a KV database that is created and assigned to the a
 | --- | --- |
 | ViteHub CLI | Loads Vite config, collects Provision Steps, validates provider credentials, and writes Provision State. |
 | Primitive package | Plans and applies resources for the primitive it owns. |
-| Provider | Owns cloud resources, credentials, and existing-resource lookup behavior. |
-| Vite Integration | Reads Provision State when generated Provider Output needs resource ids. |
+| Provider | Owns cloud resources, credentials, and resource lookup. |
+| Vite integration | Reads Provision State when Provider Output needs resource ids. |
 
 ## Production boundary
 
-Provision is not a build step.
-Builds may read Provision State, but they must not create provider resources.
+Provision is not a build step. Builds can read Provision State, but must not
+create resources.
 
 ::warning
-Do not commit `.vitehub/provision.json` unless a project deliberately decides that non-secret provider ids belong in source control. The root repository ignores `.vitehub/**` by default.
+Do not commit `.vitehub/provision.json` unless your project decides that
+non-secret provider ids belong in source control. The root repository ignores
+`.vitehub/**` by default.
 ::
 
 ## Next steps
 
-- Use [Provider output](/docs/reference/provider-output) to understand generated host artifacts.
-- Use [Cloudflare](/docs/frameworks-hosts/cloudflare) or [Vercel](/docs/frameworks-hosts/vercel) for host boundaries.
-- Use [Troubleshooting](/docs/development/troubleshooting) for credential and output failures.
+- [Provider output](/docs/reference/provider-output): generated host files.
+- [Cloudflare](/docs/frameworks-hosts/cloudflare) or [Vercel](/docs/frameworks-hosts/vercel): host details.
+- [Troubleshooting](/docs/development/troubleshooting): credential and output failures.
