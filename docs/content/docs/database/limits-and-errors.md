@@ -17,8 +17,25 @@ ViteHub errors have `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` link
 - A config error throws when code first uses the database, for example when a binding or a connection URL is missing.
 - A D1 HTTP error rejects the Drizzle query. Drizzle can wrap it, so read `error.cause`.
 
+This route reads the `notes` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')
@@ -38,6 +55,7 @@ export default defineEventHandler(async () => {
 | --- | --- |
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
+| `DATABASE_NAME_REQUIRED`, `DATABASE_NOT_FOUND` | By `useDatabase()`, when the name does not select one Database |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
@@ -107,11 +125,15 @@ The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseI
 
 `connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet. A `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
 
+### DATABASE_NAME_REQUIRED
+
+`useDatabase()` was called without a name, and the app has several Named Databases and none is named `default`. `error.why` lists the names. Pass one, for example `useDatabase('analytics')`.
+
 ### DATABASE_NOT_FOUND
 
-`agentDb.database(name)` got a name with no Definition, or a query ran on a named database with no runtime config.
+`useDatabase(name)` or `agentDb.database(name)` received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
 
-`useDatabase(name)` does not throw it. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no default database.
+The `db` export and `databases.default` exist in every app. When the app has no Default Database, a query on them throws `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`.
 
 Run `vitehub inspect definitions --kind database` to see the database names.
 

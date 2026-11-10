@@ -4,11 +4,11 @@ import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { uploadConsoleMedia } from "./media.ts"
+import { loadConsoleMedia } from "./blob.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
 
 import type { ConsoleRoute } from "./request.ts"
@@ -135,13 +135,13 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginBearerCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
+  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
     if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
-    return uploadConsoleMedia(request, section, context.access)
+    return (await loadConsoleMedia()).uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")

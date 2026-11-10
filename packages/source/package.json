@@ -72,6 +72,7 @@
     "@vite-hub/runtime": "workspace:*",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
+    "ocache": "catalog:unjs",
     "ofetch": "catalog:unjs"
   },
   "devDependencies": {
@@ -82,7 +83,6 @@
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
-    "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",
     "publint": "catalog:tooling",
     "tinyglobby": "catalog:workspace",

@@ -8,7 +8,6 @@ import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutpu
 import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
-import { transform } from "esbuild"
 import { normalizeRoute } from "h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
@@ -391,7 +390,11 @@ async function discoverBlobAuthorizeModule(rootDir: string, serverDirs: string[]
   const { exportNames } = await import("@vite-hub/internal/build/scan-module")
   if (exportNames(source, file).includes("authorize")) return file
   if (!file.endsWith(".cts") && !file.endsWith(".cjs") && !commonJSSyntax.test(source)) return
-  const commonJS = file.endsWith(".cts") ? (await transform(source, { loader: "ts" })).code : source
+  let commonJS = source
+  if (file.endsWith(".cts")) {
+    const { transformWithOxc } = await import("vite")
+    commonJS = (await transformWithOxc(source, file, { lang: "ts" })).code
+  }
   await initCommonJS()
   return parseCommonJS(commonJS, file).exports.includes("authorize") ? file : undefined
 }
