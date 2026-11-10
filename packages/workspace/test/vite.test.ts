@@ -1333,7 +1333,7 @@ describe("hubWorkspace", () => {
 
   it("exposes standalone Nitro config through the Nitro subpath", async () => {
     const root = await createViteRoot()
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       plugins: [".vitehub/nitro/workspace/plugin.ts"],
@@ -1354,7 +1354,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1372,7 +1372,7 @@ describe("hubWorkspace", () => {
       `export default { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1390,7 +1390,7 @@ describe("hubWorkspace", () => {
       `export default { sources: {}, store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
@@ -1406,7 +1406,7 @@ describe("hubWorkspace", () => {
       `export default { store: { ...artifactOptions, binding: "CUSTOM_FILES", namespace: "custom-workspaces" } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1426,7 +1426,7 @@ describe("hubWorkspace", () => {
       `export default { store: { ...stores.artifactStore, binding: "CUSTOM_FILES" } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1447,7 +1447,7 @@ describe("hubWorkspace", () => {
       ``,
     ].join("\n"))
     await rm(join(root, "src", "docs.workspace.ts"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1468,7 +1468,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1490,7 +1490,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: {
@@ -1510,7 +1510,7 @@ describe("hubWorkspace", () => {
       `export default { store: { binding: "CUSTOM_FILES", namespace: "custom-workspaces", ...artifactOptions } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "BASE_FILES", namespace: "base-workspaces" }] } },
@@ -1528,7 +1528,7 @@ describe("hubWorkspace", () => {
       `export default { store: { ...artifactOptions, ...memoryOptions } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.not.toHaveProperty("cloudflare.wrangler.artifacts")
   })
@@ -1544,7 +1544,7 @@ describe("hubWorkspace", () => {
       `export default { store: { ...memoryOptions, ...artifactOptions } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
@@ -1560,7 +1560,7 @@ describe("hubWorkspace", () => {
       `export default { store: { ...artifactOptions, binding: process.env.CUSTOM_BINDING } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ env: { CUSTOM_BINDING: "CUSTOM_FILES" }, viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "CUSTOM_FILES", namespace: "base-workspaces" }] } },
@@ -1574,7 +1574,7 @@ describe("hubWorkspace", () => {
       `export default { store: { provider: "cloudflare-artifacts", binding: process.env.CUSTOM_BINDING } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ env: {}, viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "WORKSPACE_ARTIFACTS" }] } },
@@ -1591,7 +1591,7 @@ describe("hubWorkspace", () => {
       `export default { store: { ...artifactOptions, binding } }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ env: { CUSTOM_BINDING: "CUSTOM_FILES" }, viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "CUSTOM_FILES", namespace: "base-workspaces" }] } },
@@ -1607,7 +1607,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
@@ -1623,7 +1623,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
@@ -1639,7 +1639,7 @@ describe("hubWorkspace", () => {
       `export default { store: stores.artifactStore }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
@@ -1655,7 +1655,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
@@ -1672,7 +1672,7 @@ describe("hubWorkspace", () => {
       `export default { store: selectStore() }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toBeDefined()
   })
@@ -1686,7 +1686,7 @@ describe("hubWorkspace", () => {
       `export default { store }`,
       ``,
     ].join("\n"))
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({
       aliases: { "@": join(root, "src") },
@@ -1702,7 +1702,7 @@ describe("hubWorkspace", () => {
 
   it("activates standalone Nitro Cloudflare bindings from the provided environment", async () => {
     const root = await createViteRoot()
-    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({
       env: { NITRO_PRESET: "cloudflare-module" },
