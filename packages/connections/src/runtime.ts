@@ -584,12 +584,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return pending
   }
 
-  async function requireConnected(name: string): Promise<void> {
+  async function requireConnected(name: string, apiKey?: boolean): Promise<void> {
     const state = await (await getStore()).state.get(name)
     if (state?.status === "connected") return
     throw state?.status === "reauth_required"
-      ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name })
-      : connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name })
+      ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ apiKey, connection: name })
+      : connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey, connection: name })
   }
 
   /**
@@ -706,7 +706,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const fallback = await fallbackFor(context)
     if (fallback) return await sendWithFallback(context, providerRequest, init, fallback)
     const connections = await getStore()
-    await requireConnected(context.name)
+    const apiKey = isApiKeyProvider(context.definition.provider)
+    await requireConnected(context.name, apiKey)
     let failure: unknown
     try {
       return await connections.bridge.use(envContext(connections, context.name, "use", context.actor, context.options), tokenKey(context.name), providerRequest.action, async (secret) => {
@@ -741,7 +742,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     catch (error) {
       if (failure) throw failure
       if (isEnvBridgeError(error, "ENV_BRIDGE_MISSING")) {
-        throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: context.name })
+        throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey, connection: context.name })
       }
       throw error
     }
@@ -783,11 +784,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   async function approvalGrant(context: CallContext): Promise<string> {
     if (isLoginProvider(context.definition.provider)) return LOGIN_GRANT
     if (await fallbackFor(context)) return FALLBACK_GRANT
-    await requireConnected(context.name)
+    const apiKey = isApiKeyProvider(context.definition.provider)
+    await requireConnected(context.name, apiKey)
     const current = await (await getStore()).secrets.read(tokenKey(context.name))
     const token = current ? parseToken(current.value, context.name) : undefined
     if (!token?.grantId) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name, problem: "approval" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ apiKey, connection: context.name, problem: "approval" })
     }
     return token.grantId
   }

@@ -1,5 +1,6 @@
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions } from "./discovery.ts"
 import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
@@ -149,7 +150,8 @@ export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<Sch
   id: "schedules",
   label: "Schedules",
   read: inspectScheduleConsoleRecords,
-  runtime: { export: "readScheduleConsoleRecords", module: "@vite-hub/schedule/runtime/console" },
+  // Generated Console code imports the reader by path.
+  runtime: { export: "readScheduleConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [
       { key: "schedule", label: "Schedule" },
