@@ -51,7 +51,11 @@ describe("Auth tables", () => {
 
   it("match Better Auth's tables for admin(), jwt(), oauthProvider(), organization(), and passkey()", () => {
     // A Better Auth upgrade that changes these tables fails here. Update `authTableSpecs` in src/schema.ts.
-    expect(normalized(authTableSpecs)).toEqual(normalized(betterAuthTables()))
+    const expected = betterAuthTables()
+    // Better Auth omits this storage flag, but Postgres needs bigint for unsigned 32-bit counters.
+    const expectedPasskey = expected.passkey!
+    expectedPasskey.fields = { ...expectedPasskey.fields, counter: { ...expectedPasskey.fields.counter!, bigint: true } }
+    expect(normalized(authTableSpecs)).toEqual(normalized(expected))
   })
 
   it("names SQLite and Postgres columns as the Better Auth CLI does", () => {
@@ -71,6 +75,19 @@ describe("Auth tables", () => {
       ["oauthClientResource_clientId_idx", false],
       ["oauthClientResource_resourceId_idx", false],
     ])
+  })
+
+  it("stores the full unsigned 32-bit passkey counter range as JavaScript numbers", () => {
+    const postgres = authPostgresSchema.passkey.counter!
+    const sqlite = authSqliteSchema.passkey.counter!
+    expect(postgres.getSQLType()).toBe("bigint")
+    expect(postgres.dataType).toBe("number")
+    expect(sqlite.getSQLType()).toBe("integer")
+    for (const counter of [0, 2 ** 31 - 1, 2 ** 31, 2 ** 32 - 1]) {
+      expect(postgres.mapToDriverValue(counter)).toBe(counter)
+      expect(postgres.mapFromDriverValue(String(counter))).toBe(counter)
+      expect(sqlite.mapFromDriverValue(counter)).toBe(counter)
+    }
   })
 
   it("lists every schema key and SQL name for the Database contribution", () => {

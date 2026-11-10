@@ -296,7 +296,7 @@ pnpm vitehub database migrate
 - The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [Console MCP OAuth](/docs/development/mcp#set-up-oauth), the [`organization()`](https://www.better-auth.com/docs/plugins/organization) tables (`organization`, `member`, `invitation`, and `session.activeOrganizationId`), the [`passkey()`](https://www.better-auth.com/docs/plugins/passkey) table, and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
 - The tables use the target Database's dialect: SQLite, libSQL, Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. Server code can read them from `useDatabase(name).schema`.
-- Other plugins that add tables, such as `twoFactor()`, need those tables in the Database Definition. A missing table fails when Better Auth uses it.
+- Other plugins that only add tables need those tables in the Database Definition. A missing table fails when Better Auth uses it. `twoFactor()` also adds `user.twoFactorEnabled`, so it needs another adapter and a matching schema.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
 
 Better Auth's own adapters still work. To use another database, return one from the Definition callback or `runtime`.

@@ -301,7 +301,8 @@ export const authTableSpecs: Readonly<Record<AuthTableName, AuthTableSpec>> = {
       publicKey: requiredString,
       userId: { type: "string", required: true, index: true, references: userReference },
       credentialID: { type: "string", required: true, index: true },
-      counter: { type: "number", required: true },
+      // WebAuthn counters are unsigned 32-bit values; Postgres integer is signed.
+      counter: { type: "number", required: true, bigint: true },
       deviceType: requiredString,
       backedUp: { type: "boolean", required: true },
       transports: optionalString,
