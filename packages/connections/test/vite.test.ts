@@ -511,20 +511,17 @@ describe("hubConnections", () => {
     await expect(readFile(join(root, "packages/two/.vitehub/types/connections.d.ts"))).resolves.toBeTruthy();
   });
 
-  it("removes the declaration of a custom root when Connections are off, while another integration keeps that root", async () => {
-    const root = await createTempProject();
-    await writeConnection(root, "packages/api/server/connections/google.ts");
-    await hubConnections({ projectRoot: "packages/api" }).api.prepareTypes({ projectRoot: root });
-    const file = join(root, "packages/api/.vitehub/types/connections.d.ts");
-    await expect(readFile(file, "utf8")).resolves.toContain('"google": typeof import(');
-    await mkdir(join(root, "packages/api/.vitehub/types"), { recursive: true });
-    await writeFile(join(root, "packages/api/.vitehub/types/env.d.ts"), "export {}\n");
+  it("keeps a custom root's declaration when one app turns Connections off, because another app can share that root", async () => {
+    const firstApp = await createTempProject();
+    const secondApp = await createTempProject();
+    const shared = await createTempProject();
+    await writeConnection(shared, "server/connections/google.ts");
+    await hubConnections({ projectRoot: shared }).api.prepareTypes({ projectRoot: firstApp });
+    await hubConnections({ projectRoot: shared }).api.prepareTypes({ projectRoot: secondApp });
 
-    await hubConnectionsTypesCleanup().api!.prepareTypes({ projectRoot: root });
+    await hubConnectionsTypesCleanup().api!.prepareTypes({ projectRoot: firstApp });
 
-    await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(join(root, "packages/api/.vitehub/types/env.d.ts"), "utf8")).resolves.toBe("export {}\n");
-    await expect(readFile(join(root, ".vitehub/connections-types-roots.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(shared, ".vitehub/types/connections.d.ts"), "utf8")).resolves.toContain('"google": typeof import(');
   });
 
   it("publishes a complete declaration when concurrent preparations see different Connections", async () => {
