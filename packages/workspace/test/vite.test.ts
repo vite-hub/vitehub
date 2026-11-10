@@ -2019,6 +2019,41 @@ describe("hubWorkspace", () => {
     ])
   })
 
+  it("skips the Artifacts source walk for Definitions already loaded during config", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), `export default { store: { provider: "memory" } }\n`)
+    const assets = await import("../src/build/assets.ts")
+    const createLoader = assets.createWorkspaceDefinitionLoader
+    const transform = vi.fn()
+    const createLoaderSpy = vi.spyOn(assets, "createWorkspaceDefinitionLoader").mockImplementation((...args) => {
+      const loader = createLoader(...args)
+      const originalTransform = loader.transform
+      loader.transform = (options) => {
+        transform(options.filename)
+        return originalTransform(options)
+      }
+      return loader
+    })
+    try {
+      const { hubWorkspace } = await import("../src/vite.ts")
+      const plugin = hubWorkspace({ assets: false })
+      const config = await mergedConfigHook(plugin.config)({ root, plugins: [{ name: "nitro:main" }] }, { command: "build", mode: "production" })
+      const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+      expect(transform).toHaveBeenCalled()
+      transform.mockClear()
+
+      await configResolved({ ...config, command: "build", root })
+      await prepareWorkspaceProviderOutput(plugin)
+      await closeBundle.handler()
+
+      expect(transform).not.toHaveBeenCalled()
+    }
+    finally {
+      createLoaderSpy.mockRestore()
+    }
+  })
+
   it("discovers Cloudflare Artifacts definitions created after buildEnd", async () => {
     const root = await createViteRoot()
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
@@ -2944,6 +2979,32 @@ describe("hubWorkspace", () => {
     expect(wrangler.artifacts).toEqual([
       { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
     ])
+  })
+
+  it.each([
+    ["memory", false],
+    ["local", false],
+    ["memory", true],
+    ["local", true],
+  ] as const)("does not execute a loadable unrelated %s Definition when assets are disabled (dev config: %s)", async (provider, devConfig) => {
+    const root = await createViteRoot()
+    const marker = join(root, "definition-loaded")
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import { writeFileSync } from "node:fs"`,
+      `writeFileSync(${JSON.stringify(marker)}, "loaded")`,
+      `export default { store: { provider: ${JSON.stringify(provider)} } }`,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false, store: { provider: "memory" } })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    if (devConfig) await mergedConfigHook(plugin.config)({ root, plugins: [{ name: "nitro:main" }] }, { command: "serve", mode: "development" })
+    await configResolved({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
+    await closeBundle.handler()
+
+    await expect(readFile(marker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("does not import unrelated Workspace Definitions while inspecting Cloudflare Artifacts", async () => {
