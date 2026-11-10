@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/i18n",
   "version": "0.1.0",
-  "description": "Write messages in your language in Vue templates, scripts, and server code. ViteHub extracts them to PO catalogs, compiles them to message IDs, and picks the locale of each request.",
+  "description": "Write messages in your language in Vue templates, scripts, and server code. ViteHub compiles them to message IDs, keeps one translation record per message, and picks the locale of each request.",
   "keywords": [
     "gettext",
     "i18n",
@@ -72,23 +72,30 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/i18n#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/i18n#build && vp test"
+    "test": "vp run --cache -t @vite-hub/i18n#build && vp test"
   },
   "dependencies": {
     "@babel/core": "catalog:i18n",
+    "@diglot/core": "catalog:i18n",
+    "@diglot/store": "catalog:i18n",
     "@lingui/babel-plugin-lingui-macro": "catalog:i18n",
     "@lingui/cli": "catalog:i18n",
     "@lingui/conf": "catalog:i18n",
     "@lingui/core": "catalog:i18n",
     "@lingui/extractor-vue": "catalog:i18n",
     "@lingui/format-po": "catalog:i18n",
+    "@lingui/message-utils": "catalog:i18n",
     "@lingui/vue": "catalog:i18n",
     "@vite-hub/runtime": "workspace:*",
-    "@vue/compiler-sfc": "^3.5.44"
+    "@vue/compiler-sfc": "^3.5.44",
+    "magic-string": "^0.30.21",
+    "proper-lockfile": "catalog:"
   },
   "devDependencies": {
+    "@diglot/cli": "catalog:i18n",
     "@types/babel__core": "^7.20.5",
     "@types/node": "catalog:tooling",
+    "@types/proper-lockfile": "catalog:",
     "@vite-hub/internal": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.10",
     "publint": "catalog:tooling",

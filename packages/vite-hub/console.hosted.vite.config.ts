@@ -1,6 +1,6 @@
 import { copyFileSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { defineConfig, type PluginOption, type UserConfig } from "vite";
+import { defineConfig, type UserConfig } from "vite";
 
 import consoleConfig from "./console.vite.config";
 import { consoleDocumentMetadata } from "./src/console/document-metadata";
@@ -18,9 +18,6 @@ const outDir = resolve(import.meta.dirname, ".vitehub/console-hosted");
 const origin = resolveConsoleHostedOrigin(process.env.VITEHUB_CONSOLE_ORIGIN);
 
 const base: UserConfig = consoleConfig;
-const plugins: PluginOption[] = (base.plugins ?? []).flat().filter(plugin =>
-  // The app Console build publishes the skills of `npx skills add <app>/_vitehub`. A static Console has no app.
-  !(plugin instanceof Object && "name" in plugin && plugin.name === "vitehub-console-skills"));
 
 export default defineConfig({
   ...base,
@@ -28,7 +25,7 @@ export default defineConfig({
   // `_headers` sets the Content Security Policy and the cache rules on hosts that read it, such as Cloudflare.
   publicDir: resolve(import.meta.dirname, "src/console/hosted/public"),
   plugins: [
-    ...plugins,
+    ...(base.plugins ?? []),
     {
       name: "vitehub-console-hosted",
       transformIndexHtml: html => html.replace("<!--vitehub-console-metadata-->", consoleDocumentMetadata.trim()),

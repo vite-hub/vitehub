@@ -6,7 +6,7 @@ import type { CommentsApiError } from "./api.ts"
 export interface InlineEditOptions {
   /** The page whose policy allows this edit. Captured when editing starts, even if the router moves before save. */
   page: () => string
-  /** Opens the Content tool of the page tools at a document path. False when there is no such tool. */
+  /** Opens the Console window of the page tools at a document path. False when the page has no Console tool. */
   openTool: (path: string) => Promise<boolean>
   /** Where the Content Console is, for the toasts of a saved draft and of a field that is not plain text. */
   contentPath: () => string
@@ -61,8 +61,8 @@ export function createInlineEdit(options: InlineEditOptions) {
     if (request !== generation || !element.isConnected) return
     if (error) return options.failed(error)
     const path = `/content/${encodeURIComponent(value.collection)}/${value.id.split("/").map(encodeURIComponent).join("/")}`
-    if (await options.openTool(path) || request !== generation || !element.isConnected) return
     if (!value.editable || value.value === null) {
+      if (await options.openTool(path) || request !== generation || !element.isConnected) return
       options.info("This field is not plain text. Edit it in the Console.", ["Open Content", options.contentPath()])
       return
     }
