@@ -82,6 +82,8 @@ describe("Agent Workspace discovery", () => {
     ["a const Agent", "const agent = defineAgent({ workspace: {} })\nexport default agent"],
     ["an export clause", "const agent = defineAgent({ workspace: {} })\nexport { agent as default }"],
     ["an alias", "import { defineAgent as agent } from 'vite-hub/agent'\nexport default agent({ workspace: {} })"],
+    ["a const alias", "import { defineAgent } from 'vite-hub/agent'\nconst make = defineAgent\nexport default make({ workspace: {} })"],
+    ["a chained const alias", "const create = defineAgent\nconst make = create\nexport default make({ workspace: {} })"],
     ["a namespace", "import * as hub from '@vite-hub/agent'\nexport default hub.defineAgent({ workspace: {} })"],
     ["type arguments", "export default defineAgent<Config>({ workspace: {} } satisfies Options)"],
     ["no default export", "export const review = defineAgent({ workspace: {} })"],
@@ -94,6 +96,9 @@ describe("Agent Workspace discovery", () => {
     ["workspace: undefined", "export default defineAgent({ workspace: undefined })"],
     ["a Workspace name", "export default defineAgent({ workspace: 'shared' })"],
     ["a const Workspace name", "const shared = 'shared'\nexport default defineAgent({ workspace: shared })"],
+    ["a chained const Workspace name", "const shared = 'shared'\nconst ref = shared\nexport default defineAgent({ workspace: ref })"],
+    ["a const reference name", "const name = 'shared'\nexport default defineAgent({ workspace: { name } })"],
+    ["a const Workspace reference", "const name = 'shared'\nconst reference = { name, mode: 'write' }\nexport default defineAgent({ workspace: reference })"],
     ["a Workspace reference", "export default defineAgent({ workspace: { name: 'shared', mode: 'write' } })"],
     ["a GitHub pull request Channel", "import { github } from 'vite-hub/agent/channels'\nexport default defineAgent({ channels: { github: github({ pullRequest: true }) } })"],
     ["a parent with a Workspace", "const parent = defineAgent({ workspace: {} })\nexport default defineAgent({ extends: parent })"],
@@ -101,6 +106,44 @@ describe("Agent Workspace discovery", () => {
     ["defineAgent from another package", "import { defineAgent } from 'other'\nexport default defineAgent({ workspace: {} })"],
   ])("owns no Workspace with %s", async (_label, source) => {
     expect(await discoverFolderAgent(source)).toBeUndefined()
+  })
+
+  it("keeps the nested Agents of an Agent that references a shared Workspace", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server", "agents", "review", "workspace"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "agent.ts"), "const name = 'shared'\nexport default defineAgent({ workspace: { name } })", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "workspace", "agent.ts"), "export default defineAgent({ workspace: {} })", "utf8")
+    expect(discover(root)).toEqual([
+      { name: "review", source: "server-agents", workspace: undefined },
+      { name: "review/workspace", source: "server-agent-workspace", workspace: "review/workspace" },
+    ])
+  })
+
+  // The forms that the Channel list reader found before it read only the `workspace` key.
+  const hooks = "{ channels: ['hooks'] }"
+  it.each([
+    ["a const alias", `import { defineAgent } from 'vite-hub/agent'\nconst make = defineAgent\nexport default make(${hooks})`],
+    ["a let alias", `let make = defineAgent\nexport default make(${hooks})`],
+    ["a chained alias", `const create = defineAgent\nconst make = create\nexport default make(${hooks})`],
+    ["a namespace alias", `import * as hub from 'vite-hub/agent'\nconst make = hub.defineAgent\nexport default make(${hooks})`],
+    ["a function-local alias", `function make() {\n  const create = defineAgent\n  return create(${hooks})\n}\nexport default make()`],
+    ["function-local options", `function make() {\n  const options = ${hooks}\n  return defineAgent(options)\n}\nexport default make()`],
+    ["arrow-local options", `const make = () => {\n  const options = ${hooks}\n  return defineAgent(options)\n}\nexport default make()`],
+    ["chained const options", `const base = ${hooks}\nconst options = base\nexport default defineAgent(options)`],
+    ["let options", `let options = ${hooks}\nexport default defineAgent(options)`],
+    ["var options", `var options = ${hooks}\nexport default defineAgent(options)`],
+    ["options that shadow outer options", `const options = { channels: ['outer'] }\nfunction make() {\n  const options = ${hooks}\n  return defineAgent(options)\n}\nexport default make()`],
+  ])("reads the options of a defineAgent() call through %s", (_label, source) => {
+    expect([...discoverAgentOptionsStarts(source, "agent.ts")]).toEqual([source.indexOf(hooks)])
+  })
+
+  it.each([
+    ["reassigned options", `let options = ${hooks}\noptions = {}\nexport default defineAgent(options)`],
+    ["a parameter", `function make(options) { return defineAgent(options) }\nexport default make(${hooks})`],
+    ["a shadowed defineAgent", `function make(defineAgent) { return defineAgent(${hooks}) }\nexport default make()`],
+    ["an Agent value", `const agent = defineAgent({})\nexport default agent(${hooks})`],
+  ])("reads no options through %s", (_label, source) => {
+    expect([...discoverAgentOptionsStarts(source, "agent.ts")].filter(start => source.startsWith(hooks, start))).toEqual([])
   })
 
   it("reads the options of each defineAgent() call", () => {
@@ -178,5 +221,24 @@ describe("Agent plugin", () => {
     expect(await transform("review")).toContain("export default vitehubWithDiscoveredAgentName(vitehubWithDeclaredAgentWorkspace(defineAgent({ channels: { github: github({ pullRequest: true }) } }), \"review\"), \"review\")")
     expect(await transform("docs")).not.toContain("vitehubWithDeclaredAgentWorkspace")
     expect(await transform("support")).not.toContain("vitehubWithDeclaredAgentWorkspace")
+  })
+
+  it("registers the listed Channels of an Agent that calls defineAgent() through an alias", async () => {
+    const root = await createRoot()
+    const file = join(root, "server", "agents", "support.ts")
+    const source = "import { defineAgent } from 'vite-hub/agent'\nconst make = defineAgent\nexport default make({ channels: ['hooks'], driver: { run: () => 'ok' } })"
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await mkdir(join(root, "server", "channels"), { recursive: true })
+    await writeFile(file, source, "utf8")
+    await writeFile(join(root, "server", "channels", "hooks.ts"), "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook() })", "utf8")
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async () => undefined,
+      plugins: [],
+      root,
+    })
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call({ parse: parseAst }, source, file)
+    expect(transformed).toContain("vitehubRegisterAgentChannels({ [\"hooks\"]: vitehubChannel0 })")
   })
 })

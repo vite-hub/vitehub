@@ -125,20 +125,21 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
   return node.type === "Identifier" ? node.name : typeof node.value === "string" ? node.value : undefined
 }
 
-/** The initializers of top-level `const` declarations, by name. Other declarations can change before the Agent runs. */
-function constantInitializers(module: ScannedModule): Map<string, Expression> {
-  const constants = new Map<string, Expression>()
-  for (const statement of module.program.body) {
-    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
-    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue
-    for (const declarator of declaration.declarations) {
-      if (declarator.id.type === "Identifier" && declarator.init) constants.set(declarator.id.name, unwrapExpression(declarator.init))
-    }
-  }
-  return constants
+/**
+ * A binding that discovery can follow without running the module: a `const`, or a `let` or `var` that no assignment
+ * changes, with the scope of its initializer. `factory` and `namespace` are imports from the Agent entry. Other
+ * bindings, such as parameters, functions, and other imports, are `opaque`.
+ */
+type Binding =
+  | { kind: "value", init: Expression, scope: Scope }
+  | { kind: "factory" | "namespace" | "opaque" }
+
+interface Scope {
+  bindings: Map<string, Binding>
+  parent?: Scope
 }
 
-/** The names that a binding pattern declares, such as `a` and `b` in `{ a, b: [c] }` (`a` and `c`). */
+/** The names that a binding pattern declares, such as `a` and `c` in `{ a, b: [c] }`. */
 function patternNames(pattern: Node | null): string[] {
   if (!pattern) return []
   switch (pattern.type) {
@@ -159,75 +160,147 @@ function statementNames(statement: Node): string[] {
   return []
 }
 
-/** The names that a function, block, loop, or catch clause declares for the code inside it. */
-function scopeNames(node: Node): string[] {
+/** The names that an assignment changes anywhere in the module. Discovery does not follow a `let` or `var` with such a name. */
+function assignedNames(program: Node): Set<string> {
+  const names = new Set<string>()
+  walk(program, (node) => {
+    const targets = node.type === "AssignmentExpression" ? patternNames(node.left)
+      : node.type === "UpdateExpression" ? patternNames(node.argument)
+        : (node.type === "ForInStatement" || node.type === "ForOfStatement") && node.left.type !== "VariableDeclaration" ? patternNames(node.left)
+            : []
+    for (const name of targets) names.add(name)
+  })
+  return names
+}
+
+/** Adds the bindings that a statement declares to its scope. */
+function declareBindings(scope: Scope, statement: Node, assigned: ReadonlySet<string>): void {
+  if (statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration") {
+    if (statement.declaration) declareBindings(scope, statement.declaration, assigned)
+    return
+  }
+  if (statement.type === "ImportDeclaration") {
+    if (statement.importKind === "type") return
+    const agentEntry = agentEntries.has(statement.source.value)
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportSpecifier" && specifier.importKind === "type") continue
+      const kind = !agentEntry ? "opaque"
+        : specifier.type === "ImportNamespaceSpecifier" ? "namespace"
+          : specifier.type === "ImportSpecifier" && exportName(specifier.imported) === "defineAgent" ? "factory" : "opaque"
+      scope.bindings.set(specifier.local.name, { kind })
+    }
+    return
+  }
+  if (statement.type === "VariableDeclaration") {
+    const reassignable = statement.kind === "let" || statement.kind === "var"
+    for (const declarator of statement.declarations) {
+      if (declarator.id.type === "Identifier" && declarator.init && !(reassignable && assigned.has(declarator.id.name))) {
+        scope.bindings.set(declarator.id.name, { kind: "value", init: declarator.init, scope })
+      }
+      else for (const name of patternNames(declarator.id)) scope.bindings.set(name, { kind: "opaque" })
+    }
+    return
+  }
+  for (const name of statementNames(statement)) scope.bindings.set(name, { kind: "opaque" })
+}
+
+/** The scope that a function, block, loop, or catch clause opens for the code inside it. Undefined for other nodes. */
+function openScope(node: Node, parent: Scope, assigned: ReadonlySet<string>): Scope | undefined {
+  const scope: Scope = { bindings: new Map(), parent }
+  let names: string[]
   switch (node.type) {
     case "FunctionDeclaration":
     case "FunctionExpression":
-    case "ArrowFunctionExpression": return node.params.flatMap(parameter => patternNames(parameter))
+    case "ArrowFunctionExpression": names = node.params.flatMap(parameter => patternNames(parameter)); break
     case "BlockStatement":
-    case "StaticBlock": return node.body.flatMap(statementNames)
-    case "ForStatement": return node.init ? statementNames(node.init) : []
+    case "StaticBlock":
+      for (const statement of node.body) declareBindings(scope, statement, assigned)
+      return scope
+    case "ForStatement": names = node.init ? statementNames(node.init) : []; break
     case "ForInStatement":
-    case "ForOfStatement": return statementNames(node.left)
-    case "CatchClause": return patternNames(node.param)
-    default: return []
+    case "ForOfStatement": names = statementNames(node.left); break
+    case "CatchClause": names = patternNames(node.param); break
+    default: return
+  }
+  for (const name of names) scope.bindings.set(name, { kind: "opaque" })
+  return scope
+}
+
+function lookupBinding(scope: Scope | undefined, name: string): Binding | undefined {
+  for (; scope; scope = scope.parent) {
+    const binding = scope.bindings.get(name)
+    if (binding) return binding
   }
 }
 
+/** Follows an expression through the bindings that hold it, such as `options` in `const options = {}`. */
+function resolveValue(node: Expression, scope: Scope, seen = new Set<Binding>()): { node: Expression, scope: Scope } {
+  node = unwrapExpression(node)
+  const binding = node.type === "Identifier" ? lookupBinding(scope, node.name) : undefined
+  if (binding?.kind !== "value" || seen.has(binding)) return { node, scope }
+  seen.add(binding)
+  return resolveValue(binding.init, binding.scope, seen)
+}
+
 /**
- * The `defineAgent()` calls of a module: the factory that the module imports from the Agent entry, its namespace, or
- * the bare name when the module neither imports nor declares `defineAgent` (an auto-import). A local binding with the
- * same name, such as a parameter, hides the factory.
+ * True for `defineAgent` from the Agent entry, a member of its namespace, a binding that holds either, or the bare name
+ * when no binding declares it (an auto-import). A local binding with the same name, such as a parameter, hides it.
  */
-function agentFactoryCalls(module: ScannedModule): CallExpression[] {
-  const names = new Set<string>()
-  const namespaces = new Set<string>()
-  for (const statement of module.program.body) {
-    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !agentEntries.has(statement.source.value)) continue
-    for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
-      else if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && exportName(specifier.imported) === "defineAgent") names.add(specifier.local.name)
-    }
+function isAgentFactory(callee: Expression, scope: Scope): boolean {
+  const { node, scope: at } = resolveValue(callee, scope)
+  if (node.type === "Identifier") {
+    const binding = lookupBinding(at, node.name)
+    return binding ? binding.kind === "factory" : node.name === "defineAgent"
   }
-  const declared = module.program.body.flatMap((statement) => {
-    if (statement.type === "ImportDeclaration") return statement.specifiers.map(specifier => specifier.local.name)
-    const declaration = statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration" ? statement.declaration : statement
-    return declaration ? statementNames(declaration) : []
-  })
-  if (!declared.includes("defineAgent")) names.add("defineAgent")
-  const calls: CallExpression[] = []
-  const visit = (node: Node, hidden: ReadonlySet<string>): void => {
-    const local = scopeNames(node)
-    const visible = local.length ? new Set([...hidden, ...local]) : hidden
-    if (node.type === "CallExpression") {
-      const callee = node.callee
-      if (callee.type === "Identifier" ? names.has(callee.name) && !visible.has(callee.name) : callee.type === "MemberExpression" && !callee.computed
-        && callee.object.type === "Identifier" && namespaces.has(callee.object.name) && !visible.has(callee.object.name)
-        && callee.property.type === "Identifier" && callee.property.name === "defineAgent") calls.push(node)
-    }
+  return node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && node.property.name === "defineAgent"
+    && node.object.type === "Identifier" && lookupBinding(at, node.object.name)?.kind === "namespace"
+}
+
+interface AgentFactoryCall {
+  call: CallExpression
+  /** The scope that the call reads its bindings from. */
+  scope: Scope
+}
+
+interface AgentModule {
+  calls: AgentFactoryCall[]
+  module: ScannedModule
+  scope: Scope
+}
+
+/** The `defineAgent()` calls of a module, in source order. */
+function readAgentModule(source: string, file: string): AgentModule {
+  const module = scanModule(source, file)
+  const assigned = assignedNames(module.program)
+  const scope: Scope = { bindings: new Map() }
+  for (const statement of module.program.body) declareBindings(scope, statement, assigned)
+  const calls: AgentFactoryCall[] = []
+  const visit = (node: Node, outer: Scope): void => {
+    const inner = openScope(node, outer, assigned) ?? outer
+    if (node.type === "CallExpression" && node.callee.type !== "Super" && isAgentFactory(node.callee, inner)) calls.push({ call: node, scope: inner })
     walk(node, (child) => {
       if (child === node) return
-      visit(child, visible)
+      visit(child, inner)
       return false
     })
   }
-  visit(module.program, new Set())
-  return calls
+  visit(module.program, scope)
+  return { calls, module, scope }
 }
 
-/** The options object of a `defineAgent()` call, inline or in a top-level `const`. */
-function agentOptions(call: CallExpression, constants: Map<string, Expression>): ObjectExpression | undefined {
-  const options = argumentExpression(call.arguments[0])
-  const value = options?.type === "Identifier" ? constants.get(options.name) : options
-  return value?.type === "ObjectExpression" ? value : undefined
+/** The options object of a `defineAgent()` call, inline or through a binding, with the scope that it reads bindings from. */
+function agentOptions({ call, scope }: AgentFactoryCall): { node: ObjectExpression, scope: Scope } | undefined {
+  const argument = argumentExpression(call.arguments[0])
+  if (!argument) return
+  const { node, scope: at } = resolveValue(argument, scope)
+  return node.type === "ObjectExpression" ? { node, scope: at } : undefined
 }
 
 /**
- * The `defineAgent()` calls that the module can export as default: the call itself, a top-level `const` that holds it,
- * or either branch of a conditional. Undefined when the module has no default export.
+ * The `defineAgent()` calls that the module can export as default: the call itself, a binding that holds it, or either
+ * branch of a conditional. Undefined when the module has no default export.
  */
-function defaultAgentCalls(module: ScannedModule, calls: CallExpression[], constants: Map<string, Expression>): CallExpression[] | undefined {
+function defaultAgentCalls({ calls, module, scope }: AgentModule): AgentFactoryCall[] | undefined {
   let exported: Expression | undefined
   for (const statement of module.program.body) {
     if (statement.type === "ExportDefaultDeclaration") {
@@ -240,28 +313,27 @@ function defaultAgentCalls(module: ScannedModule, calls: CallExpression[], const
       }
     }
   }
-  const results = (node: Expression | undefined, seen: Set<string>): CallExpression[] => {
-    node = node && unwrapExpression(node)
-    if (node?.type === "Identifier" && !seen.has(node.name)) return results(constants.get(node.name), new Set([...seen, node.name]))
-    if (node?.type === "ConditionalExpression") return [...results(node.consequent, seen), ...results(node.alternate, seen)]
-    return calls.filter(call => call === node)
+  const results = (expression: Expression, at: Scope, seen: Set<Binding>): AgentFactoryCall[] => {
+    const { node, scope: from } = resolveValue(expression, at, seen)
+    if (node.type === "ConditionalExpression") return [...results(node.consequent, from, new Set(seen)), ...results(node.alternate, from, new Set(seen))]
+    return calls.filter(entry => entry.call === node)
   }
-  return exported && results(exported, new Set())
+  return exported && results(exported, scope, new Set())
 }
 
 /**
  * True when Agent options declare a Workspace that the Agent owns: a `workspace` key whose value is not `undefined`,
- * `null`, a Workspace name, or a `{ name }` reference to a shared Workspace.
+ * `null`, a Workspace name, or a `{ name }` reference to a shared Workspace. Bindings are followed for each value.
  */
-function declaresOwnedWorkspace(options: ObjectExpression, constants: Map<string, Expression>): boolean {
-  let workspace = findProperty(options, "workspace")?.value
-  if (workspace?.type === "Identifier") workspace = constants.get(workspace.name) ?? workspace
-  if (workspace === undefined) return false
-  const value = staticValue(workspace)
+function declaresOwnedWorkspace(options: ObjectExpression, scope: Scope): boolean {
+  const property = findProperty(options, "workspace")?.value
+  if (property === undefined) return false
+  const workspace = resolveValue(property, scope)
+  const value = staticValue(workspace.node)
   if (value === undefined || value === null || typeof value === "string") return false
-  if (workspace.type !== "ObjectExpression") return true
-  const name = findProperty(workspace, "name")?.value
-  return name === undefined || typeof staticValue(name) !== "string"
+  if (workspace.node.type !== "ObjectExpression") return true
+  const name = findProperty(workspace.node, "name")?.value
+  return name === undefined || typeof staticValue(resolveValue(name, workspace.scope).node) !== "string"
 }
 
 /**
@@ -269,20 +341,16 @@ function declaresOwnedWorkspace(options: ObjectExpression, constants: Map<string
  * without running the module. The default export decides; a module without one is read through all its calls.
  */
 function isWorkspaceAgentDefinition(source: string, file: string): boolean {
-  const module = scanModule(source, file)
-  const constants = constantInitializers(module)
-  const calls = agentFactoryCalls(module)
-  return (defaultAgentCalls(module, calls, constants) ?? calls).some((call) => {
-    const options = agentOptions(call, constants)
-    return options !== undefined && declaresOwnedWorkspace(options, constants)
+  const agentModule = readAgentModule(source, file)
+  return (defaultAgentCalls(agentModule) ?? agentModule.calls).some((call) => {
+    const options = agentOptions(call)
+    return options !== undefined && declaresOwnedWorkspace(options.node, options.scope)
   })
 }
 
 /** The start offsets of the options objects of the `defineAgent()` calls in a module. */
 export function discoverAgentOptionsStarts(source: string, file: string): Set<number> {
-  const module = scanModule(source, file)
-  const constants = constantInitializers(module)
-  return new Set(agentFactoryCalls(module).flatMap(call => agentOptions(call, constants)?.start ?? []))
+  return new Set(readAgentModule(source, file).calls.flatMap(call => agentOptions(call)?.node.start ?? []))
 }
 
 /**
