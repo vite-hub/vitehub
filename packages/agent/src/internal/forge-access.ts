@@ -15,7 +15,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentCallbackContext } from "../types.ts"
 import { readBuiltInEnv } from "./builtin-env.ts"
 import { pullRequestCheckoutPlan, pullRequestRepositories } from "./pull-request-checkout.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 /** Scope of one forge access request. */
 export interface ForgeAccessScope {
@@ -39,7 +39,7 @@ export function readForgeAccess(value: object | undefined): ForgeAccess | undefi
   // SAFETY: github() and withForgeAccess() are the only writers of this private symbol.
   const access = (value as ForgeAccessCarrier | undefined)?.[forgeAccessKey]
   // SAFETY: the writers store only ForgeAccess functions under this key.
-  return hasRuntimeType(access, "function") ? access as ForgeAccess : undefined
+  return typeof access === "function" ? access as ForgeAccess : undefined
 }
 
 /** The forge access of the Agent's github() Channels, when exactly one Channel supplies it. */
@@ -154,7 +154,7 @@ export function workspaceGitHubRepositories(definition: WorkspaceDefinition | un
     const resolved = isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source) ? fingerprint.source : fingerprint
     const options = resolved.inferredSource === "github" && isRuntimeRecord(resolved.options) ? resolved.options : resolved
     const repo = options.repo
-    if (!hasRuntimeType(repo, "string") || !/^[\w.-]+\/[\w.-]+$/.test(repo)) continue
+    if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) continue
     if (!repositories.some(known => known.toLowerCase() === repo.toLowerCase())) repositories.push(repo)
   }
   return repositories

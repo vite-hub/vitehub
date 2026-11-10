@@ -1,7 +1,6 @@
 import { getCapability, resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { agentInvocationId } from "../invocations.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
   getMessageText,
@@ -125,18 +124,18 @@ export function assertInputCommandName(name: string): void {
 }
 
 function normalizeInputCommands(options: InputCommandsOptions): Record<string, InputCommand> {
-  if (!options || !hasRuntimeType(options, "object") || !options.commands || !hasRuntimeType(options.commands, "object") || Array.isArray(options.commands)) {
+  if (!options || typeof options !== "object" || !options.commands || typeof options.commands !== "object" || Array.isArray(options.commands)) {
     throw agentDiagnostics.AGENT_R0097({ message: "[vitehub] inputCommands({ commands }) requires a command map." })
   }
   for (const [name, command] of Object.entries(options.commands)) {
     assertInputCommandName(name)
-    if (!command || !hasRuntimeType(command, "object")) {
+    if (!command || typeof command !== "object") {
       throw agentDiagnostics.AGENT_R0098({ message: `[vitehub] Input command "${name}" must be an object.` })
     }
-    if (command.description !== undefined && (!hasRuntimeType(command.description, "string") || !command.description.trim())) {
+    if (command.description !== undefined && (typeof command.description !== "string" || !command.description.trim())) {
       throw agentDiagnostics.AGENT_R0099({ message: `[vitehub] Input command "${name}" description must be a non-empty string.` })
     }
-    if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => !hasRuntimeType(channel, "string") || !channel.trim()))) {
+    if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => typeof channel !== "string" || !channel.trim()))) {
       throw agentDiagnostics.AGENT_R0100({ message: `[vitehub] Input command "${name}" channels must be non-empty Channel IDs.` })
     }
   }
@@ -145,7 +144,7 @@ function normalizeInputCommands(options: InputCommandsOptions): Record<string, I
 
 export function normalizeInputCommandTrigger(trigger: unknown): string {
   if (trigger === undefined) return "/"
-  if (!hasRuntimeType(trigger, "string") || !trigger) {
+  if (typeof trigger !== "string" || !trigger) {
     throw agentDiagnostics.AGENT_R0101({ message: "[vitehub] inputCommands({ trigger }) must be a non-empty string." })
   }
   if (/\s/.test(trigger)) {
@@ -240,7 +239,7 @@ function latestUserMessageIndex(messages: Message[]): number {
 }
 
 export function getInputCommandTarget(input: AgentRunInput): InputCommandTarget | undefined {
-  if (hasRuntimeType(input.prompt, "string") && !input.messages) {
+  if (typeof input.prompt === "string" && !input.messages) {
     return { text: input.prompt, type: "prompt" }
   }
 
@@ -248,7 +247,7 @@ export function getInputCommandTarget(input: AgentRunInput): InputCommandTarget 
   if (!messages) return
   const messageIndex = latestUserMessageIndex(messages)
   if (messageIndex < 0) {
-    return hasRuntimeType(input.prompt, "string")
+    return typeof input.prompt === "string"
       ? { text: input.prompt, type: "prompt" }
       : undefined
   }
@@ -302,7 +301,7 @@ export function replaceTargetText(
   messages[target.messageIndex!] = nextMessage
   if (!input.messages) return { ...input, prompt: messages }
   const next = { ...input, messages }
-  if (hasRuntimeType(next.prompt, "string")) delete next.prompt
+  if (typeof next.prompt === "string") delete next.prompt
   return next
 }
 
@@ -394,7 +393,7 @@ function createInputCommandMessage(
 function inputPhaseMessage(context: AgentCapabilityRuntimeContext): InputCommandDeliveryMessage {
   return createInputCommandMessage((intent, options) => {
     context.delivery.effect(intent)
-    if (options?.transient && hasRuntimeType(intent.metadata?.transientKey, "string")) {
+    if (options?.transient && typeof intent.metadata?.transientKey === "string") {
       context.delivery.finishEffect(() => ({
         kind: intent.kind,
         metadata: {
@@ -404,7 +403,7 @@ function inputPhaseMessage(context: AgentCapabilityRuntimeContext): InputCommand
         payload: {
           action: "remove",
           // SAFETY: Input command parsing establishes the asserted command contract.
-          content: hasRuntimeType(intent.payload, "string") ? intent.payload : (intent.payload as { content?: unknown } | undefined)?.content,
+          content: typeof intent.payload === "string" ? intent.payload : (intent.payload as { content?: unknown } | undefined)?.content,
         },
       }))
     }
@@ -800,7 +799,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         if (!target) return
         text = target.text
 
-        if (hasRuntimeType(result, "string")) {
+        if (typeof result === "string") {
           if (text.slice(invocation.start, invocation.end) !== invocation.text) {
             cursor = text === previousText ? invocation.end : 0
             continue
@@ -839,7 +838,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           continue
         }
 
-        if (result && hasRuntimeType(result, "object")) {
+        if (result && typeof result === "object") {
           const changesText = inputCommandChangesText(result)
           input = mergeInputCommandResult(input, result)
           context.input.set(input)

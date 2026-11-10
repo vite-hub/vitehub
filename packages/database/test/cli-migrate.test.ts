@@ -65,11 +65,11 @@ async function createProject() {
     rootDir,
   }) as unknown as ResolvedDBViteConfig)!
 
-  async function run(feature: "generate" | "migrate", args: string[] = [], env: NodeJS.ProcessEnv = process.env) {
+  async function run(feature: "generate" | "migrate", args: string[] = [], env: NodeJS.ProcessEnv = process.env, spawn: typeof realSpawn = realSpawn) {
     const stdout = { write: vi.fn() }
     const stderr = { write: vi.fn() }
     const command = contributor.namespaces[0]!.features.find(candidate => candidate.name === feature)!
-    const exitCode = await command.run(args, { env, rootDir, spawn: realSpawn, stderr, stdout } as never)
+    const exitCode = await command.run(args, { env, rootDir, spawn, stderr, stdout } as never)
     const text = (write: ReturnType<typeof vi.fn>) => write.mock.calls.map(([chunk]) => String(chunk)).join("")
     return { exitCode, stderr: text(stderr.write), stdout: text(stdout.write) }
   }
@@ -130,6 +130,42 @@ describe("vitehub database migrate", () => {
     expect(done.stdout).toContain(": no pending migrations.")
   }, 120_000)
 
+  it("does not start Drizzle Kit when the database has every migration", async () => {
+    const project = await createProject()
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    const spawn = vi.fn(realSpawn)
+    const again = await project.run("migrate", [], process.env, spawn)
+    expect(again).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(again.stdout).toBe("[vitehub] Database \"default\" (local SQLite .vitehub/data/database/sqlite.db): no pending migrations.\n")
+    expect(spawn).not.toHaveBeenCalled()
+
+    await project.writeSchema(["title", "body"])
+    await expect(project.run("generate", ["--name", "add_body"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("migrate", [], process.env, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    expect(spawn).toHaveBeenCalledOnce()
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
+  }, 120_000)
+
+  it("fails when an applied migration SQL file is missing", async () => {
+    const project = await createProject()
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    await rm(join(project.database.migrationsDir, "0000_init.sql"))
+
+    // Drizzle Kit rejects the incomplete folder even when every migration was applied.
+    await expect(project.run("migrate", ["--allow-data-loss"])).resolves.toMatchObject({ exitCode: 1 })
+    const result = await project.run("migrate")
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("DATABASE_MIGRATION_CHECK_FAILED")
+    expect(result.stderr).toContain("0000_init.sql")
+    expect(result.stdout).not.toContain("no pending migrations")
+  }, 120_000)
+
   it("fails without a resolved Database config instead of skipping the check", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const stderr = { write: vi.fn() }
@@ -169,7 +205,7 @@ describe("readMigrationPlan", () => {
     const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: d1.fetch, projectRoot: rootDir })
 
     expect(error).toBeUndefined()
-    expect(plan).toEqual({ database: "default", pending: [], target: "Cloudflare D1 database-id over HTTP" })
+    expect(plan).toEqual({ applied: 1, database: "default", pending: [], target: "Cloudflare D1 database-id over HTTP" })
     expect(d1.fetch).toHaveBeenCalledWith("https://api.cloudflare.com/client/v4/accounts/account/d1/database/database-id/query", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer token" }),
       method: "POST",

@@ -49,7 +49,7 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     COMMENTS_R0012: {
       why: "Writing a comment needs a signed-in user.",
-      fix: "Sign in, then try again. In `vite dev` without sign-in, set console.auth so comments know who writes.",
+      fix: "Sign in, then try again. Without ViteHub Auth or `identify`, sign in with GitHub so comments know who writes.",
     },
     COMMENTS_R0013: {
       why: "The comments request did not get an answer from the server.",

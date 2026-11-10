@@ -2,7 +2,12 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "paths": {
+      "@vite-hub/internal/*": [
+        "../../packages/internal/src/*.ts"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts"
