@@ -13,7 +13,7 @@ icon: i-lucide-users
 | --- | --- | --- |
 | Threads, replies, resolve, pins | Yes | Yes |
 | Where threads go | A SQLite file, Turso, or Cloudflare D1 | A ViteHub [Database](/docs/database): SQLite, libSQL, or D1 |
-| Tables | Created when the server starts | Generated and applied with `vitehub db` |
+| Tables | Created when the server starts | Generated and applied with `vitehub database` |
 | Who can comment | Sign in with GitHub, or guests on the dev server | Sign in with GitHub, [ViteHub Auth](/docs/auth), the [Console](/docs/development/console), or your own login |
 | Avatars and cursors of people on a page | No | Yes, with [Realtime](/docs/realtime) |
 | Edit Content text in place | No | Yes, with [Content](/docs/content) |
@@ -108,8 +108,8 @@ export const comments = defineComments({
 Comments adds the tables `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` to the `default` Database. Generate the migration and apply it:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ::
@@ -208,8 +208,8 @@ fetch('/api/about')
 Restart the dev server, then run the migrations again for the Content tables:
 
 ```bash [commands/migrate-content]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 The singleton has no document yet. Open `http://localhost:5173/_vitehub/content`, then **Settings**, then **About**. Type a title and select **Publish**.

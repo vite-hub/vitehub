@@ -67,6 +67,22 @@ describe("handleFormRequest", () => {
     expect(await store.list()).toEqual([])
   })
 
+  it("redirects browser forms with non-JSON schema output before hooks or storage", async () => {
+    const onSubmit = vi.fn()
+    const form = defineForm({
+      schema: v.pipe(v.object({ message: v.string() }), v.transform(() => ({ value: new Date("2026-01-01") }))),
+      onSubmit,
+      notify: { email: { to: "owner@example.com" } },
+    })
+    const { store, email, all } = services()
+    const response = await handleFormRequest("contact", form, post({ message: "Hi", _page: "/contact" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/contact?form=error")
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(email).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+  })
+
   it("keeps the page and anchor fields out of the data", async () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Typo", _page: "/docs/intro", _anchor: { selector: "main p", exact: "teh word", prefix: "Fix ", suffix: " here", kind: "text" } }), all)
@@ -121,13 +137,43 @@ describe("handleFormRequest", () => {
 
   it("checks authorize with the identified user", async () => {
     const form = defineForm({ schema: v.object({ text: v.string() }), authorize: ({ user }) => user?.id === "ada" })
-    const anonymous = services()
+    // A refused sender uses no rate budget.
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const anonymous = services({ rateLimit })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), anonymous.all)).status).toBe(401)
+    expect(rateLimit).not.toHaveBeenCalled()
     const grace = services({ identify: () => ({ id: "grace" }) })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), grace.all)).status).toBe(403)
     const ada = services({ identify: () => ({ id: "ada", name: "Ada" }) })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), ada.all)).status).toBe(201)
     expect((await ada.store.list())[0]?.user).toEqual({ id: "ada", name: "Ada" })
+  })
+
+  it.each(["identify", "authorize"])("bounds the body before %s can read it, without using rate budget", async (consumer) => {
+    const read = vi.fn(async (request: Request) => request.text())
+    const form = defineForm({
+      schema: v.object({ text: v.string() }),
+      maxBytes: 2048,
+      authorize: async ({ request }) => {
+        if (consumer === "authorize") await read(request)
+        return false
+      },
+    })
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const { store, all } = services({
+      identify: async (request) => {
+        if (consumer === "identify") await read(request)
+        return null
+      },
+      rateLimit,
+    })
+    expect((await handleFormRequest("issue", form, post({ text: "x".repeat(8192) }), all)).status).toBe(413)
+    expect(read).not.toHaveBeenCalled()
+    expect(rateLimit).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+    expect((await handleFormRequest("issue", form, post({ text: "Hi" }), all)).status).toBe(401)
+    expect(read).toHaveBeenCalledOnce()
+    expect(rateLimit).not.toHaveBeenCalled()
   })
 
   it("answers with the Response that onSubmit returns and stores nothing", async () => {

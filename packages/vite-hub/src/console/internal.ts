@@ -1,6 +1,6 @@
 import { createConsoleProjectRegistry, type ConsoleProjectRegistry } from "./project-registry.ts"
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
-import type { EnvBridgeRequestOptions } from "@vite-hub/env/http"
+import type { EnvBridgeRequestOptions } from "@vite-hub/env/bridge"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"

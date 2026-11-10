@@ -276,7 +276,7 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
 }
 
 function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): Error {
-  return workspaceErrorDiagnostics.WORKSPACE_C0005({ message: `[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.` })
+  return workspaceErrorDiagnostics.WORKSPACE_C0005({ message: `[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A Source helper call, for example github(...) or custom(...), makes the source kind explicit.` })
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {

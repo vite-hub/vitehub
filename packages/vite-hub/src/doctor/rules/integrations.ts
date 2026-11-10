@@ -311,7 +311,10 @@ export const noViteHubPluginInNuxt: DoctorRule = createRule({
 })
 
 
-function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | "vite", where: string) {
+/** Feature keys that owner plugins no longer read from the top level of a Vite config. */
+const topLevelFeatureKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "workflow", "workspace"]
+
+function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) {
   const target = unwrap(options)
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
@@ -337,19 +340,16 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
         fix: "Set `sandboxTask: true`.",
       }
     }
-    else if (name === "queue" && isObject) {
+    else if (name === "logs") {
       report = {
-        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the preset selects the Queue provider.",
-        fix: "Set `queue: true`, and choose the provider with `preset`.",
+        why: "`logs` moved into `observability`, so this key does nothing.",
+        fix: "Move it to `observability: { logs: ... }`. Its `evlog` options go to `observability.evlog`. `npx @vite-hub/codemods vitehub-options` moves it.",
       }
     }
-    else if (name === "env" && host === "vite" && isObject) {
-      const sections = ["server", "public", "define"].filter(section => objectProperty(value, section))
-      if (sections.length) {
-        report = {
-          why: `\`vitehub({ env })\` takes Env integration options only. ViteHub ignores \`env.${sections.join("`, `env.")}\` here, so these declarations do not exist at runtime.`,
-          fix: "Move `server`, `public`, and `define` to the top-level `env` key of the Vite config: `defineConfig({ env: { server: { ... } }, plugins: [vitehub()] })`.",
-        }
+    else if (name === "contentImportBase") {
+      report = {
+        why: "`contentImportBase` was removed. ViteHub always imports Content from `vite-hub/content`.",
+        fix: "Remove `contentImportBase`.",
       }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
@@ -370,15 +370,24 @@ export const validViteHubOptions: DoctorRule = createRule({
       if (!config) return
       const module = nuxtModules(config).find(entry => entry.name === "vite-hub/nuxt")
       if (!module) return
-      checkViteHubOptions(ctx, objectValue(config, "vitehub"), "nuxt", "the `vitehub` key")
-      checkViteHubOptions(ctx, module.options, "nuxt", "the inline `vite-hub/nuxt` options")
+      checkViteHubOptions(ctx, objectValue(config, "vitehub"), "the `vitehub` key")
+      checkViteHubOptions(ctx, module.options, "the inline `vite-hub/nuxt` options")
       return
     }
     if (!viteConfigFile.test(ctx.file.relativePath)) return
+    const config = configObject(ctx)
+    for (const name of ["env", ...topLevelFeatureKeys]) {
+      const property = config ? objectProperty(config, name) : undefined
+      if (!property) continue
+      ctx.report(diagnostics.VHUB0031({
+        why: `Vite does not read a top-level \`${name}\` key. Only \`vitehub()\` reads feature options, so this value does nothing.`,
+        fix: `Move it into \`vitehub({ ${name} })\`, or pass it to the feature's own plugin, such as \`${name === "env" ? "hubEnv" : "hubKv"}(options)\`. \`npx @vite-hub/codemods vitehub-options\` moves it.`,
+      }), { range: ctx.range(property) })
+    }
     const r = resolver(ctx)
     return {
       ScriptNode(node) {
-        if (isNodeType(node, "CallExpression") && isViteHubPluginCall(r, node)) checkViteHubOptions(ctx, callArguments(node)[0], "vite", "`vitehub()`")
+        if (isNodeType(node, "CallExpression") && isViteHubPluginCall(r, node)) checkViteHubOptions(ctx, callArguments(node)[0], "`vitehub()`")
       },
     }
   },
@@ -465,7 +474,31 @@ const removedPaths = new Map([
   ["vite-hub/content/presets/cms", { replacement: "vite-hub/cms", note: "The CMS has its own package." }],
   ["@vite-hub/content/presets/cms", { replacement: "@vite-hub/cms", note: "The CMS has its own package." }],
   ["vite-hub/schedule/runtime/driver", { replacement: "`startSchedule()` from `vite-hub/schedule`, with a Definition without `cron` in `server/schedules/`", note: "Runtime Schedules are started with `startSchedule()`." }],
+  ...oneEntryPerConcept(),
 ])
+
+/** Subpaths that moved into the root of their primitive, or into `env/bridge`. `npx @vite-hub/codemods one-entry-imports` moves them. */
+function oneEntryPerConcept(): [string, { replacement: string, note: string }][] {
+  const moves: [string, string][] = [
+    ...["file", "files", "github", "glob", "markdown"].map((name): [string, string] => [`source/${name}`, "source"]),
+    ...["presets", "provider", "schema", "secret", "server"].map((name): [string, string] => [`env/${name}`, "env"]),
+    ["env/auth", "env/bridge"],
+    ["env/http", "env/bridge"],
+    ["blob/content-type", "blob"],
+    ["blob/ensure", "blob"],
+    ["blob/reference", "blob"],
+    ["browser/actions", "browser"],
+    ["connections/http", "connections"],
+  ]
+  const note = "Each concept has one entry. Run `npx @vite-hub/codemods one-entry-imports` to move the imports."
+  return [
+    ...moves.flatMap(([from, to]): [string, { replacement: string, note: string }][] => [
+      [`vite-hub/${from}`, { replacement: `vite-hub/${to}`, note }],
+      [`@vite-hub/${from}`, { replacement: `@vite-hub/${to}`, note }],
+    ]),
+    ["vite-hub/task", { replacement: "nitro/task", note: "`vite-hub/task` only re-exported Nitro's task API. Import `defineTask` and `runTask` from `nitro/task`, and the types from `nitro/types`." }],
+  ]
+}
 
 /** Exports that ViteHub renamed, by module name from `vitehubModule()`. */
 const renamedExports: { modules: (module: string) => boolean, renames: Map<string, string> }[] = [

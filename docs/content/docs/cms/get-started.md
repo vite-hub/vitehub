@@ -97,12 +97,12 @@ export const content = defineContent({
 Create the database tables that keep the drafts and their history:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-- `db generate` writes a migration file to `server/databases/migrations/`. A migration is a file that creates or changes tables.
-- `db migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
+- `database generate` writes a migration file to `server/databases/migrations/`. A migration is a file that creates or changes tables.
+- `database migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
 
 You did not define a database, so ViteHub uses one named `default`. To set it up yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
 
