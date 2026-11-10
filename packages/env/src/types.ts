@@ -5,7 +5,8 @@ import type { SecretEnv } from "./secret.ts"
 export type EnvDiagnostics = "off" | "summary" | "trace"
 export type EnvMode = "build" | "runtime"
 
-export interface EnvIntegrationOptions {
+/** Options of `vitehub({ env })` and `hubEnv()`: the Env declarations and how ViteHub resolves them. */
+export interface EnvOptions extends EnvDeclarations {
   diagnostics?: EnvDiagnostics
   /**
    * Prefix of canonical variable names. Every env-backed declaration first reads the prefix plus its
@@ -162,9 +163,13 @@ export interface EnvBuildConfigOptions {
   [key: string]: EnvBuildConfigValue
 }
 
-export interface EnvViteConfigOptions {
+/** Declarations of Public Env, Server Env, and build-time replacements. */
+export interface EnvDeclarations {
+  /** Values that replace identifiers at build time. */
   define?: Record<string, EnvBuildConfigValue>
+  /** Public Env, resolved at build time and readable in browser code. Each declaration uses `mode: "build"`. */
   public?: Record<string, EnvVariableDeclaration>
+  /** Server Env, resolved at runtime and readable only in server code. */
   server?: EnvRuntimeConfigOptions
 }
 
@@ -176,11 +181,6 @@ export interface EnvRuntimeConfigOptions {
   [key: string]: EnvRuntimeConfigValue
 }
 
-export type EnvConfigOptions = EnvViteConfigOptions
-
-export interface EnvViteUserConfig {
-  env?: EnvViteConfigOptions
-}
 
 export interface EnvDiagnosticEntry {
   exposed: string

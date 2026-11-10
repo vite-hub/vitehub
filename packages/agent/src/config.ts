@@ -1,13 +1,13 @@
 import { defaultAgentDiscordGatewayRoute, defaultAgentInspectionRoute, defaultAgentWebhookRoute } from "./internal/routes.ts"
 
-import type { AgentModuleOptions, ResolvedAgentModuleOptions } from "./types.ts"
+import type { AgentOptions, ResolvedAgentModuleOptions } from "./types.ts"
 
 function normalizeAgentRouteOption(value: boolean | string | undefined, defaultRoute: string): false | string {
   if (value === true) return defaultRoute
   return value || false
 }
 
-export function normalizeAgentOptions(options: AgentModuleOptions | false | undefined): false | ResolvedAgentModuleOptions {
+export function normalizeAgentOptions(options: AgentOptions | false | undefined): false | ResolvedAgentModuleOptions {
   if (options === false) {
     return false
   }
