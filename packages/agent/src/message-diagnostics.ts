@@ -1,9 +1,9 @@
 import { defineDiagnostics } from "nostics"
-import { agentDiagnosticOptions, dynamicAgentError } from "./agent-diagnostic-options.ts"
+import { agentDocsBase, dynamicAgentError } from "./agent-diagnostic-options.ts"
 
 // Keep message helpers independent of provider diagnostics and schema initialization.
-export const messageDiagnostics = defineDiagnostics({
-  ...agentDiagnosticOptions,
+export const messageDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: agentDocsBase,
   codes: {
     AGENT_R0646: dynamicAgentError,
     AGENT_R0647: dynamicAgentError,
