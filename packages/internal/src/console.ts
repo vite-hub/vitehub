@@ -67,8 +67,9 @@ export interface ViteHubConsoleOperationView {
   kind: "operation-view"
   /**
    * Makes each row a link: `{path}` placeholders take values from the item and are URL-encoded, and `{path:path}` takes an
-   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link). Rows where
-   * `when.path` is not `when.equals` get none.
+   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link).
+   * `{path:href}` takes an app URL that is already encoded, with its query, as it is. Rows where `when.path` is not
+   * `when.equals` get none.
    */
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
   notice: string
