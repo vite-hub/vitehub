@@ -7,7 +7,7 @@ import { Window, type HTMLButtonElement } from "happy-dom"
 import { defineAuth, type AuthSessionRefresh } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { adminPlugin } from "../../auth/test/fixtures/admin-plugin.ts"
-import { H3, H3Event } from "h3"
+import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
@@ -54,11 +54,11 @@ function jar(cookie: string, response: Response): string {
 }
 
 function manage(body: unknown, cookie = "") {
-  return authManage(requestEvent(new Request("http://localhost:5173/_vitehub/auth/manage", {
+  return authManage.fetch(new Request("http://localhost:5173/_vitehub/auth/manage", {
     method: "POST",
     body: JSON.stringify(body),
     headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
-  })))
+  }))
 }
 
 describe("console.impersonation configuration", () => {
@@ -74,7 +74,7 @@ describe("console.impersonation configuration", () => {
       expect(resolveConsoleAccessBuild({ auth: "app" }, { root })).not.toHaveProperty("impersonation")
       const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }]
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: [], catalog: { agents: [], content: {} }, blobStores: [], access: { check: { appRoutes: routes }, mode: "auth", impersonation: true } })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("requireSession: vitehubRequireSession, impersonation: true })")
       expect(generated).toMatch(/installConsoleAccess\(\{ mode: "auth", .*impersonation: true \}\)/)
@@ -171,10 +171,9 @@ describe("App Auth Console during impersonation", () => {
       getAuthForRequest: authForRequest,
       impersonation: true,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
-        if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
       },
-      requireSession: event => withAuthorization(true, () => undefined, definition)(event as H3Event),
+      requireSession: event => withAuthorization(true, () => undefined, definition)(event),
       routes: routes.map((route, index) => ({ ...route, index, authorize: true })),
     })
     installConsoleAccess({ mode: "auth", impersonation: true, signInPage: "/_vitehub/sign-in", ...createConsoleAppAuthPages(authForRequest), ...access })

@@ -1526,6 +1526,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] operations() requires { include: string[], approve?, user? }.",
       fix: "List the operation names to expose, such as [\"content.*\"], and pass approve as \"destructive\", \"write\", \"all\", \"never\", a list of names, or a function.",
     },
+    AGENT_C0014: {
+      why: "[vitehub] i18n() requires { operations?: Array<\"read\" | \"write\" | \"publish\">, policy? }.",
+      fix: "Enable at least one operation, and pass policy as a decision or a function.",
+    },
     AGENT_R1014: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
