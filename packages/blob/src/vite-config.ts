@@ -3,7 +3,7 @@ import { readEnv } from "@vite-hub/internal/env"
 import { resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import type { BlobResolutionInput } from "./config.ts"
-import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "./types.ts"
+import type { BlobOptions, ResolvedBlobModuleOptions } from "./types.ts"
 
 export const BLOB_VITE_PLUGIN_NAME = "@vite-hub/blob/vite"
 export const BLOB_VIRTUAL_CONFIG_ID = "#vitehub/blob/config"
@@ -23,7 +23,7 @@ function resolveHosting(input: BlobResolutionInput): string | undefined {
 }
 
 export function resolveBlobViteConfig(
-  blob: BlobModuleOptions | undefined,
+  blob: BlobOptions | undefined,
   input: BlobResolutionInput = {},
 ): BlobViteRuntimeConfig {
   const env = input.env || process.env

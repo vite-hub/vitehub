@@ -17,9 +17,7 @@ import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
 import type { SandboxDefinition } from "vite-hub/sandbox"
 import { useDatabase } from "vite-hub/database/drizzle"
-import { env } from "vite-hub/env"
-import { defineEnvProvider } from "vite-hub/env/provider"
-import type { SecretEnv } from "vite-hub/env/secret"
+import { defineEnvProvider, env, type SecretEnv } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
@@ -76,13 +74,6 @@ export const credentialsProvider = defineEnvProvider<{
 })
 
 export default defineConfig({
-  env: {
-    server: {
-      GH_TOKEN: env(),
-      credentialsGatewayKey: env({ secret: true }),
-      githubToken: env({ secret: true, source: env.provider("credentials", "github/token") }),
-    },
-  },
   plugins: [vitehub({
     name: "published-consumer",
     preset: "node",
@@ -91,6 +82,11 @@ export default defineConfig({
     database: true,
     env: {
       providers: { credentials: "./credentials-provider.ts" },
+      server: {
+        GH_TOKEN: env(),
+        credentialsGatewayKey: env({ secret: true }),
+        githubToken: env({ secret: true, source: env.provider("credentials", "github/token") }),
+      },
     },
     workflow: true,
     workspace: true,

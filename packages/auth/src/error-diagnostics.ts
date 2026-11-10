@@ -88,6 +88,6 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0014: withFix("Pass a function that returns `true`, `false`, or a `Response`, for example `withAuthorization(({ user }) => user.role === 'admin', handler)`. `withAuthorization()` and `requireAuthorization()` also take `true` for any signed-in user. `withAnonymousAuthorization()` takes only a function."),
     AUTH_R0015: withFix("Pass your handler function, for example `withAuth((event, { user }) => ({ id: user.id }))`."),
     AUTH_R0016: withFix("Set `VITEHUB_SECRET` to at least 32 random characters. Run `openssl rand -base64 32` to make one."),
-    AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub db generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
+    AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub database generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
   },
 })

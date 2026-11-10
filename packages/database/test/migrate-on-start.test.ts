@@ -122,7 +122,7 @@ describe("database.migrateOnStart", () => {
     expect((await server.start()).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
     expect(await readLedger(url)).toEqual([init.when, seed.when])
 
-    // `vitehub db migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
+    // `vitehub database migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
     const database = { connection: { url }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
@@ -303,11 +303,21 @@ describe("database.migrateOnStart", () => {
     expect(started.stdout).toContain('[vitehub] Database "default": applied 0002_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
 
-    // `vitehub db migrate --dry-run` reads the same run on a new file and finds no data loss either.
+    // `vitehub database migrate --dry-run` reads the same run on a new file and finds no data loss either.
     const database = { connection: { url: `file:${join(root, "data/new.sqlite")}` }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
     expect(plan?.pending.map(migration => [migration.name, migration.dataLoss])).toEqual([[init.tag, []], [seed.tag, []], [dropLegacy.tag, []]])
+  })
+
+  it("skips a migration chunk that holds only comments", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const commented = { ...seed, sql: `-- Sample rows.\n--> statement-breakpoint\n${seed.sql}\n--> statement-breakpoint\n/* The end. */\n` }
+    await writeMigrations(root, [init, commented])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    const started = await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
+    expect(started.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
   })
 
   it("refuses to drop a table that a pending rebuild filled with older rows", async () => {

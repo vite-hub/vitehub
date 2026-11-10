@@ -23,7 +23,7 @@ export type {
   AuthDefinitionResolver,
   AuthFor,
   AuthGuardedHandler,
-  AuthModuleOptions,
+  AuthOptions,
   AuthRequest,
   AuthReservedOption,
   AuthResolvedDefinitionOptions,

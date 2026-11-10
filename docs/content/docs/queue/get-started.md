@@ -158,7 +158,7 @@ Build the app, and see what ViteHub found and wrote:
 ```bash [commands/inspect]
 pnpm build
 pnpm vitehub inspect definitions --kind queue
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 - The list of definitions shows `welcome-email`.

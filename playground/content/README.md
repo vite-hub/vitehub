@@ -10,7 +10,7 @@ pnpm --dir playground/content run dev
 ```
 
 The migrations in `server/databases/content/migrations` are committed. `0000` to `0005` were written by hand;
-`vitehub db generate` wrote `0006_auth`. Generation needs the literal schema keys in `server/databases/content/config.ts`
+`vitehub database generate` wrote `0006_auth`. Generation needs the literal schema keys in `server/databases/content/config.ts`
 until #2377 lands.
 
 Open <http://localhost:5173/login> and sign in as one of the playground users. `server/auth.ts` installs the Better
@@ -57,6 +57,6 @@ attributes, to edit the text in place: the edit saves a draft that `/_vitehub/co
 writer edits but cannot publish, and the reviewer only comments. The Comments section of the Console lists every thread. Migrations `0002_comments` to
 `0004_comments_scope` add the tables; they are written by hand.
 Users and sessions live in the `content` Database: `authDatabase("content")` in `server/auth.ts` adds the Better Auth
-tables to it, and `0006_auth` is the migration that `vitehub db generate --name auth` wrote for them. The accounts
+tables to it, and `0006_auth` is the migration that `vitehub database generate --name auth` wrote for them. The accounts
 in `server/roles.ts` get their CMS role at sign-up. `admin@vitehub.dev` is the admin.
 Documents persist in `.data`.
