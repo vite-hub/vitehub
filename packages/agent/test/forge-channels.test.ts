@@ -11,7 +11,7 @@ import { defineCapability } from "../src/capability-runtime.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { forgeActivityComments, forgeDeliveryEffects } from "../src/internal/forge-channel.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { forgeProvider } from "@vite-hub/forge"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 
@@ -342,7 +342,7 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
       if (url.pathname === commentsPath && method === "GET") return Response.json(store.comment ? [store.comment] : [])
       if ((url.pathname === commentsPath && method === "POST") || url.pathname === editPath) {
         const parsed: unknown = JSON.parse(String(init?.body))
-        if (!isRuntimeRecord(parsed) || !hasRuntimeType(parsed.body, "string")) throw new Error("Missing comment body.")
+        if (!isRuntimeRecord(parsed) || typeof parsed.body !== "string") throw new Error("Missing comment body.")
         if (parsed.body.startsWith("<!-- vitehub-agent-activity:")) {
           writes.push(method)
           store.comment = { ...fetcher.comment, body: parsed.body }

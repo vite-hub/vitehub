@@ -90,6 +90,10 @@ catalogs:
     comark: 0.8.1
     comark-content: 0.4.3
     comark-ui: ^0.9.1
+  # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
+  # A caret on an RC matches only that RC until Nitro 3 is stable, so each supported RC is listed.
+  nitro-compat:
+    nitro: 3.0.261102-rc || ^3.0.261103-rc
   nuxt:
     "@nuxt/ui": ^4.12.0
     "@takumi-rs/core": 2.19.0
@@ -99,6 +103,7 @@ catalogs:
     nuxt: ^4.6.1 || >=5.0.0-0
   realtime:
     "@tiptap/core": ^3.31.4
+    "@tiptap/extension-blockquote": ^3.31.4
     "@tiptap/extension-collaboration": ^3.31.4
     "@tiptap/extension-collaboration-caret": 3.31.4
     "@tiptap/extension-document": ^3.31.4
@@ -214,7 +219,6 @@ catalogs:
   workspace:
     isomorphic-git: ^1.44.10
     minimatch: ^10.2.6
-    mountx: 0.0.2
     mrmime: ^2.0.1
     picomatch: ^4.0.7
     tinyglobby: ^0.2.17

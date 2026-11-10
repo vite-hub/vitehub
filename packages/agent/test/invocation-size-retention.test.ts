@@ -4,7 +4,6 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { defineAgentInvocations } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
@@ -85,7 +84,7 @@ async function settled(store: AgentInvocationStore): Promise<void> {
 }
 
 function sqlText(statement: InStatement): string {
-  return hasRuntimeType(statement, "string") ? statement : statement.sql
+  return typeof statement === "string" ? statement : statement.sql
 }
 
 describe("SQLite Agent Invocation size retention", () => {
@@ -193,7 +192,7 @@ describe("SQLite Agent Invocation size retention", () => {
     const counting = new Proxy(base, {
       get(target, property) {
         const value = Reflect.get(target, property)
-        if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+        if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
         return async (statement: InStatement) => {
           if (sqlText(statement).includes("pragma_page_count")) measurements += 1
           return await target.execute(statement)

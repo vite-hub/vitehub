@@ -5,10 +5,11 @@ import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
-import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
+import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
-import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
+import { resolveConsoleClient } from "./client.ts"
+import { consoleFixtureRevision, readConsoleFixture, type ConsoleFixture } from "./fixture.ts"
 import { consoleRuntimeDigestFile, digestConsoleRuntime } from "./runtime-digest.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
@@ -27,7 +28,6 @@ function resolveConsoleRuntimeRoot(): string {
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
-export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
 /** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
 export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 let consoleRuntimeDigest: string | undefined
@@ -85,6 +85,7 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "console", name: "console" },
   { exportName: "agentDb", name: "db" },
   { exportName: "email", name: "email" },
+  { exportName: "agentI18n", name: "i18n" },
   { exportName: "kv", name: "kv" },
 ]
 
@@ -171,30 +172,60 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
 }
 
+/** What the generated Console Nitro plugin installs. The Nuxt module and the Vite plugin both write it with these options. */
+export interface ConsoleNitroPluginOptions {
+  /** The generated plugin file. */
+  file: string
+  projectRoot: string
+  sections: readonly ConsoleSectionId[]
+  /** The discovered Agents, Schedules, operations, and section content. */
+  catalog: ConsoleBuildCatalog
+  blobStores: readonly string[]
+  /** The Console fixture file in fixture mode. */
+  fixture?: string
+  /** The invocation journal binding of this dev server. */
+  runtimeBinding?: string
+  /** Let the Console start Agent Invocations and run manual Schedules. */
+  invoke?: boolean
+  /** Write nothing when this returns `false`, such as after the dev server closed. */
+  active?: () => boolean
+  /** The Console Auth mode that the generated handlers serve, or `false` without Console Auth. */
+  independentAuth?: true | "cloudflare-access" | false
+  access?: ConsoleAccessBuild
+  runtimeCapabilityImports?: Record<string, false | string>
+  development?: boolean
+  applicationBase?: string
+  /** Add the Console link to the page tools pill. */
+  pageTools?: boolean
+}
+
 function renderConsoleNitroPlugin(
-  projectRoot: string,
-  configuredSections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  fixture?: string,
-  fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
-  runtimeBinding?: string,
-  invoke = false,
-  independentAuth: true | "cloudflare-access" | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-  development = false,
-  applicationBase = "/",
-  pageTools = true,
+  {
+    projectRoot,
+    sections: configuredSections,
+    catalog,
+    blobStores,
+    fixture,
+    runtimeBinding,
+    invoke = false,
+    independentAuth = false,
+    access,
+    runtimeCapabilityImports,
+    development = false,
+    applicationBase = "/",
+    pageTools = true,
+  }: ConsoleNitroPluginOptions,
+  fixtureSnapshot: ConsoleFixture | undefined,
 ): string {
+  const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
+  const agentSkills = agents.map(agent => requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler))
   const definitions = agents.map((agent, index) => {
-    const skills = requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler)
+    const skills = agentSkills[index]
     const module = `vitehubConsoleAgent${index}`
     const definition = skills
       ? `agentWithColocatedSkills(${module}.default ?? ${module}, ${JSON.stringify(skills)})`
@@ -230,7 +261,12 @@ function renderConsoleNitroPlugin(
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
     ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: "vite-hub/console/database" }, { bindings: "databases: vitehubConsoleDatabases", module: "vite-hub/database/drizzle" }] : []),
     ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: "vite-hub/console/env" }] : []),
+    // Agent Definitions import the Agent runtime, so they load with the Console runtime and not when the server starts.
+    // `defineAgent()` of vite-hub/agent resolves the app-wide journal by itself, and the Agent registry names discovered Agents.
+    ...(agentsEnabled ? [{ bindings: "installConsoleAgentDefinitions", module: "vite-hub/console/server" }] : []),
+    ...(agentsEnabled && agentSkills.some(Boolean) ? [{ bindings: "agentWithColocatedSkills", module: requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("runtime/workflow") }] : []),
   ]
+  const agentModules = agentsEnabled ? agents.map((agent, index) => ({ binding: `vitehubConsoleAgent${index}`, module: pathToFileURL(agent.handler).href })) : []
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async (request, options) => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request, options) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async () => (await import("#vitehub/env/server")).inspectServerEnv())`] : []),
@@ -238,22 +274,26 @@ function renderConsoleNitroPlugin(
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
-  ]
-  return [
-    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
-    ...accessCode.imports,
     ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from ${JSON.stringify(requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("runtime/workflow"))}`]
+      // Fixture mode installs its journal at startup, below, so Agents that run before the first Console request use it.
+      ? [`installConsoleAgentDefinitions([${definitions}], ${fixture ? `{ invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }` : `{ projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }`})`]
       : []),
+  ]
+  // The page loads the prebuilt app of @vite-hub/console-client. A Console that serves only the RPC needs no app.
+  const client = pageTools ? resolveConsoleClient() : undefined
+  return [
+    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, ${client ? "installConsoleClient, " : ""}installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/setup"`,
+    ...accessCode.imports,
+    ...(agentsEnabled && fixture ? [`import { installConsoleFixtureInvocations } from "vite-hub/console/server"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
-    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
+    ...(client ? [`installConsoleClient(${JSON.stringify({ script: client.script, style: client.style, pageTool: client.pageTool })})`] : []),
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
-    `  const [${runtimeImports.map(entry => `{ ${entry.bindings} }`).join(", ")}] = await Promise.all([${runtimeImports.map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
+    `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
     "  return () => {",
     ...runtimeInstall.map(line => `    ${line}`),
     "  }",
@@ -263,14 +303,8 @@ function renderConsoleNitroPlugin(
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
       : []),
-    ...(agentsEnabled
-      ? fixture
-        ? [
-            `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`,
-          ]
-        // The Console reads the journal that the Agent Invocations plugin installed before it.
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`]
+    ...(agentsEnabled && fixture
+      ? [`const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`]
       : []),
     // The Console link lives in the shared page tools pill.
     pageTools
@@ -280,24 +314,9 @@ function renderConsoleNitroPlugin(
   ].join("\n")
 }
 
-export async function writeConsoleNitroPlugin(
-  file: string,
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  fixture?: string,
-  runtimeBinding?: string,
-  invoke = false,
-  active: () => boolean = () => true,
-  independentAuth: true | "cloudflare-access" | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-  development = false,
-  applicationBase = "/",
-  pageTools = true,
-): Promise<string> {
+/** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
+export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
+  const { file, projectRoot, fixture, runtimeBinding, active = () => true } = options
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
     projectRoot,
@@ -306,7 +325,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, independentAuth, access, runtimeCapabilityImports, development, applicationBase, pageTools)
+  const rendered = renderConsoleNitroPlugin(options, snapshot)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
