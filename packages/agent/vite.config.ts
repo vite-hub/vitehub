@@ -6,7 +6,6 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
 // (`agentRuntimeModule()` in `./vite`). They are not public exports.
 const privateEntryExports = new Set([
-  "./eve",
   "./internal/workspace/internal/runtime/hosted",
   "./internal/workspace/internal/runtime/hosted-vercel-blob",
   "./internal/workspace/runtime",
@@ -71,7 +70,6 @@ export default defineConfig({
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",
-      "src/eve.ts",
       "src/observability.ts",
       "src/observability/host.ts",
       "src/observability/posthog.ts",
