@@ -237,6 +237,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     ".",
     "./client",
     "./database",
+    "./guard",
     "./operations",
     "./runtime",
     "./vite",
