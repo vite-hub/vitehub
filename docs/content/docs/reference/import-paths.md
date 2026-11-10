@@ -157,7 +157,7 @@ the same behavior.
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a long-lived OpenWorkflow worker process. Install `openworkflow`. |
-| `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, registry APIs, and the `workspaceFile()` Collection source. |
+| `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, and registry APIs. |
 | `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/checkout` | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |
 | `vite-hub/workspace/lineage` | `derivedFrom` helpers: `lineageDigest()`, `readDerivedFrom()`, and `staleDerivedFiles()`. |
@@ -211,17 +211,6 @@ These paths have no `vite-hub` path:
 | `@vite-hub/schedule/vite` | The Schedule Vite plugin. |
 | `@vite-hub/workflow/vite` | The Workflow Vite plugin. |
 | `@vite-hub/workspace/vite` | The Workspace Vite plugin. |
-
-If you use `@vite-hub/source/vite` directly, extend `@vite-hub/source/tsconfig`. It includes the generated Collection registry, so you need no framework TypeScript entry or `.vitehub` glob.
-
-TypeScript replaces inherited arrays. If you set your own `rootDirs` or `files`, keep the generated Source types in `include`:
-
-```json
-{
-  "extends": ["@vite-hub/source/tsconfig"],
-  "include": ["src", ".vitehub/types/source/**/*.d.ts"]
-}
-```
 
 ## Generated and internal paths
 

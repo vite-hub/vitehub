@@ -91,10 +91,7 @@ describe("Console Auth package exports", () => {
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
-const consolidatedOwnerExports = new Set([
-  "@vite-hub/docs/navigation",
-  "@vite-hub/workspace/ai",
-]);
+const consolidatedOwnerExports = new Set(["@vite-hub/docs/navigation"]);
 
 const lowLevelOwnerExports = new Set([
   // The Console reads the hashed entry names of the prebuilt Console app.
@@ -193,7 +190,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata";
   if (packageName === "@vite-hub/cli") return "framework tooling";
-  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
+  if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path))
