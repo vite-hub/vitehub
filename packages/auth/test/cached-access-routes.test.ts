@@ -27,19 +27,45 @@ async function createProject(routes: string[]): Promise<string> {
   return root
 }
 
-/** Installs the Nitro modules of the config as Nitro does, then runs the hook that Nitro calls before it builds. */
-async function buildNitro(nitro: Record<string, unknown>, routeRules: Record<string, Record<string, unknown>>, baseURL = "/"): Promise<void> {
-  const hooks: Array<() => unknown> = []
-  const instance = {
-    hooks: { hook: (name: string, callback: () => unknown) => { if (name === "build:before") hooks.push(callback) } },
-    options: { baseURL, routeRules },
+type RouteRules = Record<string, Record<string, unknown>>
+type NitroHook = (...args: unknown[]) => unknown
+
+/** A Nitro instance with the hooks, options, and logger that the Auth Nitro module reads. */
+function createNitro(routeRules: RouteRules, baseURL = "/", builder: string | false = "vite") {
+  const hooks = new Map<string, NitroHook[]>()
+  const errors: unknown[] = []
+  const nitro = {
+    hooks: {
+      hook: (name: string, callback: NitroHook) => { hooks.set(name, [...hooks.get(name) ?? [], callback]) },
+      callHook: async (name: string, ...args: unknown[]) => { for (const callback of hooks.get(name) ?? []) await callback(...args) },
+    },
+    logger: { error: (error: unknown) => { errors.push(error) } },
+    options: { baseURL, builder, routeRules },
   }
-  const modules = Array.isArray(nitro.modules) ? nitro.modules : []
-  for (const module of modules) await (module as { setup: (nitro: typeof instance) => unknown }).setup(instance)
-  for (const hook of hooks) await hook()
+  return { errors, nitro }
 }
 
-async function buildViteApp(routes: string[], routeRules: Record<string, Record<string, unknown>>, baseURL?: string): Promise<void> {
+type TestNitro = ReturnType<typeof createNitro>["nitro"]
+
+/** Installs the Nitro modules of the config as Nitro does. */
+async function installNitroModules(config: Record<string, unknown>, nitro: TestNitro): Promise<void> {
+  const modules = Array.isArray(config.modules) ? config.modules : []
+  for (const module of modules) await (module as { setup: (nitro: TestNitro) => unknown }).setup(nitro)
+}
+
+/** Runs the hooks that Nitro calls before a bundler builds: `build:before`, then `build:config`. */
+async function runBuildHooks(nitro: TestNitro): Promise<void> {
+  await nitro.hooks.callHook("build:before", nitro)
+  if (nitro.options.builder !== false) await nitro.hooks.callHook("build:config", nitro, {})
+}
+
+async function buildNitro(config: Record<string, unknown>, routeRules: RouteRules, baseURL = "/"): Promise<void> {
+  const { nitro } = createNitro(routeRules, baseURL)
+  await installNitroModules(config, nitro)
+  await runBuildHooks(nitro)
+}
+
+async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string): Promise<void> {
   const root = await createProject(routes)
   await buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), routeRules, baseURL)
 }
@@ -48,7 +74,7 @@ describe("Auth access routes with cache route rules", () => {
   it("fails the build when an swr rule caches a guarded route", async () => {
     await expect(buildViteApp(["'/dashboard/**'"], { "/dashboard/**": { swr: 60 } })).rejects.toMatchObject({
       code: "AUTH_B0002",
-      message: expect.stringContaining("Route rule \"/dashboard/**\" sets `cache` on \"/dashboard\""),
+      message: expect.stringContaining("Route rule \"/dashboard/**\" sets `cache` on GET requests to paths that the `access.routes` entry \"/dashboard/**\" guards"),
       fix: expect.stringContaining("cache: false"),
     })
   })
@@ -56,29 +82,25 @@ describe("Auth access routes with cache route rules", () => {
   it("fails the build when a prerender rule covers a guarded route", async () => {
     await expect(buildViteApp(["'/account'"], { "/**": { prerender: true } })).rejects.toMatchObject({
       code: "AUTH_B0002",
-      message: expect.stringContaining("Route rule \"/**\" sets `prerender` on \"/account\""),
+      message: expect.stringContaining("Route rule \"/**\" sets `prerender` on GET requests to paths that the `access.routes` entry \"/account\" guards"),
     })
   })
 
   it("fails the build when a rule caches a path below a guarded route", async () => {
     await expect(buildViteApp(["'/admin/**'"], { "/admin/:id/report": { isr: 60 } })).rejects.toMatchObject({
       code: "AUTH_B0002",
-      message: expect.stringContaining("sets `isr` on \"/admin/_/report\""),
+      message: expect.stringContaining("Route rule \"/admin/:id/report\" sets `isr`"),
     })
   })
 
   it("reads access routes and route rules below the Nitro base URL", async () => {
-    await expect(buildViteApp(["'/dashboard/**'"], { "/dashboard/**": { swr: 60 } }, "/portal/")).rejects.toMatchObject({
-      code: "AUTH_B0002",
-      message: expect.stringContaining("sets `cache` on \"/portal/dashboard\""),
-    })
+    await expect(buildViteApp(["'/dashboard/**'"], { "/dashboard/**": { swr: 60 } }, "/portal/")).rejects.toMatchObject({ code: "AUTH_B0002" })
     await expect(buildViteApp(["'/portal/admin/**'"], { "/admin/**": { swr: 60 } }, "/portal/")).rejects.toMatchObject({ code: "AUTH_B0002" })
     await expect(buildViteApp(["'/portal/admin/**'"], { "/blog/**": { swr: 60 } }, "/portal/")).resolves.toBeUndefined()
     // Nitro mounts every rule key below the base URL, also a key that starts with it: this rule caches "/portal/portal/report".
-    await expect(buildViteApp(["'/portal/**'"], { "/portal/report": { swr: 60 } }, "/portal/")).rejects.toMatchObject({
-      code: "AUTH_B0002",
-      message: expect.stringContaining("sets `cache` on \"/portal/portal/report\""),
-    })
+    await expect(buildViteApp(["'/portal/**'"], { "/portal/report": { swr: 60 } }, "/portal/")).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/portal/report'"], { "/report": { swr: 60 } }, "/portal/")).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/portal/report'"], { "/portal/report": { swr: 60 } }, "/portal/")).resolves.toBeUndefined()
   })
 
   it("passes when the cached route is not guarded", async () => {
@@ -91,6 +113,68 @@ describe("Auth access routes with cache route rules", () => {
 
   it("passes when the guard covers only methods that are not cached", async () => {
     await expect(buildViteApp(["{ route: '/api/posts', method: 'POST' }"], { "/api/**": { swr: 60 } })).resolves.toBeUndefined()
+  })
+
+  it("fails the build when a narrower rule turns off the cache on only part of a guarded route", async () => {
+    const cases: RouteRules[] = [
+      { "/admin/**": { swr: 60 }, "/admin": { cache: false } },
+      { "/admin/:id": { swr: 60 }, "/admin/_": { cache: false } },
+      { "/admin/**/report": { swr: 60 } },
+      { "/admin/:id(\\d+)": { swr: 60 } },
+      { "/**": { swr: 60 }, "/admin/**": { cache: false }, "/admin/public/**": { swr: 60 } },
+    ]
+    for (const routeRules of cases) {
+      await expect(buildViteApp(["'/admin/**'"], routeRules), JSON.stringify(routeRules)).rejects.toMatchObject({ code: "AUTH_B0002" })
+    }
+  })
+
+  it("checks each cached method that the guard covers", async () => {
+    await expect(buildViteApp(["'/admin/**'"], { "HEAD /admin/**": { swr: 60 } })).rejects.toMatchObject({
+      code: "AUTH_B0002",
+      message: expect.stringContaining("on HEAD requests"),
+    })
+    // GET rules apply to HEAD requests too.
+    await expect(buildViteApp(["{ route: '/admin/**', method: 'HEAD' }"], { "GET /admin/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["{ route: '/admin/**', method: 'HEAD' }"], {
+      "GET /admin/**": { swr: 60 },
+      "HEAD /admin/**": { cache: false },
+    })).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).resolves.toBeUndefined()
+  })
+
+  it("reads the route rules that a later build hook adds", async () => {
+    const root = await createProject(["'/dashboard/**'"])
+    const { nitro } = createNitro({})
+    await installNitroModules(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), nitro)
+    // Nuxt runs `nitro:build:before` in a `build:before` hook that it adds after the Nitro modules.
+    nitro.hooks.hook("build:before", () => { nitro.options.routeRules["/dashboard"] = { swr: 60 } })
+    await expect(runBuildHooks(nitro)).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
+  it("checks the route rules before Nitro starts without a builder", async () => {
+    const root = await createProject(["'/dashboard/**'"])
+    const { nitro } = createNitro({ "/dashboard/**": { swr: 60 } }, "/", false)
+    await installNitroModules(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), nitro)
+    await expect(runBuildHooks(nitro)).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
+  it("keeps the last checked route rules when a development update caches a guarded route", async () => {
+    const root = await createProject(["'/dashboard/**'"])
+    const { errors, nitro } = createNitro({ "/blog/**": { swr: 60 } })
+    await installNitroModules(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), nitro)
+    await runBuildHooks(nitro)
+    const checked = nitro.options.routeRules
+    let served: RouteRules | undefined
+    nitro.hooks.hook("build:reload", () => { served = nitro.options.routeRules })
+    // `nitro.updateConfig({ routeRules })` replaces the route rules, then calls `build:reload`.
+    nitro.options.routeRules = { "/dashboard": { swr: 60 } }
+    await nitro.hooks.callHook("build:reload")
+    expect(errors).toEqual([expect.objectContaining({ code: "AUTH_B0002" })])
+    expect(served).toBe(checked)
+    nitro.options.routeRules = { "/dashboard": { cache: false } }
+    await nitro.hooks.callHook("build:reload")
+    expect(errors).toHaveLength(1)
+    expect(served).toEqual({ "/dashboard": { cache: false } })
   })
 
   it("fails the Nuxt build when a route rule caches a guarded route", async () => {

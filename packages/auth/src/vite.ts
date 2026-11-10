@@ -42,8 +42,9 @@ const mergeNoExternal = createNoExternalAddition(authPackageName)
 type NitroConfig = Record<string, unknown>
 type NitroHandler = { handler: string; lazy?: boolean; method?: string; middleware?: boolean; route: string }
 type NitroBuild = {
-  hooks: { hook: (name: "build:before", callback: () => Promise<void>) => void }
-  options: { baseURL?: string, routeRules: Parameters<typeof assertNoCachedAccessRoutes>[1] }
+  hooks: { hook: (name: "build:before" | "build:config" | "build:reload", callback: () => Promise<void>) => void }
+  logger: { error: (error: unknown) => void }
+  options: { baseURL?: string, builder?: string | false, routeRules: Parameters<typeof assertNoCachedAccessRoutes>[1] }
 }
 
 export interface AuthVitePluginAPI {
@@ -300,13 +301,25 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
   const merged = kit.config as NitroConfig
   if (config.access.routes.length > 0) {
-    // The check runs before Nitro builds, after every module and the Nuxt config set the route rules.
     const { routes } = config.access
     const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => Reflect.get(Object(module), "name") !== cachedAccessRouteGuardName)
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
-        nitro.hooks.hook("build:before", () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL))
+        let checked = nitro.options.routeRules
+        const check = async () => {
+          await assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
+          checked = nitro.options.routeRules
+        }
+        // A bundler calls `build:config` after every `build:before` hook, such as Nuxt's `nitro:build:before`, and before
+        // it builds or prerenders. Without a builder, Nitro calls only `build:before`.
+        nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", check)
+        // In development, `nitro.updateConfig()` replaces the route rules and calls only `build:reload`, without waiting.
+        // Keep the last checked rules, so that the reload does not cache a guarded route, and log the error.
+        nitro.hooks.hook("build:reload", () => check().catch((error: unknown) => {
+          nitro.options.routeRules = checked
+          nitro.logger.error(error)
+        }))
       },
     }]
   }

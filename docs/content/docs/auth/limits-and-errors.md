@@ -56,7 +56,11 @@ Existing ViteHub errors and structural `AbortError` objects keep their identity.
 
 A route rule caches or prerenders a route that `access.routes` guards. The build stops before Nitro bundles the server, and the development server does not start. A cached or prerendered response is made for one visitor and then served to other visitors. A visitor can get the response for an anonymous visitor, or the page of another user.
 
-The check reads the route rules of Nitro after every module and the Nuxt config add them. `swr`, `cache`, `isr`, `prerender`, and `static` cache a response. The message names the route rule, the rule that caches, the path, and the access route that guards it. A wider rule also counts: `'/**': { prerender: true }` covers a guarded `/dashboard/**`.
+The check reads the route rules of Nitro after every module, the Nuxt config, and every `nitro:build:before` hook add them. `swr`, `cache`, `isr`, `prerender`, and `static` cache a response. The message names the route rule, the rule that caches, the request method, and the access route that guards it. The check compares route patterns, so a rule counts when it caches at least one guarded path for `GET` or `HEAD`. A wider rule also counts: `'/**': { prerender: true }` covers a guarded `/dashboard/**`. A narrower rule also counts: `'/dashboard/:id(\\d+)': { swr: 60 }` caches a part of a guarded `/dashboard/**`.
+
+A rule that turns the cache off must match every guarded path. `'/dashboard': { cache: false }` does not turn off `'/dashboard/**': { swr: 60 }` for `/dashboard/report`. Set the rule on the guarded pattern, for example `'/dashboard/**'`.
+
+In development, a route rule update that caches a guarded route logs `AUTH_B0002`, and the server keeps the last route rules that passed the check.
 
 To fix the build, do one of these:
 
