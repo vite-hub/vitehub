@@ -263,11 +263,48 @@ The old catalogs have no export baseline comments. They can create records witho
 
 By default, translations are files in your repository, and a new translation needs a deploy. To change translations without a deploy, store them in a [Workspace](/docs/workspace) with retained history, such as the Blob and Database store or the GitHub store:
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-vitehub({ i18n: { locales: ['en', 'es'], workspace: 'translations' } })
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
+})
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+  ],
+})
+```
+:::
+::
 
 The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments/<hh>/<hash>.json`. It has two refs:
 
