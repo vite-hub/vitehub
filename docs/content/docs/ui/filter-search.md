@@ -3,7 +3,7 @@ title: Filter Search
 description: "A text box that turns typed words into filter choices. It drives useChoices() and leaves the filters, the request, and the state to your app."
 navigation.order: 26
 navigation.group: Chat
-icon: i-ph-magnifying-glass-light
+icon: i-lucide-search
 ---
 
 `FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.

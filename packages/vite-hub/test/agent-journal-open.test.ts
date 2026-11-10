@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations } from "../src/internal/agent-invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 
 // The libSQL driver that the generated plugin passes outside a Cloudflare production build.

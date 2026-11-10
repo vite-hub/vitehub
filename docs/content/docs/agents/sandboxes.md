@@ -32,7 +32,7 @@ pnpm add @vite-hub/agent @vite-hub/sandbox
 This Agent gives Codex a private Home and checks the required CLIs before each Invocation (one run of the Agent):
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
@@ -50,40 +50,12 @@ Each Invocation opens a new Sandbox session. It creates a private Home, installs
 `trusted-host` isolates only the Home folder and declared environment values, not the filesystem, network, processes, or installed executables. Use it only when the Agent may act with the host user's authority.
 :::
 
-## Limit worker memory on Linux
-
-A trusted-host Sandbox can limit memory for all session commands and their children in one cgroup v2 group:
-
-```ts fragment
-sandbox: {
-  runtime: {
-    kind: 'trusted-host',
-    resources: {
-      cgroupParent: '/sys/fs/cgroup/system.slice/agent.service',
-      memoryHighBytes: 3 * 1024 ** 3,
-      memoryMaxBytes: 4 * 1024 ** 3,
-      memorySwapMaxBytes: 128 * 1024 ** 2,
-    },
-  },
-},
-```
-
-`cgroupParent` must be writable, delegate the memory controller, and hold no processes. With systemd 254 or later, set `Delegate=memory` and `DelegateSubgroup=controller` and allow writes to delegated groups. Each Sandbox gets its own child group, with the ViteHub controller outside it. Without delegation, the limits fail closed: the Sandbox does not run. Swap defaults to zero.
-
-When a worker runs out of memory (OOM), the kernel kills its command group. Command waits reject with `SANDBOX_R0158`, with the limit, peak memory, and OOM kill count. Later commands in that session fail, so reduce the workload before you retry. On close, ViteHub kills remaining children and removes the cgroup. Inspect the configuration with `sandbox.plan.resources`.
-
-Limits cover session `exec` and `spawn`, including the provider's native tools. Checkout preparation, toolchain setup, requirement checks, and the trusted launcher's environment setup use the controller's service budget. The launcher joins the session cgroup before the command or any caller-controlled loader hooks run.
-
-::warning
-Keep a service limit as a second boundary. Trusted-host commands keep the host user's authority; resource limits are not a security sandbox.
-::
-
 ## Pin an exact checkout
 
 When every run must inspect an exact commit, read repository facts from trusted Invocation data, which Sandbox callbacks receive:
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 interface PullRequest {
   ref: string
@@ -152,7 +124,7 @@ Boot fails when the project pins no Node.js version and no `fallbackNode` is set
 Keep secrets out of the repository. Load them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads credentials from the Sandbox Home, such as `.codex/auth.json`.
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({
@@ -281,12 +253,3 @@ Launch diagnostics hide resolved `sandbox.env` values. Home files and saved stat
 Use `@vite-hub/sandbox` directly when application code owns the process lifecycle. Use [`sandbox()`](/docs/sandbox/agent-capability) to give a model-backed Agent a tool that runs only allowlisted executables.
 
 Provider status inside an Agent Sandbox is not inspectable yet: `agent.status()` reports `readiness: "unsupported"`, but the Invocation still runs in the Sandbox.
-
-### Out-of-memory details
-
-- Without kernel `memory.peak`, the diagnostic reports `peak=unavailable`.
-- A local allocation OOM, even an allocation failure without a kill, invalidates the session, because it shows the session used its whole budget. This works with `memory_localevents` mounts.
-- A kill by a parent group or the host alone does not invalidate the session.
-- The reported `memory.events` kill count is context, not proof of the cause. On `memory_localevents` mounts, it can leave out killed children.
-- Nested cgroups are removed on close.
-- The launcher restores the command environment only after it joins the session group.

@@ -31,7 +31,7 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
 
 ```bash pm [commands/install-nuxt]
-pnpm add vite-hub h3@^2.0.8
+pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
 > [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
@@ -59,7 +59,7 @@ Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt 
 In your Nitro app, install ViteHub and its H3 version:
 
 ```bash pm [commands/install-nitro]
-pnpm add vite-hub h3@^2.0.8
+pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
 Add `vitehub()` to `vite.config.ts` before `nitro()`, so ViteHub uses your Nitro plugin. Keep your other plugins.
@@ -111,7 +111,7 @@ Install ViteHub with its Nitro and H3 versions, plus Vite and TypeScript.
 `3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
-pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8
+pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
@@ -206,14 +206,14 @@ Each feature is off until you turn it on in the ViteHub options, for example `kv
 
 ## Add feature packages
 
-Each feature other than Env, Source, Logs, and the Console needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
+Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
 
 ```text [output/missing-package.txt]
 [vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
 ::details{summary="Which features need their own package?"}
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
+`vite-hub` includes Env, Source, Logs, and the Console endpoint. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
 | Feature | Add these packages |
 | --- | --- |

@@ -71,7 +71,7 @@ export interface DefaultAgentInvocationsOptions {
 export interface DefaultAgentInvocationsCoreOptions extends DefaultAgentInvocationsOptions {
   /**
    * The libSQL driver for a local SQLite file or a libSQL URL. Without it, a journal that selects one of them throws
-   * `AGENT_R1030`. A host omits it when the build stores the journal in D1 or memory, such as a Cloudflare Worker.
+   * `AGENT_R1036`. A host omits it when the build stores the journal in D1 or memory, such as a Cloudflare Worker.
    */
   libsql?: DefaultAgentInvocationsLibsql
 }
@@ -218,7 +218,7 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
 
 function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAgentInvocationsCoreOptions): AgentInvocations {
   const loadLibsql = options.libsql
-  if (!loadLibsql) throw agentDiagnostics.AGENT_R1030()
+  if (!loadLibsql) throw agentDiagnostics.AGENT_R1036()
   // Concurrent first uses share one open. A failed open lets the next use try again.
   let opened: ReturnType<typeof openDefaultLibsqlJournal> | undefined
   const open = () => opened ??= Promise.all([loadLibsql(), resolveTarget(options.projectRoot, target)])

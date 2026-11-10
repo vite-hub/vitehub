@@ -1,7 +1,6 @@
 import * as v from "valibot"
 
 import { isSafeEndpoint, isValidApiKeyProvider } from "./api-key.ts"
-import { isValidLoginProvider } from "./oauth-login.ts"
 import { chatgptProviderSchema } from "./chatgpt.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ConnectionApiSelection, ConnectionDefinition, ConnectionInstancesDefinition } from "./types.ts"
@@ -36,6 +35,7 @@ const requestsSchema = v.optional(v.strictObject({
 }))
 
 const rulesSchema = {
+  docs: v.optional(v.string()),
   api: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), v.optional(v.array(v.string()))))),
   access: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), accessRuleSchema))),
 }
@@ -78,36 +78,11 @@ const apiKeyDefinitionSchema = v.looseObject({
   scopes: v.optional(v.undefined()),
   ...rulesSchema,
 })
-const loginDefinitionSchema = v.looseObject({
-  provider: v.pipe(
-    v.nonNullish(v.unknown()),
-    v.check(provider => Object.prototype.hasOwnProperty.call(provider, "kind")),
-    v.looseObject({
-      kind: v.literal("oauth-login"),
-      id: v.pipe(v.string(), v.regex(/^\S+$/)),
-      login: v.function(),
-      origins: v.array(v.string()),
-      redirectUri: v.string(),
-      issuer: mcpSchema,
-      resource: mcpSchema,
-      apis: v.optional(apiCatalogsSchema),
-      clientId: v.optional(connectionValue),
-      clientName: v.optional(v.string()),
-      credentials: v.optional(v.function()),
-      account: v.optional(v.function()),
-      mcp: mcpSchema,
-      requests: requestsSchema,
-    }),
-    v.check(provider => isValidLoginProvider(provider)),
-    v.check(provider => Object.values(provider.apis ?? {}).every(catalog => isSafeEndpoint(catalog.rootUrl))),
-  ),
-  scopes: v.optional(v.array(v.string())),
-  ...rulesSchema,
-})
 const definitionSchema = v.pipe(
-  v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, loginDefinitionSchema, v.strictObject({
+  v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, v.strictObject({
     provider: chatgptProviderSchema,
     access: v.record(v.string(), v.strictObject({ read: v.optional(v.boolean()) })),
+    docs: v.optional(v.string()),
   })]),
   // The `"mcp"` preset allows only the provider's `mcp` endpoint, so a provider without one would deny every call.
   v.check(definition => definition.provider.mcp !== undefined || !Object.values(definition.access ?? {}).includes("mcp")),

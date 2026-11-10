@@ -254,11 +254,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   const failed = (error: CommentsApiError) => showToast({ text: error.fix ? `${error.why} ${error.fix}` : error.why, kind: "error" })
 
-  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
-  const account = (): CommentUser | undefined => {
-    const user = session?.user
-    return user && !(user.guest && user.id === "guest:console") ? user : undefined
-  }
+  /** The server-identified person. */
+  const account = (): CommentUser | undefined => session?.user ?? undefined
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
@@ -314,9 +311,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   const edit = createInlineEdit({
     page: () => page.value,
-    openTool: async path => await context?.openTool("console", path) ?? false,
-    contentPath: () => `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`,
-    info: (text, link) => showToast({ text, kind: "info", link }),
+    info: text => showToast({ text, kind: "info" }),
     failed,
     drafted(field) {
       drafted.value = new Set([...drafted.value, field])

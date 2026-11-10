@@ -2,8 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { ownModule } from "@vite-hub/internal/build/paths"
+import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
@@ -12,10 +12,9 @@ import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { Plugin } from "vite"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { AgentInvocationsDefault } from "./internal/agent-invocations.ts"
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 
 // Generated code imports this vite-hub module by path. It is not a package export.
-const agentInvocationsModule = ownModule(import.meta.url, "internal/agent-invocations")
 const agentInvocationsLibsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
@@ -82,7 +81,7 @@ export function assertAgentInvocationsUrl(preset: string | undefined, databaseUr
 /**
  * Whether a default journal can select SQLite or libSQL, so the generated server must load the libSQL driver.
  * A Cloudflare production build stores it in D1 or Worker memory unless `databaseUrl` selects libSQL. Development
- * keeps the local file. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` on such a Worker then throws `AGENT_R1030`.
+ * keeps the local file. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` on such a Worker then throws `AGENT_R1036`.
  */
 export function defaultJournalNeedsLibsql(options: { build: boolean, databaseUrl?: string, preset?: string }): boolean {
   return !options.build || options.preset !== "cloudflare" || Boolean(options.databaseUrl?.trim())
@@ -103,7 +102,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ...(journal.length ? [`journal: { ${journal.join(", ")} }`] : []),
   ]
   return [
-    `import { installAgentInvocations } from ${JSON.stringify(agentInvocationsModule)}`,
+    `import { installAgentInvocations } from "@vite-hub/agent/invocations/app"`,
     "",
     // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,

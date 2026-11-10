@@ -1,5 +1,5 @@
 import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
@@ -5836,7 +5836,7 @@ describe("agent message protocol", () => {
     expect(first.channels?.existing).toBe(existing)
     expect(first.channels?.portal).not.toBe(second.channels?.portal)
     expect(first.workspace).toMatchObject(workspace)
-    expect(Object.values(first.channels || {}).every(channel => hasRuntimeType(channel, "object"))).toBe(true)
+    expect(Object.values(first.channels || {}).every(channel => typeof channel === "object")).toBe(true)
   })
 
   it("rejects built-in Channel settings without their factory", async () => {
@@ -6673,9 +6673,9 @@ describe("agent message protocol", () => {
           output(context) {
             context.output.render((result, renderContext) => {
               const usageValue = renderContext.output.extensions.get("usage-note")
-              const usage = isRuntimeRecord(usageValue) && hasRuntimeType(usageValue.summary, "string") ? usageValue : undefined
+              const usage = isRuntimeRecord(usageValue) && typeof usageValue.summary === "string" ? usageValue : undefined
               const summaryValue = renderContext.output.extensions.get("usage-note", "summary")
-              const summary = hasRuntimeType(summaryValue, "string") ? summaryValue : undefined
+              const summary = typeof summaryValue === "string" ? summaryValue : undefined
               const missing = renderContext.output.extensions.get("missing")
               return `${result}:${usage?.summary}:${summary}:${String(missing)}`
             })
@@ -6705,7 +6705,7 @@ describe("agent message protocol", () => {
           output(context) {
             context.output.final((result, renderContext) => {
               const summaryValue = renderContext.output.extensions.get("usage-note", "summary")
-              const summary = hasRuntimeType(summaryValue, "string") ? summaryValue : undefined
+              const summary = typeof summaryValue === "string" ? summaryValue : undefined
               return `${result}:${summary}`
             })
           },
@@ -10136,7 +10136,7 @@ describe("agent message protocol", () => {
     })
     const progress = events.find(event => event.type === "data-progress-summary")
     const progressData = isRuntimeRecord(progress?.data) ? progress.data : undefined
-    const summary = hasRuntimeType(progressData?.summary, "string") ? progressData.summary : undefined
+    const summary = typeof progressData?.summary === "string" ? progressData.summary : undefined
     expect(summary?.length).toBeLessThanOrEqual(80)
     expect(summary).toMatch(/…$/)
   })
@@ -16033,7 +16033,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
+        support: async () => ({ handler: async (_payload, context) => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
       })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16080,7 +16080,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
         "named-discovered": async () => ({
-          handler: async context => ({ marker: "registry", payload: context.payload }),
+          handler: async (_payload, context) => ({ marker: "registry", payload: context.payload }),
         }),
       })
 

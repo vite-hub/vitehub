@@ -113,14 +113,14 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | Person | Without `authorize` |
 | --- | --- |
 | Signed in [with GitHub](#sign-in-with-github) | Everything when they can push to the build's repository. Otherwise nothing, also on the dev server. |
-| Admitted by the [Console](#comment-as-the-console-team) to its Comments section, in an app without `identify` | Everything the Console grant allows. Comment operations, the CLI, and MCP always run after this check. |
+| A caller of comment operations through the [Console](#comments-through-the-console), the CLI, or MCP, with the Comments section, in an app without `identify` | Everything the Console grant allows. The overlay on pages does not use this check. |
 | Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API returns [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the log shows `COMMENTS_R0006` once. |
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
 The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
 
-The user comes from the first of: `identify`, the [Console](#comment-as-the-console-team), the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github).
+On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -189,9 +189,11 @@ An OAuth App works for public repositories only. Comments asks only for the `rea
 
 Comments needs no email permission. When GitHub hides a person's email, Comments uses their noreply address, `<id>+<login>@users.noreply.github.com`.
 
-### Comment as the Console team
+### Comments through the Console
 
-With the [Console](/docs/development/console) and no `identify`, Comments admits only the people that the Console lets use its **Comments** section. The toolbar never opens for others. `authorize` still runs after that check, with the Console user. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/development/console), the CLI, and MCP need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+
+The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -227,17 +229,15 @@ export default defineConfig({
 :::
 ::
 
-See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
+See [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and Content field edits need the full `comments` grant and the Comments policy.
-
-When a person signs in with `auth: 'app'` or opens the Console, the next page calls `GET /_vitehub/page/session`. It sets `vitehub-tools=1` when the person may read comments, so pages show the toolbar from then on. Others get `vitehub-tools=0`, and load no Comments script.
 
 | Console sign-in | Comment author |
 | --- | --- |
 | `auth: 'app'` or a Console Auth config | The signed-in Console user |
 | `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
-| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). The overlay asks for a display name when guests are allowed. |
+| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). |
 
 ### Use your own login
 
@@ -304,7 +304,8 @@ export const comments = defineComments({
 ```
 
 ```ts [server/api/docs/[id]/comments.post.ts]
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { comments } from '../../../comments'
 import { canComment, requireUser } from '../../../utils/docs'
 
@@ -312,7 +313,7 @@ export default defineEventHandler(async (event) => {
   const user = await requireUser(event)
   const id = getRouterParam(event, 'id')!
   if (!await canComment(user, id)) throw new Error('You cannot comment on this document.')
-  const { body, quote, version } = await readBody<{ body: string, quote: string, version: number }>(event)
+  const { body, quote, version } = await readValidatedBody(event, body => v.parse(v.object({ body: v.string(), quote: v.string(), version: v.number() }), body))
   const [error, thread] = await comments.create({
     subject: { kind: 'doc', id },
     revision: version,
@@ -581,7 +582,7 @@ Copy the ownership records with the files when you back up Blob storage. Uploads
 
 ## Turn comment mode on and off
 
-Comments is a ViteHub page tool, a tool that runs on your app's pages. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on a page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same.
+Comments is a ViteHub page tool, a tool that runs on your app's pages. Comment mode starts after a person signs in with ViteHub Auth, or on a page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same.
 
 1. The page loads the page tools loader, which calls `GET /_vitehub/page/session`.
 2. That route runs each page tool's visitor check. Comments allows the overlay when `authorize` allows `read`, or to offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads.
@@ -589,7 +590,7 @@ Comments is a ViteHub page tool, a tool that runs on your app's pages. Comment m
 
 The cookie is only a hint. Every API request checks access again.
 
-The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. With the Console, the pill also has a **Console** link for people the Console lets in. The pill's **×** button, **Turn off ViteHub tools**, turns all page tools off: it sets `vitehub-tools=0` and removes the query and the pill.
+The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. The pill's **×** button, **Turn off ViteHub tools**, turns all page tools off: it sets `vitehub-tools=0` and removes the query and the pill.
 
 | Key | Action |
 | --- | --- |
@@ -653,7 +654,7 @@ defineProps<{
 The field is a dot path into the document, such as `hero.title` or `cards.0.title`. Without Vue, write the attribute yourself, or build it with `formatContentField({ collection, id, field })`.
 
 - Put the attribute on an element that holds only the field text. An edit replaces its text, so child elements disappear until the page renders again.
-- Only fields with a string draft value are editable on the page. For others and the Markdown body, the overlay links to the Console editor.
+- Only fields with a string draft value are editable on the page. For others and the Markdown body, use the Content section of the Console.
 - An edit needs `write` from Comments and from the [Content `authorize`](/docs/content/configure#access) policy for that document. Guests can edit only when the Content policy allows `user: null`.
 - <kbd>Enter</kbd> or leaving the field saves. <kbd>Esc</kbd> cancels.
 
@@ -723,13 +724,13 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Console's Comments section at `/_vitehub/comments` lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
+The Comments section of the [Console](/docs/development/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 
 ## Fix comments with an Agent
 
-The Console serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. A connected Agent lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts with your Console access, and `authorize` applies to each call.
+The app serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. A connected Agent lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts with your Console access, and `authorize` applies to each call.
 
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
 
@@ -737,4 +738,4 @@ Your own MCP server can register the same tools. `commentsMcpTools(comments)` fr
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.
 ::
 
-Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the Request or the H3 event of the call; `authorize` then decides. Without `identify`, pass Console access with `commentsMcpTools(comments, { consoleSession })`. A `false` result or failed read denies access before `authorize`. Otherwise the tools use the Console reader, else the Auth reader in `{ session }`, else `user`. Browser guest headers name an author only when `authorize` permits the anonymous caller.
+Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the Request or the H3 event of the call; `authorize` then decides. Without `identify`, the tools use `user`. Pass `commentsMcpTools(comments, { console: true })` only when your server checked Console access of the `comments` section first, as ViteHub MCP does: the default policy then trusts `user`, the same as the comment operations. Browser guest headers name an author only when `authorize` permits the anonymous caller.

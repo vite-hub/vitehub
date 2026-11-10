@@ -8,7 +8,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations, resolveDefaultAgentInvocations } from "../src/internal/agent-invocations.ts"
+import { installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 

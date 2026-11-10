@@ -38,15 +38,14 @@ function sourceFile(specifier: string, importer?: string): string | undefined {
 }
 
 /**
- * The packages that the default journal plugin can load, through static and dynamic imports, without entering the
- * Agent runtime (`@vite-hub/agent/server`), which Agents load anyway. A bundler keeps every one of them in the output,
- * and workerd compiles every module of a Worker when an isolate starts.
+ * The files and packages that the default journal plugin can load through static and dynamic imports. A bundler
+ * keeps every one of them in the output, and workerd compiles every module of a Worker when an isolate starts.
  */
-function journalPackages(code: string): Set<string> {
+function journalGraph(code: string): { files: Set<string>, packages: Set<string> } {
   const files = new Set<string>()
   const packages = new Set<string>()
   const visit = (specifier: string, importer?: string): void => {
-    const file = specifier === "@vite-hub/agent/server" ? undefined : sourceFile(specifier, importer)
+    const file = sourceFile(specifier, importer)
     if (!file) {
       packages.add(specifier)
       return
@@ -56,7 +55,7 @@ function journalPackages(code: string): Set<string> {
     for (const match of withoutComments(readFileSync(file, "utf8")).matchAll(valueImport)) visit((match[1] ?? match[2])!, file)
   }
   for (const match of withoutComments(code).matchAll(valueImport)) visit((match[1] ?? match[2])!)
-  return packages
+  return { files, packages }
 }
 
 /** The journal plugin that the Agent Invocations Vite plugin generates for a preset and command. */
@@ -84,8 +83,8 @@ describe("default Agent Invocation journal libSQL driver", () => {
   it.each(["DB", undefined])("keeps libSQL out of a Cloudflare production build with D1 binding %s", async (d1) => {
     const generated = await generatedPlugin({ command: "build", d1, preset: "cloudflare" })
     if (d1) expect(generated).toContain(`d1: { binding: "DB"`)
-    const packages = journalPackages(generated)
-    expect(packages).toContain("@vite-hub/agent/server")
+    const { files, packages } = journalGraph(generated)
+    expect(files).toContain(join(agentRoot, "src/invocations/default-core.ts"))
     expect(packages).not.toContain("@libsql/client")
   })
 
@@ -97,6 +96,6 @@ describe("default Agent Invocation journal libSQL driver", () => {
   ] as const)("loads libSQL when the journal can select SQLite or libSQL: %j", async (options) => {
     const generated = await generatedPlugin(options)
     expect(generated).toContain(`libsql: () => import(${JSON.stringify(libsqlModule)})`)
-    expect(journalPackages(generated)).toContain("@libsql/client")
+    expect(journalGraph(generated).packages).toContain("@libsql/client")
   })
 })
