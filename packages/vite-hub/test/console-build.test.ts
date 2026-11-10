@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleBuildKey, consoleBuildRegistryKey, consoleBuildRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleNitroPlugin, type ConsoleNitroPluginOptions } from "../src/console/plugin.ts"
 import { consoleBuildCheckInterval, useConsoleUpdate, watchConsoleBuild } from "../src/console/runtime/client/build.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
@@ -24,8 +24,8 @@ function event(): ConsoleRequestEvent {
   return consoleEvent({ remoteAddress: "127.0.0.1", url: "http://localhost/_vitehub" })
 }
 
-async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {
-  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [])
+async function generatedBuild(file: string, root: string, sections: ConsoleNitroPluginOptions["sections"]): Promise<string> {
+  await writeConsoleNitroPlugin({ file, projectRoot: root, sections, catalog: { agents: [], content: {} }, blobStores: [] })
   const build = buildPattern.exec(await readFile(file, "utf8"))?.[1]
   if (!build) throw new TypeError("Expected the generated Console plugin to install a build id.")
   return build
