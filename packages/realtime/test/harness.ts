@@ -356,11 +356,13 @@ export function createMemoryBusNetwork() {
     const hooks: Array<() => Promise<void>> = []
     const listeners = new Set<(message: RealtimeBusMessage) => void | Promise<void>>()
     let queue = Promise.resolve()
+    let stopped = false
     const self: MemoryBus = {
       authority,
       instance,
       published: [],
       async publish(message) {
+        if (stopped) return
         const sent = { ...message, instance, data: Uint8Array.from(message.data) }
         self.published.push(sent)
         for (const [member, deliver] of members) {
@@ -405,9 +407,11 @@ export function createMemoryBusNetwork() {
       },
       async close() {
         for (const hook of hooks) await hook()
+        stopped = true
         members.delete(instance)
       },
       crash() {
+        stopped = true
         members.delete(instance)
       },
     }

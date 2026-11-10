@@ -66,6 +66,58 @@ describe("rooms shared across instances", () => {
     expect(onB.controls[0]).toMatchObject({ type: "session", epoch: onA.controls[0]!.type === "session" ? onA.controls[0]!.epoch : undefined })
   })
 
+  it.each([[false, false], [true, false], [false, true], [true, true]])("repairs a lost update (later update: %s, failed publish: %s)", async (later, throws) => {
+    const { a, b, busA } = twoInstances()
+    const onA = await a.connect("page")
+    const onB = await b.connect("page")
+    await flush()
+    const publish = busA.publish.bind(busA)
+    let lost = false
+    vi.spyOn(busA, "publish").mockImplementation(async (message) => {
+      if (message.type === "update" && !lost) {
+        lost = true
+        if (throws) throw new Error("Publish failed")
+        return
+      }
+      await publish(message)
+    })
+    appendParagraph(onA.doc, "Lost")
+    await flush()
+    if (later) appendParagraph(onA.doc, "After")
+    await flush(later ? 500 : 15_000)
+    expect(paragraphs(onB.doc)).toEqual(paragraphs(onA.doc))
+    appendParagraph(onB.doc, "Still writable")
+    await flush()
+    expect(onB.closed).toBeUndefined()
+    const newcomer = await b.connect("page")
+    await flush()
+    expect(newcomer.closed).toBeUndefined()
+    expect(paragraphs(onA.doc)).toContain("Still writable")
+  })
+
+  it("does not transfer remote awareness ownership on a stock client's echo", async () => {
+    const { a, b } = twoInstances()
+    const onA = await a.connect("page")
+    const onB = await b.connect("page")
+    const watcher = await b.connect("page")
+    await flush()
+    const ada = createClientAwareness(onA)
+    ada.set({ user: { name: "Ada" }, cursor: 1 })
+    await flush()
+    const encoder = encoding.createEncoder()
+    encoding.writeVarUint(encoder, messageAwareness)
+    encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(ada.awareness, [onA.doc.clientID]))
+    ;(onB.response as Response & { crossws: { message(peer: object, message: { uint8Array(): Uint8Array }): void } })
+      .crossws.message(onB.peer, { uint8Array: () => encoding.toUint8Array(encoder) })
+    await flush()
+    ada.set({ user: { name: "Ada" }, cursor: 2 })
+    await flush()
+    expect(presence(watcher).get(onA.doc.clientID)).toMatchObject({ cursor: 2 })
+    onA.close()
+    await flush()
+    expect(presence(watcher).has(onA.doc.clientID)).toBe(false)
+  })
+
   it("gives an instance that opens a room later the edits of the instances that have it open", async () => {
     const { a, b } = twoInstances()
     const onA = await a.connect("page")
@@ -300,6 +352,68 @@ describe("saves across instances", () => {
     await flush(10_000)
 
     expect(memory.store.get("page")!.body.split("\n\n")).toEqual(["Start", "Edit 1", "Edit 2"])
+  })
+
+  it.each(["throw", "reject", "crash", "open"])("recovers a saved document when the final record write fails: %s", async (failure) => {
+    const { a, b, busA, controlA, memory, network } = controlledInstances()
+    const onA = await a.connect("page")
+    const onB = await b.connect("page")
+    await flush()
+    const epoch = network.records.get(realtimeRoomKey("docs", "page"))!.epoch
+    const write = busA.writeRoom.bind(busA)
+    let failed = false
+    vi.spyOn(busA, "writeRoom").mockImplementation(async (key, record, ifEpoch) => {
+      if (record.digest === "v2" && (!failed || failure === "crash" || failure === "open")) {
+        failed = true
+        if (failure === "reject") return false
+        throw new Error("Record write failed")
+      }
+      return await write(key, record, ifEpoch)
+    })
+    const release = controlA.holdSave()
+    appendParagraph(onA.doc, "Saved by A")
+    await flush(2_100)
+    appendParagraph(onB.doc, "Typed on B")
+    await flush()
+    release()
+    await settle()
+    if (failure === "crash" || failure === "open") {
+      busA.crash()
+      controlA.crash()
+    }
+    if (failure === "open") {
+      const c = createTestServer(definition(memory.adapter), { handler: { bus: () => network.bus() } })
+      const onC = await c.connect("page")
+      await flush()
+      expect(onC.closed).toBeUndefined()
+      expect(paragraphs(onC.doc)).toContain("Typed on B")
+    }
+    await flush(10_000)
+    expect(failed).toBe(true)
+    expect(memory.store.get("page")!.body).toBe("Start\n\nSaved by A\n\nTyped on B")
+    expect([...onA.controls, ...onB.controls].filter(control => control.type === "reset")).toEqual([])
+    expect(network.records.get(realtimeRoomKey("docs", "page"))).toMatchObject({ epoch, digest: memory.store.get("page")!.digest })
+  })
+
+  it("restores an unfinished pending save when its instance stops before the adapter writes", async () => {
+    const { a, b, busA, controlA, memory, network } = controlledInstances()
+    const onA = await a.connect("page")
+    await flush()
+    const release = controlA.holdSave()
+    appendParagraph(onA.doc, "Pending")
+    await flush(2_100)
+    const record = network.records.get(realtimeRoomKey("docs", "page"))!
+    expect(record).toMatchObject({ pending: true, digest: "v1" })
+    controlA.crash()
+    busA.crash()
+    release()
+    await flush()
+    const onB = await b.connect("page")
+    await flush(3_000)
+    expect(paragraphs(onB.doc)).toEqual(["Start", "Pending"])
+    expect(onB.closed).toBeUndefined()
+    expect(memory.store.get("page")!.body).toBe("Start\n\nPending")
+    expect(network.records.get(realtimeRoomKey("docs", "page"))).toMatchObject({ epoch: record.epoch, digest: "v2" })
   })
 
   it("does not re-seed when a room opens while another instance saves", async () => {

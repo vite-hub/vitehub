@@ -30,6 +30,8 @@ export interface RealtimeRoomRecord {
   epoch: string
   digest: string | null
   state: Uint8Array
+  /** The state submitted to a save that may have completed before its digest could be recorded. */
+  pending?: boolean
 }
 
 /**

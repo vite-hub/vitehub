@@ -138,6 +138,14 @@ Realtime creates its two Postgres tables in the Default Database, or in the
 `REALTIME_POSTGRES_URL` database, when it first connects. On the Default
 Database, the bus listens on its client and never closes it. A `pg_advisory_xact_lock()` makes the instances create them one at a time.
 
+
+Postgres Realtime needs a direct connection or a pooler in session mode.
+Transaction poolers, including PgBouncer in transaction mode and Neon pooled
+connections, do not support `LISTEN`. Realtime does not probe notification
+delivery at startup. Use `REALTIME_POSTGRES_URL` with a direct or session-mode
+URL when the Default Database uses a transaction pooler. The Default Database
+can keep its pooled URL.
+
 ## Develop locally
 
 The dev server holds rooms in its own process, with every authority. Nitro's

@@ -50,6 +50,18 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
     return { a: a!, b: b!, busA: buses[0]!, document, memory }
   }
 
+  it.skipIf(!url)("keeps the pending save marker until the saved record replaces it", async () => {
+    const bus = await create(url!)
+    opened.push(bus)
+    const room = `pending-${crypto.randomUUID()}`
+    const epoch = crypto.randomUUID()
+    const state = new Uint8Array([1, 2, 3])
+    expect(await bus.writeRoom(room, { epoch, digest: "v1", state, pending: true }, null)).toBe(true)
+    expect(await bus.readRoom(room)).toEqual({ epoch, digest: "v1", state, pending: true })
+    expect(await bus.writeRoom(room, { epoch, digest: "v2", state }, epoch)).toBe(true)
+    expect(await bus.readRoom(room)).toEqual({ epoch, digest: "v2", state, pending: false })
+  })
+
   it.skipIf(!url)("sends an edit from a client on A to a client on B", async () => {
     const { a, b, document } = await twoInstances()
     const onA = await a.connect(document)

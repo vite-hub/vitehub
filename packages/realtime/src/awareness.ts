@@ -101,6 +101,7 @@ function dropForeignAwareness<Peer extends object>(
   owners: ReadonlyMap<number, Peer>,
   peer: Peer,
   transferable: (owner: Peer) => boolean,
+  awareness: awarenessProtocol.Awareness,
 ): Uint8Array {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
@@ -111,7 +112,9 @@ function dropForeignAwareness<Peer extends object>(
     const clock = decoding.readVarUint(decoder)
     const state = decoding.readVarString(decoder)
     const owner = owners.get(client)
-    if (!owner || owner === peer || transferable(owner)) kept.push([client, clock, state])
+    // An echo has the same clock. Only a new state (or a client whose remote state was removed) can move ownership.
+    if (!owner || owner === peer || (transferable(owner)
+      && (!awareness.getStates().has(client) || clock > (awareness.meta.get(client)?.clock ?? -1)))) kept.push([client, clock, state])
   }
   if (kept.length === length) return update
   const encoder = encoding.createEncoder()
@@ -142,7 +145,7 @@ export function createRealtimeAwarenessOwners<Peer extends object>(options: { ma
   return {
     apply(awareness: awarenessProtocol.Awareness, peer: Peer, input: Uint8Array, identity?: RealtimeIdentity, remote = false): number[] {
       if (remote) remoteOwners.add(peer)
-      const update = dropForeignAwareness(input, owners, peer, transferable)
+      const update = dropForeignAwareness(input, owners, peer, transferable, awareness)
       const clients = readAwarenessClientIds(update)
       if (!clients.length) return []
       const previous = new Map(clients.flatMap(client => {

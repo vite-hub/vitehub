@@ -263,7 +263,7 @@ function bytes(value: unknown): Uint8Array | undefined {
 function toRecord(row: Record<string, unknown> | undefined): RealtimeRoomRecord | undefined {
   const state = bytes(row?.state)
   if (!row || typeof row.epoch !== "string" || !state) return undefined
-  return { epoch: row.epoch, digest: typeof row.digest === "string" ? row.digest : null, state }
+  return { epoch: row.epoch, digest: typeof row.digest === "string" ? row.digest : null, state, pending: row.pending === true }
 }
 
 /**
@@ -292,6 +292,7 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
     await sql.begin(async (transaction) => {
       await transaction`select pg_advisory_xact_lock(${postgresSetupLock})`
       await transaction`create table if not exists vitehub_realtime_rooms (namespace text not null, room_key text not null, epoch text not null, digest text, state bytea not null, updated_at timestamptz not null default now(), primary key (namespace, room_key))`
+      await transaction`alter table vitehub_realtime_rooms add column if not exists pending boolean not null default false`
       await transaction`create table if not exists vitehub_realtime_messages (id bigserial primary key, payload bytea not null, created_at timestamptz not null default now())`
     })
   }
@@ -337,14 +338,14 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
     }),
     subscribe: (listener, resubscribed) => delivery.subscribe(listener, resubscribed),
     async readRoom(room) {
-      const [row] = await sql`select epoch, digest, state from vitehub_realtime_rooms where namespace = ${namespace} and room_key = ${room}`
+      const [row] = await sql`select epoch, digest, state, pending from vitehub_realtime_rooms where namespace = ${namespace} and room_key = ${room}`
       return toRecord(row)
     },
     async writeRoom(room, record, ifEpoch) {
       const state = Buffer.from(record.state)
       const rows = ifEpoch === null
-        ? await sql`insert into vitehub_realtime_rooms (namespace, room_key, epoch, digest, state) values (${namespace}, ${room}, ${record.epoch}, ${record.digest}, ${state}) on conflict (namespace, room_key) do nothing returning room_key`
-        : await sql`update vitehub_realtime_rooms set epoch = ${record.epoch}, digest = ${record.digest}, state = ${state}, updated_at = now() where namespace = ${namespace} and room_key = ${room} and epoch = ${ifEpoch} returning room_key`
+        ? await sql`insert into vitehub_realtime_rooms (namespace, room_key, epoch, digest, state, pending) values (${namespace}, ${room}, ${record.epoch}, ${record.digest}, ${state}, ${record.pending ?? false}) on conflict (namespace, room_key) do nothing returning room_key`
+        : await sql`update vitehub_realtime_rooms set epoch = ${record.epoch}, digest = ${record.digest}, state = ${state}, pending = ${record.pending ?? false}, updated_at = now() where namespace = ${namespace} and room_key = ${room} and epoch = ${ifEpoch} returning room_key`
       return rows.length === 1
     },
     // A transaction-scoped lock ends with the transaction, and with the connection when the instance stops.
@@ -367,7 +368,7 @@ const redisLockMs = 30_000
 const redisWriteRoomScript = `
 local current = redis.call('HGET', KEYS[1], 'epoch')
 if (ARGV[1] == '' and current == false) or (current ~= false and current == ARGV[1]) then
-  redis.call('HSET', KEYS[1], 'epoch', ARGV[2], 'digest', ARGV[3], 'hasDigest', ARGV[4], 'state', ARGV[5])
+  redis.call('HSET', KEYS[1], 'epoch', ARGV[2], 'digest', ARGV[3], 'hasDigest', ARGV[4], 'state', ARGV[5], 'pending', ARGV[6])
   return 1
 end
 return 0
@@ -433,6 +434,7 @@ export async function createRedisRealtimeBus(url: string, options: { namespace?:
         epoch: fields.epoch.toString(),
         digest: fields.hasDigest?.toString() === "1" ? fields.digest?.toString() ?? null : null,
         state: Uint8Array.from(fields.state),
+        pending: fields.pending?.toString() === "1",
       }
     },
     async writeRoom(room, record, ifEpoch) {
@@ -445,6 +447,7 @@ export async function createRedisRealtimeBus(url: string, options: { namespace?:
         record.digest ?? "",
         record.digest === null ? "0" : "1",
         Buffer.from(record.state),
+        record.pending ? "1" : "0",
       )
       return written === 1
     },

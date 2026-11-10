@@ -8,7 +8,7 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
-import type { RealtimeBus, RealtimeBusMessage, RealtimeBusMessageType } from "./bus-protocol.ts"
+import type { RealtimeBus, RealtimeBusMessage, RealtimeBusMessageType, RealtimeRoomRecord } from "./bus-protocol.ts"
 // Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
 import type {} from "@vite-hub/runtime/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
@@ -780,6 +780,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   const openRooms = new Map<string, Room>()
   /** One owner object per other instance, for the awareness clients of its peers. */
   const remoteOwners = new Map<string, object>()
+  const repairRequestedAt = new WeakMap<Room, number>()
 
   /** The bus that shares rooms with other instances, connected and subscribed on first use. */
   function sharedBus(): Promise<RealtimeBus | undefined> {
@@ -794,6 +795,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         for (const room of rooms.values()) room.then(requestSync, () => {})
       })
       bus.onClose(announceDeparture)
+      // Pub/sub can also lose a single message without reconnecting, including the last edit in a room.
+      const syncTimer = setInterval(() => {
+        for (const room of openRooms.values()) {
+          if (room.peers.size || (room.kind === "document" && room.dirty)) requestSync(room)
+        }
+      }, 10_000)
+      syncTimer.unref?.()
+      bus.onClose(async () => { clearInterval(syncTimer) })
       return bus
     })()
     pendingBus = pending
@@ -872,7 +881,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     if (message.epoch !== roomEpoch(room)) return
     switch (message.type) {
       case "update":
-        if (room.kind === "document") Y.applyUpdate(room.document, message.data, busOrigin)
+        if (room.kind === "document") {
+          Y.applyUpdate(room.document, message.data, busOrigin)
+          if ((room.document.store.pendingStructs || room.document.store.pendingDs)
+            && Date.now() - (repairRequestedAt.get(room) ?? -Infinity) >= 1_000) {
+            repairRequestedAt.set(room, Date.now())
+            requestSync(room)
+          }
+        }
         return
       case "awareness": {
         let clients: number[]
@@ -1088,14 +1104,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
    * record. Instances that open a room at the same time agree on one record, so every instance edits one Yjs history.
    * `replaced` is true when this instance moved the record to a new epoch.
    */
-  async function sharedDocument(bus: RealtimeBus, key: string, editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<{ document: Y.Doc, epoch: string, replaced: boolean }> {
+  async function sharedDocument(bus: RealtimeBus, key: string, editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<{ document: Y.Doc, epoch: string, replaced: boolean, dirty?: boolean }> {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const record = await bus.readRoom(key)
+      const found = await bus.readRoom(key)
+      const record = found && await recoverSharedRecord(bus, key, editor, loaded, found)
       if (record && record.digest === loaded.digest) {
         const document = new Y.Doc()
         try {
           Y.applyUpdate(document, record.state)
-          return { document, epoch: record.epoch, replaced: false }
+          return { document, epoch: record.epoch, replaced: false, dirty: record.pending }
         }
         catch (error) {
           document.destroy()
@@ -1113,23 +1130,66 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     throw new HTTPError({ status: 503, message: "Realtime instances changed this room at the same time. Connect again." })
   }
 
+  /** All callers hold the room lock. Never report a save as clean when its record was not written. */
+  async function writeSharedRecord(bus: RealtimeBus, key: string, record: RealtimeRoomRecord): Promise<void> {
+    let failure: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (await bus.writeRoom(key, record, record.epoch)) return
+        console.error("[vitehub] Realtime room record compare-and-set failed.", key)
+        throw new Error("Realtime room record compare-and-set failed.")
+      }
+      catch (error) { failure = error }
+    }
+    console.error("[vitehub] Realtime could not write the shared room record.", failure)
+    throw failure
+  }
+
+  /** A process can stop between adapter.save() and the final record write. Recover that save without a new epoch. */
+  async function recoverSharedRecord(bus: RealtimeBus, key: string, editor: RealtimeEditor, loaded: RealtimeLoadedDocument, record: RealtimeRoomRecord): Promise<RealtimeRoomRecord> {
+    if (!record.pending || loaded.digest === record.digest) return record
+    const submitted = new Y.Doc()
+    try {
+      Y.applyUpdate(submitted, record.state)
+      const snapshot = await readRealtimeYDoc(editor, submitted)
+      if (keepRealtimeFinalNewline(snapshot.body, loaded.body.endsWith("\n")) !== loaded.body
+        || !realtimeJsonEqual(snapshot.fields, loadedFields(loaded))) return record
+      const recovered = { ...record, digest: loaded.digest, pending: false }
+      await writeSharedRecord(bus, key, recovered)
+      return recovered
+    }
+    finally { submitted.destroy() }
+  }
+
   /**
    * Takes the saves of other instances into a shared room before it saves: their Yjs state, their digest, and the
    * stored form that a save with no edits keeps. Returns `false` when the room re-seeded on another instance, after
    * this room followed it.
    */
   async function adoptSharedRecord(room: DocumentRoom, bus: RealtimeBus): Promise<boolean> {
-    const record = await bus.readRoom(room.key)
+    let record = await bus.readRoom(room.key)
+    let pendingLoaded: RealtimeLoadedDocument | undefined
     if (!record) return true
     if (record.epoch !== room.epoch) {
       await reseedRoom(room, "source-changed", undefined, false, true)
       return false
     }
-    if (record.digest === room.digest) return true
+    if (record.pending) {
+      const loaded = await room.resolved.adapter.load(room.context)
+      pendingLoaded = loaded
+      record = await recoverSharedRecord(bus, room.key, room.editor, loaded, record)
+      if (record.digest !== loaded.digest) {
+        await reseedRoom(room, "source-changed", loaded)
+        return false
+      }
+    }
+    if (record.digest === room.digest && !record.pending) return true
     const saved = new Y.Doc()
     try {
       Y.applyUpdate(saved, record.state)
-      const stored = await readRealtimeYDoc(room.editor, saved)
+      const stored = record.pending && pendingLoaded
+        ? { body: pendingLoaded.body, fields: loadedFields(pendingLoaded) }
+        : await readRealtimeYDoc(room.editor, saved)
       if (room.destroyed || room.epoch !== record.epoch) return false
       Y.applyUpdate(room.document, record.state, busOrigin)
       room.digest = record.digest
@@ -1139,6 +1199,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         issues: [],
         readOnly: false,
       }
+      if (record.pending) markDirty(room, undefined)
       return true
     }
     finally {
@@ -1192,6 +1253,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         document = shared.document
         sharedEpoch = shared.epoch
         replacedEpoch = shared.replaced
+        dirty = shared.dirty ?? false
       }
       else if (restores) {
         document = new Y.Doc()
@@ -1470,6 +1532,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     let next: Y.Doc
     let epoch: string
     let replaced = false
+    let dirty = false
     const bus = room.bus
     if (bus) {
       // Under the room lock, the load and the record agree unless the document changed outside the room.
@@ -1481,6 +1544,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       })
       if (!shared) return false
       ;({ source, guard, document: next, epoch, replaced } = shared)
+      dirty = shared.dirty ?? false
       if (room.destroyed) {
         next.destroy()
         return false
@@ -1506,7 +1570,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     room.epoch = epoch
     room.digest = source.digest
     room.guard = guard
-    room.dirty = false
+    room.dirty = dirty
     room.editors.clear()
     room.firstDirtyAt = undefined
     room.retryDelay = 0
@@ -1516,6 +1580,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     previous.awareness.destroy()
     previous.document.destroy()
     persistRoom(room)
+    if (dirty) scheduleSave(room)
     if (replaced) publish(room, "reset", new Uint8Array())
     // Edits that other instances made at this epoch before this room followed it.
     requestSync(room)
@@ -1538,26 +1603,35 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
     const bus = room.bus
     if (!bus) return await saveRoomNow(room, reason, force)
-    return await underRoomLock(room, async () => {
-      if (!(await adoptSharedRecord(room, bus))) {
-        if (!force) return undefined
-        throw new HTTPError({
-          status: 409,
-          message: "The document re-seeded on another instance. The room was re-seeded.",
-          data: { code: realtimeSourceChangedCode },
-        })
-      }
-      // The record gets the state that the adapter stored, not the live document: edits that arrived during the save
-      // are not stored yet, and must stay unsaved for the instance that adopts the record.
-      let stored: { digest: string | null, state: Uint8Array } | undefined
-      const saved = await saveRoomNow(room, reason, force, (digest, state) => {
-        stored = { digest, state }
+    try {
+      return await underRoomLock(room, async () => {
+        if (!(await adoptSharedRecord(room, bus))) {
+          if (!force) return undefined
+          throw new HTTPError({
+            status: 409,
+            message: "The document re-seeded on another instance. The room was re-seeded.",
+            data: { code: realtimeSourceChangedCode },
+          })
+        }
+        // Record the submitted state before saving. A later instance can distinguish a completed save from an
+        // outside write if this process stops before recording the new digest. Later edits stay unsaved.
+        return await saveRoomNow(room, reason, force,
+          async (digest, state) => {
+            await writeSharedRecord(bus, room.key, { epoch: room.epoch, digest, state })
+          },
+          async (state) => {
+            await writeSharedRecord(bus, room.key, { epoch: room.epoch, digest: room.digest, state, pending: true })
+          })
       })
-      if (stored && !room.destroyed) {
-        await bus.writeRoom(room.key, { epoch: room.epoch, digest: stored.digest, state: stored.state }, room.epoch)
+    }
+    catch (error) {
+      // Reads and recovery writes can fail before saveRoomNow installs its retry.
+      if (room.dirty && !room.idleTimer) {
+        room.retryDelay = Math.min(Math.max(room.resolved.persistence?.debounce ?? 2_000, room.retryDelay * 2), maxSaveRetryMs)
+        scheduleSave(room, room.retryDelay)
       }
-      return saved
-    })
+      throw error
+    }
   }
 
   /** `onStored` gets the digest and the Yjs state of what the adapter stored, before later edits. */
@@ -1565,7 +1639,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     room: DocumentRoom,
     reason: RealtimeSaveOptions["reason"],
     force: boolean,
-    onStored?: (digest: string | null, state: Uint8Array) => void,
+    onStored?: (digest: string | null, state: Uint8Array) => Promise<void>,
+    onSubmitting?: (state: Uint8Array) => Promise<void>,
   ): Promise<RealtimeSaved | undefined> {
     const { adapter, persistence } = room.resolved
     const editor = room.editor
@@ -1606,6 +1681,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         return { ...readRealtimeStatus(room.document), document }
       }
       const readsBack = await realtimeCodecReadsBack(editor, submitted, written.body)
+      await onSubmitting?.(Y.encodeStateAsUpdate(submitted))
       let result
       try {
         result = await adapter.save(room.context, document, { editors, ifDigest: room.digest, reason, user })
@@ -1636,7 +1712,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           Y.applyUpdate(submitted, update, serverOrigin)
         }
       }
-      onStored?.(result.digest, Y.encodeStateAsUpdate(submitted))
+      await onStored?.(result.digest, Y.encodeStateAsUpdate(submitted))
       const status = {
         digest: result.digest,
         error: null,
