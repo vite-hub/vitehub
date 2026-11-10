@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../../internal/runtime-type.ts"
 import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } from "../../capability-runtime.ts"
 import { publishWorkspaceArtifacts, rewriteDeliveryArtifactMarkdown } from "../../delivery-artifacts.ts"
 import { toAgentRunResult } from "../../agent-output.ts"
@@ -271,7 +270,7 @@ async function readInputAttachment(context: AgentCapabilityContext, id: string) 
   if (!isAttachmentData(body)) {
     throw agentDiagnostics.AGENT_R0208({ message: `[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.` })
   }
-  return { body: hasRuntimeType(body, "string") ? attachmentStringBytes(body, attachment.mediaType) : isAttachmentBlob(body) ? new Uint8Array(await body.arrayBuffer()) : body, mediaType: attachment.mediaType }
+  return { body: typeof body === "string" ? attachmentStringBytes(body, attachment.mediaType) : isAttachmentBlob(body) ? new Uint8Array(await body.arrayBuffer()) : body, mediaType: attachment.mediaType }
 }
 
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {

@@ -1,5 +1,5 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 import { chatgptGatewayDiagnostic, diagnosticErrorText } from "./agent-error.ts"
 import { hostReadableStream, isResponse } from "./internal/response.ts"
@@ -30,7 +30,7 @@ const uiMessageStreamHeaders = {
 } as const
 
 export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: (options?: { onError?: (error: unknown) => string }) => ReadableStream<unknown> } {
-  return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
+  return isRuntimeRecord(value) && typeof value.toUIMessageStream === "function"
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
@@ -81,7 +81,7 @@ function uiMessageStreamErrorText(error: unknown): string {
   if (!(error instanceof Error)) return "Agent stream failed."
   const code: unknown = Reflect.get(error, "code")
   const fix: unknown = Reflect.get(error, "fix")
-  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") ? diagnosticErrorText(code, error.message) : error.message
+  return typeof code === "string" && typeof fix === "string" ? diagnosticErrorText(code, error.message) : error.message
 }
 
 function createAgentUIMessageStream(options: {
@@ -218,7 +218,7 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
 }
 
 function isReadableAsyncIterable(stream: AsyncIterable<unknown>): stream is AsyncIterable<unknown> & ReadableStream<unknown> {
-  return isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+  return isRuntimeRecord(stream) && typeof stream.getReader === "function"
 }
 
 export function withReadableStreamCleanup<T>(
@@ -333,20 +333,20 @@ export function withReadableStreamCleanup<T>(
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {
-  if (hasRuntimeType(rendered, "string")) return rendered
+  if (typeof rendered === "string") return rendered
   if (!isRuntimeRecord(rendered)) return undefined
-  return hasRuntimeType(rendered.text, "string") ? rendered.text : undefined
+  return typeof rendered.text === "string" ? rendered.text : undefined
 }
 
 function streamEventType(event: unknown): string | undefined {
-  return isRuntimeRecord(event) && hasRuntimeType(event.type, "string") ? event.type : undefined
+  return isRuntimeRecord(event) && typeof event.type === "string" ? event.type : undefined
 }
 
 export function uiMessageTextDelta(event: unknown): string | undefined {
   const type = streamEventType(event)
   if ((type !== "text" && type !== "text-delta") || !isRuntimeRecord(event)) return
   const text = event.text ?? event.textDelta ?? event.delta
-  return hasRuntimeType(text, "string") ? text : undefined
+  return typeof text === "string" ? text : undefined
 }
 
 function uiMessageStreamError(event: unknown): Error | undefined {
@@ -354,7 +354,7 @@ function uiMessageStreamError(event: unknown): Error | undefined {
   if (event.recoverable === true) return
   if (event.error instanceof Error) return event.error
   const message = event.errorText ?? event.message ?? event.error
-  return agentDiagnostics.AGENT_R0856({ message: hasRuntimeType(message, "string") && message ? message : "Agent stream failed." })
+  return agentDiagnostics.AGENT_R0856({ message: typeof message === "string" && message ? message : "Agent stream failed." })
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
@@ -362,8 +362,8 @@ function isCapabilityCliInput(input: unknown): input is { argv: string[], input?
   const argv = input.argv
   return Object.keys(input).every(key => key === "argv" || key === "input" || key === "json")
     && Array.isArray(argv)
-    && argv.every(arg => hasRuntimeType(arg, "string"))
-    && (input.json === undefined || hasRuntimeType(input.json, "boolean"))
+    && argv.every(arg => typeof arg === "string")
+    && (input.json === undefined || typeof input.json === "boolean")
 }
 
 export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
@@ -424,7 +424,7 @@ function projectUiMessageStream(
       if (projection.reasoning === "hidden" || projection.commentary === "hidden") {
         if (projection.reasoning === "hidden" && type?.startsWith("reasoning-")) return
         const text = isRuntimeRecord(chunk) ? chunk : {}
-        const id = hasRuntimeType(text.id, "string") ? text.id : undefined
+        const id = typeof text.id === "string" ? text.id : undefined
         if (type === "text-start" && id) {
           hiddenTextIds.delete(id)
           pendingTextStarts.delete(id)
@@ -466,7 +466,7 @@ function isHiddenTextPhase(projection: AgentUIMessageStreamProjection, phase: un
 }
 
 function uiDataType(data: unknown): `data-${string}` {
-  const rawType = isRuntimeRecord(data) && hasRuntimeType(data.type, "string")
+  const rawType = isRuntimeRecord(data) && typeof data.type === "string"
     ? data.type
     : "event"
   const type = rawType.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
@@ -500,7 +500,7 @@ async function writeEventsToUiMessageStream(
     if (!type || !isRuntimeRecord(event)) continue
     if (type === "usage" && usageRecord) continue
     if (options.projection?.reasoning === "hidden" || options.projection?.commentary === "hidden") {
-      const id = hasRuntimeType(event.id, "string") ? event.id : undefined
+      const id = typeof event.id === "string" ? event.id : undefined
       if (type === "text-start" && id) {
         hiddenTextIds.delete(id)
       }
@@ -516,7 +516,7 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "text-delta") {
       const text = event.text ?? event.delta
-      if (!hasRuntimeType(text, "string") || !text) continue
+      if (typeof text !== "string" || !text) continue
       const source = event.messageId ?? event.id
       if (textId && source !== textSource) endText()
       if (!textId) {
@@ -530,11 +530,11 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "tool-call") {
       endText()
-      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input, ...(hasRuntimeType(event.title, "string") ? { title: event.title } : {}) })
+      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input, ...(typeof event.title === "string" ? { title: event.title } : {}) })
       continue
     }
     if (type === "tool-result") {
-      if (hasRuntimeType(event.error, "string")) {
+      if (typeof event.error === "string") {
         writer.write({ type: "tool-output-error", toolCallId: event.id, toolName: event.name, errorText: event.error })
         continue
       }
@@ -542,7 +542,7 @@ async function writeEventsToUiMessageStream(
       continue
     }
     if (type === "data" || type.startsWith("data-")) {
-      writer.write({ type: type === "data" ? uiDataType(event.data) : type, data: event.data, id: event.id, ...(hasRuntimeType(event.transient, "boolean") ? { transient: event.transient } : {}) })
+      writer.write({ type: type === "data" ? uiDataType(event.data) : type, data: event.data, id: event.id, ...(typeof event.transient === "boolean" ? { transient: event.transient } : {}) })
       continue
     }
     if (type === "finish") {
@@ -556,7 +556,7 @@ async function writeEventsToUiMessageStream(
       }
       throw event.error instanceof Error
         ? event.error
-        : agentDiagnostics.AGENT_R0857({ message: hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed." })
+        : agentDiagnostics.AGENT_R0857({ message: typeof event.error === "string" ? event.error : typeof event.message === "string" ? event.message : "Agent stream failed." })
     }
   }
   endText()

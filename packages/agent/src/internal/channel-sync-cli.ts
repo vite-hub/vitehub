@@ -1,6 +1,7 @@
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
 
 import { discoverAgentDefinitions } from "../discovery.ts"
@@ -8,10 +9,11 @@ import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
+import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
+import type { ViteDevServer } from "vite"
 import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType } from "./runtime-type.ts"
 
 interface ChannelSyncCliContext {
   cwd: string
@@ -320,12 +322,55 @@ function uniqueAgentDefinitions(
   return [...unique.values()]
 }
 
+/**
+ * Keep Vite's server plugin lifecycle, but load modules only in a runnable SSR environment.
+ * The client container supports Vite's server APIs; Nitro workers and other runtime environments are unused.
+ */
+async function createStageModuleLoader(vite: typeof import("vite"), config: ViteStageServerConfig) {
+  const nitro = createCliDiscoveryNitroCloser()
+  let server: ViteDevServer | undefined
+  try {
+    const resolved = await vite.resolveConfig({ ...config, plugins: [nitro.plugin, {
+      name: "vite-hub/channel-stage-server",
+      configureServer: { order: "pre", handler: (value) => { server = value } },
+    }] }, "serve")
+    // Nitro's server hook requires its worker environment. Keep its config hooks and generated modules,
+    // while Vite runs the remaining plugins' configureServer hooks with a real server.
+    for (const plugin of resolved.plugins) {
+      if (plugin.name === "nitro:main") delete plugin.configureServer
+    }
+    for (const name of Object.keys(resolved.environments)) {
+      if (name !== "client" && name !== "ssr") delete resolved.environments[name]
+    }
+    resolved.environments.client.dev.createEnvironment = (name, config) => new vite.DevEnvironment(name, config, { hot: false })
+    resolved.environments.ssr.dev.createEnvironment = (name, config) => vite.createRunnableDevEnvironment(name, config, { hot: false })
+    server = await vite.createServer(resolved)
+    const environment = server.environments.ssr
+    if (!vite.isRunnableDevEnvironment(environment)) throw new Error("Channel target loading requires a runnable SSR environment.")
+    const stageServer = server
+    return {
+      close: async () => {
+        try { await stageServer.close() }
+        finally { await nitro.close() }
+      },
+      config: resolved,
+      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await environment.runner.import(url),
+    }
+  }
+  catch (error) {
+    try { await server?.close() }
+    finally { await nitro.close() }
+    throw error
+  }
+}
+
 async function loadQueuedChannelTargets(
   input: ChannelSyncLoadInput,
   syncOnly: boolean,
 ): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const vite = await import("vite")
-  return await withViteStageServer(vite, input, async (server) => {
+  const stageVite = { createServer: async (config: ViteStageServerConfig) => await createStageModuleLoader(vite, config), loadEnv: vite.loadEnv }
+  return await withViteStageServer(stageVite, input, async (server) => {
     const targets: Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }> = []
     const stageRoot = server.config.root
     const stageServerDirs = (server.config as typeof server.config & {
@@ -506,7 +551,7 @@ export async function runAgentChannelSyncCli(
     if (parsed.apply && origin) for (const item of planned) {
       if (item.plan.action !== "delete" && item.plan.action !== "update") continue
       const currentUrl =
-        item.target.sync.currentWebhookUrl?.(item.plan) ?? (hasRuntimeType(item.plan.current.url, "string") ? item.plan.current.url : "")
+        item.target.sync.currentWebhookUrl?.(item.plan) ?? (typeof item.plan.current.url === "string" ? item.plan.current.url : "")
       if (currentUrl) {
         const currentOrigin = httpsUrlOrigin(currentUrl, "current provider webhook URL").origin
         if (currentOrigin !== origin) {

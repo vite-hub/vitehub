@@ -32,6 +32,8 @@ import type { AgentMessageDeliveryKind, AgentRunContext, AgentRunInput } from ".
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 const chatMessageHeader = expect.objectContaining({ id: "message-header", type: "data-chat-message-header" })
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
@@ -914,7 +916,7 @@ describe("agent Vite plugin", () => {
         root: string
       }) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
       await installStubPackages(root, ["@vite-hub/blob", "vite-hub/console/server", "@vite-hub/database/drizzle", "@vite-hub/email/server"])
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await configResolved({
@@ -986,7 +988,7 @@ describe("agent Vite plugin", () => {
         root: string
       }) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
       await configResolved({
         command: "build",
         plugins: [],
@@ -1007,7 +1009,7 @@ describe("agent Vite plugin", () => {
       // SAFETY: hubAgent installs the same configResolved hook contract for Cloudflare builds.
       const cloudflareConfigResolved = cloudflareConfigResolvedHook as typeof configResolved
       // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const cloudflareTransform = cloudflarePlugin.transform as typeof transform
+      const cloudflareTransform = (cloudflarePlugin.transform as { handler: typeof transform }).handler
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await cloudflareConfigResolved({
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -1051,7 +1053,7 @@ describe("agent Vite plugin", () => {
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
       await configResolved({ command: "build", plugins: [], preset: "cloudflare", root })
       const registry = await transform(written, "/virtual/.vitehub/workflow/registry-runtime.mjs")
       if (!registry) throw new Error("Expected a Cloudflare workflow registry")
@@ -2502,16 +2504,19 @@ describe("agent Vite plugin", () => {
       nitro?: {
         rollupConfig?: {
           plugins?: Array<{
-            load?: (id: string) => string | undefined
+            load?: { filter: { id: RegExp }, handler: (id: string) => string | undefined }
             name?: string
-            resolveId?: (id: string) => string | undefined
+            resolveId?: { filter: { id: RegExp }, handler: (id: string) => string | undefined }
           }>
         }
       }
     }
     const statePlugin = output.nitro?.rollupConfig?.plugins?.find((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")
-    const resolvedId = statePlugin?.resolveId?.("virtual:vitehub-agent-cloudflare-state-exports")
-    const source = resolvedId ? statePlugin?.load?.(resolvedId) : undefined
+    const resolvedId = statePlugin?.resolveId?.handler("virtual:vitehub-agent-cloudflare-state-exports")
+    const source = resolvedId ? statePlugin?.load?.handler(resolvedId) : undefined
+
+    expect(statePlugin?.resolveId?.filter.id.test("virtual:vitehub-agent-cloudflare-state-exports")).toBe(true)
+    expect(resolvedId && statePlugin?.load?.filter.id.test(resolvedId)).toBe(true)
 
     expect(source).toContain(`from ${JSON.stringify(agentRuntimeModule("cloudflare/state"))}`)
     expect(source).not.toContain('"@vite-hub/agent')
@@ -9363,7 +9368,7 @@ describe("server helpers", () => {
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
       // The response must arrive while the Workflow is still waiting for releaseRun().
-      const response = await responsePromise
+      const response = await withDeadline(responsePromise, 3_000, "Workflow webhook response waited for deferred workflow completion.")
       const json = await response.json()
 
       expect(response.status).toBe(200)
@@ -9381,6 +9386,7 @@ describe("server helpers", () => {
         await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
+      releaseRun()
       resetWorkflowRuntime()
     }
   })
@@ -11493,7 +11499,7 @@ describe("server helpers", () => {
         deliveryId: "delivery-failed",
         error: expect.objectContaining({ message: terminal === "last attempt" ? "persistent failure" : expect.stringContaining("exhausted 3 execution leases") }),
         input: expect.objectContaining({ prompt: "Review the pull request." }),
-        invocation: { consoleUrl: `https://agents.example.test/_vitehub/agents/review/invocations/${encodeURIComponent(id)}`, id },
+        invocation: { consoleUrl: hostedConsoleLink("https://agents.example.test", `/agents/review/invocations/${encodeURIComponent(id)}`), id },
         publicError: expect.objectContaining({ code: "INTERNAL" }),
         run: expect.objectContaining({ runId: "failed-webhook-run" }),
       })
@@ -17980,7 +17986,7 @@ describe("server helpers", () => {
       expect(errorFallbackText).toHaveBeenCalledOnce()
       const args = errorFallbackText.mock.calls[0]![0]
       const id = await agentInvocationId(args.run!.runId, "support")
-      const consoleUrl = `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      const consoleUrl = hostedConsoleLink("https://agents.example.test", `/agents/support/invocations/${encodeURIComponent(id)}`)
       expect(args.invocation).toEqual({ consoleUrl, id })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", consoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
     }
@@ -20841,7 +20847,7 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       expect(runId).toBeDefined()
       const id = await agentInvocationId(runId!, "support")
-      const consoleUrl = `https://agents.example.test${base}_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      const consoleUrl = hostedConsoleLink(`https://agents.example.test${base.replace(/\/$/, "")}`, `/agents/support/invocations/${encodeURIComponent(id)}`)
       for (const message of [adapter.postMessage.mock.calls[0]?.[1], adapter.editMessage.mock.calls.at(-1)?.[2]]) {
         if (!consoleLink) continue
         const markdown = isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown) ? message.markdown : ""
