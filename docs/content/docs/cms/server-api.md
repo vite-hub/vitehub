@@ -14,8 +14,8 @@ The CMS gives you the `cms` preset and roles. Pass the preset to `defineContent(
 | --- | --- |
 | `cms` from `vite-hub/cms` | The preset, in an app with `vitehub()`. |
 | `cms`, or the default export, from `@vite-hub/cms` | The same preset, for libraries and apps that install each package. |
-| `CmsPresetOptions` type from `vite-hub/cms` or `@vite-hub/cms` | The options of the tuple form. |
-| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` or `@vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and policies built on them ([Roles and access](/docs/cms/access)). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
+| `CmsPresetOptions` type from `vite-hub/cms` | The options of the tuple form. |
+| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and policies built on them ([Roles and access](/docs/cms/access)). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'

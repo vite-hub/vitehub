@@ -99,6 +99,10 @@ jobs:
       # Formatting loads generated fixture configs, so it is excluded here.
       - run: vp check --no-fmt
 
+      # Unused files, unused and unlisted dependencies, and unresolved imports. knip.config.ts names the
+      # entries of each package, and the known findings that wait for a cleanup.
+      - run: vp exec knip --no-progress
+
       # zizmor and actionlint do not check these inputs. The script explains why.
       - name: Check transient package executors and Docker actions
         run: node .github/scripts/check-ci-inputs.mjs

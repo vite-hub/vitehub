@@ -10,23 +10,23 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `createDatabaseAuthEventStore` from `@vite-hub/auth` | Create the opt-in SQLite or D1 [event log](/docs/auth/events). |
-| `getAuthEvents`, `listAuthEvents`, `aggregateAuthEvents` from `@vite-hub/auth/server` | Read events and daily counts from server code. |
-| `defineAuth` from `@vite-hub/auth` | Declare the Primary Auth Definition. |
-| `isGitHubOrgMember` from `@vite-hub/auth` | Check that a GitHub token belongs to an active [organization member](#github-organization-membership). |
-| `stateless` from `@vite-hub/auth/presets` | Keep sessions in encrypted cookies, [with no database](/docs/auth/configure#sessions-without-a-database). |
+| `createDatabaseAuthEventStore` from `vite-hub/auth` | Create the opt-in SQLite or D1 [event log](/docs/auth/events). |
+| `getAuthEvents`, `listAuthEvents`, `aggregateAuthEvents` from `vite-hub/auth/server` | Read events and daily counts from server code. |
+| `defineAuth` from `vite-hub/auth` | Declare the Primary Auth Definition. |
+| `isGitHubOrgMember` from `vite-hub/auth` | Check that a GitHub token belongs to an active [organization member](#github-organization-membership). |
+| `stateless` from `vite-hub/auth/presets` | Keep sessions in encrypted cookies, [with no database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Add Auth discovery, the route, and generated server aliases. |
-| `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Use the Better Auth instance in server code. |
+| `auth`, `getAuth`, `getAuthForRequest` from `vite-hub/auth/server` | Use the Better Auth instance in server code. |
 | Default export of `@vite-hub/auth/server` | The Auth route as a Fetchable, `{ fetch(request) }`. Mount it when you set `route: false`. |
-| `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |
-| `withAuth` from `@vite-hub/auth/server` | Run a handler only when a session exists. |
-| `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected access routes. |
-| `withAuthorization` from `@vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
-| `requireAuth`, `requireAuthorization`, `getAuthorization` from `@vite-hub/auth/server` | Guard an H3 2 route with middleware, then read the checked session in the handler. |
-| `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. Better Auth loads on first use. |
-| `authenticated` from `@vite-hub/auth/agent` | Turn a Better Auth session into an Agent Invoker (who calls the Agent). |
-| `agentAuth` from `@vite-hub/auth/agent` | The `auth` primitive that generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user from `actor.meta.authUserId`, or returns `null`. `authenticated()` sets `authUserId` for a request with a session. Channel and anonymous Actors have none, unless your `invoker.resolve` adds it. |
-| `getViteHubErrorShape` from `@vite-hub/runtime` | Handle missing sessions and provider failures by Auth error code. |
+| `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `vite-hub/auth/server` | Mount or call the Auth handler manually. |
+| `withAuth` from `vite-hub/auth/server` | Run a handler only when a session exists. |
+| `requireAuthAccessRoutes` from `vite-hub/auth/server` | Guard selected access routes. |
+| `withAuthorization` from `vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
+| `requireAuth`, `requireAuthorization`, `getAuthorization` from `vite-hub/auth/server` | Guard an H3 2 route with middleware, then read the checked session in the handler. |
+| `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `vite-hub/auth/vue` | Read session state and call Better Auth from Vue. Better Auth loads on first use. |
+| `authenticated` from `vite-hub/auth/agent` | Turn a Better Auth session into an Agent Invoker (who calls the Agent). |
+| `agentAuth` from `vite-hub/auth/agent` | The `auth` primitive that generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user from `actor.meta.authUserId`, or returns `null`. `authenticated()` sets `authUserId` for a request with a session. Channel and anonymous Actors have none, unless your `invoker.resolve` adds it. |
+| `getViteHubErrorShape` from `vite-hub/runtime` | Handle missing sessions and provider failures by Auth error code. |
 
 ## Use it at runtime
 
@@ -35,7 +35,7 @@ ViteHub mounts the Auth route at `/api/auth/**`, so same-origin apps need no rou
 In Vue, `useUserSession()` gives you `user`, `session`, sign-in and sign-out actions, and the `loggedIn`, `pending`, and `ready` refs.
 
 ```ts [lib/auth-client.ts]
-import { useUserSession } from '@vite-hub/auth/vue'
+import { useUserSession } from 'vite-hub/auth/vue'
 
 export const userSession = useUserSession()
 ```
@@ -48,7 +48,7 @@ Server code can read the Auth instance or require a session.
 
 ```ts [server/api/me.get.ts]
 import { defineEventHandler, getRequestHeaders } from 'h3'
-import { auth } from '@vite-hub/auth/server'
+import { auth } from 'vite-hub/auth/server'
 
 export default defineEventHandler(async (event) => {
   const headers = new Headers(getRequestHeaders(event))
@@ -61,7 +61,7 @@ To protect a route, wrap its handler. The guard checks the request, and your han
 
 ```ts [server/api/profile.get.ts]
 import { defineEventHandler } from 'h3'
-import { withAuth } from '@vite-hub/auth/server'
+import { withAuth } from 'vite-hub/auth/server'
 
 export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id })))
 ```
@@ -69,7 +69,7 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 On H3 2, you can put the check in route middleware. `requireAuth()` rejects like `withAuth()`, and `requireAuthorization(authorize)` like `withAuthorization()`. When the check passes, the middleware calls `next()`, and the handler reads `authorization` with `getAuthorization(event)`.
 
 ```ts [server/app.ts] fragment
-import { getAuthorization, requireAuth, requireAuthorization } from '@vite-hub/auth/server'
+import { getAuthorization, requireAuth, requireAuthorization } from 'vite-hub/auth/server'
 import { H3 } from 'h3'
 
 export const app = new H3()
@@ -102,7 +102,7 @@ export const app = new H3()
 | `requireAuthorization(authorize, definition?)` | Returns `(event, next)` route middleware for H3 2. Calls `next()` when allowed, else responds like `withAuthorization()`. |
 | `getAuthorization(event)` | Returns the `authorization` that `requireAuth()` or `requireAuthorization()` attached to the event. Throws `AUTH_R0017` when no Auth middleware accepted it. |
 
-`auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return an instance typed from your Auth Definition, with its plugins' endpoints and fields. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`. So with the `admin()` plugin, `getAuthForRequest(event.req).api.listUsers` type-checks without a cast. For another definition, `getAuthForDefinition(definition)` infers the type, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
+`auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return an instance typed from your Auth Definition, with its plugins' endpoints and fields. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`. So with the `admin()` plugin, `getAuthForRequest(event.req).api.listUsers` type-checks without a cast. For another definition, `getAuthForDefinition(definition)` infers the type, and `AuthFor<typeof definition>` from `vite-hub/auth` names it.
 
 `authorization` is a frozen `{ request, session, user }` object. Only the guard or middleware creates it, so a caller cannot pass its own.
 
@@ -116,7 +116,7 @@ export const app = new H3()
 | `timeoutMs` | `5000` | Stop the GitHub request after this many milliseconds. |
 
 ```ts [server/utils/members.ts]
-import { isGitHubOrgMember } from '@vite-hub/auth'
+import { isGitHubOrgMember } from 'vite-hub/auth'
 
 export const isTeamMember = (token: string | null | undefined) => isGitHubOrgMember(token, 'acme', { cacheMs: 300_000 })
 ```
@@ -134,7 +134,7 @@ Add `authorize` when a session alone is not enough. ViteHub calls it only after 
 | A `Response` | That response, as-is. |
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   access: {

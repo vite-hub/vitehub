@@ -15,7 +15,7 @@ Use it when an Agent run (an Invocation) must deliver its result somewhere other
 Pass the client from `useChannel()` and the send options. Set `required` to fail the Invocation when nothing was sent:
 
 ```ts [server/schedules/weekly-report.ts] fragment
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 import { defineAgent, runAgent } from 'vite-hub/agent'
 import { channelDelivery } from 'vite-hub/agent/capabilities'
 import { useChannel } from 'vite-hub/channels/server'
