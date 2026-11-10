@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   commentsEntry,
-  defineAgentFromViteHub,
   forgeErrorImports,
   markdownFilePath,
   noNuxtHubLeftovers,
@@ -143,26 +142,6 @@ describe("vitehub/sandbox-runtime-options", () => {
         "export const d = await resolveSandbox({ ...base, runtime: \"crabbox\" }, {})",
         "export const e = await resolveSandbox({ runtime: customRuntime }, {})",
       ),
-    })).toEqual([])
-  })
-})
-
-describe("vitehub/define-agent-from-vite-hub", () => {
-  it("reports the owner-package defineAgent in a vite-hub app", async () => {
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "vite-hub": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual(["VHUB0028"])
-  })
-
-  it("accepts vite-hub/agent, type imports, and apps without vite-hub", async () => {
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "vite-hub": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"vite-hub/agent\"\nimport type { AgentDefinition } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual([])
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "@vite-hub/agent": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
     })).toEqual([])
   })
 })

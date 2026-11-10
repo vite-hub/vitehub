@@ -91,14 +91,8 @@ describe("Console Auth package exports", () => {
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
-// `vite-hub/source` also forwards `table()` from `@vite-hub/source/drizzle`. The owner root
-// cannot export it because `table()` needs the optional `drizzle-orm` peer.
-// `vite-hub/content` also forwards `documents()` and `optional()` from `@vite-hub/content/collections`,
-// which the owner root keeps out because they need the optional Workspace peer.
 const consolidatedOwnerExports = new Set([
-  "@vite-hub/content/collections",
   "@vite-hub/docs/navigation",
-  "@vite-hub/source/drizzle",
   "@vite-hub/workspace/ai",
 ]);
 
@@ -145,6 +139,7 @@ const lowLevelOwnerExports = new Set([
 const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/runtime/shutdown",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
+  "@vite-hub/agent/invocations/app",
   "@vite-hub/agent/invocations/default",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/auth/runtime/console",
@@ -232,15 +227,13 @@ describe("framework package contract", () => {
   });
 
   it("forwards feature APIs from their owner packages", () => {
-    expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent);
+    expect(frameworkAgent.defineAgent).toBe(ownerAgent.defineAgent);
     expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(
       ownerAgentProcessRuntime.createProcessAgentCapacity,
     );
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email);
     expect(Object.keys(frameworkCapabilities).sort()).toEqual(Object.keys(ownerCapabilities).sort());
     for (const [name, capability] of Object.entries(ownerCapabilities)) {
-      // The framework narrows inputCommands to its Console Runtime context.
-      if (name === "inputCommands") continue;
       expect(Reflect.get(frameworkCapabilities, name), name).toBe(capability);
     }
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell);
@@ -297,9 +290,6 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
-      "./agent",
-      "./agent/capabilities",
-      "./agent/invocations/database",
       "./console",
       "./console/auth",
       "./console/auth/client",
@@ -324,9 +314,7 @@ describe("framework package contract", () => {
       "./nuxt",
       "./operations",
       "./skills",
-      "./source/vite",
       "./test",
-      "./ui/vite",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
