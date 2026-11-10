@@ -48,6 +48,11 @@ function pill() {
   }
 }
 
+/** The pill folds into its hexagon before the tools stop. Happy DOM runs no transition, so that takes one task. */
+async function exited() {
+  await new Promise(resolve => setTimeout(resolve))
+}
+
 function offMark() {
   const marks = document.querySelectorAll("vitehub-tools-off")
   expect(marks).toHaveLength(1)
@@ -108,6 +113,7 @@ describe("loadViteHubPageTools", () => {
     expect(slots).toEqual(["tab", "console"])
     expect(exit.querySelector("svg")?.namespaceURI).toBe("http://www.w3.org/2000/svg")
     exit.click()
+    await exited()
     expect(stopped).toEqual(["console"])
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })
@@ -176,6 +182,7 @@ describe("loadViteHubPageTools", () => {
     expect(slot.parentNode).toBe(element.shadowRoot)
     expect(slot.assignedElements()).toEqual([tab])
     exit.click()
+    await exited()
     expect(tab.isConnected).toBe(false)
   })
 
@@ -647,6 +654,7 @@ describe("loadViteHubPageTools", () => {
     finally { document.body.replaceWith(before) }
     expect(editor.isConnected).toBe(true)
     pill().exit.click()
+    await exited()
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })
 
@@ -689,6 +697,7 @@ describe("loadViteHubPageTools", () => {
     mark.click()
     expect(element.hasAttribute("collapsed")).toBe(false)
     pill().exit.click()
+    await exited()
   })
 
   it("hides the segment of a tool that leaves it empty", async () => {
@@ -714,6 +723,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started, stopped } = modules()
     await loadViteHubPageTools({ load })
     pill().exit.click()
+    await exited()
     expect(stopped).toEqual(["comments", "console"])
     expect(started.every(context => context.signal.aborted)).toBe(true)
     expect(document.querySelector("vitehub-pill")).toBeNull()
@@ -730,6 +740,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
     pill().exit.click()
+    await exited()
     expect(document.querySelector("vitehub-pill")).toBeNull()
     const mark = offMark()
     expect([mark.element.getAttribute("edge"), (mark.element as HTMLElement).style.getPropertyValue("--at")]).toEqual(["right", "20"])
@@ -750,6 +761,7 @@ describe("loadViteHubPageTools", () => {
     session({ tools: [comments] })
     await loadViteHubPageTools({ load: modules().load })
     pill().exit.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
+    await exited()
     const { element, button } = offMark()
     expect(element.shadowRoot!.activeElement === button).toBe(focused)
   })
@@ -760,6 +772,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
     pill().exit.click()
+    await exited()
     expect(location.pathname + location.search).toBe("/guide?tab=2")
 
     // The next page: the session route still answers, so only people with access get the mark.
@@ -771,6 +784,7 @@ describe("loadViteHubPageTools", () => {
     offMark().button.click()
     await vi.waitFor(() => expect(started).toHaveLength(4))
     pill().exit.click()
+    await exited()
 
     offMark().element.remove()
     page("/?vitehub")
@@ -900,6 +914,7 @@ describe("lazy tools", () => {
       expect(load).toHaveBeenCalledTimes(2)
     }
     finally { style.remove(); pill().exit.click() }
+    await exited()
   })
 
   it("loads a lazy tool's script when the pointer reaches its button, and shows the click at once", async () => {
@@ -920,6 +935,7 @@ describe("lazy tools", () => {
     await vi.waitFor(() => expect(document.querySelector("vitehub-tool")!.hasAttribute("aria-busy")).toBe(false))
     expect(load).toHaveBeenCalledOnce()
     pill().exit.click()
+    await exited()
   })
 
   it("loads a lazy script again on the next intent after a failed preload", async () => {
@@ -933,6 +949,7 @@ describe("lazy tools", () => {
     lazyControl().dispatchEvent(new PointerEvent("pointerenter"))
     expect(load).toHaveBeenCalledTimes(2)
     pill().exit.click()
+    await exited()
   })
 
   it.each([false, true])("rolls back failed startup registrations (lazy: %s)", async (lazy) => {
@@ -961,6 +978,7 @@ describe("lazy tools", () => {
     await vi.waitFor(() => expect(document.querySelectorAll("vitehub-window")).toHaveLength(1))
     expect(signals[1]!.aborted).toBe(false)
     pill().exit.click()
+    await exited()
     expect(signals[1]!.aborted).toBe(true)
     expect(document.querySelector("vitehub-window")).toBeNull()
     expect(document.querySelector("vitehub-pill")).toBeNull()
@@ -981,6 +999,7 @@ describe("lazy tools", () => {
     second.show()
     expect(onHide).not.toHaveBeenCalled()
     pill().exit.click()
+    await exited()
   })
 
   it("keeps a replacement window registered when the previous handle is destroyed", async () => {
@@ -999,6 +1018,7 @@ describe("lazy tools", () => {
     other.show()
     expect(onHide).toHaveBeenCalledOnce()
     pill().exit.click()
+    await exited()
   })
 
   it("restores a remembered eager window", async () => {
@@ -1015,6 +1035,7 @@ describe("lazy tools", () => {
     await loadViteHubPageTools({ load })
     expect(document.querySelector<HTMLElement>("vitehub-window")!.hidden).toBe(false)
     pill().exit.click()
+    await exited()
   })
 
   it.each([false, true])("keeps the query-selected window visible when a restored import finishes later (lazy: %s)", async (lazy) => {
@@ -1043,6 +1064,7 @@ describe("lazy tools", () => {
     expect(selected.hidden).toBe(false)
     expect([...document.querySelectorAll<HTMLElement>("vitehub-window")].map(window => window.hidden)).toEqual([false, true])
     pill().exit.click()
+    await exited()
   })
 
   it.each(["query", "restored"])("keeps a retry control after a failed %s import", async (activation) => {
@@ -1061,6 +1083,7 @@ describe("lazy tools", () => {
     expect(started[0]!.open).toBe(true)
     expect(load).toHaveBeenCalledTimes(2)
     pill().exit.click()
+    await exited()
   })
 
   it("imports a tool on demand only once", async () => {
@@ -1096,8 +1119,10 @@ it("retries a lazy import and honors the editor exit guard", async () => {
   launch.click()
   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
   pill().exit.click()
+  await exited()
   expect(document.querySelector("vitehub-pill")).not.toBeNull()
   allowExit = true
   pill().exit.click()
+  await exited()
   expect(document.querySelector("vitehub-pill")).toBeNull()
 })
