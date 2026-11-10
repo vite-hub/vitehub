@@ -64,7 +64,7 @@ import { skills } from '../skills'
 export default defineHandler(event => serveSkills(event.req, skills))
 ```
 
-With H3 v1, such as Nuxt 4, pass `toWebRequest(event)` instead of `event.req`.
+With H3 v1, pass `toWebRequest(event)` instead of `event.req`.
 
 An agent then installs a skill from the site URL:
 
