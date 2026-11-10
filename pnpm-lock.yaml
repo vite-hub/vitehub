@@ -1920,9 +1920,6 @@ importers:
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -1951,6 +1948,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      esbuild:
+        specifier: catalog:tooling
+        version: 0.28.2
       postgres:
         specifier: catalog:database
         version: 3.4.9
@@ -2765,24 +2765,12 @@ importers:
 
   packages/queue:
     dependencies:
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
-      '@vercel/functions':
-        specifier: catalog:vercel
-        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
-      '@vercel/queue':
-        specifier: catalog:vercel
-        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
       defu:
         specifier: catalog:unjs
         version: 6.1.7
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -2798,13 +2786,16 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-      ws:
-        specifier: ^8.22.0
-        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
+      '@vercel/queue':
+        specifier: catalog:vercel
+        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -3050,9 +3041,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       local-pkg:
         specifier: catalog:tooling
         version: 1.2.1
@@ -3102,6 +3090,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      esbuild:
+        specifier: catalog:tooling
+        version: 0.28.2
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0

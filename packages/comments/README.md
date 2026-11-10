@@ -28,7 +28,7 @@ Create a GitHub App, install it on the repository, and list `https://<site>/api/
 
 [`vite-hub`](https://www.npmjs.com/package/vite-hub) wires the package for you, with any ViteHub Database, presence over Realtime, Content edits in place, the Console, and MCP tools.
 
-```ts
+```ts [server/comments.ts]
 // server/comments.ts
 import { defineComments } from "vite-hub/comments"
 
@@ -128,7 +128,17 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
 
-`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With an H3 request `event`, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
+`createCommentsHandler(options)` returns a Fetchable, `{ fetch(request) }`. Mount it as a Nitro or H3 route at `/api/_vitehub/comments/**`, or call `handler.fetch(request)` yourself. Every outcome is a `Response`, also the errors. The handler gives the Request to `identify` as `event`, and reads cookies, the Cloudflare bindings, and `waitUntil` from its Standard Context, `request["~standard"]`. In a ViteHub app, Nitro sets it. For a Request from elsewhere, the handler sets it.
+
+```ts
+import { createCommentsHandler } from "@vite-hub/comments/runtime";
+import { comments } from "./server/comments";
+
+const handler = createCommentsHandler({ comments, realtime: false });
+const response = await handler.fetch(new Request("https://site.test/api/_vitehub/comments/threads?page=/"));
+```
+
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 
@@ -140,7 +150,7 @@ Generated files under `.vitehub/nitro/comments` are inspectable build output, no
 
 Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
 
-With access to the Content page tool, selecting **Edit** and a marked field opens that document in the existing Content editor. Otherwise Comments keeps its plain-text inline editor. The Content write and publish rules do not change.
+Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text opens its document in the Console window. Without the Console tool, **Open Content** links to the Content page. The Content write and publish rules do not change.
 
 ## One model
 
