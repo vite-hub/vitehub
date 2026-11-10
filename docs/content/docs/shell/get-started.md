@@ -8,36 +8,65 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Search a Markdown file with `rg` and return the matching line from a server route. The route creates a file in a memory Workspace, then gives Shell read-only access to that file tree. You will check both the command's exit code and its output.
+Shell lets your server run simple shell commands, such as `ls`, `cat`, and `rg`, on files that you choose. You decide which commands are allowed, and how long and how much output each one can have.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Just Bash provider runs the commands you allow against the supplied filesystem. Use [Sandbox](/docs/sandbox) when you need provider-managed isolation for external programs.
+In this tutorial, you write a Markdown file, search it with `rg`, and return the matching line from an API route. You check the exit code and the output of the command.
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. This tutorial uses Just Bash, which runs the commands inside your server process, only on the files you give it. It is not a separate machine. To run other programs in isolation, use [Sandbox](/docs/sandbox).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install Shell and Workspace. Only Workspace needs a discovery plugin in this example; the route creates Shell directly.
+Shell runs its commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
 
-```bash [commands/install]
-pnpm add @vite-hub/shell @vite-hub/workspace nitro h3
-pnpm add -D vite
+Install Shell and Workspace:
+
+```bash pm [commands/install]
+pnpm add @vite-hub/shell @vite-hub/workspace
 ```
 
-Register Workspace discovery in `vite.config.ts`:
+Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app. Shell needs no option, because your route creates it.
 
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-
-export default defineConfig({
-  plugins: [hubWorkspace(), nitro()],
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workspace: true },
 })
 ```
+::::
 
-Create a writable memory Workspace for the local fixture:
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workspace: true })],
+})
+```
+::::
+:::
+
+
+Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file:
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace } from '@vite-hub/workspace'
+import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   store: { driver: 'memory' },
@@ -47,19 +76,22 @@ export default defineWorkspace({
 })
 ```
 
+- `provider: 'memory'` keeps the files in memory. A server restart loses them.
+- `write: true` lets your route write Markdown files to the Workspace.
+
 ::
 
 ::tutorial-step{title="Run one command"}
 ## Run one command
 
-`rg auth .` searches for `auth` in the mounted tree. The command policy permits one call, caps its output, and applies a timeout. The filesystem adapter denies writes even though the route created the fixture with write access.
+Create `server/api/search-docs.get.ts`. This route writes `README.md` to the Workspace, then searches it for the word `auth`.
 
 ```ts [server/api/search-docs.get.ts]
 import { defineEventHandler } from 'h3'
-import { createShellRuntime } from '@vite-hub/shell'
-import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
-import { createReadonlyWorkspaceFs, workspaceMountPoint } from '@vite-hub/shell/workspace'
-import { useWorkspace } from '@vite-hub/workspace'
+import { createShellRuntime } from 'vite-hub/shell'
+import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'
+import { createReadonlyWorkspaceFs, workspaceMountPoint } from 'vite-hub/shell/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace('docs', { mode: 'write' })
@@ -83,26 +115,29 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Only `pwd`, `ls`, `cat`, and `rg` are available to this provider, and it has no network access.
+- `policy` allows one command, keeps at most 10,000 characters of output, and stops the command after 30 seconds.
+- `commands` lists the only commands that Shell can run: `pwd`, `ls`, `cat`, and `rg`. Shell has no network access.
+- `createReadonlyWorkspaceFs(workspace.fs)` gives Shell the Workspace files, but it cannot change them. The route can still write, because it opened the Workspace with `mode: 'write'`.
+- `shell.exec('rg auth .')` runs the search and returns the result: its exit code and its output.
 
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start Vite and call the route:
+Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Keep the server running. In another terminal, run:
+Open a second terminal, and call the route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/search-docs
+curl http://localhost:3000/api/search-docs
 ```
 
-The response contains a successful observation:
+The response shows that the command worked. Exit code `0` means success, and `stdout` has the matching line:
 
 ```json [output/response.json]
 {
@@ -112,6 +147,16 @@ The response contains a successful observation:
 }
 ```
 
-Read [Server API](/docs/shell/server-api) for sessions and command analysis,
-then [Configuration](/docs/shell/configure) for provider boundaries and policy.
+::
+
+## Next steps
+
+::card-group
+:::card{title="Server API" icon="i-lucide-code" to="/docs/shell/server-api"}
+Keep a Shell session open and check a command before it runs.
+:::
+
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/shell/configure"}
+Set the provider, its limits, and network access.
+:::
 ::

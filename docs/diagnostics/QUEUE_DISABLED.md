@@ -3,7 +3,7 @@ description: "Fix QUEUE_DISABLED in ViteHub. Queue is off in the generated serve
 seo.title: "QUEUE_DISABLED: Queue is off in this runtime"
 ---
 
-`runQueue()`, `getQueue()`, `dynamicQueue`, or `vitehub queue list` throws `QUEUE_DISABLED`. The generated server has Queue turned off, so it sends no job.
+`sendQueue()`, `useQueue()`, `dynamicQueue`, or `vitehub queue list` throws `QUEUE_DISABLED`. The generated server has Queue turned off, so it sends no job.
 
 ## Why it happens
 
@@ -40,7 +40,7 @@ Make `queue.driver` match the Nitro preset, or remove `driver`. If you use `vite
 
 ## Check the fix
 
-Open `.vitehub/nitro/queue/plugin.ts` after `vite dev` or `vite build` starts. It must not contain `const queueConfig = false`. Then call the route that runs `runQueue()`. It returns `[error, result]` and does not throw `QUEUE_DISABLED`.
+Open `.vitehub/nitro/queue/plugin.ts` after `vite dev` or `vite build` starts. It must not contain `const queueConfig = false`. Then call the route that runs `sendQueue()`. It returns `[error, result]` and does not throw `QUEUE_DISABLED`.
 
 ## Related
 

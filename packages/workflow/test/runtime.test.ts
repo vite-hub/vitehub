@@ -16,7 +16,7 @@ import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImport
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
-import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
+import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps, runWorkflowHandler } from "../src/runtime/execute.ts"
 
 it("rejects workflow step files that normalize to an empty property name", () => {
@@ -139,11 +139,11 @@ it("types handler-owned results and unknown named Workflow results honestly", ()
   const inline = createWorkflow<{ message: string }, { reply: string }>("typed-inline", async ({ payload }) => ({ reply: payload.message }))
   const discovered = createWorkflow<{ message: string }>("typed-discovered")
 
-  expectTypeOf<Awaited<ReturnType<typeof inline.run>>["result"]>().toEqualTypeOf<{ reply: string } | undefined>()
+  expectTypeOf<Awaited<ReturnType<typeof inline.start>>["result"]>().toEqualTypeOf<{ reply: string } | undefined>()
   expectTypeOf<Awaited<ReturnType<typeof inline.getRun>>["result"]>().toEqualTypeOf<unknown>()
-  expectTypeOf<Awaited<ReturnType<typeof discovered.run>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof discovered.start>>["result"]>().toEqualTypeOf<unknown>()
   expectTypeOf<Awaited<ReturnType<typeof discovered.getRun>>["result"]>().toEqualTypeOf<unknown>()
-  expectTypeOf<Awaited<ReturnType<typeof runWorkflow<{ message: string }>>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof startWorkflow<{ message: string }>>>["result"]>().toEqualTypeOf<unknown>()
   expectTypeOf<Awaited<ReturnType<typeof getWorkflowRun>>["result"]>().toEqualTypeOf<unknown>()
   expectTypeOf<Awaited<ReturnType<typeof cancelWorkflow>>["result"]>().toEqualTypeOf<unknown>()
 })
@@ -232,7 +232,7 @@ afterEach(() => {
 
 describe("workflow runtime", () => {
   it.each([
-    ["runWorkflow", (name: string) => runWorkflow(name, {})],
+    ["startWorkflow", (name: string) => startWorkflow(name, {})],
     ["getWorkflowRun", (name: string) => getWorkflowRun(name, "run-1")],
     ["cancelWorkflow", (name: string) => cancelWorkflow(name, "run-1")],
   ])("rejects disabled %s before loading known or missing definitions", async (_operation, call) => {
@@ -257,7 +257,7 @@ describe("workflow runtime", () => {
     setVercelWorkflowRuntimeLoader(load)
     setWorkflowRuntimeConfig(false)
 
-    const error = await resumeWorkflowSignal("opaque-token", {}).catch(error => error)
+    const error = await resumeWorkflow("opaque-token", {}).catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error.toJSON()).toEqual({
       code: "WORKFLOW_DISABLED",
@@ -270,14 +270,14 @@ describe("workflow runtime", () => {
   it.each([false, undefined, { driver: "vercel" }] satisfies Parameters<typeof setWorkflowRuntimeConfig>[0][])("validates signal tokens before configuration %j", async (config) => {
     setWorkflowRuntimeConfig(config)
 
-    await expect(resumeWorkflowSignal("", {})).rejects.toMatchObject({
+    await expect(resumeWorkflow("", {})).rejects.toMatchObject({
       code: "WORKFLOW_R0014",
-      message: "`resumeWorkflowSignal()` requires an opaque signal token.",
+      message: "`resumeWorkflow()` requires an opaque signal token.",
     })
   })
 
   it.each([
-    ["runWorkflow", () => runWorkflow("missing", {})],
+    ["startWorkflow", () => startWorkflow("missing", {})],
     ["cancelWorkflow", () => cancelWorkflow("missing", "run-1")],
   ])("rejects missing definitions before %s provider dispatch", async (_operation, call) => {
     setWorkflowRuntimeConfig({ driver: "cloudflare" })
@@ -294,7 +294,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig(undefined)
     const workflow = createWorkflow("default-provider", async () => "done")
 
-    await expect(workflow.run()).resolves.toMatchObject({ provider: "vercel", status: "queued" })
+    await expect(workflow.start()).resolves.toMatchObject({ provider: "vercel", status: "queued" })
     await expect(getWorkflowRun("missing", "run-1")).resolves.toEqual({
       id: "run-1",
       provider: "vercel",
@@ -350,7 +350,7 @@ describe("workflow runtime", () => {
     }))
 
     expect(workflow.name).toBe("inline-reply")
-    const run = await workflow.run({ message: "hello" }, { id: "inline-1" })
+    const run = await workflow.start({ message: "hello" }, { id: "inline-1" })
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
 
     await vi.waitFor(async () => {
@@ -378,8 +378,8 @@ describe("workflow runtime", () => {
     })
 
     const [first, second] = await Promise.all([
-      workflow.run({}, { id: "fixed-id" }),
-      workflow.run({}, { id: "fixed-id" }),
+      workflow.start({}, { id: "fixed-id" }),
+      workflow.start({}, { id: "fixed-id" }),
     ])
 
     expect(first).toMatchObject({ id: "fixed-id", provider: "vercel", status: "queued" })
@@ -388,7 +388,7 @@ describe("workflow runtime", () => {
     await vi.waitFor(() => expect(calls).toBe(1))
     await vi.waitFor(async () => expect(await workflow.getRun("fixed-id")).toMatchObject({ status: "completed" }))
 
-    const third = await workflow.run({}, { id: "fixed-id" })
+    const third = await workflow.start({}, { id: "fixed-id" })
     expect(third).toMatchObject({ id: "fixed-id", provider: "vercel", status: "completed" })
     expect(calls).toBe(1)
   })
@@ -400,9 +400,9 @@ describe("workflow runtime", () => {
       throw failure
     })
 
-    const first = await workflow.run({ input: true }, { id: "failed-id" })
+    const first = await workflow.start({ input: true }, { id: "failed-id" })
     await vi.waitFor(async () => expect(await workflow.getRun("failed-id")).toMatchObject({ status: "failed", metadata: failure }))
-    const repeated = await workflow.run({ input: true }, { id: "failed-id" })
+    const repeated = await workflow.start({ input: true }, { id: "failed-id" })
 
     expect(first).toMatchObject({ payload: { input: true }, status: "queued" })
     expect(repeated).toMatchObject({
@@ -423,7 +423,7 @@ describe("workflow runtime", () => {
       }),
       id: ({ payload }) => payload?.message || "missing",
     })
-    const run = await workflow.run({ message: "hello" })
+    const run = await workflow.start({ message: "hello" })
 
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
     expect(run.id).toMatch(/^object-inline-reply-/)
@@ -450,10 +450,10 @@ describe("workflow runtime", () => {
     })
 
     const workflow = createWorkflow<{ message: string }>("welcome")
-    const run = await workflow.defer({ message: "hello" }, { id: "welcome-handle" })
+    workflow.defer({ message: "hello" }, { id: "welcome-handle" })
 
     await vi.waitFor(async () => {
-      const completed = await workflow.getRun(run.id)
+      const completed = await workflow.getRun("welcome-handle")
       expect(completed).toMatchObject({
         result: expect.any(Response),
         status: "completed",
@@ -476,8 +476,8 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const first = await workflow.run({ messageId: "m1", placeholderMessageId: "p1", threadId: "t1" })
-    const second = await workflow.run({ messageId: "m1", placeholderMessageId: "p2", threadId: "t1" })
+    const first = await workflow.start({ messageId: "m1", placeholderMessageId: "p1", threadId: "t1" })
+    const second = await workflow.start({ messageId: "m1", placeholderMessageId: "p2", threadId: "t1" })
 
     expect(first.id).toBe(second.id)
     expect(first.id).toMatch(/^chat-reply-[a-f0-9]{32}$/)
@@ -490,7 +490,7 @@ describe("workflow runtime", () => {
       id: () => "derived",
     })
 
-    await expect(workflow.run({}, { id: "manual" })).resolves.toMatchObject({
+    await expect(workflow.start({}, { id: "manual" })).resolves.toMatchObject({
       id: "manual",
     })
   })
@@ -506,7 +506,7 @@ describe("workflow runtime", () => {
     const workflow = createWorkflow<{ accountId: string }>("welcome", {
       id: ({ payload }) => ({ accountId: payload?.accountId }),
     })
-    const run = await workflow.defer({ accountId: "acct_1" })
+    const run = await workflow.start({ accountId: "acct_1" })
 
     expect(run.id).toMatch(/^welcome-[a-f0-9]{32}$/)
   })
@@ -523,7 +523,7 @@ describe("workflow runtime", () => {
     })
     createWorkflow("duplicate", async () => "inline")
 
-    await expect(runWorkflow("duplicate", {})).rejects.toThrow(/Duplicate workflow name "duplicate"/)
+    await expect(startWorkflow("duplicate", {})).rejects.toThrow(/Duplicate workflow name "duplicate"/)
   })
 
   it("prefers inline definitions registered while loading discovered entries", async () => {
@@ -538,8 +538,8 @@ describe("workflow runtime", () => {
       },
     })
 
-    const firstRun = await runWorkflow("mixed", undefined, { id: "first" })
-    const secondRun = await runWorkflow("mixed", undefined, { id: "second" })
+    const firstRun = await startWorkflow("mixed", undefined, { id: "first" })
+    const secondRun = await startWorkflow("mixed", undefined, { id: "second" })
 
     await vi.waitFor(async () => {
       const firstResult = (await getWorkflowRun("mixed", firstRun.id))?.result
@@ -564,7 +564,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
+    const run = await startWorkflow("server/workflows/chat", undefined, { id: "chat" })
 
     await vi.waitFor(async () => {
       const result = (await getWorkflowRun("server/workflows/chat", run.id))?.result
@@ -588,7 +588,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
+    const run = await startWorkflow("server/workflows/chat", undefined, { id: "chat" })
 
     await vi.waitFor(async () => {
       const result = (await getWorkflowRun("server/workflows/chat", run.id))?.result
@@ -615,8 +615,8 @@ describe("workflow runtime", () => {
       },
     })
 
-    const firstRun = await runWorkflow("first", undefined, { id: "first" })
-    const secondRun = await runWorkflow("second", undefined, { id: "second" })
+    const firstRun = await startWorkflow("first", undefined, { id: "first" })
+    const secondRun = await startWorkflow("second", undefined, { id: "second" })
 
     await vi.waitFor(async () => {
       const firstResult = (await getWorkflowRun("first", firstRun.id))?.result
@@ -642,7 +642,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
+    await expect(startWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
     expect(helper).not.toHaveBeenCalled()
   })
 
@@ -658,7 +658,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
+    await expect(startWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
     expect(helper).not.toHaveBeenCalled()
   })
 
@@ -674,7 +674,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    const run = await runWorkflow("mixed", undefined, { id: "mixed" })
+    const run = await startWorkflow("mixed", undefined, { id: "mixed" })
 
     await vi.waitFor(async () => {
       const result = (await getWorkflowRun("mixed", run.id))?.result
@@ -702,11 +702,11 @@ describe("workflow runtime", () => {
       beta: async () => ({}),
     })
 
-    const alphaRun = runWorkflow("alpha", undefined, { id: "alpha" })
+    const alphaRun = startWorkflow("alpha", undefined, { id: "alpha" })
     await vi.waitFor(() => {
       expect(getInlineWorkflowDefinitions().has("legacy-alpha")).toBe(true)
     })
-    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow("Workflow definition was not found.")
+    await expect(startWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow("Workflow definition was not found.")
     releaseAlpha()
     await alphaRun
   })
@@ -761,7 +761,7 @@ describe("workflow runtime", () => {
     const workflow = createWorkflow("durable-open", async () => new Response("saved", {
       status: 201, headers: { "x-workflow": "durable" },
     }))
-    const started = await workflow.run()
+    const started = await workflow.start()
     await vi.waitFor(async () => {
       const stored = openWorkflowMock.runs.get(started.id)
       expect(isSerializedResponse(stored?.output)).toBe(true)
@@ -779,8 +779,8 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("cancel-open", async () => "done")
     const other = createWorkflow("cancel-other", async () => "done")
-    const started = await workflow.run()
-    const foreign = await other.run()
+    const started = await workflow.start()
+    const foreign = await other.start()
     const stored = openWorkflowMock.runs.get(started.id)
     await vi.waitFor(() => expect(stored.status).toBe("completed"))
     stored.status = "running"
@@ -798,7 +798,7 @@ describe("workflow runtime", () => {
   it("reports finished OpenWorkflow runs as they are instead of cancelling them", async () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("cancel-finished", async () => "done")
-    const started = await workflow.run()
+    const started = await workflow.start()
     await vi.waitFor(() => expect(openWorkflowMock.runs.get(started.id)).toMatchObject({ output: expect.anything(), status: "completed" }))
 
     await expect(workflow.cancel(started.id)).resolves.toMatchObject({ id: started.id, status: "completed" })
@@ -808,7 +808,7 @@ describe("workflow runtime", () => {
   it.each(["completed", "failed", "canceled"])("returns the terminal OpenWorkflow run when it becomes %s during cancellation", async (status) => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = createWorkflow("cancel-race", async () => "done")
-    const started = await workflow.run()
+    const started = await workflow.start()
     const stored = openWorkflowMock.runs.get(started.id)
     await vi.waitFor(() => expect(stored).toMatchObject({ output: expect.anything(), status: "completed" }))
     stored.status = "running"
@@ -829,7 +829,7 @@ describe("workflow runtime", () => {
     const config = { driver: "openworkflow", sqlite: { path: ":memory:" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
     setWorkflowRuntimeConfig(config)
     const workflow = createWorkflow("cancel-error", async () => "done")
-    const started = await workflow.run()
+    const started = await workflow.start()
     const stored = openWorkflowMock.runs.get(started.id)
     const runtime = await getOpenWorkflowRuntime(config)
     await vi.waitFor(() => expect(stored).toMatchObject({ output: expect.anything(), status: "completed" }))
@@ -1139,7 +1139,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const run = await runWorkflow("welcome", { message: "hello" })
+    const run = await startWorkflow("welcome", { message: "hello" })
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
 
     await vi.waitFor(async () => {
@@ -1173,7 +1173,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const run = await runWorkflow("welcome", { message: "hello" }, { id: "welcome-idempotency-key" })
+    const run = await startWorkflow("welcome", { message: "hello" }, { id: "welcome-idempotency-key" })
     expect(run).toMatchObject({
       metadata: { idempotencyKey: "welcome-idempotency-key", workflow: "welcome" },
       provider: "openworkflow",
@@ -1440,7 +1440,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await runWorkflow("welcome", {})
+    await startWorkflow("welcome", {})
 
     expect(openWorkflowMock.connect).toHaveBeenCalledWith("postgres://localhost/env", {
       namespaceId: "staging",
@@ -1461,7 +1461,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await runWorkflow("welcome", {})
+    await startWorkflow("welcome", {})
 
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".data/workflow.sqlite", {
       namespaceId: "local",
@@ -1485,7 +1485,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await runWorkflow("welcome", {})
+    await startWorkflow("welcome", {})
 
     expect(existsSync(dirname(path))).toBe(true)
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(path, {
@@ -1502,7 +1502,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await runWorkflow("welcome", {})
+    await startWorkflow("welcome", {})
 
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".data/env-workflow.sqlite", {
       namespaceId: "local",
@@ -1543,7 +1543,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await runWorkflow("welcome", {})
+    await startWorkflow("welcome", {})
 
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".data/runtime-workflow.sqlite", {
       namespaceId: "production",
@@ -1556,7 +1556,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await runWorkflow("welcome", {})
+    await startWorkflow("welcome", {})
 
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", {
       namespaceId: "production",
@@ -1633,7 +1633,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), cause, {
       operation: "import",
       provider: "openworkflow",
     })
@@ -1647,7 +1647,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), cause, {
       operation: "connect",
       provider: "openworkflow",
     })
@@ -1675,7 +1675,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), cause, {
       operation: "connect",
       provider: "openworkflow",
     })
@@ -1703,7 +1703,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), cause, {
       acknowledgement: "unknown",
       operation: "run",
       provider: "openworkflow",
@@ -1732,7 +1732,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}, { id: "source-run" }), cause, {
+    await expectProviderFailure(startWorkflow("welcome", {}, { id: "source-run" }), cause, {
       operation: "run",
       provider: "openworkflow",
       status: 403,
@@ -1763,7 +1763,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}, { id: "source-run" }), retry, {
+    await expectProviderFailure(startWorkflow("welcome", {}, { id: "source-run" }), retry, {
       acknowledgement: "unknown",
       operation: "run",
       provider: "openworkflow",
@@ -1804,7 +1804,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expect(runWorkflow("welcome", {}, { id: "source-run" })).resolves.toMatchObject({
+    await expect(startWorkflow("welcome", {}, { id: "source-run" })).resolves.toMatchObject({
       id: "accepted-run",
       metadata: { idempotencyKey: "source-run" },
       provider: "openworkflow",
@@ -1851,7 +1851,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    const run = await runWorkflow("welcome", {}, { id: "existing-run" })
+    const run = await startWorkflow("welcome", {}, { id: "existing-run" })
 
     expect(run).toMatchObject({
       ...(error ? { metadata: error } : { result: output }),
@@ -1889,7 +1889,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), cause, {
       operation: "run",
       provider: "openworkflow",
     })
@@ -1965,7 +1965,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    const error = await runWorkflow("welcome", {}).catch(error => error)
+    const error = await startWorkflow("welcome", {}).catch(error => error)
 
     expect(error).not.toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -2343,8 +2343,8 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ welcome: entry })
 
-    const firstRun = runWorkflow("welcome", { message: "first" }, { id: "first" })
-    const secondRun = runWorkflow("welcome", { message: "second" }, { id: "second" })
+    const firstRun = startWorkflow("welcome", { message: "first" }, { id: "first" })
+    const secondRun = startWorkflow("welcome", { message: "second" }, { id: "second" })
 
     await vi.waitFor(() => {
       expect(resolveDefinition).toBeDefined()
@@ -2360,7 +2360,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
 
-    await expect(runWorkflow("missing", {})).rejects.toMatchObject({
+    await expect(startWorkflow("missing", {})).rejects.toMatchObject({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
     })
   })
@@ -2369,10 +2369,10 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ driver: "vercel" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setWorkflowRuntimeRegistry({
-      missing: async () => await runWorkflow("missing", {}),
+      missing: async () => await startWorkflow("missing", {}),
     } as never)
 
-    await expect(runWorkflow("missing", {})).rejects.toMatchObject({
+    await expect(startWorkflow("missing", {})).rejects.toMatchObject({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
     })
   })
@@ -2390,7 +2390,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const run = await runWorkflow("welcome", {})
+    const run = await startWorkflow("welcome", {})
     await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({ status: "running" })
 
     resolveRun?.({ ok: true })
@@ -2414,8 +2414,8 @@ describe("workflow runtime", () => {
       two: async () => ({ default: { handler: async () => "two" } }),
     })
 
-    await runWorkflow("one", {}, { id: "shared" })
-    await runWorkflow("two", {}, { id: "shared" })
+    await startWorkflow("one", {}, { id: "shared" })
+    await startWorkflow("two", {}, { id: "shared" })
     await Promise.resolve()
 
     const oneResult = (await getWorkflowRun("one", "shared"))?.result
@@ -2485,7 +2485,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const pending = await runWorkflow("welcome", { message: "hello" })
+    const pending = await startWorkflow("welcome", { message: "hello" })
     expect(pending).toMatchObject({ id: "wdk-1", provider: "vercel", status: "queued" })
     expect(settlementTasks).toHaveLength(1)
     expect(waitUntil).not.toHaveBeenCalled()
@@ -2509,7 +2509,7 @@ describe("workflow runtime", () => {
       }],
     })
 
-    await expect(resumeWorkflowSignal("opaque-provider-token", { ready: true })).resolves.toEqual({
+    await expect(resumeWorkflow("opaque-provider-token", { ready: true })).resolves.toEqual({
       id: "wdk-1",
       provider: "vercel",
     })
@@ -2548,7 +2548,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    await expect(runWorkflow("welcome", {}, { id: "caller-id" })).rejects.toMatchObject({
+    await expect(startWorkflow("welcome", {}, { id: "caller-id" })).rejects.toMatchObject({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
       details: { name: "welcome", provider: "vercel" },
     })
@@ -2701,7 +2701,7 @@ describe("workflow runtime", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       start: async () => ({ runId: 42 }) as never,
     }))
-    await expectInvalidProviderResult(runWorkflow("welcome", {}), "start", "run ID")
+    await expectInvalidProviderResult(startWorkflow("welcome", {}), "start", "run ID")
 
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: vi.fn(),
@@ -2710,7 +2710,7 @@ describe("workflow runtime", () => {
       resumeHook: async () => ({ runId: 42 }) as never,
       start: vi.fn(),
     }))
-    await expectInvalidProviderResult(resumeWorkflowSignal("opaque", {}), "resume-signal", "run ID")
+    await expectInvalidProviderResult(resumeWorkflow("opaque", {}), "resume-signal", "run ID")
   })
 
   it("fails unsupported inline cancellation and non-Vercel signals explicitly", async () => {
@@ -2723,7 +2723,7 @@ describe("workflow runtime", () => {
     })
 
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
-    await expect(resumeWorkflowSignal("opaque", {})).rejects.toMatchObject({
+    await expect(resumeWorkflow("opaque", {})).rejects.toMatchObject({
       code: "WORKFLOW_OPERATION_UNSUPPORTED",
     })
   })
@@ -2820,7 +2820,7 @@ describe("workflow runtime", () => {
       resumeHook: vi.fn(),
       start: async () => { throw startCause },
     }) as never)
-    await expectProviderFailure(runWorkflow("welcome", {}), startCause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), startCause, {
       operation: "start",
       provider: "vercel",
     })
@@ -2845,7 +2845,7 @@ describe("workflow runtime", () => {
       resumeHook: async () => { throw resumeCause },
       start: vi.fn(),
     }) as never)
-    await expectProviderFailure(resumeWorkflowSignal("private-token", {}), resumeCause, {
+    await expectProviderFailure(resumeWorkflow("private-token", {}), resumeCause, {
       operation: "resume-signal",
       provider: "vercel",
     })
@@ -2879,7 +2879,7 @@ describe("workflow runtime", () => {
 
     const createCause = new Error("provider-secret:create")
     enterBinding({ createBatch: async () => { throw createCause }, get: vi.fn() })
-    await expectProviderFailure(runWorkflow("welcome", {}), createCause, {
+    await expectProviderFailure(startWorkflow("welcome", {}), createCause, {
       acknowledgement: "unknown",
       operation: "create",
       provider: "cloudflare",
@@ -2899,7 +2899,7 @@ describe("workflow runtime", () => {
       } } } } },
     })
 
-    const error = await runWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
+    const error = await startWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
 
     expect(error).toMatchObject({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
@@ -2924,7 +2924,7 @@ describe("workflow runtime", () => {
       } } } } },
     })
 
-    const error = await runWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
+    const error = await startWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
 
     expect(error).toMatchObject({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
@@ -2990,7 +2990,7 @@ describe("workflow runtime", () => {
       } } } },
     })
 
-    await expect(runWorkflow(name, {}, { id: "custom-run" })).resolves.toMatchObject({ id: "custom-run" })
+    await expect(startWorkflow(name, {}, { id: "custom-run" })).resolves.toMatchObject({ id: "custom-run" })
     await expect(getWorkflowRun(name, "custom-run")).resolves.toMatchObject({ id: "custom-run", status: "completed" })
     expect(createBatch).toHaveBeenCalledOnce()
     expect(get).toHaveBeenCalledOnce()
@@ -3045,7 +3045,7 @@ describe("workflow runtime", () => {
       } } } },
     })
 
-    await expect(runWorkflow(name, {}, { id: "recovery-run" })).resolves.toMatchObject({ id: "recovery-run" })
+    await expect(startWorkflow(name, {}, { id: "recovery-run" })).resolves.toMatchObject({ id: "recovery-run" })
     expect(generatedCreateBatch).toHaveBeenCalledOnce()
     expect(customCreateBatch).not.toHaveBeenCalled()
   })
@@ -3063,7 +3063,7 @@ describe("workflow runtime", () => {
       } } } } },
     })
 
-    await expect(runWorkflow("welcome", {}, { id: "accepted-run" })).resolves.toMatchObject({
+    await expect(startWorkflow("welcome", {}, { id: "accepted-run" })).resolves.toMatchObject({
       id: "accepted-run",
       provider: "cloudflare",
       status: "queued",
@@ -3076,7 +3076,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
 
-    const missing = await runWorkflow(unsafeName, {}).catch(error => error)
+    const missing = await startWorkflow(unsafeName, {}).catch(error => error)
     expect(JSON.parse(JSON.stringify(missing))).toEqual({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
       message: "Workflow definition was not found.",
@@ -3088,7 +3088,7 @@ describe("workflow runtime", () => {
         default: { handler: async () => "inline", options: { native: async () => "native" } },
       }),
     })
-    const unsupportedId = await runWorkflow(unsafeName, {}, { id: "provider-secret-run-id" }).catch(error => error)
+    const unsupportedId = await startWorkflow(unsafeName, {}, { id: "provider-secret-run-id" }).catch(error => error)
     expect(JSON.parse(JSON.stringify(unsupportedId))).toEqual({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
       details: { provider: "vercel" },
@@ -3104,7 +3104,7 @@ describe("workflow runtime", () => {
       welcome: async () => ({ named: { handler: async () => ({ ok: true }) } }) as never,
     })
 
-    await expect(runWorkflow("welcome", {})).rejects.toMatchObject({
+    await expect(startWorkflow("welcome", {})).rejects.toMatchObject({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
     })
   })
@@ -3127,7 +3127,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("welcom", {}, { id: "typo" })).rejects.toMatchObject({
+    await expect(startWorkflow("welcom", {}, { id: "typo" })).rejects.toMatchObject({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
     })
     expect(createBatch).not.toHaveBeenCalled()
@@ -3154,7 +3154,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const run = await runWorkflow("welcome", {}, { id: "sync-failure" })
+    const run = await startWorkflow("welcome", {}, { id: "sync-failure" })
     expect(run).toMatchObject({ status: "queued" })
 
     await vi.waitFor(async () => {
@@ -3172,10 +3172,35 @@ describe("workflow runtime", () => {
     })
     enterWorkflowRuntimeEvent({ waitUntil })
 
-    await deferWorkflow("welcome", {})
+    expect(deferWorkflow("welcome", {}, { id: "deferred-1" })).toBeUndefined()
 
+    // The start is registered before the call returns. The inline run then registers its handler.
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
+    expect(waitUntil).toHaveBeenCalledTimes(2)
+    await waitUntil.mock.calls[1]?.[0]
+    await expect(getWorkflowRun("welcome", "deferred-1")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it("logs a deferred start that fails and does not reject", async () => {
+    const waitUntil = vi.fn()
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    setWorkflowRuntimeConfig({ driver: "vercel" })
+    setWorkflowRuntimeRegistry({})
+    enterWorkflowRuntimeEvent({ waitUntil })
+
+    try {
+      deferWorkflow("missing", {})
+      createWorkflow("missing").defer()
+      await Promise.all(waitUntil.mock.calls.map(([promise]) => promise))
+
+      expect(waitUntil).toHaveBeenCalledTimes(2)
+      expect(log).toHaveBeenCalledTimes(2)
+      expect(log).toHaveBeenCalledWith("[vitehub] Deferred Workflow start failed for \"missing\"", expect.objectContaining({ code: "WORKFLOW_DEFINITION_NOT_FOUND" }))
+    }
+    finally {
+      log.mockRestore()
+    }
   })
 
   it("uses request waitUntil for deferred Cloudflare workflow dispatch", async () => {
@@ -3202,7 +3227,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await deferWorkflow("welcome", { email: "ava@example.com" }, { id: "welcome-1" })
+    deferWorkflow("welcome", { email: "ava@example.com" }, { id: "welcome-1" })
 
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
@@ -3232,7 +3257,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("welcome", {}, { id: "welcome-1" })).resolves.toMatchObject({
+    await expect(startWorkflow("welcome", {}, { id: "welcome-1" })).resolves.toMatchObject({
       id: "welcome-1",
       status: "queued",
     })
@@ -3256,7 +3281,7 @@ describe("workflow runtime", () => {
       } } } },
     })
 
-    await expectProviderFailure(runWorkflow("welcome", {}, { id: "welcome-1" }), lostAcknowledgement, {
+    await expectProviderFailure(startWorkflow("welcome", {}, { id: "welcome-1" }), lostAcknowledgement, {
       acknowledgement: "unknown",
       operation: "create",
       provider: "cloudflare",
@@ -3311,7 +3336,7 @@ describe("Workflow input dispatch", () => {
     const onDispatch = vi.fn()
     setWorkflowRuntimeConfig({ driver: "cloudflare" })
     enterWorkflowRuntimeEvent({ onDispatch })
-    await expect(runWorkflow("missing-input-owner")).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
+    await expect(startWorkflow("missing-input-owner")).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
     expect(onDispatch).not.toHaveBeenCalled()
   })
 
@@ -3321,7 +3346,7 @@ describe("Workflow input dispatch", () => {
     enterWorkflowRuntimeEvent(Object.create({ onDispatch }))
     const workflow = createWorkflow("inherited-observer", async () => "done")
 
-    await expect(workflow.run()).resolves.toMatchObject({ status: "queued" })
+    await expect(workflow.start()).resolves.toMatchObject({ status: "queued" })
     expect(onDispatch).not.toHaveBeenCalled()
   })
 
@@ -3334,7 +3359,7 @@ describe("Workflow input dispatch", () => {
     setWorkflowRuntimeConfig({ driver: "cloudflare", binding: "INPUT_OWNER" })
     enterWorkflowRuntimeEvent({ onDispatch, env: { INPUT_OWNER: { createBatch } } })
     const workflow = createWorkflow("input-owner", async () => "done")
-    await expect(workflow.run()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+    await expect(workflow.start()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
     expect(createBatch).toHaveBeenCalledTimes(2)
     expect(onDispatch).toHaveBeenCalledOnce()
   })
@@ -3348,8 +3373,8 @@ describe("Workflow input dispatch", () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     enterWorkflowRuntimeEvent({ onDispatch })
     const workflow = createWorkflow("input-owner", async () => "done")
-    if (fails) await expect(workflow.run()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
-    else await expect(workflow.run()).resolves.toMatchObject({ status: "queued" })
+    if (fails) await expect(workflow.start()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+    else await expect(workflow.start()).resolves.toMatchObject({ status: "queued" })
     expect(onDispatch).toHaveBeenCalledTimes(fails ? 0 : 1)
   })
 
@@ -3369,7 +3394,7 @@ describe("Workflow input dispatch", () => {
       "input-owner": async () => ({ default: { handler: async () => "done", options: { native: async () => "native" } } }),
     })
     enterWorkflowRuntimeEvent({ onDispatch })
-    await expect(runWorkflow("input-owner")).rejects.toMatchObject({ code: fails ? "VERCEL_WORKFLOW_SDK_LOAD_FAILED" : "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+    await expect(startWorkflow("input-owner")).rejects.toMatchObject({ code: fails ? "VERCEL_WORKFLOW_SDK_LOAD_FAILED" : "WORKFLOW_PROVIDER_OPERATION_FAILED" })
     expect(start).toHaveBeenCalledTimes(fails ? 0 : 1)
     expect(onDispatch).toHaveBeenCalledTimes(fails ? 0 : 1)
   })
@@ -3382,7 +3407,7 @@ describe("Workflow input dispatch", () => {
       expect(onDispatch).toHaveBeenCalledOnce()
       return "done"
     })
-    await createWorkflow("inline-input-owner", handler).run()
+    await createWorkflow("inline-input-owner", handler).start()
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
     expect(onDispatch).toHaveBeenCalledOnce()
   })

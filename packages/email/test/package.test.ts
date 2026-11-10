@@ -21,7 +21,6 @@ describe("@vite-hub/email package contract", () => {
       "./drivers/cloudflare",
       "./drivers/resend",
       "./markdown",
-      "./operations",
       "./package.json",
       "./runtime/console",
       "./server",

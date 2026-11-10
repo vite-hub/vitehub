@@ -1,6 +1,6 @@
 ---
 title: Workflows configuration
-description: Set Workflow integration options, define Workflows, and add a durable Vercel entry.
+description: Set Workflow options, define Workflows, and add a durable Vercel entry.
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
@@ -8,37 +8,62 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-```ts [vite.config.ts]
-import { hubWorkflow } from '@vite-hub/workflow/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubWorkflow()],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { workflow: true },
 })
 ```
+:::
 
-The Vite config key is `workflow`.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ workflow: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ workflow: true })],
+})
+```
+:::
+::
+
+`workflow` takes `true` or an object with these options:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowModuleOptions` | disabled, or enabled when `agent` is enabled | Enables Workflow discovery and provider output through `vitehub()` with `true` or an options object; `false` disables it. |
-| `driver` | `WorkflowDriver` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
-| `binding` | `string` | provider default | Provider binding name for generated output. |
-| `name` | `string` | discovered workflow name | Provider resource name override. |
+| `workflow` | `boolean` or `WorkflowModuleOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `provider` | `WorkflowProvider` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
+| `binding` | `string` | provider default | Binding name in generated output. |
+| `name` | `string` | workflow file name | Provider resource name. |
 | `postgres.url` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow Postgres URL. |
 | `postgres.schema` | `string` | provider default | OpenWorkflow Postgres schema. |
 | `postgres.namespaceId` | `string` | provider default | OpenWorkflow namespace id. |
-| `postgres.runMigrations` | `boolean` | provider default | Runs OpenWorkflow storage migrations. |
+| `postgres.runMigrations` | `boolean` | provider default | Runs OpenWorkflow Postgres migrations. |
 | `sqlite.path` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow SQLite path. |
 | `sqlite.namespaceId` | `string` | provider default | OpenWorkflow SQLite namespace id. |
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
 
-When no driver is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow driver, so set `driver` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `postgres.url` or `sqlite.path`.
+Without `driver`, ViteHub picks Cloudflare on Cloudflare and Vercel on other supported hosts. Netlify cannot infer one, so set `driver` or turn Workflow off there. On Node or Docker, ViteHub picks OpenWorkflow when you set `postgres.url` or `sqlite.path`.
 
 ## Define a workflow
 
-Create a Workflow Definition for named long-running work.
+A Workflow Definition is a file that names long-running work.
 
 ```ts [server/workflows/onboard-user.ts] fragment
 import { defineWorkflow } from '@vite-hub/workflow'
@@ -51,25 +76,23 @@ export default defineWorkflow<{ email: string }>(async ({ payload }) => {
 })
 ```
 
-Use Workflow Steps only when the selected provider and definition need independently retryable or inspectable units.
+Use Workflow Steps only when you need parts that the provider can retry or inspect on their own.
 
 ## Workflow Definition options
 
-`defineWorkflow(handler, options?)` accepts these options. The discovered file name provides the Definition name.
+`defineWorkflow(handler, options?)` takes these options. The file name is the workflow name.
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `id` | `string` | Static provider id override for the Workflow Definition. |
-| `native` | `WorkflowHandler` | Provider-native durable entry used by Vercel Workflow DevKit. |
+| `id` | `string` | Static provider id for the workflow. |
+| `native` | `WorkflowHandler` | Durable entry for Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
 
-The handler receives a `WorkflowExecutionContext` with `name`, `payload`, `provider`, optional run `id`, the provider-backed `step` when available, and a `steps` runner. `steps` has one function for each numbered file in the Workflow folder and is empty when the Workflow has no step files.
+The handler gets a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, and is empty when there are no step files.
 
 ### Add a durable Vercel entry
 
-Vercel runs the normal handler inline unless the definition provides `native`.
-Inline work does not survive a function restart. Register a Workflow DevKit entry
-when the run needs Vercel's durable execution:
+Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. For durable execution on Vercel, add a Workflow DevKit entry:
 
 ```bash [Terminal]
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
@@ -115,7 +138,4 @@ async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayloa
 export default defineWorkflow(inlineOnboard, { native: durableOnboard })
 ```
 
-ViteHub transforms the `native` entry when it generates Vercel output. Other
-providers keep using the normal handler. Vercel calls `native` with a
-`WorkflowProviderContext`, which has no `steps` runner. Keep external side effects in `use step`
-functions and make them idempotent because a step can be retried.
+ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.

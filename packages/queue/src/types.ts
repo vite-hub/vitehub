@@ -149,7 +149,7 @@ export interface LocalQueueDriverOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
   driver: "local"
-  /** Queue Definition that receives the jobs. `getQueue()` sets it. */
+  /** Queue Definition that receives the jobs. `useQueue()` sets it. */
   queue?: string
   /** The driver whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the driver of the build. */
   rules?: LocalQueueRules

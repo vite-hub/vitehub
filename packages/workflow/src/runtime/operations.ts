@@ -3,7 +3,7 @@ import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 
 import { resolveWorkflowOperationSupport } from "../results.ts"
-import { cancelWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "./client.ts"
+import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./client.ts"
 import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from "./state.ts"
 
@@ -220,13 +220,13 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
       const available = workflows.length ? ` Available Workflows: ${workflows.join(", ")}.` : " The Workflow registry of the runtime is empty."
       throw new WorkflowOperationError(`Unknown Workflow: ${workflow}.${available}`, 404, "WORKFLOW_DEFINITION_NOT_FOUND")
     }
-    const started = await runWorkflow(workflow, payload)
+    const started = await startWorkflow(workflow, payload)
     rememberRun(started.id, workflow)
     return { run: await toWorkflowRunView(started, workflow) }
   }
   if (operation === "resume") {
     const { payload, token } = input as WorkflowOperationInputs["resume"]
-    const signal = await resumeWorkflowSignal(token, payload)
+    const signal = await resumeWorkflow(token, payload)
     return { signal: { id: signal.id, provider: signal.provider } }
   }
   const { runId, workflow: named } = input as WorkflowOperationInputs["get"]

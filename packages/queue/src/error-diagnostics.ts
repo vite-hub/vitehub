@@ -8,7 +8,7 @@ export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/queue/diagnostics",
   codes: {
-    // Runtime errors. `send()`, `sendBatch()`, and `runQueue()` return them as `[error, undefined]`.
+    // Runtime errors. `send()`, `sendBatch()`, and `sendQueue()` return them as `[error, undefined]`.
     QUEUE_PROVIDER_FAILED: {
       why: ({ operation, provider }: { operation: QueueProviderOperation, provider: QueueDriver }) => `The ${provider} queue provider failed during ${operation}.`,
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again. Pass `idempotencyKey` on Vercel so that a retry does not enqueue the job two times.",
@@ -51,15 +51,15 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_MISSING_QUEUE: {
       why: "A direct local queue client needs a `queue` name.",
-      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `getQueue()`.",
+      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `useQueue()`.",
     },
     QUEUE_LOCAL_MODE_MISMATCH: {
       why: "The local Queue directory already has an engine with a different development error disclosure mode.",
-      fix: "Use `getQueue()` in the generated server runtime, or give the direct client a separate directory.",
+      fix: "Use `useQueue()` in the generated server runtime, or give the direct client a separate directory.",
     },
     QUEUE_MISSING_TOPIC: {
       why: "A direct Vercel queue client needs a `topic`.",
-      fix: "Pass `topic` to `createQueueClient()`, or use `getQueue()` for a discovered Queue Definition.",
+      fix: "Pass `topic` to `createQueueClient()`, or use `useQueue()` for a discovered Queue Definition.",
     },
     QUEUE_DRIVER_MISMATCH: {
       why: ({ driver, expected }: { driver: QueueDriver, expected: QueueDriver }) => `The ${expected} Queue runtime received the ${driver} driver.`,

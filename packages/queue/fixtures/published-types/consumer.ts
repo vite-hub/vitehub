@@ -10,7 +10,7 @@ export function enqueueLocal(client: LocalQueueClient<{ email: string }>) {
   return client.sendBatch(messages) satisfies Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
 }
 
-const pending = dynamicQueue.run("welcome", { email: "ada@example.test" }) satisfies Promise<Result<QueueSendResult, QueueErrorCode>>
+const pending = dynamicQueue.send("welcome", { email: "ada@example.test" }) satisfies Promise<Result<QueueSendResult, QueueErrorCode>>
 
 export async function enqueue(): Promise<void> {
   const [error, sent] = await pending

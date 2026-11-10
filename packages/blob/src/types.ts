@@ -182,9 +182,9 @@ export interface BlobEnsureOptions {
 }
 
 export interface BlobServeResponseOptions {
-  /** Defaults to the event's Cache-Control header, or private, no-cache. */
+  /** Defaults to the `Cache-Control` of `headers`, or `private, no-cache`. */
   cacheControl?: string
-  /** Response headers to set first. `serve()` removes them again when it does not serve the object. */
+  /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**
    * Serve a resized, cropped, or re-encoded image. The generated serve route reads it from `?w=&h=&fit=&fmt=&q=&crop=`.
@@ -297,13 +297,13 @@ export interface BlobStorage {
   /** Continue a multipart upload in a later request. */
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
-  /** Returns null for a conditional 304 response. */
   /**
-   * Serve an object for the Request of a Fetchable route or for a request event with Standard Context properties, such
-   * as a Nuxt 5 or Nitro 3 event in a ViteHub app. Reads the request from `["~standard"].req` and writes the status and
-   * headers to `["~standard"].res`. A Request without Standard Context gets one.
+   * Answer a `GET` or `HEAD` request for one object. The `Response` has the final status and headers: `200`, `206` or
+   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, and `404` for a missing object or a
+   * reserved ViteHub path. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
+   * an H3 handler, pass `event.req`.
    */
-  serve(event: Request | ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>>
+  serve(request: Request, pathname: string, options?: BlobServeResponseOptions): Promise<Response>
   /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
   store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
@@ -328,7 +328,6 @@ export interface ReadonlyBlobStorage {
   get: BlobStorage["get"]
   head: BlobStorage["head"]
   list: BlobStorage["list"]
-  /** Returns null for a conditional 304 response. */
   serve: BlobStorage["serve"]
   /** Signs a short-lived `GET` request. */
   sign(pathname: string, options: Extract<BlobSignOptions, { method: "GET" }>): Promise<Result<BlobSignedRequest, BlobErrorCode>>

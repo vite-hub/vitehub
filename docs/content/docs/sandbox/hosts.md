@@ -8,28 +8,28 @@ icon: i-lucide-cloud-cog
 
 ## Drivers
 
-Driver selection belongs to application or host configuration, not to a Definition.
+Choose the provider in app or host config, not in the task.
 
 | Driver | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | `hubSandboxTask({ driver: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, when Vercel credentials are set. |
+| Vercel Sandbox | `hubSandboxTask({ driver: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, with Vercel credentials set. |
 | Cloudflare Sandbox | `hubSandboxTask({ driver: 'cloudflare' })` or the `cloudflare` preset | Cloudflare Workers with the generated Container and Durable Object binding. |
 
-The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails during configuration for them. Without an explicit `driver`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
+The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails at config time. Without a `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote machines that may bill you. There is no local provider.
 
-On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` preset writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker to run the Container.
+The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials are set. The Cloudflare provider does not, because the dev server cannot host a Container. The `cloudflare` preset writes the Durable Object and Container only to `.output/server/wrangler.json`. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker.
 
 ### Vercel options
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `runtime` | `'node24'` | Vercel Sandbox runtime image. |
-| `timeout` | - | Provider session timeout in milliseconds. A Definition timeout takes priority. |
+| `runtime` | `'node24'` | Runtime image. |
+| `timeout` | - | Session timeout in milliseconds. A task timeout wins. |
 | `cpu` | - | vCPU count. |
 | `ports` | - | Ports to expose. |
-| `source` | - | Source to load into the Sandbox. |
-| `networkPolicy` | - | Network policy for the Sandbox. |
-| `token`, `teamId`, `projectId` | - | Credentials. Otherwise, set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`, or use the project environment. |
+| `source` | - | Source to load. |
+| `networkPolicy` | - | Network policy. |
+| `token`, `teamId`, `projectId` | - | Credentials. Or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`, or use the project environment. |
 
 ### Cloudflare options
 
@@ -37,16 +37,17 @@ On the Vite or Nuxt dev server, the Vercel provider works when Vercel credential
 | --- | --- | --- |
 | `binding` | `'SANDBOX'` | Durable Object binding name. |
 | `className` | `'Sandbox'` | Exported Durable Object class name. |
-| `migrationTag` | `'v1'` | Wrangler migration tag for the class. Must be unique. |
-| `name` | - | Container name. The `cloudflare` preset derives one from the app name. |
-| `sandboxId` | - | Shared Sandbox identity for every run. |
+| `migrationTag` | `'v1'` | Unique Wrangler migration tag for the class. |
+| `name` | - | Container name. The `cloudflare` preset builds it from the app name. |
+| `sandboxId` | - | One Sandbox ID for every run. |
 | `sleepAfter` | `'10m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
-| `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (Cloudflare’s maximum). ViteHub then closes the session after each run. |
+| `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (the Cloudflare maximum). ViteHub then closes the session after each run. |
 | `normalizeId` | `false` | Lowercase the Sandbox ID before it names the Durable Object. |
 
-The Cloudflare integration writes the Container, Durable Object binding, migration, and Worker exports to Provider Output. It generates `.vitehub/sandbox-task/Dockerfile` when the container has no image. For a custom image, configure the application-owned container with a complete Dockerfile that copies `/usr/local/bin/sandbox-shim` from `docker.io/cloudflare/sandbox:<installed @cloudflare/sandbox version>`. For Vercel, set `runtime` or `source`. Sandbox has no Dockerfile-fragment helper because partial image syntax is not portable across providers.
+On Cloudflare, ViteHub writes the Container, Durable Object binding, migration, and Worker exports to Provider Output (the generated host files). It writes `.vitehub/sandbox-task/Dockerfile` when the container has no image.
+
+For a custom image, give your container a complete Dockerfile that copies `/usr/local/bin/sandbox-shim` from `docker.io/cloudflare/sandbox:<installed @cloudflare/sandbox version>`. On Vercel, set `runtime` or `source`. There is no helper for partial Dockerfiles, because image syntax differs between providers.
 
 ## Related guides
 
-Read [Choose Cloudflare Sandbox or Vercel Sandbox](/docs/guides/sandbox-providers)
-to compare setup, execution boundaries, and provider verification.
+Read [Choose Cloudflare Sandbox or Vercel Sandbox](/docs/guides/sandbox-providers) to compare setup, boundaries, and checks.

@@ -109,7 +109,8 @@ describe("KV Vite output", () => {
     await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
       import assert from "node:assert/strict"
       import { disposeKVStores, kv } from "@vite-hub/kv"
-      import { kvOperations } from "@vite-hub/kv/operations"
+      // Generated code imports the operations by file path. They are not a package export.
+      const { kvOperations } = await import(${JSON.stringify(new URL("../dist/operations.js", import.meta.url).href)})
 
       try {
         const [writeError] = await kv.set("token", "123456")
@@ -153,10 +154,11 @@ describe("KV Vite output", () => {
     expect(plugin.closeBundle).toMatchObject({ order: "post", sequential: true })
   })
 
-  it("resolves the Cloudflare runtime from the package entry", async () => {
-    const output = await readFile(new URL(`../${"dist"}/vite.js`, import.meta.url), "utf8")
+  it("resolves its runtime files next to the built package entry", async () => {
+    const { kvNitroCacheDriver } = await import(new URL(`../${"dist"}/vite.js`, import.meta.url).href) as typeof import("../src/vite.ts")
 
-    expect(output).toContain(`new URL("./runtime/cloudflare-kv.js", import.meta.url).href`)
+    expect(kvNitroCacheDriver).toBe(fileURLToPath(new URL("../dist/runtime/nitro-cache.js", import.meta.url)))
+    expect(existsSync(kvNitroCacheDriver)).toBe(true)
   })
 
   it("runs an fs-lite server bundle without the optional Upstash peer", async () => {
@@ -229,7 +231,8 @@ describe("KV Vite output", () => {
     ])
     await writeFile(entry, [
       `import { kv } from "@vite-hub/kv"`,
-      `import createKVCacheDriver from "@vite-hub/kv/runtime/nitro-cache"`,
+      // The built driver, as `kvNitroCacheDriver` from the built `@vite-hub/kv/vite` returns it.
+      `import createKVCacheDriver from ${JSON.stringify(fileURLToPath(new URL("../dist/runtime/nitro-cache.js", import.meta.url)))}`,
       `export default async () => {`,
       `  await createKVCacheDriver().setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
       `  const [error, value] = await kv.get("nitro-cache:nitro:functions:stars.json")`,

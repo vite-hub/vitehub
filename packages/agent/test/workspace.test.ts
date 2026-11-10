@@ -57,7 +57,7 @@ const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ ful
   })(),
 })))
 
-vi.mock("ai", () => ({
+vi.mock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway,
   generateText,
   jsonSchema,
   isStepCount: vi.fn(count => ({ count })),

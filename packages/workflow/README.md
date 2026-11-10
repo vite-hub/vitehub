@@ -106,7 +106,7 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ### Run an OpenWorkflow worker
 
-`runWorkflow()` only enqueues an OpenWorkflow run. Start one worker in a long-lived Node or Docker process:
+`startWorkflow()` only enqueues an OpenWorkflow run. Start one worker in a long-lived Node or Docker process:
 
 ```ts fragment
 // worker.ts
@@ -123,7 +123,7 @@ Keep this process running while it should consume queued runs, and do not start 
 
 ```ts fragment
 // server/api/onboard.post.ts
-import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow";
+import { getWorkflowRun, startWorkflow } from "@vite-hub/workflow";
 import { defineEventHandler, readBody } from "h3";
 import { installWorkflowRuntime } from "../workflow-runtime.ts";
 
@@ -131,20 +131,20 @@ installWorkflowRuntime();
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event);
-  const started = await runWorkflow("onboard-user", payload);
+  const started = await startWorkflow("onboard-user", payload);
 
   return await getWorkflowRun("onboard-user", started.id);
 });
 ```
 
-`runWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
 
 The other runtime helpers are:
 
-- `deferWorkflow()` starts through the deferred provider path when available.
+- `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
 - `cancelWorkflow()` cancels a native Vercel run or a pending or running OpenWorkflow run.
-- `resumeWorkflowSignal()` resumes a registered Vercel Workflow DevKit hook token.
-- `createWorkflow()` creates a named handle with `run`, `defer`, `getRun`, and `cancel` methods.
+- `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
+- `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 
 Unsupported provider operations fail with `WORKFLOW_OPERATION_UNSUPPORTED`; ViteHub does not pretend that an inline run was cancelled or resumed.
 
@@ -232,14 +232,14 @@ async function transcribe(recordingId: string) {
 
 ## Required handle input
 
-A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
+A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
-await welcome.run({ email: "ada@example.com" })
-// welcome.run() is a type error.
+await welcome.start({ email: "ada@example.com" })
+// welcome.start() is a type error.
 ```
 
 This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.

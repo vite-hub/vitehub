@@ -95,11 +95,11 @@ describe("local queue provider config", () => {
 })
 
 describe("local queue delivery", () => {
-  it("runs the Queue Definition after runQueue() accepts the job", async () => {
+  it("runs the Queue Definition after sendQueue() accepts the job", async () => {
     const handler = vi.fn(async (_job: QueueJob) => {})
     install({ welcome: { handler } })
 
-    const [error, result] = await dynamicQueue.run("welcome", { at: new Date(0), email: "ada@example.com" }, { id: "job-1" })
+    const [error, result] = await dynamicQueue.send("welcome", { at: new Date(0), email: "ada@example.com" }, { id: "job-1" })
 
     expect(error).toBeUndefined()
     expect(result).toEqual({ messageId: "job-1", status: "queued" })
@@ -120,7 +120,7 @@ describe("local queue delivery", () => {
   it("waits for delaySeconds", async () => {
     const handler = vi.fn(async () => {})
     install({ welcome: { handler } })
-    const queue = await dynamicQueue.get("welcome")
+    const queue = await dynamicQueue.use("welcome")
 
     const started = Date.now()
     await queue.send({}, { delaySeconds: 0.3 })
@@ -348,7 +348,7 @@ describe("local queue client", () => {
 describe("local queue inspection", () => {
   it("lists the storage, its durability, and the job counts", async () => {
     install({ digest: { handler: async () => {} }, welcome: { handler: async () => {} } })
-    await dynamicQueue.run("welcome", {}, { delaySeconds: 60 })
+    await dynamicQueue.send("welcome", {}, { delaySeconds: 60 })
 
     await expect(listQueues()).resolves.toEqual({
       provider: "local",

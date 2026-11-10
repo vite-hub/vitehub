@@ -2,13 +2,13 @@
 title: Sandbox
 layout: landing
 navigation.title: Overview
-description: Run a small package as a Sandbox Task in an isolated cloud machine on Vercel or Cloudflare, and use its result in your app.
+description: Run a small package in an isolated cloud machine on Vercel or Cloudflare and use its result in your app.
 navigation.order: 1
 icon: i-lucide-terminal-square
 ---
 
 ::product-hero{tagline="Run code in an isolated cloud machine on Vercel or Cloudflare, and get the result in your route." hosts="Vercel, Cloudflare"}
-  :::product-files{feature="sandboxTask"}
+  :::code-tree{feature="sandboxTask"}
   ```ts [server/sandbox-tasks/pixels/index.ts]
   type ImageSize = { width: number, height: number }
 
@@ -51,6 +51,42 @@ icon: i-lucide-terminal-square
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  // The Vercel preset uses Vercel Sandbox.
+  // Use preset 'cloudflare' for Cloudflare Sandbox.
+
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'vercel',
+      // Each run starts a Vercel Sandbox
+      sandboxTask: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+  import { vitehub } from 'vite-hub'
+
+  // The Vercel preset uses Vercel Sandbox.
+  // Use preset 'cloudflare' for Cloudflare Sandbox.
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'vercel',
+        // Each run starts a Vercel Sandbox
+        sandboxTask: true,
+      }),
+      nitro(),
+    ],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
@@ -65,32 +101,33 @@ icon: i-lucide-terminal-square
     ],
   })
   ```
+  ::::
   :::
 ::
 
 ::product-features
   :::product-feature-item{title="A folder is a Sandbox Task" icon="i-lucide-folder" to="/docs/sandbox/configure#package-projects"}
-  Put a `package.json` and an `index.ts` in a folder under `server/sandbox-tasks`. The folder name is the Sandbox Task name.
+  Put a `package.json` and an `index.ts` in a folder under `server/sandbox-tasks`. The folder name is the task name.
   :::
 
   :::product-feature-item{title="Plain code and npm packages" icon="i-lucide-package" to="/docs/sandbox/configure#package-entry-point"}
-  The entry point is a normal async function. Its dependencies install inside the Sandbox, not in your app.
+  The entry point is a normal async function. Its dependencies install in the Sandbox, not in your app.
   :::
 
   :::product-feature-item{title="Call it from a route" icon="i-lucide-code-2" to="/docs/sandbox/server-api#run-a-sandbox-task"}
-  `runSandboxTask()` sends the input and returns a standard `Response`. The input type comes from your function.
+  `runSandboxTask()` sends the input and returns a `Response`. Your function sets the input type.
   :::
 
   :::product-feature-item{title="Time limits and clear errors" icon="i-lucide-timer" to="/docs/sandbox/limits-and-errors#limits"}
   Set a timeout in `package.json`. A failed or timed-out run returns an error status.
   :::
 
-  :::product-feature-item{title="Vercel or Cloudflare" icon="i-lucide-cloud-cog" to="/docs/sandbox/hosts#drivers"}
-  Choose the driver in your config. The code in your Sandbox Task stays the same.
+  :::product-feature-item{title="Vercel or Cloudflare" icon="i-lucide-cloud-cog" to="/docs/sandbox/hosts#providers"}
+  Choose the driver in your config. The task code stays the same.
   :::
 
   :::product-feature-item{title="Know what the code can reach" icon="i-lucide-shield-alert" to="/docs/sandbox/limits-and-errors#production-checks"}
-  Sandbox Task code can use the network and files that the provider allows. Use provider settings to limit them.
+  Task code can use the network and files that the provider allows. Limit them in provider settings.
   :::
 ::
 

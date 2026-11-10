@@ -171,10 +171,10 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
 
   if (store?.driver === "memory") return createMemoryWorkspaceStore()
   if (store?.driver === "cloudflare" || store?.driver === "github" || store?.driver === "vercel") {
-    const loader = getWorkspaceHostedStoreLoader()
-    if (!loader && store.driver === "github") return createGitHubWorkspaceStore(store, definition.name)
-    if (!loader) throw workspaceError(`[vitehub] Hosted workspace store "${store.driver}" is not available in this runtime.`)
-    return loader(store, definition.name)
+    const hostedStore = getWorkspaceHostedStoreLoader()?.(store, definition.name)
+    if (hostedStore) return hostedStore
+    if (store.driver === "github") return createGitHubWorkspaceStore(store, definition.name)
+    throw workspaceError(`[vitehub] Hosted workspace store "${store.driver}" is not available in this runtime.`)
   }
 
   const root = store?.root

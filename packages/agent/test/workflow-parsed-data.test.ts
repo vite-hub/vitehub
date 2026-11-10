@@ -11,6 +11,9 @@ import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.t
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { useWorkspace } from "@vite-hub/workspace"
 
+// Recovery Workflows get a handle without `start`, so dispatching recovery fails and the test follows the main run only.
+const recoveryWorkflowPrefix = "vitehub-agent-invocation-recovery-"
+
 vi.mock("@vite-hub/workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
   return { ...actual, useWorkspace: vi.fn(actual.useWorkspace) }
@@ -40,8 +43,8 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
-        createWorkflow: () => ({
-          run: async (input: AgentWorkflowInvocationPayload) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: AgentWorkflowInvocationPayload) => {
             payload = JSON.parse(JSON.stringify(input))
             return { id: `signal-${source}`, provider: "openworkflow", status: "queued" }
           },
@@ -93,8 +96,8 @@ describe("durable Agent data handoff", () => {
     let payload: AgentWorkflowInvocationPayload | undefined
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }) }),
-      workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: () => ({
-        run: async (input: AgentWorkflowInvocationPayload) => {
+      workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+        start: async (input: AgentWorkflowInvocationPayload) => {
           payload = JSON.parse(JSON.stringify(input))
           return { id: "prepared-profile", provider: "openworkflow", status: "queued" }
         },
@@ -141,8 +144,8 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = JSON.parse(JSON.stringify(input))
             return { id: "replay-cancellation-run", provider: "openworkflow", status: "queued" }
           },
@@ -191,8 +194,8 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = input
             return { id: "discovered-run", provider: "openworkflow", status: "queued" }
           },
@@ -231,8 +234,8 @@ describe("durable Agent data handoff", () => {
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = input
             return { id: "parsed-data-preflight", provider: "openworkflow", status: "queued" }
           },
@@ -289,8 +292,8 @@ describe("durable Agent data handoff", () => {
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = input
             return { id: "nonportable-data", provider: "openworkflow", status: "queued" }
           },

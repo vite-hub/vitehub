@@ -1,0 +1,14 @@
+{
+  "id": "3970e0fe-8564-4903-9a55-c5f8de49fb8b",
+  "name": "my-app",
+  "account_id": "5e2e4fce8b2a3b0c00a1b2c3",
+  "ssl_url": "https://my-app.netlify.app",
+  "url": "http://my-app.netlify.app",
+  "published_deploy": {
+    "id": "6543210fedcba9876543210f",
+    "state": "ready",
+    "context": "production",
+    "commit_ref": null,
+    "title": "vitehub:{\"commit\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dirty\":false}"
+  }
+}

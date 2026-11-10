@@ -39,6 +39,18 @@ describe("workspace lifecycle", () => {
     }
   })
 
+  it("creates GitHub workspace stores when the installed hosted loaders do not handle GitHub", async () => {
+    setWorkspaceHostedStoreLoader(() => undefined)
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not found", { status: 404 })))
+
+    const store = createWorkspaceStore({
+      name: "docs",
+      store: { provider: "github", repository: "acme/app", branch: "main", token: "token" },
+    })
+
+    expect(store?.readFile).toEqual(expect.any(Function))
+  })
+
   it("creates GitHub workspace stores without a hosted runtime loader", async () => {
     setWorkspaceHostedStoreLoader(undefined)
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {

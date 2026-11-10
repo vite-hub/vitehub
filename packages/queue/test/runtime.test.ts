@@ -21,7 +21,7 @@ import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEv
 
 import type { VercelQueueCallbackOptions, VercelQueueSDK } from "../src/types.ts"
 
-const { run: runQueue, defer: deferQueue } = dynamicQueue
+const { send: sendQueue, defer: deferQueue } = dynamicQueue
 
 const vercelQueueMock = vi.hoisted(() => {
   const state = {
@@ -204,7 +204,7 @@ describe("cloudflare queue runtime", () => {
   })
 
   it("points direct Node scripts at generated provider output when no registry is loaded", async () => {
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "QUEUE_DEFINITION_NOT_FOUND",
       fix: expect.stringContaining("The generated server output loads the Queue Definitions"),
     })
@@ -215,9 +215,9 @@ describe("cloudflare queue runtime", () => {
     setQueueRuntimeConfig(false)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: { handler } }) })
 
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
     setQueueRuntimeRegistry(undefined)
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -452,7 +452,7 @@ describe("cloudflare queue runtime", () => {
   it("redacts unsafe queue identifiers from definition lookup failures", async () => {
     const name = "https://user:secret-token@queue.example/private"
 
-    const error = await runQueue(name, { email: "ava@example.com" }).catch(error => error)
+    const error = await sendQueue(name, { email: "ava@example.com" }).catch(error => error)
 
     expect(error).toMatchObject({
       code: "QUEUE_DEFINITION_NOT_FOUND",
@@ -467,7 +467,7 @@ describe("cloudflare queue runtime", () => {
       inherited: async () => Object.create({ default: { handler } }),
     })
 
-    await expect(runQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+    await expect(sendQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -477,7 +477,7 @@ describe("cloudflare queue runtime", () => {
       inherited: async () => Object.create({ handler }),
     })
 
-    await expect(runQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+    await expect(sendQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -486,7 +486,7 @@ describe("cloudflare queue runtime", () => {
     const name = "https://user:secret-token@queue.example/private"
     setQueueRuntimeRegistry({ [name]: async () => Promise.reject(cause) })
 
-    const error = await runQueue(name, { email: "ava@example.com" }).catch(error => error)
+    const error = await sendQueue(name, { email: "ava@example.com" }).catch(error => error)
 
     expect(error).toMatchObject({
       cause,
@@ -499,7 +499,7 @@ describe("cloudflare queue runtime", () => {
   it("defaults omitted queue config to the Cloudflare provider", async () => {
     const send = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
-      app: async () => Response.json((await runQueue("welcome", { email: "ava@example.com" }))[1]),
+      app: async () => Response.json((await sendQueue("welcome", { email: "ava@example.com" }))[1]),
       registry: {
         welcome: async () => ({
           default: {
@@ -532,7 +532,7 @@ describe("cloudflare queue runtime", () => {
     })
 
     const binding = getCloudflareQueueBindingName("welcome")
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "QUEUE_BINDING_NOT_FOUND",
       fix: expect.stringContaining("generated binding"),
       why: `The Cloudflare queue binding "${binding}" is not in the Worker env.`,
@@ -854,10 +854,10 @@ describe("cloudflare queue runtime", () => {
     })
 
     enterQueueRuntimeEvent({ env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } } })
-    expect((await runQueue("welcome", { email: "first@example.com" }))[0]).toBeUndefined()
+    expect((await sendQueue("welcome", { email: "first@example.com" }))[0]).toBeUndefined()
     enterQueueRuntimeEvent({ env: undefined })
 
-    await expect(runQueue("welcome", { email: "second@example.com" })).rejects.toMatchObject({
+    await expect(sendQueue("welcome", { email: "second@example.com" })).rejects.toMatchObject({
       code: "QUEUE_BINDING_NOT_FOUND",
     })
     expect(send).toHaveBeenCalledTimes(1)
@@ -1424,9 +1424,9 @@ it("does not cache regions inferred from Vercel requests", async () => {
       welcome: async () => ({ handler: async () => {} }),
     })
 
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "iad1" })
   })
 
@@ -1439,8 +1439,8 @@ it("does not cache regions inferred from Vercel requests", async () => {
     process.env.VERCEL_REGION = runtime;
     setQueueRuntimeConfig({ driver: "vercel", region: explicit }, createVercelQueueRuntimeClient);
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => {} }) });
-    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "ams1" } }) }, () => dynamicQueue.get("welcome"));
-    const second = await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "hnd1::request" } } } }, () => dynamicQueue.get("welcome"));
+    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "ams1" } }) }, () => dynamicQueue.use("welcome"));
+    const second = await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "hnd1::request" } } } }, () => dynamicQueue.use("welcome"));
     expect(first).toBe(second);
     expect(vercelQueueMock.options).toEqual({ region: expected });
   });
@@ -1448,9 +1448,9 @@ it("does not cache regions inferred from Vercel requests", async () => {
   it("prefers the queue-region header while keeping request-selected clients separate", async () => {
     setQueueRuntimeConfig({ driver: "vercel" }, createVercelQueueRuntimeClient);
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => {} }) });
-    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "fra1", "x-vercel-id": "iad1::request" } }) }, () => dynamicQueue.get("welcome"));
+    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "fra1", "x-vercel-id": "iad1::request" } }) }, () => dynamicQueue.use("welcome"));
     expect(vercelQueueMock.options).toEqual({ region: "fra1" });
-    const second = await runWithQueueRuntimeEvent({ req: { headers: new Headers({ "ce-vqsregion": "hnd1" }) } }, () => dynamicQueue.get("welcome"));
+    const second = await runWithQueueRuntimeEvent({ req: { headers: new Headers({ "ce-vqsregion": "hnd1" }) } }, () => dynamicQueue.use("welcome"));
     expect(first).not.toBe(second);
     expect(vercelQueueMock.options).toEqual({ region: "hnd1" });
   });

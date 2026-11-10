@@ -135,7 +135,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |
 | `@vite-hub/rate-limit/vite`               | Source discovery, Nitro runtime setup, manifest generation, and Cloudflare bindings |
 
-`@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/operations`, and `@vite-hub/rate-limit/cli` are reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
+`@vite-hub/rate-limit/runtime` is reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
 
 ## Go deeper
 

@@ -9,7 +9,7 @@ import { getCloudflareWorkflowBindingName } from "@vite-hub/workflow"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig } from "@vite-hub/workflow/runtime/state"
 
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
-import { defineChannel, discord, slack, teams, telegram } from "../src/channels.ts"
+import { channelAdapter, discord, slack, teams, telegram } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, createSimulatedChatAdapter, isChannelSimulated } from "../src/internal/channel-simulation.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
@@ -317,7 +317,7 @@ describe("simulated chat Channels", () => {
   it.each([false, true])("skips custom webhook verification (registration array: %s)", async (array) => {
     const verify = vi.fn(() => false)
     const registration = { signature: { verify }, secretToken: "provider-secret", secretHeader: "x-provider-signature" }
-    const channel = defineChannel("discord", { webhooks: array ? [registration] : registration })
+    const channel = channelAdapter("discord", { webhooks: array ? [registration] : registration })
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-simulation-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     try {
