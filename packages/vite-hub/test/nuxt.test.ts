@@ -2867,7 +2867,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(config.alias).toMatchObject({ "#vitehub/console/connections-actor": actor })
     // The installed Console access policy reads the signed-in user, so every mode uses the same actor module.
     const generated = await readFile(actor, "utf8")
-    expect(generated).toContain("return consoleConnectionsActor(event)")
+    expect(generated).toContain("return consoleConnectionsActor(request)")
     await development.runNitroConfigHook(config)
     expect(await readFile(actor, "utf8")).toBe(generated)
     expect(config.alias).toMatchObject({ "#vitehub/console/connections-actor": actor })
