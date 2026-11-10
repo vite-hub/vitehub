@@ -1698,6 +1698,55 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
 
+  packages/console:
+    dependencies:
+      '@vite-hub/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      better-auth:
+        specifier: catalog:auth
+        version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
+      drizzle-orm:
+        specifier: catalog:database
+        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.261102-rc
+      vite-hub:
+        specifier: workspace:*
+        version: link:../vite-hub
+    devDependencies:
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.18.0
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.1
+      drizzle-kit:
+        specifier: catalog:database
+        version: 0.31.11
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+
   packages/content:
     dependencies:
       '@comark/html':
@@ -1748,9 +1797,6 @@ importers:
       diff:
         specifier: catalog:runtime
         version: 9.0.0
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -1782,6 +1828,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3837,9 +3886,6 @@ importers:
       exsolve:
         specifier: catalog:unjs
         version: 1.1.3
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       isomorphic-git:
         specifier: catalog:workspace
         version: 1.44.10
@@ -3895,6 +3941,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
