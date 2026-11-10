@@ -30,6 +30,8 @@ it.each([
   "export const articles = defineCollection(load, { route: false } as const) satisfies Collection<Row>",
   "export { articles }; const articles: Collection<Row> = defineCollection(load, { route: false })",
   "const $articles = ((defineCollection(load, { route: false }))); export { $articles as articles }",
+  "import { defineCollection } from 'vite-hub/source'; export const articles = defineCollection(load, { route: false })",
+  "import { defineCollection } from '@vite-hub/source'; export const articles = defineCollection(load, { route: false })",
 ])("skips the route of a literal route: false in %s", async (source) => {
   expect((await generatedRoutes({ "server/collections/articles.ts": source })).routes).toEqual([])
 })
@@ -77,6 +79,13 @@ it.each([
   "const key = 'route'; export const articles = defineCollection(load, { [key]: false })",
   "export const articles = (() => defineCollection(load, { route: false }))()",
   "const usePrivate = true; export const articles = usePrivate ? defineCollection(load, { route: false }) : defineCollection(load, {})",
+  // A local factory with the same name can return a public Collection.
+  "import { defineCollection as base } from '@vite-hub/source'; function defineCollection(load, options) { return base(load, { ...options, route: undefined }) }; export const articles = defineCollection(load, { route: false })",
+  "const defineCollection = (load, options) => base(load, {}); export const articles = defineCollection(load, { route: false })",
+  "import { defineCollection } from './collection-helpers'; export const articles = defineCollection(load, { route: false })",
+  // Only a `const` keeps its initializer: a later `var` declaration exports another Collection.
+  "export var articles = defineCollection(load, { route: false }); var articles = defineCollection(load, {})",
+  "export let articles = defineCollection(load, { route: false })",
 ])("writes the route when route: false is not a literal in the exported call: %s", async (source) => {
   expect((await generatedRoutes({ "server/collections/articles.ts": source })).routes).toEqual(["/api/articles"])
 })
