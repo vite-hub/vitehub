@@ -241,7 +241,7 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
 type ImageModule = "photon" | "sharp"
 
 // Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
-function devServerHost(config: ResolvedConfig) {
+function devServerHost(config: object) {
   return getHostingProvider(resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }))
 }
 
@@ -518,7 +518,10 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
         blob = getResolvedFeatureOptions<BlobOptions>(config, "blob") ?? blob
         const configuredNitro = (config as { nitro?: unknown }).nitro
         const cloudflare = isNitroCloudflareHost(configuredNitro)
-        const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
+        const development = env.command === "serve"
+        // Nitro copies its handlers in its own `config` hook. Resolve the dev stores here, so that a local store of
+        // `vite dev` registers the signed route before Nitro starts. `configResolved` is too late for its router.
+        const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })
         const nitro = mergeNitroBlobConfig(
           configuredNitro,
           blobConfig.blob ? blobConfig.blob.serve : undefined,

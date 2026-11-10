@@ -19,7 +19,13 @@ export async function handleSignedBlobRequest(request: Request): Promise<Respons
   const verified = await verifyFsRequest(request, signedPath(request))
   if (verified instanceof Response) return verified
   const storage = blob.store(verified.store)
-  if (verified.method === "GET") return storage.serve(request, verified.path)
+  if (verified.method === "GET") {
+    // H3 adds the headers that middleware set before this route over the returned Response. A signed link expires,
+    // so drop an earlier Cache-Control and keep the private policy of `serve()`.
+    const { res } = (request as Request & { "~standard"?: { res: { headers?: Headers } } })["~standard"] ?? {}
+    res?.headers?.delete("cache-control")
+    return storage.serve(request, verified.path)
+  }
 
   const { maxSize } = verified
   let tooLarge = false

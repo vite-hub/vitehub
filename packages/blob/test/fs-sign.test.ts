@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { installStandardContext } from "@vite-hub/runtime/h3"
-import { H3 } from "h3"
+import { H3, setResponseHeader } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver as createCloudflareDriver } from "../src/drivers/cloudflare-native.ts"
@@ -97,6 +97,29 @@ describe("signed requests of the fs driver", () => {
     const write = await app.fetch(new Request(upload.url, { body: "hallo", headers: upload.headers, method: "PUT" }))
     expect(write.status).toBe(200)
     expect(await (await blob.get("uploads/ü.txt"))[1]?.text()).toBe("hallo")
+  })
+
+  it("keeps its private cache policy over a Cache-Control that middleware set", async () => {
+    // H3 adds the headers that middleware set over the returned Response. A shared cache must not keep a signed
+    // download after the link expires.
+    const app = new H3({ onRequest: event => installStandardContext(event) })
+    app.use((event) => {
+      setResponseHeader(event, "Cache-Control", "public, max-age=3600")
+      event.res.headers.set("x-middleware", "yes")
+    })
+    app.all(`${blobSignedRoute}/**`, signedRoute)
+    await blob.put("private/notes.txt", "hello", { contentType: "text/plain" })
+    const download = await sign("private/notes.txt", { expiresIn: 60, method: "GET" })
+
+    const full = await app.fetch(new Request(new URL(download.url, origin)))
+    const range = await app.fetch(new Request(new URL(download.url, origin), { headers: { Range: "bytes=0-3" } }))
+    const conditional = await app.fetch(new Request(new URL(download.url, origin), { headers: { "If-None-Match": full.headers.get("etag")! } }))
+
+    expect([full.status, range.status, conditional.status]).toEqual([200, 206, 304])
+    for (const response of [full, range, conditional]) {
+      expect(response.headers.get("cache-control")).toBe("private, no-cache")
+      expect(response.headers.get("x-middleware")).toBe("yes")
+    }
   })
 
   it("signs links for a named store and with urlBaseUrl", async () => {

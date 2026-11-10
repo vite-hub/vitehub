@@ -1002,7 +1002,7 @@ describe("hubBlob", () => {
     ["serve", 1],
     ["build", 0],
   ] as const)("registers the signed route once for the local fallback of R2 in %s", async (command, count) => {
-    // The `config` hook resolves the store without the dev switch, and `configResolved` resolves it again with it.
+    // The `config` hook and `configResolved` both resolve the dev store. The route stays registered once.
     const plugin = hubBlob()
     const configHook = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const config: Record<string, unknown> & { nitro: { handlers?: Array<{ route?: string }>, preset: string } } = {
@@ -1017,6 +1017,42 @@ describe("hubBlob", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
 
     expect(config.nitro.handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+  })
+
+  it.each([
+    ["the local store of an inferred Vercel Blob store", "serve", { BLOB_READ_WRITE_TOKEN: "secret-token" }, {}, 1],
+    ["the local fallback of R2", "serve", {}, { preset: "cloudflare_module" }, 1],
+    ["a hosted Vercel Blob store", "build", { BLOB_READ_WRITE_TOKEN: "secret-token" }, {}, 0],
+  ] as const)("registers the signed route in the Nitro instance for %s in %s", async (_name, command, env, nitroConfig, count) => {
+    // Nitro copies its handlers in its own `config` hook. A later change to the Vite config does not reach its router.
+    const { nitro }: { nitro: () => unknown } = await import("nitro/vite" as string)
+    const root = await temporaryDirectory("vitehub-blob-signed-nitro-")
+    await writeFile(join(root, "package.json"), "{}")
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    let handlers: Array<{ route?: string }> | undefined
+    let close: (() => Promise<void>) | undefined
+    try {
+      await resolveViteConfig({
+        configFile: false,
+        logLevel: "silent",
+        nitro: nitroConfig,
+        plugins: [
+          hubBlob({ images: false }),
+          nitro() as never,
+          { name: "capture-nitro", nitro: { setup(instance: { close: () => Promise<void>, options: { handlers: Array<{ route?: string }> } }) {
+            handlers = instance.options.handlers
+            close = () => instance.close()
+          } } } as never,
+        ],
+        root,
+      } as UserConfig, command)
+
+      expect(handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+    }
+    finally {
+      await close?.()
+      vi.unstubAllEnvs()
+    }
   })
 
   it("writes the generated Nitro serving route handler", async () => {
