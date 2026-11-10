@@ -40,7 +40,6 @@ export default defineConfig({
       "src/provision.ts",
       "src/provision-state.ts",
       "src/presets.ts",
-      "src/source-scanner.ts",
       "src/secret.ts",
       "src/standard-schema.ts",
       "src/valibot.ts",
