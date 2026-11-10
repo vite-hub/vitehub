@@ -12,7 +12,7 @@ import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
-import type { DiscoveredQueueDefinition, QueueModuleOptions } from "../types.ts"
+import type { DiscoveredQueueDefinition, QueueOptions } from "../types.ts"
 import type { QueueRuntimeOptions } from "./runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -58,7 +58,7 @@ export interface VercelQueueConsumerRoute {
   topic: string
 }
 
-function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting: string): NormalizedQueueOptions {
+function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: string): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false
   return normalizeQueueOptions(queue, { hosting }) || false
 }
@@ -169,7 +169,7 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
   await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -254,17 +254,18 @@ export function createVercelQueueConsumerRoutes(definitions: DiscoveredQueueDefi
 
 function renderVercelQueueConsumerHandler(file: string, name: string) {
   return [
-    `import { defineHandler } from ${JSON.stringify(createImportPath(file, resolvePackageDependency("h3")))}`,
     `import { handleHostedVercelQueueCallback } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, missingQueueDefinitionError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("internal/runtime/state")))}`,
     "",
     `const name = ${JSON.stringify(name)}`,
     "",
-    "export default defineHandler(async (event) => {",
-    "  const definition = await loadQueueDefinition(name)",
-    "  if (!definition) throw missingQueueDefinitionError(name)",
-    "  return await handleHostedVercelQueueCallback(event, name, definition)",
-    "})",
+    "export default {",
+    "  async fetch(request) {",
+    "    const definition = await loadQueueDefinition(name)",
+    "    if (!definition) throw missingQueueDefinitionError(name)",
+    "    return await handleHostedVercelQueueCallback(request, name, definition)",
+    "  },",
+    "}",
     "",
   ].join("\n")
 }

@@ -1,11 +1,9 @@
-import { allowedConsoleSections, consoleAccessWrites, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest } from "./request.ts"
+import { allowedConsoleSections, consoleAccessWrites, type ConsoleAccess } from "./access.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { getConsoleAuth, getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
 import type { ConsoleContributedSection } from "../definitions.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
 
 /** Whether an Agent field such as `channels` lists at least one entry, as an array or a record. */
 function hasEntries(value: unknown): boolean {
@@ -32,8 +30,8 @@ async function emptySections(sections: readonly string[]): Promise<Set<string>> 
   return empty
 }
 
-/** The sections that this request may use. The client hides the others. Each route still checks its own section. */
-async function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<{
+/** The sections that this access may use. The client hides the others. Each operation still checks its own section. */
+export async function listConsoleSections(access: ConsoleAccess): Promise<{
   auth?: true | "cloudflare-access"
   /** The build id of the deployed Console. An open Console that loaded another id is outdated. */
   build?: string
@@ -47,7 +45,6 @@ async function consoleSectionsHandler(event: ConsoleRequestEvent, access: Consol
   scoped?: true
   sections: readonly string[]
 }> {
-  assertConsoleRequest(event)
   const projectName = getConsoleProjectName()
   const allowed = allowedConsoleSections(access, getConsoleSections())
   const empty = await emptySections(allowed)
@@ -70,6 +67,3 @@ async function consoleSectionsHandler(event: ConsoleRequestEvent, access: Consol
   if (build) result.build = build
   return result
 }
-
-const guardedHandler: ConsoleAccessRoute<typeof consoleSectionsHandler> = withConsoleAccess(consoleSectionsHandler, { anySection: true })
-export default guardedHandler

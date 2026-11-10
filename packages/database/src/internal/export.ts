@@ -15,7 +15,7 @@ import { withoutCredentials } from "./migration-plan.ts"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1Query } from "./d1-migrations.ts"
 
-/** Where `vitehub db export` reads a database. Only `local` is on this machine. */
+/** Where `vitehub database export` reads a database. Only `local` is on this machine. */
 type ExportTarget =
   | { kind: "local", path: string }
   | { kind: "libsql", authToken?: string, url: string }
@@ -33,7 +33,7 @@ interface ExportOptions {
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
 }
 
-/** Resolves the export target with the same connection rules as `vitehub db migrate`. */
+/** Resolves the export target with the same connection rules as `vitehub database migrate`. */
 function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
   if (database.dialect === "postgresql") return { kind: "postgres", url: resolveConfigValue(database.connection?.url, env)?.trim() || undefined }
   const cloudflare = database.cloudflare
@@ -95,7 +95,7 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
     switch (target.kind) {
       case "local":
         if (target.path === ":memory:") throw new Error("It uses an in-memory SQLite URL, which a separate process cannot read. Use a file-backed SQLite URL.")
-        if (!existsSync(target.path)) throw new Error(`The local SQLite file does not exist: ${target.path}. Run \`vitehub db migrate\` to create it.`)
+        if (!existsSync(target.path)) throw new Error(`The local SQLite file does not exist: ${target.path}. Run \`vitehub database migrate\` to create it.`)
         await dumpLibsql({ url: `file:${target.path}` }, partial)
         break
       case "libsql":

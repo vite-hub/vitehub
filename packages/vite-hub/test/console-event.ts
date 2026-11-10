@@ -51,3 +51,13 @@ export function nodeResponse() {
     setHeader: (name: string, value: number | string | string[]) => { headers.set(name.toLowerCase(), value) },
   }
 }
+
+/**
+ * The Request that Nitro passes to a Fetchable Console route for this event: the event's Request, with the event's
+ * Standard Context on it, as the ViteHub Nitro plugin sets it.
+ */
+export function routeRequest(event: ConsoleRequestEvent): Request {
+  const standard = event["~standard"]
+  if (!("~standard" in standard.req)) Object.defineProperty(standard.req, "~standard", { configurable: true, value: standard })
+  return standard.req
+}
