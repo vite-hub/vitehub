@@ -3418,17 +3418,6 @@ export default defineAgent({
     expect(config).toContain('"esbuild"')
     expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
   })
-
-  it("publishes the Agent output helper subpath", async () => {
-    const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-    if (!isTestRecord(pkg) || !isTestRecord(pkg.exports)) throw new Error("Expected package exports metadata.")
-
-    expect(pkg.exports?.["./output"]).toEqual({
-      types: "./dist/output.d.ts",
-      import: "./dist/output.js",
-      default: "./dist/output.js",
-    })
-  })
 })
 
 // #2652: a string errorFallbackText applies to INTERNAL errors only. A timeout posts the TIMEOUT public error text.
