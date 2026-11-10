@@ -116,6 +116,9 @@ describe("AutoForm", () => {
     expect(await renderToString(createSSRApp(AutoForm, { name: "contact", schema: v.object({ price: v.number() }) }))).toContain('step="any"')
     // The browser checks lengths too, so a short message is not lost to a round trip.
     expect(html).toContain('minlength="5"')
+    // An empty select shows "Choose one", not its first option, before the app runs.
+    expect(html).toMatch(/<option value(="")? disabled selected>Choose one<\/option>/)
+    expect(html).not.toMatch(/<option value="bug" selected/)
   })
 
   it("shows the result of a post without JavaScript and keeps the button label while it sends", async () => {

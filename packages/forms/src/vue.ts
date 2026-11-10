@@ -156,8 +156,9 @@ const AutoFormControl = defineComponent({
         const options = field.options ?? []
         control = h("select", { ...common, value: value === undefined || value === null ? "" : String(value), onChange: (event: Event) => { const text = (event.target as HTMLSelectElement).value; store.input = options.find(option => String(option) === text) as never } }, [
           // An optional select can go back to empty.
-          h("option", { value: "", disabled: field.required }, "Choose one"),
-          ...options.map(option => h("option", { value: String(option) }, String(option))),
+          // `selected` on the options, since a server-rendered select has no value: the browser would show the first option.
+          h("option", { value: "", disabled: field.required, selected: value === undefined || value === null || value === "" }, "Choose one"),
+          ...options.map(option => h("option", { value: String(option), selected: String(option) === String(value) }, String(option))),
         ])
       }
       else {
