@@ -61,3 +61,14 @@ export function createNitroServerKit(value: unknown = {}): NitroServerKit {
     },
   }
 }
+
+/** Add one module id to a Nitro or Rollup `external` option, in each form that option takes. */
+export function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}

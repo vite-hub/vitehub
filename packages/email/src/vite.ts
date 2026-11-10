@@ -11,6 +11,7 @@ import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 
@@ -282,16 +283,6 @@ function renderConfiguredEmailDefinitionModule(
     "export default definition",
     "",
   ].join("\n")
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 /** Returns true when this call adds the `EMAIL` binding to the Nitro Wrangler config. */

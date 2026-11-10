@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises"
 import * as v from "valibot"
 
 import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { previewEmailTemplate } from "./preview.ts"
@@ -137,11 +137,6 @@ function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): Parse
   }
   if (!parsed.help && command.id && !parsed.id) throw usageError("Missing outbox message id.")
   return parsed
-}
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function deliveryLabel(delivery: EmailOutboxDelivery): string {

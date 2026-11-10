@@ -61,6 +61,7 @@ import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVOptions } from "@vite-hub/kv"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/bundle-options"
+import { cloneRecord } from "@vite-hub/internal/object"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitOptions } from "@vite-hub/rate-limit"
 import type { RealtimeOptions } from "@vite-hub/realtime"
@@ -560,10 +561,6 @@ function resolveDeploymentIdentity(
     name: normalizeDeploymentName(basename(resolve(process.cwd(), root || "."))) || "vitehub",
     source: "root",
   }
-}
-
-function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
