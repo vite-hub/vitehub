@@ -163,7 +163,6 @@ export default defineConfig({
         { from: "src/error-diagnostics.ts", to: "dist" },
         { from: ".vitehub/console", to: "dist/console/runtime/public" },
         { from: ".vitehub/skills", to: "dist/console/runtime/public" },
-        { from: ".vitehub/comments-overlay", to: "dist" },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -421,6 +420,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-date-input.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
@@ -432,8 +432,9 @@ export default defineConfig({
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        // Agent-only apps need the client-free journal constructor without installing the optional Database package.
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
@@ -607,8 +608,8 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
           neverBundle: ["esbuild", "vite"],

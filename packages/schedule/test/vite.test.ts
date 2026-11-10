@@ -329,6 +329,33 @@ describe("Vite schedule integration", () => {
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
   })
 
+  it("gives a built Process Runtime the static cron of each Schedule, so it loads Schedule modules when they are due", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-process-timings-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "server", "schedules", "report.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8"),
+      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule('*/5 * * * *', () => {})\n", "utf8"),
+      // A cron that only the module knows: the runtime loads it at startup.
+      writeFile(join(root, "server", "schedules", "dynamic.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nconst cron = process.env.CRON ?? '* * * * *'\nexport default defineSchedule({ cron, handler: () => {} })\n", "utf8"),
+    ])
+    const generate = async (command: "build" | "serve") => {
+      const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process" } })
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)({ root }, { command, mode: command === "build" ? "production" : "development" })
+      return await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    }
+
+    const built = await generate("build")
+    const options = JSON.parse(/const processRuntimeOptions = (\{[\s\S]*?\n\})/.exec(built)![1]!) as unknown
+    expect(options).toEqual({
+      timings: {
+        cleanup: { cron: "*/5 * * * *" },
+        report: { cron: "0 9 * * *", timeZone: "Europe/Madrid" },
+      },
+    })
+    // `vite dev` loads every Schedule at startup, so an edited cron applies at once.
+    expect(await generate("serve")).not.toContain("timings")
+  })
+
   it("installs an explicit Process Runtime with an empty canonical registry", async () => {
     const root = await temporaryDirectory("vitehub-schedule-empty-process-runtime-")
     const userConfig: Record<string, unknown> = { root }

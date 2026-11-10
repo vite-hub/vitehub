@@ -4,7 +4,7 @@ import type { GitHubEvidence } from "./inbox/types.ts";
 import type { PullRequestWait } from "./inbox/wait-state.ts";
 import type { DailyPassBudget } from "./inbox/budgets.ts";
 import type { Snapshot } from "./inbox/store.ts";
-import type { GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
+import type { GitHubRequiredCheckState } from "../github/index.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
 

@@ -323,6 +323,11 @@
       "import": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
       "default": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js"
     },
+    "./_internal/workspace/internal/runtime/registry": {
+      "types": "./dist/_internal/workspace/internal/runtime/registry.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/registry.js",
+      "default": "./dist/_internal/workspace/internal/runtime/registry.js"
+    },
     "./_internal/workspace/internal/runtime/state": {
       "types": "./dist/_internal/workspace/internal/runtime/state.d.ts",
       "import": "./dist/_internal/workspace/internal/runtime/state.js",
@@ -397,11 +402,6 @@
       "types": "./dist/agent/server.d.ts",
       "import": "./dist/agent/server.js",
       "default": "./dist/agent/server.js"
-    },
-    "./agent/server/github": {
-      "types": "./dist/agent/server/github.d.ts",
-      "import": "./dist/agent/server/github.js",
-      "default": "./dist/agent/server/github.js"
     },
     "./agent/state/sqlite": {
       "types": "./dist/agent/state/sqlite.d.ts",
@@ -1356,9 +1356,9 @@
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
+    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack && node scripts/write-console-digest.ts",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
-    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
+    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
