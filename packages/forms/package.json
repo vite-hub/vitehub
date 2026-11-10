@@ -41,6 +41,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./guard": {
+      "types": "./dist/guard.d.ts",
+      "import": "./dist/guard.js",
+      "default": "./dist/guard.js"
+    },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
@@ -67,7 +72,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/forms#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/forms#build && vp test"
+    "test": "vp run --cache -t @vite-hub/forms#build && vp test"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",

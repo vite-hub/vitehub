@@ -25,7 +25,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
-import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Plugin as VitePlugin } from "vite"
@@ -609,7 +609,7 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
-function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
+function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
   return normalizeWorkflowOptions(workflow, { hosting }) ?? false
 }
 
@@ -617,7 +617,7 @@ function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, host
  * The Provider Output that a build writes. Without a host, both outputs are written.
  * Only Vercel deploys the Vercel output, so other hosts skip it.
  */
-export function resolveWorkflowProviderOutputs(workflow: WorkflowModuleOptions | undefined, hosting?: string): {
+export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string): {
   cloudflare: false | ResolvedWorkflowOptions
   vercel: false | ResolvedWorkflowOptions
 } {
@@ -658,7 +658,7 @@ interface GenerateProviderOutputsOptions {
   serverFunctionName?: string
   sourceRootDir?: string
   includeUserAppEntry?: boolean
-  workflow: WorkflowModuleOptions | undefined
+  workflow: WorkflowOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceRuntimeModule?: string
   transformRegistry?: (code: string, id: string) => string | Promise<string>
@@ -703,7 +703,7 @@ interface CloudflareWorkflowNitroOptions {
   rootDir: string
   serverDirs?: string[]
   includeUserAppEntry?: boolean
-  workflow: WorkflowModuleOptions | undefined
+  workflow: WorkflowOptions | undefined
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceRuntimeModule?: string
@@ -768,20 +768,26 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
     buildStart() {
       this.emitFile({ fileName, id: moduleId, type: "chunk" })
     },
-    resolveId(id: string) {
-      if (id === moduleId) return resolvedModuleId
-      if (id.startsWith("file:")) return fileURLToPath(id)
+    resolveId: {
+      filter: { id: /^(?:virtual:vitehub-workflow-cloudflare-exports$|file:)/ },
+      handler(id: string) {
+        if (id === moduleId) return resolvedModuleId
+        if (id.startsWith("file:")) return fileURLToPath(id)
+      },
     },
-    load(id: string) {
-      if (id !== resolvedModuleId) return
-      return [
-        `import { WorkflowEntrypoint } from "cloudflare:workers"`,
-        `import { installViteHubWorkflowRuntime, runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
-        "",
-        "installViteHubWorkflowRuntime()",
-        "",
-        ...definitions.map(definition => renderCloudflareWorkflowEntrypoint(definition, legacyAliases)),
-      ].join("\n")
+    load: {
+      filter: { id: /^\0virtual:vitehub-workflow-cloudflare-exports$/ },
+      handler(id: string) {
+        if (id !== resolvedModuleId) return
+        return [
+          `import { WorkflowEntrypoint } from "cloudflare:workers"`,
+          `import { installViteHubWorkflowRuntime, runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
+          "",
+          "installViteHubWorkflowRuntime()",
+          "",
+          ...definitions.map(definition => renderCloudflareWorkflowEntrypoint(definition, legacyAliases)),
+        ].join("\n")
+      },
     },
     renderChunk(code, chunk) {
       if (!chunk.isEntry || (chunk.fileName !== "index.mjs" && chunk.fileName !== "index.js")) return null
@@ -1171,7 +1177,7 @@ function renderProviderEntry(
 
 export async function writeProviderEntries(
   rootDir: string,
-  workflow: WorkflowModuleOptions | undefined,
+  workflow: WorkflowOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
   includeUserAppEntry = true,

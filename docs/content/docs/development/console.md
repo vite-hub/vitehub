@@ -97,7 +97,7 @@ Set `console` in the ViteHub options. `console.auth` chooses who can open it, an
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
-The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub db generate` and `vitehub db migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
+The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub database generate` and `vitehub database migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
 For local development, use `auth: false`:
 
@@ -1759,7 +1759,6 @@ The Console does not fill in missing provider data. Token counts, model metadata
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal, not a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
-| A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
 | `console: true` reports missing app Auth or Console access policy | Set `auth: true` and allow the Console routes in the app Auth Definition. Use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub says `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object: `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition, such as `server/auth.ts`. |
@@ -1806,7 +1805,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_MCP_KEY_INVALID` | `500` | Set `VITEHUB_CONSOLE_MCP_KEY` to 32 random bytes as base64 or hex, such as the output of `openssl rand -base64 32`. |
 | `CONSOLE_MCP_KV_REQUIRED` | `500` | Turn on the default KV store with `kv: true` or an explicit default KV configuration, then rebuild. |
 
-A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs`.
+A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0114`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs`.
 
 See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page instead of the full Console, use [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
 
@@ -1829,14 +1828,9 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 
 After you open the Console, go back to any app page. The ViteHub pill stays while its hint cookie is set, or when you open a page with `?vitehub`. The server checks each tool's access, because the cookie grants nothing. Signed-out visitors do not get the editor.
 
-Choose **Console** to open it in a floating window. **Content** shows only when Content is installed and you have the full `content` grant. With `content:read`, use Content through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the Content editor.
+Choose **Console** to open it in a floating window. Content lives in the Console's Content section, so the pill has no separate Content button. To change text on the page itself, use **Edit** in the [Comments](/docs/comments/configure#mark-content-fields) segment: a click on a field marked with `contentField()` edits its text in place, and a field that is not plain text opens its document in the Console window. Content's own read, write, and publish policies still apply.
 
-- While you select, an open Content window moves aside. <kbd>Esc</kbd>, a second **Select field**, or a click outside a field cancels and brings it back.
-- A click while you select never follows a link.
-- A minimized window stays minimized until you pick a field.
-- You can browse collections with the keyboard in the Content window. Content's read, write, and publish policies still apply.
-
-When the page belongs to a document with an unpublished saved draft, the Content segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
+When the page belongs to a document with an unpublished saved draft, the Console segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
 
 On the draft page, a **Draft** tab sits on the pill, on the side facing the page, and the page has no banner. The tab marks text blocks that differ from the live page, such as headings, paragraphs, and list items. **N changes** turns the marks off and on. The pill compares the text of each block with the live page in a hidden frame, so a moved paragraph is not a change. Images, links, and styles are not compared. Removed blocks are counted. The tab hides while the pill is collapsed. **Back to live** shows the page as guests see it. Client-side navigation shows the next page live and checks it for a draft. The draft view shows the saved draft, not unsaved text.
 
@@ -1849,7 +1843,7 @@ Expanding or minimizing the window keeps the document and unsaved text.
 
 The editor loads on first use. In production it uses a same-origin iframe and needs an accepted Console session. A normal Console page still refuses framing. `?embed=1` allows same-origin framing only after the access check. Your Content Security Policy must allow the same-origin frame.
 
-Comments uses the same window for the page's threads and replies, without **Open in new tab**. When the Content editing tool is available, the Comments **Edit** action opens the document editor. Otherwise, plain-text field editing stays available as the Comments and Content policies allow.
+Comments uses the same window for the page's threads and replies, without **Open in new tab**. Its **Edit** action edits plain-text fields in place. A field that is not plain text opens its document in Console. Without the Console tool, **Open Content** links to the Content page. The Comments and Content policies still apply.
 
 ## Inspect logs
 

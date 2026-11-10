@@ -5,10 +5,10 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: WORKSPACE_R0030, WORKSPACE_R0062, and WORKSPACE_R0068.
 export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workspace/diagnostics",
   codes: {
-    WORKSPACE_R0068: dynamicError,
     WORKSPACE_R0069: dynamicError,
     WORKSPACE_R0070: dynamicError,
     WORKSPACE_R0071: dynamicError,
@@ -44,7 +44,6 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0027: dynamicError,
     WORKSPACE_R0028: dynamicError,
     WORKSPACE_R0029: dynamicError,
-    WORKSPACE_R0030: dynamicError,
     WORKSPACE_R0031: dynamicError,
     WORKSPACE_R0032: dynamicError,
     WORKSPACE_R0033: dynamicError,
@@ -81,8 +80,6 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0059: dynamicError,
     WORKSPACE_R0060: dynamicError,
     WORKSPACE_R0061: dynamicError,
-    // Retired: inferred MCP resource Sources no longer need a registered loader. Do not reuse this code.
-    WORKSPACE_R0062: dynamicError,
     WORKSPACE_R0063: dynamicError,
     WORKSPACE_R0064: dynamicError,
     WORKSPACE_R0065: dynamicError,
