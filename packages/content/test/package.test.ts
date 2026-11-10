@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { describe, expect, it } from "vitest"
 
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js"
+import { readBuiltWorkspaceImports } from "../../internal/test-utils/built-workspace-imports.js"
 
 const dist = new URL("../dist/", import.meta.url)
 
@@ -45,6 +46,14 @@ describe("@vite-hub/content package contract", () => {
 
     expect(workspaceOrDatabase(await startupImports("index.js"))).toEqual([])
     expect(workspaceOrDatabase(await startupImports("vite.js"))).toEqual([])
-    expect(workspaceOrDatabase(await startupImports("collections.js"))).toContain("@vite-hub/workspace")
+    expect(workspaceOrDatabase(await startupImports("collections.js"))).toContain("@vite-hub/workspace/files")
+  })
+
+  it.each(["collections.js", "realtime.js"])("keeps built %s off the Workspace Agent tool graph", async entry => {
+    const graph = await readBuiltWorkspaceImports(new URL(entry, dist))
+    // Collections read `derivedFrom` of translations. `@vite-hub/workspace/lineage` only hashes and parses bytes.
+    expect([...graph.imports].sort()).toEqual(entry === "collections.js" ? ["@vite-hub/workspace/files", "@vite-hub/workspace/lineage"] : ["@vite-hub/workspace/files"])
+    expect(graph.code).not.toContain("maxShellCalls")
+    expect(graph.code).not.toContain("@vite-hub/shell/workspace")
   })
 })

@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle request errors
 
-`save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page.
+`save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong, `error.fix` says what to do, and `error.docs` links to the code in [Realtime diagnostics](/docs/realtime/diagnostics).
 
 ```ts [app/components/PageEditor.vue] fragment
 const realtime = useRealtimeTiptap('pages', () => props.path)
@@ -24,9 +24,9 @@ async function publish() {
 }
 ```
 
-The type of `error.code` is `RealtimeRequestErrorCode`: `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, or `REALTIME_REQUEST_FAILED`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
+`error.code` has the type `RealtimeRequestErrorCode`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
 
-Room errors happen after the WebSocket opens, so they go into the stream: the server closes the connection with a close code. Configuration and build errors throw.
+Room errors happen after the WebSocket opens, so the server closes the connection with a close code. Configuration and build errors throw.
 
 | Code | Where |
 | --- | --- |
@@ -40,7 +40,7 @@ Room errors happen after the WebSocket opens, so they go into the stream: the se
 ## Limits
 
 - One WebSocket message is at most 1 MiB.
-- Document state and awareness state are each at most 8 MiB per room.
+- Document state and awareness state (who is here, and their cursors) are each at most 8 MiB per room.
 - One peer can own at most 1,024 awareness clients.
 - `authority: "memory"` keeps at most 128 active rooms in one process.
 
@@ -52,11 +52,11 @@ The composable has `enabled: false`, so the request did not run.
 
 ### REALTIME_DISCONNECTED
 
-The document changed, the composable was disabled or destroyed, or its scope stopped while the request ran. Call the method again after the new document connects.
+The document changed, the composable was disabled or destroyed, or its scope stopped during the request. Call the method again after the new document connects.
 
 ### REALTIME_INVALID_RESPONSE
 
-The server answered with a body that the client cannot use. Use the same `@vite-hub/realtime` version on the client and the server.
+The client cannot use the server's answer. Use the same `@vite-hub/realtime` version on client and server.
 
 ### REALTIME_MISSING_DOCUMENT
 
@@ -64,25 +64,25 @@ The server answered with a body that the client cannot use. Use the same `@vite-
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and the server message. A read-only room answers `409` with `REALTIME_READ_ONLY`; read `readOnlyReason` and `saveStatus` for the reason. A network error is in `error.cause`.
+The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
 
 ## Room errors
 
 ### REALTIME_AWARENESS_OWNERSHIP_CONFLICT
 
-A peer sent an awareness update for a client id that another peer owns. The server closes the connection with `4500`.
+A peer sent an awareness update for a client id that another peer owns. The server closes with `4500`.
 
 ### REALTIME_AWARENESS_TOO_LARGE
 
-Awareness state of the room is larger than 8 MiB. Keep less data in awareness.
+The room's awareness state is over 8 MiB. Keep less data in awareness.
 
 ### REALTIME_DOCUMENT_CONFLICT
 
-A document adapter throws `new RealtimeDocumentConflict(why)` when the stored digest does not equal `ifDigest`. A Workspace conflict also counts. Realtime re-seeds the room from the stored document and resets clients with `source-changed`. Use `isRealtimeDocumentConflict(error)` to check for it.
+A document adapter throws `new RealtimeDocumentConflict(why)` when the stored digest differs from `ifDigest`. A Workspace conflict also counts. Realtime re-seeds the room from the stored document and resets clients with `source-changed`. Check for it with `isRealtimeDocumentConflict(error)`.
 
 ### REALTIME_DOCUMENT_TOO_LARGE
 
-An update would make the document state larger than 8 MiB. The server closes the connection with `4400`.
+An update would make the document state larger than 8 MiB. The server closes with `4400`.
 
 ### REALTIME_INVALID_AWARENESS
 
@@ -96,15 +96,15 @@ One peer sent more than 1,024 awareness clients.
 
 ### REALTIME_INVALID_PERSISTENCE
 
-`persistence.debounce` or `persistence.maxWait` is not a non-negative number of milliseconds, or `maxWait` is less than `debounce`.
+`persistence.debounce` or `persistence.maxWait` is not a number of milliseconds of 0 or more, or `maxWait` is less than `debounce`.
 
 ### REALTIME_INVALID_USER
 
-The user of a realtime identity has no `id`, or its `id` is not a string of at most 256 characters.
+The identity's user has no `id`, or the `id` is not a string of at most 256 characters.
 
 ### REALTIME_MISSING_DIGEST
 
-A save needs file digests from the Workspace Store, or a checkpoint found no stored document after its save. Use a Workspace Store that returns digests, or return `digest` from the adapter `save()`.
+A save needs file digests from the Workspace Store, or a checkpoint found no stored document after its save. Use a Workspace Store that returns digests, or return `digest` from the adapter's `save()`.
 
 ## Build errors
 
@@ -114,4 +114,4 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ### REALTIME_MISSING_AUTHORITY
 
-A production build with `authority: "auto"` found no Cloudflare preset. Deploy with a Cloudflare preset, or set `authority: "memory"` for one Node.js process.
+A production build with `authority: "auto"` found no Cloudflare preset. Use a Cloudflare preset, or set `authority: "memory"` for one Node.js process.

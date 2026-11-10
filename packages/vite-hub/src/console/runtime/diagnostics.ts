@@ -26,10 +26,13 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
+  | "CONSOLE_ORIGIN_NOT_ALLOWED"
   | "CONSOLE_ORIGIN_REJECTED"
   | "CONSOLE_REQUEST_FAILED"
   | "CONSOLE_REQUEST_INVALID"
   | "CONSOLE_SIGN_IN_REQUIRED"
+  | "CONSOLE_TOKEN_INVALID"
+  | "CONSOLE_TOKEN_NOT_CONFIGURED"
   | "CONSOLE_UNAVAILABLE"
 
 export type ConsoleDiagnosticData = {
@@ -108,6 +111,24 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "The request did not come from the Console origin.",
       "Open the Console from its own URL. A proxy must forward the public Host and Origin headers.",
       `${consoleGuide}#protect-the-console-route`,
+      "docs",
+    ),
+    CONSOLE_ORIGIN_NOT_ALLOWED: code(
+      "The Console on this origin may not call this app.",
+      "Add the origin to console.origins, use console: { auth: \"token\" }, and send the token as Authorization: Bearer. Then build and deploy again.",
+      `${consoleGuide}#call-the-console-from-another-origin`,
+      "docs",
+    ),
+    CONSOLE_TOKEN_INVALID: code(
+      "The request has no Console token, or the token is not correct.",
+      "Send `Authorization: Bearer <token>` with the token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION=\"Bearer <token>\"`.",
+      `${consoleGuide}#use-a-console-token`,
+      "docs",
+    ),
+    CONSOLE_TOKEN_NOT_CONFIGURED: code(
+      "`console: { auth: \"token\" }` needs `VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment.",
+      "Create a token with `openssl rand -hex 32`. Set `VITEHUB_CONSOLE_TOKEN_SHA256` to its SHA-256 as 64 hex characters, the output of `printf %s \"$TOKEN\" | sha256sum`. On Cloudflare, run `wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256`. Do not store the token itself. Then restart or deploy the server.",
+      `${consoleGuide}#use-a-console-token`,
       "docs",
     ),
     CONSOLE_LOOPBACK_ONLY: code(

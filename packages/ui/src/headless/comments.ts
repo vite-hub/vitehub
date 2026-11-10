@@ -32,9 +32,13 @@ import {
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
+import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
-/** Each switch shows one kind of thread. Resolved threads stay hidden until `resolved` is on. */
+/**
+ * Each switch shows one kind of thread. Resolved threads stay hidden until `resolved` is on. A resolved thread with a
+ * reply since it was resolved also counts as open, so the reply is seen.
+ */
 export interface CommentFilterState {
   open: boolean;
   resolved: boolean;
@@ -54,6 +58,8 @@ export interface CommentDraft {
   mentions: string[];
   /** Attachment keys, such as Blob keys, that the comment sends. */
   attachments: string[];
+  /** Files that the composer starts with, such as a screenshot. They upload with the comment, as picked files do. */
+  files?: File[];
   busy: boolean;
   error: string | undefined;
 }
@@ -136,8 +142,11 @@ export interface CommentsState {
   enter: () => void;
   exit: () => void;
   toggle: () => void;
-  /** Starts a draft on a point, an element, a selection, or `"page"`. Ends an empty draft first, and keeps one with text. A pin has no number until the server assigns one. */
-  startDraft: (target: AnchorTarget, options?: CreateAnchorOptions) => void;
+  /**
+   * Starts a draft on a point, an element, a selection, or `"page"`. Ends an empty draft first, and keeps one with text.
+   * A pin has no number until the server assigns one. `files` start in its composer, such as a screenshot of the area.
+   */
+  startDraft: (target: AnchorTarget, options?: CreateAnchorOptions & { files?: File[] }) => void;
   cancelDraft: () => void;
   /** Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. */
   send: () => Promise<CommentThread | undefined>;
@@ -223,8 +232,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const listOpen = ref(false);
   const blocked = ref(0);
 
+  const isOpen = (thread: CommentThread): boolean => thread.status === "open" || repliedSinceResolved(thread);
   const passes = (thread: CommentThread): boolean => {
-    if (thread.status === "open" ? !filters.open : !filters.resolved) return false;
+    const shown = (filters.open && isOpen(thread)) || (filters.resolved && thread.status === "resolved");
+    if (!shown) return false;
     return !filters.mine || thread.author.id === user.value?.id;
   };
   const onPage = (thread: CommentThread): boolean => sameSubject(thread.subject, subject.value);
@@ -235,7 +246,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const counts = computed(() => {
     const scoped = threads.value.filter(thread => scope.value === "site" || onPage(thread));
     return {
-      open: scoped.filter(thread => thread.status === "open").length,
+      open: scoped.filter(isOpen).length,
       resolved: scoped.filter(thread => thread.status === "resolved").length,
     };
   });
@@ -257,9 +268,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   }
 
   const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot());
-  const block = (): void => {
+  const block = (escape = false): void => {
     blocked.value++;
-    shakeDirtyComposers(uiRoot());
+    shakeDirtyComposers(uiRoot(), escape);
   };
 
   function enter(): void {
@@ -292,8 +303,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     hoverId.value = null;
     return true;
   }
-  function exit(): void {
-    if (hasText()) return block();
+  function exit(escape = false): void {
+    if (hasText()) return block(escape);
     cancelDraft();
     close();
     active.value = false;
@@ -303,7 +314,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     else enter();
   }
 
-  function startDraft(target: AnchorTarget, anchorOptions: CreateAnchorOptions = {}): void {
+  function startDraft(target: AnchorTarget, { files, ...anchorOptions }: CreateAnchorOptions & { files?: File[] } = {}): void {
     if (hasText()) return block();
     close();
     const anchor = createAnchor(target, { root: root(), ignore, ...anchorOptions });
@@ -317,7 +328,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     } else if (!("rangeCount" in target) && !("startContainer" in target)) {
       point = target;
     }
-    draft.value = { anchor, point, body: "", mentions: [], attachments: [], busy: false, error: undefined };
+    draft.value = { anchor, point, body: "", mentions: [], attachments: [], ...(files?.length ? { files } : {}), busy: false, error: undefined };
     measure();
   }
 
@@ -410,7 +421,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const origin = path[0];
     if (event.key === "Escape") {
       if (path.some(element => element.matches("[data-slot='comment-composer']"))) return;
-      if (active.value || draft.value || openId.value) exit();
+      if (active.value || draft.value || openId.value) exit(true);
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || isEditable(path)) return;

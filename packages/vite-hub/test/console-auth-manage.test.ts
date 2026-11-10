@@ -16,18 +16,16 @@ afterEach(() => {
 });
 
 function event(body: unknown, headers: Record<string, string> = {}) {
-  return {
-    req: new Request("http://localhost:3000/_vitehub/auth/manage", {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: {
-        "content-type": "application/json",
-        "x-vitehub-console": "1",
-        origin: "http://localhost:3000",
-        ...headers,
-      },
-    }),
-  };
+  return (new Request("http://localhost:3000/_vitehub/auth/manage", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: {
+      "content-type": "application/json",
+      "x-vitehub-console": "1",
+      origin: "http://localhost:3000",
+      ...headers,
+    },
+  }));
 }
 
 describe("Auth Console route", () => {
@@ -40,7 +38,7 @@ describe("Auth Console route", () => {
       { operation: "activity" },
       { action: "ban", userId: "target" },
     ])
-      expect((await authManage(event(body))).status).toBe(403);
+      expect((await authManage.fetch(event(body))).status).toBe(403);
   });
 
   it("returns real recorded events through the guarded Overview and Activity routes", async () => {
@@ -49,7 +47,7 @@ describe("Auth Console route", () => {
       state.inspect = app.api;
       installConsoleSections("auth-route-events", ["auth"]);
       installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["auth"] }) });
-      const call = (body: unknown) => authManage(event(body, { cookie: app.operator.cookie }));
+      const call = (body: unknown) => authManage.fetch(event(body, { cookie: app.operator.cookie }));
       expect(
         (
           await app.request("sign-in/email", {
@@ -105,8 +103,8 @@ describe("Auth Console route", () => {
     installConsoleSections("auth-route-real", ["auth"]);
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["auth"] }) });
     const request = (body: unknown) =>
-      authManage(event(body, { cookie: operator.request.headers.get("cookie")! }));
-    const proxied = await authManage(
+      authManage.fetch(event(body, { cookie: operator.request.headers.get("cookie")! }));
+    const proxied = await authManage.fetch(
       event(
         { operation: "users" },
         {
@@ -124,9 +122,7 @@ describe("Auth Console route", () => {
       { "sec-fetch-site": "same-origin", "x-vitehub-console": "" },
     ];
     for (const headers of rejectedHeaders) {
-      await expect(authManage(event({ operation: "users" }, headers))).rejects.toMatchObject({
-        statusCode: 403,
-      });
+      await expect(authManage.fetch(event({ operation: "users" }, headers))).resolves.toMatchObject({ status: 403 });
     }
     const listed = await request({ operation: "users" });
     expect(listed.status).toBe(200);
@@ -144,10 +140,10 @@ describe("Auth Console route", () => {
     ).toBe(200);
     expect(database.user.find((user) => user.id === member.id)?.banned).toBe(true);
     await expect(
-      authManage(event({ operation: "users" }, { origin: "https://outside.example" })),
-    ).rejects.toMatchObject({ statusCode: 403 });
+      authManage.fetch(event({ operation: "users" }, { origin: "https://outside.example" })),
+    ).resolves.toMatchObject({ status: 403 });
     await expect(
-      authManage(event({ operation: "users" }, { "x-vitehub-console": "" })),
-    ).rejects.toMatchObject({ statusCode: 403 });
+      authManage.fetch(event({ operation: "users" }, { "x-vitehub-console": "" })),
+    ).resolves.toMatchObject({ status: 403 });
   });
 });

@@ -2,10 +2,12 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import { runInNewContext } from "node:vm"
+import { Window, type HTMLButtonElement } from "happy-dom"
 import { defineAuth, type AuthSessionRefresh } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { adminPlugin } from "../../auth/test/fixtures/admin-plugin.ts"
-import { H3, H3Event } from "h3"
+import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
@@ -14,9 +16,14 @@ import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import authManage from "../src/console/runtime/server/auth-manage.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import { assertConsoleAccess, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
+import { requestEvent } from "./console-event.ts"
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const state = vi.hoisted(() => ({ inspect: undefined as unknown, host: undefined as unknown }))
 vi.mock("@vite-hub/auth/server", async importOriginal => ({
@@ -47,13 +54,11 @@ function jar(cookie: string, response: Response): string {
 }
 
 function manage(body: unknown, cookie = "") {
-  return authManage({
-    req: new Request("http://localhost:5173/_vitehub/auth/manage", {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
-    }),
-  })
+  return authManage.fetch(new Request("http://localhost:5173/_vitehub/auth/manage", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
+  }))
 }
 
 describe("console.impersonation configuration", () => {
@@ -69,7 +74,7 @@ describe("console.impersonation configuration", () => {
       expect(resolveConsoleAccessBuild({ auth: "app" }, { root })).not.toHaveProperty("impersonation")
       const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }]
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: [], catalog: { agents: [], content: {} }, blobStores: [], access: { check: { appRoutes: routes }, mode: "auth", impersonation: true } })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("requireSession: vitehubRequireSession, impersonation: true })")
       expect(generated).toMatch(/installConsoleAccess\(\{ mode: "auth", .*impersonation: true \}\)/)
@@ -147,7 +152,7 @@ describe("App Auth Console during impersonation", () => {
   async function setup(session?: { onRefresh: AuthSessionRefresh, updateAge: number }) {
     const database = new DatabaseSync(":memory:")
     closers.push(() => database.close())
-    const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
+    const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/_vitehub/api/**`, authorize: true }]
     // Every signed-in user passes the access routes, so only the impersonation check keeps the Console closed.
     const definition = defineAuth(() => ({
       baseURL: origin,
@@ -166,10 +171,9 @@ describe("App Auth Console during impersonation", () => {
       getAuthForRequest: authForRequest,
       impersonation: true,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
-        if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
       },
-      requireSession: event => withAuthorization(true, () => undefined, definition)(event as H3Event),
+      requireSession: event => withAuthorization(true, () => undefined, definition)(event),
       routes: routes.map((route, index) => ({ ...route, index, authorize: true })),
     })
     installConsoleAccess({ mode: "auth", impersonation: true, signInPage: "/_vitehub/sign-in", ...createConsoleAppAuthPages(authForRequest), ...access })
@@ -202,7 +206,7 @@ describe("App Auth Console during impersonation", () => {
     expect(started.status).toBe(200)
     const impersonating = jar(operator.cookie, started)
 
-    const rejected = await access.check({ req: new Request(`${origin}${mount}/api/_vitehub/console/sections`, { headers: { cookie: impersonating } }) })
+    const rejected = await access.check(requestEvent(new Request(`${origin}${mount}/_vitehub/api/sections`, { headers: { cookie: impersonating } })))
     expect(rejected?.status).toBe(403)
     expect(await rejected?.json()).toMatchObject({ code: "CONSOLE_IMPERSONATING" })
 
@@ -217,7 +221,18 @@ describe("App Auth Console during impersonation", () => {
     expect(html).toContain(`"${mount}/_vitehub/auth/users?user=${member.id}"`)
     expect(html).toContain(`href="${mount}/"`)
 
-    const stopped = await post("admin/stop-impersonating", {}, impersonating)
+    const window = new Window()
+    closers.push(() => window.close())
+    window.document.write(html)
+    const assign = vi.fn()
+    const fetch = vi.fn(async () => post("admin/stop-impersonating", {}, impersonating))
+    runInNewContext(window.document.querySelector("script")!.textContent, { document: window.document, fetch, window: { location: { assign } } })
+    window.document.querySelector<HTMLButtonElement>("button")!.click()
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(`${mount}/_vitehub/auth/users?user=${member.id}`))
+    expect(fetch).toHaveBeenCalledWith(`${mount}/api/auth/admin/stop-impersonating`, {
+      body: "{}", credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST",
+    })
+    const stopped = await fetch.mock.results[0]!.value
     expect(stopped.status).toBe(200)
     const restored = jar(impersonating, stopped)
     const console = await visit("/_vitehub/auth/users", restored)

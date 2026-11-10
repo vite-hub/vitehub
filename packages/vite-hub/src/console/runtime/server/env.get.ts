@@ -1,5 +1,6 @@
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { getConsoleSections } from "./sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { getConsoleEnv, getConsoleEnvStatus } from "./env.ts"
@@ -7,7 +8,7 @@ import type { ConsoleEnvResponse } from "./env.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 function consoleEnvError(statusCode: number, statusMessage: string) {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }))
 }
 
 /** Returns declaration metadata. `?status=1` adds status from `inspectServerEnv()`, which may call providers. */

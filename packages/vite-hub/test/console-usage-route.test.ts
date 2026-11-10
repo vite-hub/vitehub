@@ -6,9 +6,10 @@ import { usage } from "@vite-hub/agent/capabilities"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 import { allowed } from "./support/console-access.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
 
@@ -21,8 +22,8 @@ it("registers one production Usage GET endpoint when configuration is reapplied"
     const handler = "handler" in hook ? hook.handler : hook
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     for (let pass = 0; pass < 2; pass++) await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
-    expect(config.nitro.handlers.filter(handler => handler.route === "/api/_vitehub/console/usage")).toEqual([
-      { handler: expect.stringMatching(/server\/usage\.get\.js$/), route: "/api/_vitehub/console/usage", method: "get", lazy: true },
+    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/api/usage")).toEqual([
+      { handler: expect.stringMatching(/server\/usage\.get\.js$/), route: "/_vitehub/api/usage", method: "get", lazy: true },
     ])
   } finally { await rm(root, { recursive: true, force: true }) }
 })
@@ -37,9 +38,9 @@ it.each([["env", "kv"], ["usage"]] as const)("does not register the Usage endpoi
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).not.toContain("/api/_vitehub/console/status")
+    expect(routes).not.toContain("/_vitehub/api/status")
     // Without an invocation journal, this handler fails with an unhandled 500.
-    expect(routes).not.toContain("/api/_vitehub/console/usage")
+    expect(routes).not.toContain("/_vitehub/api/usage")
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
@@ -62,10 +63,7 @@ it.each([false, true].flatMap(invoke => pricingCases.map(pricing => ({ ...pricin
     }], { projectRoot: process.cwd(), invoke })
 
     for (const query of ["", "?agent=usage-agent"]) {
-      expect(await usageHandler({
-        method: "GET",
-        req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
-      })).toMatchObject({ available: false, costSupported })
+      expect(await usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage${query}` }))).toMatchObject({ available: false, costSupported })
     }
   },
 )
@@ -105,9 +103,6 @@ it.each([false, true])("keeps provider-recorded cost when pricing is disabled an
   }], { projectRoot: process.cwd(), invoke })
 
   for (const query of ["", "?agent=usage-agent"]) {
-    expect(await usageHandler({
-      method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
-    })).toMatchObject({ costSupported: true, totals: { costUsd: "0.01", costEstimated: false } })
+    expect(await usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage${query}` }))).toMatchObject({ costSupported: true, totals: { costUsd: "0.01", costEstimated: false } })
   }
 })

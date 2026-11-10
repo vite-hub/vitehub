@@ -17,8 +17,8 @@ vi.mock("../../agent/src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
 }));
 
-vi.mock("../../agent/src/server/github-repair.ts", async importOriginal => ({
-  ...await importOriginal<typeof import("../../agent/src/server/github-repair.ts")>(),
+vi.mock("../src/github/repair.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/github/repair.ts")>(),
   prepareGitHubRepairBase: vi.fn(async () => {}),
 }));
 const sandboxDefinitions = vi.hoisted(() => vi.fn());
@@ -46,17 +46,17 @@ import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
 import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
-import { getAgentLayerOptions } from "../../agent/src/agent-layers.ts";
+import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
 import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
-import * as githubRuns from "../../agent/src/server/github-pull-requests.ts";
-import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../../agent/src/server/github-repair.ts";
-import * as githubInstalls from "../../agent/src/server/github-install.ts";
+import * as githubRuns from "../src/github/pull-requests.ts";
+import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
+import * as githubInstalls from "../src/github/install.ts";
 import { agentInvocationId } from "@vite-hub/agent";
-import type { GitHubHost } from "@vite-hub/agent/server/github";
+import type { GitHubHost } from "../src/github/index.ts";
 import { RateLimitedError } from "@vite-hub/forge";
-import { githubError, githubForge, type GitHubTestRequest } from "../../agent/test/fixtures/github-forge.ts";
+import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -1914,7 +1914,7 @@ describe("Babysitter preset runtime", () => {
 
   it("preserves the Babysitter mention allowlist through Agent layer configuration", () => {
     const agent = defineAgent({ extends: babysitter, options: { mentionAllowlist: [" Stefina ", "other-user"] } });
-    expect(getAgentLayerOptions(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
+    expect(agentSettings(agent)).toMatchObject({ mentionAllowlist: [" Stefina ", "other-user"] });
     expect(agent.options.mentionAllowlist).toEqual([" Stefina ", "other-user"]);
   });
 
@@ -2135,7 +2135,7 @@ describe("Babysitter preset runtime", () => {
 
   it("selects the Claude Code driver", () => {
     const agent = defineAgent({ extends: babysitter, options: { driver: "claude-code" } });
-    expect(getAgentLayerOptions(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
+    expect(agentSettings(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits-unattended" });
     expect(agent.options.driver).toBe("claude-code");
   });
 

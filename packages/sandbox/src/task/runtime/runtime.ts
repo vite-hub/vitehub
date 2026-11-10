@@ -142,7 +142,6 @@ async function resolveSandboxTaskProvider(
     provider,
     withSandboxTaskProvider(provider, config),
     definition.options ?? {},
-    {},
   )
 }
 

@@ -11,6 +11,21 @@ const manifest = useDocsManifest()
 const { mcp, site, appBase } = useDocsConfig()
 const links = computed(() => findDocsPage(manifest, route.path) ? docsMarkdownLinks(site, route.path, appBase) : null)
 const copying = ref(false)
+const menuOpen = ref(false)
+const menuHydrated = ref(false)
+
+function openPendingMenu(event: MouseEvent | KeyboardEvent) {
+  if (menuHydrated.value || !(event.target instanceof Element) || !event.target.closest(".vh-page-action-more")) return
+  if (event instanceof KeyboardEvent) {
+    if (!["Enter", " ", "ArrowDown"].includes(event.key)) return
+  }
+  else if (event.button !== 0 || event.ctrlKey) return
+
+  // Keep the first activation while the async menu loads. Updating its open prop also starts hydration before idle.
+  event.preventDefault()
+  event.stopPropagation()
+  menuOpen.value = true
+}
 
 async function copyText(text: string, title: string) {
   await copyLink(text)
@@ -66,15 +81,15 @@ const items = computed(() => {
   <!-- `contents` keeps the group a direct flex item of the page header. The live region sits outside the group,
        because the group rounds its first and last child. -->
   <div v-if="links" class="contents">
-    <UFieldGroup size="sm">
+    <UFieldGroup size="sm" @click.capture="openPendingMenu" @keydown.capture="openPendingMenu">
       <UButton
         :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
         :loading="copying"
         color="neutral"
-        variant="soft"
+        variant="outline"
         aria-label="Copy page as Markdown"
         class="vh-page-action"
-        :ui="{ leadingIcon: 'text-neutral size-3.5' }"
+        :ui="{ leadingIcon: 'text-muted size-3.5' }"
         @click="copyPage"
       >
         <!-- Both labels share one grid cell, so "Copied" does not change the width or move the menu button. -->
@@ -84,20 +99,24 @@ const items = computed(() => {
         </span>
       </UButton>
 
-      <UDropdownMenu
+      <!-- The menu and its Reka parts load once the page is idle, so they stay out of the JS that every page waits for. -->
+      <LazyUDropdownMenu
+        v-model:open="menuOpen"
+        hydrate-on-idle
         size="sm"
         :items="items"
         :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
         :ui="{ item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' }"
+        @hydrated="menuHydrated = true"
       >
         <UButton
           icon="i-lucide-chevron-down"
           color="neutral"
-          variant="soft"
+          variant="outline"
           aria-label="More page actions"
-          class="vh-page-action vh-page-action-more border-l border-muted"
+          class="vh-page-action vh-page-action-more"
         />
-      </UDropdownMenu>
+      </LazyUDropdownMenu>
     </UFieldGroup>
     <span class="sr-only" aria-live="polite">{{ copied ? "Page copied as Markdown" : "" }}</span>
   </div>

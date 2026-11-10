@@ -23,7 +23,7 @@ import type {
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   DatabaseDialect,
-  DBModulePublicOptions,
+  DatabaseOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
   ResolvedCloudflareHyperdriveConfig,
@@ -36,6 +36,7 @@ import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTarget
 
 import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
+import type { ProvisionState } from "@vite-hub/internal/provision"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { parseDatabaseLocation, type DatabaseLocation } from "./database-location.ts"
@@ -231,6 +232,16 @@ export function readDatabaseDefinitionReadReplication(file: string): boolean | u
   const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"), file)
   const expression = readObjectPropertyValue(body, "readReplication")
   return expression?.type === "Literal" && typeof expression.value === "boolean" ? expression.value : undefined
+}
+
+/**
+ * Whether `vite dev` queries the real D1 database: the Definition's source sets `remote: true`, or sets
+ * `cloudflare.http` and not `remote: false`. Undefined when the source does not show it with literals.
+ */
+export function readDatabaseDefinitionRemote(file: string): boolean | undefined {
+  const expression = resolveModuleExpression(readObjectPropertyValue(readDefinitionObjectBody(file), "remote"), file)
+  if (expression?.type === "Literal" && typeof expression.value === "boolean") return expression.value
+  return isStaticD1HttpDefinition(file) || undefined
 }
 
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
@@ -541,6 +552,18 @@ export function isStaticD1HttpDefinition(file: string) {
   return (http?.type === "Literal" && http.value === true) || http?.type === "ObjectExpression"
 }
 
+/**
+ * Reports whether a SQLite Database can query a libSQL server at runtime: its `connection.url` is remote, comes from
+ * the environment, or cannot be read at build time. A static D1 HTTP Definition never uses libSQL.
+ */
+export function mayUseRemoteLibsql(file: string, database: ResolvedDrizzleDatabaseConfig): boolean {
+  if (database.cloudflare?.http && isStaticD1HttpDefinition(file)) return false
+  const keys = existsSync(file) ? readDefinitionOptionKeys(file) : undefined
+  if (!keys || (keys.has("connection") && typeof readDefinitionConnectionConfig(file)?.url !== "string")) return true
+  const url = database.connection?.url
+  return typeof url !== "string" || /^(?:libsql|https?|wss?):/i.test(url)
+}
+
 function readDefinitionConnectionConfig(file: string) {
   const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"), file)
   if (!body) return
@@ -549,6 +572,29 @@ function readDefinitionConnectionConfig(file: string) {
     url: readConfigExpression(resolveModuleExpression(readObjectPropertyValue(body, "url"), file)),
   }
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
+}
+
+/**
+ * Whether the build can read the whole `connection` of a Database Definition. False when the Definition is not an
+ * object literal, has a spread, repeats `connection` or `connection.url`, or sets them with an expression that the
+ * build cannot read. The runtime can then get any URL.
+ */
+export function readDatabaseDefinitionConnectionIsStatic(file: string): boolean {
+  const body = readDefinitionObjectBody(file)
+  if (!body) return false
+  const entries = readObjectEntries(body)
+  if (entries.some(entry => entry.key === undefined)) return false
+  const connections = entries.filter(entry => entry.key === "connection")
+  if (!connections.length) return true
+  if (connections.length !== 1) return false
+  const connection = resolveObjectLiteral(connections[0]!.raw, file)
+  if (!connection) return false
+  const properties = readObjectEntries(connection)
+  if (properties.some(entry => entry.key === undefined)) return false
+  const urls = properties.filter(entry => entry.key === "url")
+  if (urls.length > 1) return false
+  const url = urls[0]?.raw
+  return url === undefined || readConfigExpression(resolveModuleExpression(url, file)) !== undefined
 }
 
 /** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
@@ -871,13 +917,15 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
 }
 
 export function resolveDBViteConfig(
-  options?: DBModulePublicOptions,
+  options?: DatabaseOptions,
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
     contributions?: Partial<CollectedDatabaseContributions>
     /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
     implicitDefault?: boolean
+    /** Replaces the Provision State read from `provisionRoot`. Inspection passes `{}` to see configured ids only. */
+    provisionState?: ProvisionState
     provisionRoot?: string
     serverDirs?: string[]
   } = {},
@@ -899,7 +947,7 @@ export function resolveDBViteConfig(
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
   const generatedDrizzleConfigFilesByDatabase: Record<string, string> = Object.create(null)
   const generatedSchemaFilesByDatabase: Record<string, string> = Object.create(null)
-  const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
+  const provisionState = context.provisionState ?? readProvisionStateSync(context.provisionRoot ?? rootDir)
   const definitionCloudflareByName = new Map<string, DefinitionCloudflareConfig>()
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)

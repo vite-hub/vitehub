@@ -1,7 +1,7 @@
 ---
 title: ViteHub documentation
 layout: landing
-description: Add server features to your Vite or Nuxt app, build an Agent, and deploy it on your chosen host.
+description: Add server features to your Vite or Nuxt app, build an Agent, and deploy to your host.
 navigation: false
 icon: i-lucide-book-open
 ---
@@ -9,7 +9,7 @@ icon: i-lucide-book-open
 Start with [Installation](/docs/getting-started/installation), then
 [save your first value](/docs/getting-started/first-server-primitive) or
 [run your first Agent](/docs/getting-started/first-agent).
-Both quickstarts run locally without an account or model credentials.
+Both run locally, with no account or model key.
 
 ::docs-learning-paths
 - [Get started](/docs/getting-started) Install in Nuxt or Vite, then save a value or run your first Agent.
@@ -20,18 +20,17 @@ Both quickstarts run locally without an account or model credentials.
 - [Reference](/docs/reference) Look up shared configuration, imports, file conventions, and errors.
 ::
 
-Want to build a complete application? Follow a [project tutorial](/learn).
-If a coding agent is doing the work, give it the
+To build a full app, follow a [project tutorial](/learn).
+If a coding agent does the work, give it the
 [ViteHub skill or docs MCP server](/docs/getting-started/ai-resources).
 
 ## Browse by feature
 
-Each product keeps its quickstart, configuration, API, host support, and errors
-together. Use the catalog below to look up a feature you already know you need.
+Each feature keeps its quickstart, configuration, API, host support, and errors
+together. Use the catalog below when you know what you need.
 
-Use the [integration and deployment guides](/docs/guides) to connect hosted
-services or deploy an Agent. Read the [tool comparisons](/docs/compare) when
-you need to choose a framework or keep an existing server stack.
+Use the [guides](/docs/guides) to connect hosted services or deploy an Agent.
+Read the [comparisons](/docs/compare) to choose a framework or keep your current server stack.
 
 ::docs-catalog
 ::

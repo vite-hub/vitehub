@@ -1,4 +1,3 @@
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { describeCommentContext } from "../context.ts"
@@ -8,9 +7,8 @@ import { commentsPageScope, normalizeCommentPage } from "../page.ts"
 import { resolveCommentsIdentity } from "./session.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
-import type { CommentAction, CommentListCursor, CommentsUser, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAction, CommentListCursor, CommentsRequestEvent, CommentsUser, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsIdentity, CommentsSessionOptions } from "./session.ts"
 
 /** A user supplied by an app's own MCP server. Missing identities remain anonymous. */
@@ -20,7 +18,7 @@ function commentsUser(user: Record<string, unknown> | null): CommentsUser | null
 }
 
 function guestFor(context: ViteHubMcpToolContext) {
-  return context.event instanceof Object ? guestFromHeaders(toEventRequest(context.event).headers) : undefined
+  return context.event ? guestFromHeaders(context.event["~standard"].req.headers) : undefined
 }
 
 function failure(why: string): ViteHubMcpToolResult {
@@ -84,8 +82,8 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
   async function identityFor(context: ViteHubMcpToolContext, action: CommentAction): Promise<CommentsIdentity | false> {
     // The ViteHub MCP server lists these tools only for people with Console access to Comments.
     if (context.event === undefined || context.event === null) return { user: commentsUser(context.user), gate: { console: Boolean(options.consoleSession) } }
-    // SAFETY: The MCP transport passes its request event to owner identity readers.
-    return resolveCommentsIdentity(comments, context.event as H3Event, { ...options, session: options.session ?? (async () => commentsUser(context.user)) }, action)
+    // SAFETY: The MCP transport passes its request event, or its Request, to owner identity readers.
+    return resolveCommentsIdentity(comments, context.event as CommentsRequestEvent, { ...options, session: options.session ?? (async () => commentsUser(context.user)) }, action)
   }
 
   async function threadFor(input: Record<string, unknown>, { user, gate }: CommentsIdentity, action: CommentAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {

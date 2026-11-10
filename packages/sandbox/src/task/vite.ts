@@ -1,8 +1,9 @@
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
+import { ensureGeneratedDir } from '@vite-hub/internal/build/paths'
+import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
-import { basename, normalize, relative } from 'pathe'
+import { basename, normalize, relative, resolve } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
 import {
@@ -14,9 +15,10 @@ import {
 } from './feature'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
+import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
 import { inspectSandboxTaskDefinitions } from './inspect'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
-import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
+import type { Alias, ConfigEnv, DevEnvironment, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import type { AgentSandboxTaskConfig } from './module-types'
 
@@ -24,7 +26,7 @@ export { discoverSandboxTaskDefinitions } from './discovery'
 export type { DiscoveredSandboxTaskDefinition } from './discovery'
 export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandboxTaskConsoleSection } from './inspect'
 
-export type SandboxTaskPublicOptions = AgentSandboxTaskConfig | false
+export type SandboxTaskOptions = AgentSandboxTaskConfig | false
 export type SandboxTaskVitePlugin = Plugin & {
   vitehub: ViteHubInspectionPluginMetadata
   nitro: {
@@ -42,6 +44,8 @@ const SANDBOX_PACKAGE_NAME = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-task-provider-loader'
 const SANDBOX_STATE_ID = '#vitehub/sandbox-task'
 const RESOLVED_SANDBOX_STATE_ID = '\0vitehub:sandbox-task:state'
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const SANDBOX_STATE_ID_PATTERN = /^(?:#vitehub\/sandbox-task|\0vitehub:sandbox-task:state)$/
 
 type AliasMap = Record<string, string>
 interface SandboxTaskViteInternalOptions {
@@ -94,11 +98,14 @@ function sandboxTaskProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox/task', './runtime/provider-loader', 'runtime/provider-loader.js')
 }
 
+/** The path of the Sandbox Task runtime state module. Generated code of other owners imports it by path. */
+export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
+
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
-  [sandboxTaskRuntimeStateSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js'),
+  [sandboxTaskRuntimeStateSpecifier]: sandboxTaskRuntimeStateModule,
 }
 
 function toSandboxTaskAliasEntries(aliases: AliasMap): SandboxTaskAlias[] {
@@ -184,13 +191,40 @@ function invalidateGeneratedSandboxTaskModules(files: string[], moduleGraph: { g
   }
 }
 
+// Vite resolves the `runtime` link to a generation folder, and importers keep that path in
+// their transformed code. Move server environments to the current generation before it is pruned.
+async function reloadStaleSandboxTaskGenerations(
+  environments: Record<string, DevEnvironment> | undefined,
+  rootDir: string,
+  facadeFile: string,
+) {
+  // Vite keys modules by real path.
+  const generationsDir = await realpath(resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), '.runtime-generations')).then(normalize).catch(() => undefined)
+  const currentGeneration = generationsDir && await readSandboxTaskRuntimeGeneration(facadeFile, generationsDir)
+  if (!generationsDir || !currentGeneration)
+    return
+  for (const environment of Object.values(environments ?? {})) {
+    if (environment.config.consumer !== 'server')
+      continue
+    for (const module of environment.moduleGraph.idToModuleMap.values()) {
+      const id = module.id
+      if (!id?.startsWith(`${generationsDir}/`) || id.startsWith(`${currentGeneration}/`))
+        continue
+      environment.moduleGraph.invalidateModule(module)
+      for (const importer of module.importers)
+        environment.moduleGraph.invalidateModule(importer)
+      environment.hot.send({ type: 'full-reload', triggeredBy: id })
+    }
+  }
+}
+
 async function resolveGeneratedSandboxTaskModuleIds(files: string[]) {
   return Promise.all(files.map(async file => normalize(await realpath(file).catch(() => file))))
 }
 
-function publicSandboxTaskOptions(options: AgentSandboxTaskConfig & SandboxTaskViteInternalOptions): SandboxTaskPublicOptions {
+function publicSandboxTaskOptions(options: AgentSandboxTaskConfig & SandboxTaskViteInternalOptions): SandboxTaskOptions {
   // SAFETY: Removing the two package-private integration fields leaves the declared public Sandbox options.
-  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxTaskPublicOptions
+  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxTaskOptions
 }
 
 function mutableSandboxTaskNitroTarget(value: unknown): Parameters<typeof configureCloudflareSandboxNitro>[0] {
@@ -198,9 +232,9 @@ function mutableSandboxTaskNitroTarget(value: unknown): Parameters<typeof config
   return value as Parameters<typeof configureCloudflareSandboxNitro>[0]
 }
 
-export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskVitePlugin {
+export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlugin {
   // SAFETY: ViteHub adds these package-private integration fields before composing the Sandbox plugin.
-  const internalOptions = options as SandboxTaskPublicOptions & SandboxTaskViteInternalOptions | undefined
+  const internalOptions = options as SandboxTaskOptions & SandboxTaskViteInternalOptions | undefined
   const integrationOptions = internalOptions
     ? publicSandboxTaskOptions(internalOptions)
     : internalOptions
@@ -338,7 +372,7 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
       rawConfig = config as Record<string, unknown>
       rawEnv = env
       const prepared = await prepareCurrentSandboxTaskRuntime(false)
-      sandboxTaskEnabled = rawConfig.sandboxTask !== false && integrationOptions !== false
+      sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       watchFiles = prepared.watchFiles
@@ -361,22 +395,28 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         },
       }
     },
-    resolveId(id) {
-      if (!sandboxTaskStateModule)
-        return
-      if (id === SANDBOX_STATE_ID)
-        return RESOLVED_SANDBOX_STATE_ID
-      if (id === RESOLVED_SANDBOX_STATE_ID)
-        return id
+    resolveId: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (!sandboxTaskStateModule)
+          return
+        if (id === SANDBOX_STATE_ID)
+          return RESOLVED_SANDBOX_STATE_ID
+        if (id === RESOLVED_SANDBOX_STATE_ID)
+          return id
+      },
     },
-    load(id) {
-      if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
-        return sandboxTaskStateModule
+    load: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
+          return sandboxTaskStateModule
+      },
     },
     async configResolved(config) {
       resolvedConfig = config
       const prepared = await refreshSandboxTaskRuntime()
-      sandboxTaskEnabled = rawConfig.sandboxTask !== false && integrationOptions !== false
+      sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       selectedProvider = prepared.provider
       const composed = await composeCloudflareSandbox(config, prepared, true)
       if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
@@ -402,6 +442,9 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
         const currentResolvedFiles = await resolveGeneratedSandboxTaskModuleIds(currentFiles)
         invalidateGeneratedSandboxTaskModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)
+        const facadeFile = generatedAliases[SANDBOX_PACKAGE_ID]
+        if (facadeFile)
+          await reloadStaleSandboxTaskGenerations(context.server.environments, prepared.rootDir, facadeFile)
         return prepared
       })
     },
@@ -430,8 +473,3 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
   }
 }
 
-declare module 'vite' {
-  interface UserConfig {
-    sandboxTask?: SandboxTaskPublicOptions
-  }
-}

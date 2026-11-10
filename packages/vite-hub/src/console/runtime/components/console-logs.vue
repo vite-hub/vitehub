@@ -222,7 +222,7 @@ onBeforeUnmount(() => {
       <ConsoleState v-if="error && !entries.length" :error="error" title="Could not load logs" :retry="() => load()" />
       <ConsoleState v-else-if="!source && !loading" section="logs" icon="i-vitehub-logs" title="Connect a log source">
         <p class="max-w-sm text-xs leading-5 text-pretty text-muted">
-          <ConsoleSetupHint :hint="{ message: 'Set `logs: true` to capture events in development, or set `logs.source` to a server module that reads your log backend.' }" />
+          <ConsoleSetupHint :hint="{ message: 'Set `observability: { logs: true }` to capture events in development, or set `observability.logs.source` to a server module that reads your log backend.' }" />
         </p>
       </ConsoleState>
       <div v-else class="logs-workspace min-h-0 flex-1">
@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
               <button
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
-                class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-primary"
+                class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-(--vitehub-console-focus)"
                 :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
                 :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"

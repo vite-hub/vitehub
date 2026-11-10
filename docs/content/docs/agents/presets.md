@@ -8,22 +8,22 @@ icon: i-lucide-copy
 navigation.kind: Guides
 ---
 
-An Agent preset is a reusable Agent Definition. It supplies defaults, instructions, and behavior. Your application selects the preset and supplies its model, credentials, and project settings.
+An Agent preset is a ready Agent Definition with defaults, instructions, and behavior. You pick a preset and add your model, credentials, and project settings.
 
-The ready-made presets are in the `@vite-hub/presets` package. Import them from `vite-hub/presets/<name>`. They are built from ViteHub primitives, such as Channels, Capabilities, and process hosts.
+Import ready presets from `vite-hub/presets/<name>` (package `@vite-hub/presets`). They use ViteHub primitives such as Channels, Capabilities, and process hosts.
 
 ## Choose a preset
 
 | Preset | Use it for | Host requirements |
 | --- | --- | --- |
-| [Babysitter](/docs/agents/babysitter) | Repair pull requests, address reviews, wait for checks, and optionally merge. | A persistent Node process, SQL Agent State, Git, a GitHub App, and Codex or Claude Code. |
+| [Babysitter](/docs/agents/babysitter) | Fix pull requests, answer reviews, wait for checks, and optionally merge. | A persistent Node process, SQL Agent State, Git, a GitHub App, and Codex or Claude Code. |
 | [Workspace](/docs/agents/workspace-preset) | Read mounted Sources and cite files at their resolved GitHub revision. | A configured Workspace and the Codex Driver. |
 
-These are Agent presets. The deployment `preset` in `vitehub({ preset: 'node' })` selects the server host; it does not select an Agent workflow.
+The deployment `preset` in `vitehub({ preset: 'node' })` is different. It picks the server host, not an Agent workflow.
 
 ## Select and configure
 
-Import a preset and give it a name in the Agent's local `presets` map. The `preset` field selects that name.
+Import a preset, name it in the Agent's `presets` map, and select that name with `preset`.
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -44,25 +44,35 @@ export default defineAgent({
 })
 ```
 
-The Babysitter guide covers [GitHub setup](/docs/agents/babysitter#configure-github), [deployment](/docs/agents/babysitter#deploy), and [label controls](/docs/agents/babysitter#control-work-with-labels). Adding an Agent file alone does not supply these prerequisites.
+An Agent file alone is not enough. Babysitter also needs [GitHub setup](/docs/agents/babysitter#configure-github), [deployment](/docs/agents/babysitter#deploy), and [label controls](/docs/agents/babysitter#control-work-with-labels).
 
-You can also select one parent with `extends: babysitter`. Use either `extends` or `preset` in one definition. Preset names stay local to the definition; ViteHub does not load packages by name or create a global preset registry.
+You can also pick one parent with `extends: babysitter`. Use `extends` or `preset`, not both. Preset names are local to the definition. ViteHub does not load packages by name and has no global preset registry.
 
 ## Customize the Agent
 
-Set workflow settings in `options` and provider settings in `driver`. For example, Babysitter's `options.driver` selects Codex or Claude Code, while `driver.model` selects that provider's model.
+Put workflow settings in `options` and provider settings in `driver`. For example, Babysitter's `options.driver` picks Codex or Claude Code, and `driver.model` picks the model.
 
-For presets with an instruction slot, place `instructions.md` beside `agent.ts` to supply project guidance. This fills the slot while keeping the preset's workflow instructions. See [Instructions](/docs/agents/instructions) before replacing an entire instruction template.
+If a preset has an instruction slot, put `instructions.md` next to `agent.ts`. Your guidance fills the slot, and the preset keeps its workflow instructions. Read [Instructions](/docs/agents/instructions) before you replace a whole instruction template.
 
-An extension gets a fresh runtime. Matching Capabilities, Channels, and hooks replace inherited entries by their keys. Other arrays replace inherited arrays, and option callbacks replace inherited callbacks. See [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for the composition rules.
+When you extend a preset:
+
+- The extension gets a fresh runtime.
+- Capabilities and Channels with the same key replace inherited ones.
+- A hook with the same name runs after the inherited hook.
+- Other arrays and option callbacks replace inherited ones.
+
+See [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for the full rules.
 
 ## Share your own preset
 
-Export a definition created with `defineAgent()`. Add typed `options` and a synchronous `configure` callback when consumers need workflow settings. Keep credentials and network calls out of that callback.
+Export a `defineAgent()` definition. If users need workflow settings, add typed `options` and a synchronous `configure` callback. Keep credentials and network calls out of that callback.
 
-Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Named presets](/docs/agents/agent-presets#named-presets) for the authoring API.
+Declare `@vite-hub/agent` as a peer dependency. Include instructions and assets explicitly, because selecting a preset does not find files inside its package. See [Named presets](/docs/agents/agent-presets#named-presets) for the API.
 
-A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process-host`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it. List subpaths that select the Codex or Claude Code Driver in `vitehub.agent.providerDriver`, so that Worker builds fail early:
+A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process-host`. In package.json:
+
+- List the subpath in `vitehub.agent.processHost`. ViteHub then starts the host and rejects hosts that cannot run it.
+- List subpaths that pick the Codex or Claude Code Driver in `vitehub.agent.providerDriver`. Worker builds then fail early.
 
 ```json [package.json]
 {

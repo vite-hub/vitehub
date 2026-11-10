@@ -5,7 +5,7 @@ const found = useDocsPage()
 const hasCodePanel = computed(() => found.value?.page.codePanel === true)
 const tutorialNavigation = useTutorialNavigation()
 // Other docs pages show the navigation unless they set `sidebar: false`. A tutorial shows it only when the reader opens it.
-const showsNavigation = computed(() => found.value?.page.sidebar !== false && (!hasCodePanel.value || tutorialNavigation.value))
+const showsNavigation = useDocsSidebarShown()
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {
@@ -16,14 +16,15 @@ const docsShellUi = {
 </script>
 
 <template>
-  <!-- On wide screens there is no site header: the sidebar carries the brand and the links. -->
-  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel }">
+  <!-- On wide screens the sidebar carries the brand, search, and the site links, so the site header hides beside it. -->
+  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel, 'has-sidebar': showsNavigation }">
     <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
     <a href="#docs-content" class="vh-skip-link">Skip to content</a>
     <UPage :ui="docsShellUi">
       <template v-if="showsNavigation" #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
-          <DocsSidebars class="vh-docs-aside-sidebars" panel />
+          <!-- Phones hide this column and open the sidebar from the header menu, so it hydrates only once it shows. -->
+          <LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel head />
         </UPageAside>
       </template>
 
@@ -81,7 +82,7 @@ const docsShellUi = {
   .vh-tutorial-toggle {
     position: fixed;
     z-index: 10;
-    top: 0;
+    top: var(--ui-header-height);
     left: 0;
     display: flex;
     width: 2.5rem;
@@ -120,8 +121,8 @@ const docsShellUi = {
     --vh-sidebar-width: calc(var(--vh-rail-width) + var(--vh-panel-width));
   }
 
-  /* AppHeader hides itself on wide docs pages. Sticky offsets and full-height columns read this variable. */
-  .vh-docs-shell {
+  /* AppHeader hides beside the sidebar. Sticky offsets and full-height columns read this variable. */
+  .vh-docs-shell.has-sidebar:has([data-docs-sidebar-head]) {
     --ui-header-height: 0px;
   }
 
@@ -143,24 +144,6 @@ const docsShellUi = {
     flex: 1 1 0;
   }
 
-  /* A denser rail on desktop, so every product fits without scrolling on common laptop heights. The mobile menu keeps touch-size items. */
-  .vh-docs-aside-sidebars :deep(.vh-primitive-rail) {
-    --vh-primitive-rail-item: 2rem;
-  }
-
-  .vh-docs-aside-sidebars :deep(.vh-primitive-rail__surface) {
-    padding-block: 0.25rem;
-  }
-
-  .vh-docs-aside-sidebars :deep(.vh-primitive-rail__group) {
-    gap: 0;
-    padding-block: 0.1875rem;
-  }
-
-  /* The aside draws the right border. */
-  .vh-docs-aside-sidebars :deep(.vh-docs-panel) {
-    border-right: 0;
-  }
 }
 
 </style>

@@ -9,16 +9,16 @@ navigation.group: Get started
 icon: i-lucide-server-cog
 ---
 
-Save a theme setting and read it back through a server route. KV stores each
-value under a key. This tutorial uses local files and needs no provider
+Save a theme setting and read it back in a server route. KV stores each value
+under a key. This tutorial uses local files and needs no provider
 account or credentials.
 
 ## Before you start
 
-Complete [Installation](/docs/getting-started/installation) and check
-`/api/health`. Continue in that app, with Node.js 22.22 or newer and pnpm.
-The configuration below uses Vite and Nitro. In Nuxt, add the same `kv`
-option to the ViteHub module config. The route works in both frameworks.
+Complete [Installation](/docs/getting-started/installation), check
+`/api/health`, and continue in that app with Node.js 22.22 or newer and pnpm.
+In Nuxt, add the same `kv` option to the ViteHub module config. The route
+works in every framework.
 
 ::run-tutorial{to="/learn/first-server-primitive"}
 ::
@@ -26,9 +26,47 @@ option to the ViteHub module config. The route works in both frameworks.
 ::tutorial-step{title="Enable local KV"}
 ## Enable local KV
 
-Enable KV with the `fs-lite` driver. It stores values under
-`.vitehub/data/kv`. Keep other features you already use in your config.
+Install the KV package:
 
+```bash [commands/install-kv]
+pnpm add @vite-hub/kv
+```
+
+Turn on KV with the `fs-lite` driver, which stores values under
+`.vitehub/data/kv`. Keep the other features in your config.
+
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from 'nitro/vite'
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
@@ -42,6 +80,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 ::
 
@@ -49,11 +89,11 @@ export default defineConfig({
 ## Write and read one value
 
 Create `server/api/settings.post.ts`. Nitro and Nuxt serve it at
-`POST /api/settings`. The route writes the request body under the key
-`settings`, reads it back, and returns the stored value.
+`POST /api/settings`. It saves the request body under the key `settings`,
+reads it back, and returns it.
 
-KV calls return `[error, value]`. Check each error before using the result.
-A write returns no value, so the route only checks `writeError`.
+KV calls return `[error, value]`. Check the error before you use the value. A
+write returns no value, so the route only checks `writeError`.
 
 ```ts [server/api/settings.post.ts]
 import { defineEventHandler, readBody } from "h3"
@@ -71,14 +111,14 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The H3 imports are explicit. The example works without Nuxt auto-imports.
+The H3 imports are explicit, so the example works without Nuxt auto-imports.
 
 ::
 
 ::tutorial-step{title="Check the stored setting"}
 ## Check the stored setting
 
-Restart your app after changing its configuration:
+Restart your app to load the new configuration:
 
 ```bash [commands/dev]
 pnpm dev
@@ -98,11 +138,11 @@ You should receive:
 {"settings":{"theme":"system"}}
 ```
 
-The route returned the read result, so this checks both the write and the
-read. Repeat the request with `"theme":"dark"` to replace the stored setting.
+The response is the read result, so it proves the write and the read. Send
+`"theme":"dark"` to replace the setting.
 
-To check the Vite app's production server, stop development, run the scripts
-from Installation, and repeat the request:
+To check the Vite app's production server, stop development, run the
+Installation scripts, and repeat the request:
 
 ```bash [commands/build]
 pnpm build
@@ -115,12 +155,11 @@ In Nuxt, run `pnpm build` and `node .output/server/index.mjs` instead.
 
 ## Continue with storage
 
-Keep `.vitehub/data/kv` when you restart the server to retain the values.
-Keep it out of version control. A deployed server needs persistent storage
-or a hosted KV provider; changing the driver does not move existing data.
+Values survive a restart while `.vitehub/data/kv` exists. Do not commit it. A deployed server needs persistent storage or a hosted KV
+provider. Changing the driver does not move existing data.
 
-Read [KV configuration](/docs/kv/configure) to choose a hosted store or add a
+Read [KV configuration](/docs/kv/configure) to pick a hosted store or add a
 named store. The [KV server API](/docs/kv/server-api) lists method results
-and errors. For other kinds of data, try the
+and errors. For other data, try the
 [Database tutorial](/docs/database/get-started) or
 [Blob tutorial](/docs/blob/get-started).

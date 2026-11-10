@@ -1,13 +1,12 @@
 import { defineDiagnostics } from "nostics"
 
+import { commentsClientCodes } from "../client-diagnostics.ts"
+
 // Each code identifies one failure site. Keep published codes stable.
 export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/comments/diagnostics",
   codes: {
-    COMMENTS_R0001: {
-      why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
-      fix: "Pass an element, a non-empty selection, or a point that is over an element of the page.",
-    },
+    ...commentsClientCodes,
     COMMENTS_R0002: {
       why: ({ id }: { id: string }) => `The comment thread "${id}" does not exist.`,
       fix: "List the threads again, because someone may have deleted this one.",
@@ -60,10 +59,6 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
       fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
     },
-    COMMENTS_R0015: {
-      why: "The comment list kept changing while its pages were loading.",
-      fix: "Refresh again. The previous cache is kept until two complete scans agree.",
-    },
     COMMENTS_R0016: {
       why: "The thread is resolved, so it takes no new replies.",
       fix: "Reopen the thread first, or pass { allowResolved: true } to comments.reply() when your UI allows replies to resolved threads.",
@@ -83,8 +78,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
           ? `The vitehub_comment_threads table misses columns of this version: ${missing.join(", ")}.`
           : "The Database has no comment tables.",
       fix: ({ state }: { state: "empty" | "live" | "outdated" }) => state === "live"
-        ? "Move the tables once in a custom migration: run vitehub db generate --custom --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
-        : "Run vitehub db generate and vitehub db migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
+        ? "Move the tables once in a custom migration: run vitehub database generate --custom --schema-snapshot --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub database migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
+        : "Run vitehub database generate and vitehub database migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
     },
     COMMENTS_R0020: {
       why: ({ key }: { key: string }) => `No comment that you may read has the attachment ${JSON.stringify(key)}, or its file is gone.`,
@@ -94,6 +89,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Comments stores attachments with storeAttachment, but has no readAttachment to read them back.",
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
     },
+    COMMENTS_R0022: {
+      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
+      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
+    },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
       fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",
@@ -101,6 +100,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_B0002: {
       why: ({ file }: { file: string }) => `${file} must export defineComments(), as \`comments\` or as the default export.`,
       fix: "Write `export default defineComments({ authorize })` in server/comments.ts.",
+    },
+    COMMENTS_B0003: {
+      why: "comments() from @vite-hub/comments/vite is for apps without vitehub(). In this app vitehub() owns the Comments configuration.",
+      fix: "Remove comments() from the plugins and set vitehub({ comments: true }), or add server/comments.ts. See https://vitehub.dev/docs/comments/configure#turn-comments-on-in-a-vitehub-app",
     },
   },
 })

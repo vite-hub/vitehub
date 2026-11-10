@@ -6,13 +6,14 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
+import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
-import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
+import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
+import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import type { WorkflowOperationName } from "../errors.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
@@ -20,7 +21,7 @@ interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   event: unknown
   id: string
   name: string
-  options: WorkflowDeferOptions
+  options: WorkflowStartOptions
   payload: TPayload | undefined
 }
 
@@ -174,7 +175,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
           { acknowledgementUnknown: (_error, status) => status === undefined },
         )
-        const creation = start().catch(async (firstError) => {
+        const instance = await start().catch(async (firstError) => {
           try {
             return await start()
           }
@@ -183,11 +184,6 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
             throw retryError
           }
         })
-        const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
-        if (waitUntil) {
-          waitUntil(creation)
-        }
-        const instance = await creation
         return {
           id: instance.id,
           payload,
@@ -251,14 +247,17 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         }
       }
       resolveDispatchObserver(event)?.()
+      // Only `vite dev` has a recorder. It records the run in the dev history.
+      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.provider)
+      const execute = () => runSerializedWorkflowHandler({
+        id,
+        name,
+        payload,
+        provider: config.provider,
+      // SAFETY: Workflow provider normalization establishes the asserted run contract.
+      }, definition as never)
       const run = Promise.resolve()
-        .then(() => runSerializedWorkflowHandler({
-          id,
-          name,
-          payload,
-          provider: config.provider,
-        // SAFETY: Workflow provider normalization establishes the asserted run contract.
-        }, definition as never))
+        .then(() => recordRun ? recordRun(execute) : execute())
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
@@ -301,12 +300,6 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     async run({ definition, event, id, name, options, payload }) {
       if (!definition.options?.native) {
         return await fallback.run({ definition, event, id, name, options, payload })
-      }
-      if (options.id) {
-        throw createWorkflowError({
-          code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-          details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
-        })
       }
       return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
     },

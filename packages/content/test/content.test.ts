@@ -21,15 +21,9 @@ it("accepts Web Requests from another realm", async () => {
     body: "hello",
   })`, { Request }) as Request
   const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
-  const response = await handler({ req: request } as never) as Response
+  const response = await handler.fetch(request)
   expect(response.status).toBe(200)
   await expect(response.text()).resolves.toBe("hello")
-})
-
-it("rejects spoofed Web Requests", async () => {
-  const request = { get [Symbol.toStringTag]() { return "Request" } }
-  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
-  await expect(handler({ req: request } as never)).rejects.toMatchObject({ code: "CONTENT_R0005" })
 })
 
 function deferred() {
@@ -977,76 +971,5 @@ describe("defineContentHandler", () => {
     const response = await defineContentHandler(content).fetch(new Request("https://example.test/api/content/guide"))
     expect(response.status).toBe(404)
     expect(await content.get("/guide")).toMatchObject({ path: "/guide" })
-  })
-
-  it("preserves repeated Node header values from another realm", async () => {
-    let received: string | null = null
-    const handler = defineContentHandler({
-      async handler(request) {
-        received = (request as Request).headers.get("x-test")
-        return new Response("ok")
-      },
-    })
-    const nodeHeaders = runInNewContext("['first', 'second']") as string[]
-    const nodeRequest = {
-      aborted: false,
-      headers: { "x-test": nodeHeaders },
-      method: "GET",
-      url: "/headers",
-      [Symbol.asyncIterator]() {
-        return { next: async () => ({ done: true as const, value: undefined }) }
-      },
-      once() {},
-    }
-
-    await handler({ method: "GET", node: { req: nodeRequest }, req: nodeRequest } as never)
-    expect(received).toBe("first, second")
-  })
-  it("copies ArrayBuffer Node body chunks from another realm", async () => {
-    let received: Uint8Array | undefined
-    const handler = defineContentHandler({
-      async handler(request) {
-        received = new Uint8Array(await (request as Request).arrayBuffer())
-        return new Response("ok")
-      },
-    })
-    const chunk = runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer
-    const nodeRequest = {
-      aborted: false,
-      headers: {},
-      method: "POST",
-      url: "/body",
-      [Symbol.asyncIterator]() {
-        return (async function* () {
-          yield chunk as unknown as Uint8Array
-        })()
-      },
-      once() {},
-    }
-
-    await handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never)
-    expect(received).toEqual(Uint8Array.of(1, 2, 3))
-  })
-
-  it.each([
-    { name: "a forged ArrayBuffer", value: { [Symbol.toStringTag]: "ArrayBuffer" } },
-    { name: "an invalid chunk", value: { bytes: [1, 2, 3] } },
-  ])("rejects $name with CONTENT_R0005", async ({ value }) => {
-    const handler = defineContentHandler({ handler: async () => new Response("ok") })
-    const nodeRequest = {
-      aborted: false,
-      headers: {},
-      method: "POST",
-      url: "/body",
-      [Symbol.asyncIterator]() {
-        return (async function* () {
-          yield value as unknown as Uint8Array
-        })()
-      },
-      once() {},
-    }
-
-    await expect(handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never))
-      .rejects.toThrow(expect.objectContaining({ code: "CONTENT_R0005" }))
   })
 })

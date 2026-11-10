@@ -1,20 +1,18 @@
 ---
 title: LLM route
-description: Choose one developer-defined route with a model decision before the Agent Driver runs.
+description: Let a model or TypeSafe Jev pick one of your routes before your Agent runs.
 navigation.title: LLM route
 navigation.order: 270
 navigation.group: Capabilities
 icon: i-lucide-route
 ---
 
-`llmRoute()` chooses one developer-defined route before the Agent Driver runs.
-It adds no model-facing tool. It records the chosen route as an Invocation context value and does not apply route effects by itself.
-The decision uses one AI SDK model call, or TypeSafe Jev for an [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) Agent. No Server Primitive is involved.
+`llmRoute()` picks one of your routes before the Agent Driver runs. It records the route in Invocation context (values kept for one Agent run). Later code decides what to do with it. It adds no model tool and uses no Server Primitive. The decision is one [Decisions](/docs/decisions) group with `infer: true`. The Agent model answers it, or your `model`, or TypeSafe Jev when you set `gateway`.
 
 ## Configure routing
 
 Define stable choice keys with short descriptions.
-Later code reads the recorded value and decides how to use the route.
+Later code reads the recorded value and acts on it.
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -33,57 +31,63 @@ export default defineAgent({
 })
 ```
 
+The Agent model decides. Pass `model` to use a smaller one, or `gateway: vercel()` from `vite-hub/gateways` to ask TypeSafe Jev.
+
 ## How routing works
 
-`llmRoute()` runs in the input phase, before the Agent Driver.
+In the input phase, before the Driver:
 
-1. It reads the latest user text: the string `prompt`, or else the text of the latest user message.
-2. It builds a decision prompt from your `prompt` text, the choices, the recent history when `history` is set, and the user text.
-3. It resolves the model and asks for a structured object with `choice` and optional `confidence` (0 to 1) and `reason`.
-4. It rejects a `choice` that is not a configured key.
-5. It stores the decision as the Invocation context value `llm-route` (or your `id`) and provides it as a finish extension under the same id.
+1. It reads the string `prompt`, else the latest user message text.
+2. It asks which choice fits the text best. See [Decisions](#decisions).
+3. It stores the decision as context value `llm-route`, or your `id`, and as a finish extension under the same id.
 
-A second writer for the same context value fails early.
-`history: true` includes the last 10 messages. A number includes that many messages.
+`history: true` includes the last 10 messages; a number includes that many.
 
-## Jev decisions
+## Decisions
 
-When the Capability has no `model` option, an ask Driver Agent records a single configured choice locally with confidence `1` and probability `1`. This route decision needs no credentials and sends no Jev request. The main ask Driver still needs its configured credentials.
+Each choice is an option in one Decisions group with `multiple: false` and `infer: true`. Its key is the label, and its text is the description. The model infers a choice even when the request does not name one.
 
-With 2 to 255 choices, the Capability asks TypeSafe Jev one `ask.choice()` question.
-The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
+With a single choice, the Capability records it locally with confidence `1` and probability `1`, and sends no request.
+With 2 to 255 choices, it sends one request. The text is the run's `data` as JSON when set, else the latest user text with recent `history` before it. It reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, at a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input limit. If these alone cannot fit, use fewer or shorter choices, or set `model`.
 
-The decision has `choice`, `confidence`, and `probabilities`, a map from choice key to probability. Jev decisions have no `reason`.
-The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
+Who answers:
+
+- `model`, or the Agent model by default, through [`askWithModel()`](/docs/agents/ai-gateways#ask-with-any-model).
+- TypeSafe Jev when you set `gateway`, such as `vercel()` or `cloudflare()`. An [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) Agent has no Agent model, so it asks Jev through `typesafe()`, which reads `TYPESAFE_API_KEY`.
+
+The decision has `choice`, `confidence`, and `probabilities`, a map from choice key to probability. Jev gives a probability for every choice. A chat model gives one answer and how sure it is, and the other choices share the rest.
+
+To route your own text outside an Agent, use [`defineChoices()`](/docs/decisions/server-api) with the same kind of group.
 
 ## Requirements
 
 - At least one choice.
-- Choice keys must be stable identifiers: a letter first, then letters, digits, `-`, `_`, or `.`.
-- A model. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents do not expose an Agent model to Capabilities, so set `model`. Without a model, the invocation fails with "requires a model option or an agent model".
-- For Jev decisions with two or more choices: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for the default `typesafe()`). See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
+- Choice keys: a letter, then letters, digits, `-`, `_`, or `.`.
+- With two or more choices, a model or a gateway. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents give Capabilities no model, so set `model` or `gateway`.
+- For Jev: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for `typesafe()`, `AI_GATEWAY_API_KEY` for `vercel()`).
 
 ## Security and approval
 
-`llmRoute()` adds no model-facing tool, so the Agent gets no new authority. It has no `policy` option.
-It does not attach, remove, or grant Capabilities. Code that acts on the route must read the decision and apply its own checks.
+There is no model tool, new authority, or `policy` option. It never attaches, removes, or grants Capabilities, so code acting on the route does its own checks.
 
-The end user controls the routed text, so the user can influence the choice. Do not use a route as access control.
-The Capability sends the latest user text, the choice descriptions, and the optional history to the configured model provider or to TypeSafe Jev.
+> [!WARNING]
+> Users write the routed text and can steer the choice. Never use a route as access control.
+
+It sends the user text, choice descriptions, and optional history to the model provider or TypeSafe Jev.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Uses the Agent model or `model`. Records the route before model execution. |
-| Provider-backed | Requires `model`. Records the route before provider execution. |
-| Custom-run-backed | Requires `model`. Records the route before `driver.run`; custom code decides how to use it. |
-| Ask-backed | Without `model`, records a single choice locally or asks Jev one `ask.choice()` question with 2 to 255 choices. A `driver.ask` function can read the decision from Invocation context. |
+| Model-backed | Uses the Agent model, `model`, or Jev with `gateway`. Records the route before model execution. |
+| Provider-backed | Requires `model` or `gateway`. Records the route before provider execution. |
+| Custom-run-backed | Requires `model` or `gateway`. Records the route before `driver.run`; custom code decides how to use it. |
+| Ask-backed | Jev through `typesafe()` by default, or `model` or `gateway`. A `driver.ask` function can read the decision from Invocation context. |
 
 ## Verify routing
 
 1. Run one invocation and read the finish extension or context value for `llm-route` (or your `id`).
-2. Confirm that the value has `choice`. Model decisions can also have `confidence` and `reason`. Jev decisions have `confidence` and `probabilities`.
+2. Confirm that the value has `choice`, `confidence`, and `probabilities`.
 3. If you wrap the model, add a test where the model returns a choice outside the map. Confirm that the invocation fails.
 
 ## Options
@@ -92,8 +96,9 @@ The Capability sends the latest user text, the choice descriptions, and the opti
 | --- | --- | --- | --- |
 | `choices` | `Record<string, string \| { label?: string; description?: string }>` | required | Developer-defined route choices. The description falls back to `label`, then the key. |
 | `history` | `boolean \| number` | `false` | Include recent messages in the decision. `true` uses the last 10. |
+| `gateway` | `AiGateway` | none, or `typesafe()` for ask Driver Agents | Ask TypeSafe Jev through this gateway instead of a model. Ignored when `model` is set. |
 | `id` | `string` | `"llm-route"` | Capability id, Invocation context key, and finish extension key. |
-| `model` | `AgentModelResolver` | Agent model, or Jev for ask Driver Agents | Model used for the decision. |
+| `model` | `AgentModelResolver` | Agent model | Model that answers the decision. |
 | `prompt` | `string` | none | Text placed before the generated decision task. |
 
 ## Related pages

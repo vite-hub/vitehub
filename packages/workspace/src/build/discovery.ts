@@ -92,11 +92,11 @@ function resolveWorkspaceSourceRoot(file: string) {
   }
 }
 
-function createWorkspaceDefinition(source: string, file: string, name: string): DiscoveredWorkspaceDefinition {
-  return { handler: file, name, path: file, source, sourceRootDir: resolveWorkspaceSourceRoot(file) }
+function createWorkspaceDefinition(source: string, file: string, name: string, sourceRootDir = resolveWorkspaceSourceRoot(file)): DiscoveredWorkspaceDefinition {
+  return { handler: file, name, path: file, source, sourceRootDir }
 }
 
-function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "server")): WorkspaceDefinitionCatalogSource[] {
+function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "server"), isApplication = true): WorkspaceDefinitionCatalogSource[] {
   const workspacesDir = resolve(serverDir, "workspaces")
   const agentsDir = resolve(serverDir, "agents")
   const directoryWorkspaceDirs = collectDirectoriesWithConfig(workspacesDir)
@@ -146,7 +146,8 @@ function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "se
     }),
     createDirectoryDefinitionSource("server-workspaces", [serverDir], "workspaces", {
       normalizeName: normalizeFlatName,
-      createDefinition: ({ file, name }) => createWorkspaceDefinition("server-workspaces", file, name),
+      // Application flat files use the project root; layers keep their colocated Source root.
+      createDefinition: ({ file, name }) => createWorkspaceDefinition("server-workspaces", file, name, isApplication ? resolve(rootDir) : undefined),
     }),
   ]
 }
@@ -205,7 +206,7 @@ function mergeContributedWorkspaceDefinitions(
 
 export function discoverViteWorkspaceDefinitions(rootDir: string, options: ViteWorkspaceDiscoveryOptions = {}): DiscoveredWorkspaceDefinition[] {
   const serverRoot = options.serverRootDir || rootDir
-  const serverSources = options.serverDirs?.flatMap(serverDir => serverWorkspaceSource(serverRoot, serverDir))
+  const serverSources = options.serverDirs?.flatMap((serverDir, index) => serverWorkspaceSource(serverRoot, serverDir, index === 0))
     ?? serverWorkspaceSource(serverRoot)
   return mergeContributedWorkspaceDefinitions(mergeDefinitions(
     "workspace",
@@ -251,6 +252,7 @@ function createContributedWorkspaceRegistryEntry(definition: DiscoveredWorkspace
     `  [${JSON.stringify(definition.name)}]: async () => {`,
     `    const mod = await ${importExpression}`,
     `    const definition = ${workspaceDefinitionExpression(definition)}`,
+    // Internal invariant: this line runs in the generated registry module, which does not import the Workspace catalog.
     `    if (!definition) throw new TypeError(${JSON.stringify(missingExport)})`,
     override ? `    return { default: { ...definition, store: ${JSON.stringify(override.store)} } }` : "    return { default: definition }",
     "  },",

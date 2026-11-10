@@ -426,7 +426,8 @@ async function issuesOf(collection: AnyContentCollection, id: string, selectedRe
 function documentTemplate(collection: AnyContentCollection, id: string): { path: string, text: string } {
   const path = collection.kind === "singleton"
     ? collection.path
-    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.paths))
+    // A collection with locales lists the globs of each locale, source locale first: a new document starts there.
+    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.paths.slice(0, collection.paths.length / (collection.locales?.length ?? 1))))
   return { path, text: renderDocumentFile(Object.fromEntries(collection.fields.map(field => [field, null])), "", collection.format) }
 }
 
@@ -583,7 +584,7 @@ function saveResult(document: { collection: string, digest: string, id: string, 
 }
 
 const remove = defineOperation({
-  cli: { command: "rm", positional: ["collection", "id"] },
+  cli: { command: "delete", positional: ["collection", "id"] },
   description: "Delete one document from the draft, pinned to the draft digest that you read. The next publish deletes it from the site. Fails while someone else holds the edit lease.",
   input: v.strictObject({
     collection: text,

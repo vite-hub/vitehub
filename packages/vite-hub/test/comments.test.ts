@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { defineCommentSubject, defineComments } from "@vite-hub/comments"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { commentsOperations } from "@vite-hub/comments/operations"
+import { commentsOperations } from "../../comments/dist/operations.js"
 import { commentsOperationsConsoleSection as commentsConsoleSection } from "@vite-hub/comments/vite"
 import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
@@ -21,7 +21,8 @@ import { operationCell, operationLink } from "../src/console/runtime/client/oper
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { Comments, CommentsPeople, CommentUser, DefineCommentsOptions } from "@vite-hub/comments"
@@ -260,7 +261,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       cwd: "/app",
       env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" },
       fetch: ((url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(new Request(String(url), init))) as typeof fetch,
-      loadConfig: async () => ({ plugins: [{ name: "comments", vitehub: { operations: [{ export: "commentsOperations", load: async () => commentsOperations, module: "@vite-hub/comments/operations" }] } }], root: "/app" }),
+      loadConfig: async () => ({ plugins: [{ name: "comments", vitehub: { operations: [{ export: "commentsOperations", load: async () => commentsOperations, module: "/comments/dist/operations.js" }] } }], root: "/app" }),
       loadNuxtViteConfig: async () => undefined,
       stderr: { write: (chunk: string | Uint8Array) => { errors += String(chunk); return true } },
       stdout: { write: (chunk: string | Uint8Array) => { output += String(chunk); return true } },
@@ -311,7 +312,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
         body: JSON.stringify({ input: { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }, operation: "comments.create" }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
-      }))
+      }), { remoteAddress: "127.0.0.1" })
       const body = await response.json() as { ok: boolean, value: CommentThread }
       expect(body.ok).toBe(true)
       expect(body.value.author).toEqual({ id: "local", name: "You" })

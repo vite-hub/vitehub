@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   commentsEntry,
-  defineAgentFromViteHub,
   forgeErrorImports,
   markdownFilePath,
   noNuxtHubLeftovers,
@@ -147,26 +146,6 @@ describe("vitehub/sandbox-runtime-options", () => {
   })
 })
 
-describe("vitehub/define-agent-from-vite-hub", () => {
-  it("reports the owner-package defineAgent in a vite-hub app", async () => {
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "vite-hub": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual(["VHUB0028"])
-  })
-
-  it("accepts vite-hub/agent, type imports, and apps without vite-hub", async () => {
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "vite-hub": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"vite-hub/agent\"\nimport type { AgentDefinition } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual([])
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "@vite-hub/agent": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual([])
-  })
-})
-
 describe("vitehub/rate-limit-capability-limiter", () => {
   it("reports rateLimit without a limiter", async () => {
     expect(await codes(rateLimitCapabilityLimiter, {
@@ -215,9 +194,9 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, queue: { provider: \"vercel\" }, env: { server: { token: 1 } } })] })",
+        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, logs: true, contentImportBase: \"vite-hub/content\" })] })",
       ),
-    })).toEqual(Array(5).fill("VHUB0031"))
+    })).toEqual(Array(7).fill("VHUB0031"))
   })
 
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
@@ -236,7 +215,7 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: true, connections: true, env: { prefix: \"APP_\" } })] })",
+        "export default defineConfig({ plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, observability: { logs: true }, env: { prefix: \"APP_\", server: {} } })] })",
       ),
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", env: { server: {} }, connections: false } })\n",
     }, "nuxt")).toEqual([])
@@ -250,6 +229,26 @@ describe("vitehub/no-nuxthub-leftovers", () => {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"@nuxthub/core\", \"vite-hub/nuxt\"], hub: { kv: true } })\n",
       "server/api/a.ts": "import { kv } from \"hub:kv\"\nimport { db } from \"@nuxthub/db\"\nexport { kv, db }\n",
     }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
+  })
+
+  it("reports schema imports, NuxtHub helper calls, and blob.delete()", async () => {
+    expect(await codes(noNuxtHubLeftovers, {
+      "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
+      "shared/types/db.ts": "import type { chats } from \"hub:db:schema\"\nexport type Chat = typeof chats.$inferSelect\n",
+      "server/routes/assets/[...pathname].get.ts": "export default defineEventHandler(event => hubBlob().serve(event, \"a\"))\n",
+      "server/api/pages.ts": "export default defineEventHandler(() => hubKV().keys())\n",
+      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
+      "server/api/auto.delete.ts": "export default defineEventHandler(() => blob.delete(\"a.png\"))\n",
+    }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
+  })
+
+  it("accepts local helpers named like NuxtHub ones and blob.del()", async () => {
+    expect(await codes(noNuxtHubLeftovers, {
+      "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
+      "server/utils/storage.ts": "function hubKV() { return {} }\nexport const store = hubKV()\n",
+      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.del(\"a.png\"))\n",
+      "server/api/other.ts": "const files = { delete: (key: string) => key }\nexport default defineEventHandler(() => files.delete(\"a\"))\n",
+    }, "nuxt")).toEqual([])
   })
 
   it("accepts ViteHub config and apps that still use only NuxtHub", async () => {
@@ -276,8 +275,9 @@ describe("vitehub/no-removed-apis", () => {
         "export const pages = documents({ route: id => `/blog/${id}` })",
         "export { runSandboxTask, cms }",
       ),
+      "server/api/reminders.post.ts": "import { schedules } from \"vite-hub/schedule/runtime\"\nexport const create = () => schedules.create({ target: \"reminder\", cron: \"0 9 * * *\" })\n",
       "src/Chat.vue": "<script setup lang=\"ts\">\nimport { AgentChat, AgentFileTree } from \"@vite-hub/ui\"\n</script>\n",
-    })).toEqual(Array(7).fill("VHUB0033"))
+    })).toEqual(Array(8).fill("VHUB0033"))
   })
 
   it("accepts current APIs", async () => {
@@ -291,6 +291,7 @@ describe("vitehub/no-removed-apis", () => {
         "export const pages = documents({ url: page => `/blog/${page.id}` })",
         "export { runSandboxTask, cms }",
       ),
+      "server/api/reminders.post.ts": "import { startSchedule } from \"vite-hub/schedule\"\nexport const create = () => startSchedule(\"reminder\", { cron: \"0 9 * * *\" })\n",
       "src/Chat.vue": "<script setup lang=\"ts\">\nimport { Chat, FileTree } from \"@vite-hub/ui\"\n</script>\n",
     })).toEqual([])
   })

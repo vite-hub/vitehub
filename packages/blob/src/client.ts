@@ -1,5 +1,9 @@
-// Browser upload helpers. They depend only on `fetch`, so framework bindings stay thin.
+// Browser upload helpers. They depend only on `fetch`, and on XMLHttpRequest for upload progress, so framework bindings
+// stay thin.
 import type { BlobMultipartPart, BlobObject } from "./types.ts"
+
+// Check a file's leading bytes in the browser before upload. The server root exports the same function.
+export { detectContentType } from "./content-type.ts"
 
 /** A `BlobObject` after JSON serialization: `uploadedAt` is an ISO string. */
 export type SerializedBlobObject = Omit<BlobObject, "uploadedAt"> & { uploadedAt: string }
@@ -18,6 +22,11 @@ export interface UploadFilesOptions extends BlobClientOptions {
   formKey?: string
   /** HTTP method. Defaults to `"POST"`. */
   method?: string
+  /**
+   * Called with the upload progress from 0 to 100. `fetch` can't report it, so the files go through XMLHttpRequest
+   * instead, and the `fetch` option isn't used.
+   */
+  onProgress?: (percent: number) => void
 }
 
 /** One file, a list of files such as a `FileList`, or an element with `files` such as an `<input type="file">`. */
@@ -124,6 +133,7 @@ function isSerializedBlobObjectArray(value: unknown): value is SerializedBlobObj
 
 function parseSerializedBlobObjectArray(value: unknown): SerializedBlobObject[] {
   if (!isSerializedBlobObjectArray(value)) {
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error("Upload request returned malformed JSON.")
   }
   return value
@@ -131,6 +141,7 @@ function parseSerializedBlobObjectArray(value: unknown): SerializedBlobObject[] 
 
 function parseMultipartCreate(value: unknown): { pathname: string, uploadId: string } {
   if (!isRecord(value) || !isString(value.pathname) || !isString(value.uploadId)) {
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error("Upload request returned malformed JSON.")
   }
   return { pathname: value.pathname, uploadId: value.uploadId }
@@ -138,9 +149,11 @@ function parseMultipartCreate(value: unknown): { pathname: string, uploadId: str
 
 function parseMultipartPart(value: unknown): { part: BlobMultipartPart } {
   if (!isRecord(value) || !isRecord(value.part) || !isString(value.part.etag)) {
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error("Upload request returned malformed JSON.")
   }
   if (typeof value.part.partNumber !== "number" || !Number.isSafeInteger(value.part.partNumber) || value.part.partNumber < 1) {
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error("Upload request returned malformed JSON.")
   }
   return { part: { etag: value.part.etag, partNumber: value.part.partNumber } }
@@ -148,6 +161,7 @@ function parseMultipartPart(value: unknown): { part: BlobMultipartPart } {
 
 function parseMultipartComplete(value: unknown): { object: SerializedBlobObject } {
   if (!isRecord(value) || !isSerializedBlobObject(value.object)) {
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error("Upload request returned malformed JSON.")
   }
   return { object: value.object }
@@ -157,6 +171,7 @@ function parseMultipartComplete(value: unknown): { object: SerializedBlobObject 
 async function readJson<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
   if (!response.ok) {
     const message = await response.text().catch(() => "")
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error(`Upload request failed with status ${response.status}${message ? `: ${message}` : ""}`)
   }
   let body: unknown
@@ -164,6 +179,7 @@ async function readJson<T>(response: Response, parse: (value: unknown) => T): Pr
     body = await response.json()
   }
   catch {
+    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
     throw new Error("Upload request returned malformed JSON.")
   }
   return parse(body)
@@ -178,9 +194,45 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
   if (!files.length) return []
   const form = new FormData()
   for (const file of files) form.append(options.formKey ?? "files", file, file.name)
-  const request = options.fetch ?? globalThis.fetch
-  const response = await request(apiBase, { body: form, headers: mergeHeaders(options.headers), method: options.method ?? "POST" })
+  const init = { body: form, headers: mergeHeaders(options.headers), method: options.method ?? "POST" }
+  const response = options.onProgress
+    ? await sendWithProgress(apiBase, init, options.onProgress)
+    : await (options.fetch ?? globalThis.fetch)(apiBase, init)
   return await readJson(response, parseSerializedBlobObjectArray)
+}
+
+// The client is also imported by server code that typechecks without the DOM library.
+interface UploadRequest {
+  open(method: string, url: string): void
+  setRequestHeader(name: string, value: string): void
+  getResponseHeader(name: string): string | null
+  readonly responseText: string
+  readonly status: number
+  readonly upload: { addEventListener(type: "progress", listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void): void }
+  addEventListener(type: "abort" | "error" | "load", listener: () => void): void
+  send(body: FormData): void
+}
+
+function sendWithProgress(url: string, init: { body: FormData, headers: Headers, method: string }, onProgress: (percent: number) => void): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    // SAFETY: The progress transport runs in a browser with the native XMLHttpRequest API.
+    const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => UploadRequest
+    const request = new XHR()
+    request.open(init.method, url)
+    init.headers.forEach((value, key) => request.setRequestHeader(key, value))
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && event.total) onProgress(Math.round((event.loaded / event.total) * 100))
+    })
+    request.addEventListener("load", () => {
+      const contentType = request.getResponseHeader("content-type")
+      // A null-body status such as 204 can't carry text in a Response.
+      const body = [101, 204, 205, 304].includes(request.status) ? null : request.responseText
+      resolve(new Response(body, { status: request.status, headers: contentType ? { "content-type": contentType } : {} }))
+    })
+    request.addEventListener("error", () => reject(new Error("Upload request failed: the browser could not reach the server.")))
+    request.addEventListener("abort", () => reject(new Error("Upload request was aborted.")))
+    request.send(init.body)
+  })
 }
 
 /**
@@ -190,8 +242,10 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
 export function createMultipartUploader(baseURL: string, options: MultipartUploadOptions = {}): (file: File, pathname?: string) => MultipartUploadTask {
   const request = options.fetch ?? globalThis.fetch
   const partSize = options.partSize ?? defaultPartSize
+  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
   if (!Number.isFinite(partSize) || partSize <= 0) throw new TypeError("partSize must be a finite positive number.")
   const concurrency = options.concurrency ?? 1
+  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("concurrency must be a positive integer.")
   const send = (action: string, pathname: string, init: RequestInit, query?: Record<string, string>) =>
     request(multipartUrl(baseURL, action, pathname, query), { ...init, headers: mergeHeaders(options.headers, init.headers) })
@@ -258,6 +312,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
             signal: controller.signal,
           }, { partNumber: String(partNumber), uploadId }), parseMultipartPart)
           if (result.part.partNumber !== partNumber) {
+            // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
             throw new Error("Upload request returned a part number that does not match the requested part.")
           }
           parts.set(partNumber, result.part)

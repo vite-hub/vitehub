@@ -43,13 +43,13 @@ boundary for code that can modify the host's JavaScript environment.
 Long-lived Node services can also use `createProcessReconciler()` from the `/node`
 entry to coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
-manager should trigger that drain through the `vitehub-drain` command included
-with the owner-package installation, `@vite-hub/runtime`. Lifecycle callbacks
+manager should trigger that drain through `vitehub drain MAINPID [STATUS_URL]`
+from the `vite-hub` package, for example in systemd `ExecStop`. Lifecycle callbacks
 must return before an external caller starts `drain()`; calling `drain()` from an
 active callback rejects to prevent that callback from waiting on itself. `close()`
 removes the configured signal listener after the drain settles, including a failed
 drain. Keep the
-status endpoint available until `vitehub-drain` observes the terminal `drained`
+status endpoint available until `vitehub drain` observes the terminal `drained`
 status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
 ViteHub packages register their stop work with `onShutdown(nitroApp, name, drain)`
@@ -93,94 +93,6 @@ Running the file prints:
 ```text
 node:health
 ```
-
-## Bounded runtime preflight
-
-Hosts that start an Agent can check commands, files, browsers, MCP servers, or
-tools before model execution without making those checks part of the critical
-path. `startRuntimePreflight()` runs a bounded set of checks in parallel and
-returns a promise for a compact, serializable manifest. A failed or missing
-optional capability becomes data and a Nostics diagnostic; it never rejects the
-manifest or the invocation. The diagnostic callback is best effort and does not
-delay the checks.
-
-```ts fragment
-import { startRuntimePreflight } from "@vite-hub/runtime"
-
-const preflight = startRuntimePreflight({
-  checks: [
-    { id: "command:git", kind: "command", required: true, check: ({ signal }) => runWhich("git", signal) },
-    { id: "file:AGENTS.md", kind: "file", check: ({ signal }) => readFile("AGENTS.md", signal) },
-  ],
-  onDiagnostic: issue => reportDiagnostic(issue.diagnostic),
-})
-
-// The host may expose this to inspection or model instructions when ready.
-const manifest = await preflight.manifest
-```
-
-Keep `details` on a check result small and redacted. The framework limits each
-reason and details object, caps the check count, and bounds asynchronous waiting
-time. Check IDs are limited to 128 characters and kinds to 64 characters.
-Results must be plain data records without proxies or accessors; only the first
-12 detail properties are inspected, with 64-character keys and 256-character
-string values. More checks than `maxChecks` rejects the configuration before
-any run.
-
-Checks run on the host event loop. Use non-blocking asynchronous APIs for
-external processes, filesystem work, and network requests, and honor the
-provided `AbortSignal`. ViteHub cannot interrupt a synchronous callback; when
-one runs past its budget, the result is reported as `unknown` after that
-callback returns. A timed-out asynchronous operation may still need to cancel
-its own underlying work when it observes the signal.
-
-`createRuntimeContext()` gives each operation a fresh memo cache and tracks work
-registered with `waitUntil()`. Pass the host's `waitUntil` method to forward that
-work to a real provider lifetime. Without one, await `flushWaitUntil()` before
-returning. A flush drains nested work and then reports the first observed failure.
-Concurrent flush calls wait for the same work and report the same result.
-The constructor does not extend serverless lifetime or cancel background tasks.
-
-Call `flushWaitUntil()` from the code that owns the operation. A task registered
-with `waitUntil()` must not await that context's flush. The flush waits for the
-task, so both would wait indefinitely. Await child promises directly inside a
-task. If the task needs its own background-work controller, create a separate
-Runtime Context and flush that context instead.
-
-For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
-`@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
-event bindings and lifetime methods. It reads the event by shape, so the Runtime
-owner package has no H3 dependency.
-
-`createExecutionContext()` always returns a complete Execution Context. It creates
-fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
-and preserves the supplied objects when the host provides them.
-
-### Invocation execution budgets
-
-`createExecutionBudget()` gives one Invocation a shared deadline, cancellation
-signal, and counters for tool calls, input bytes, output bytes, and retries.
-`child()` adds stricter limits while sharing usage with its parent. The budget
-returns a serializable `snapshot()` for inspection and throws
-`ExecutionBudgetExceededError` before a counter can exceed its limit.
-Call `dispose()` when code owns a budget outside an Agent Invocation. It is
-idempotent and releases deadline timers and cancellation listeners for the
-budget and all children. The Agent runtime disposes its Invocation budget after
-the result finishes, including streamed results, and on setup or finish errors.
-Children created after disposal are inert and do not acquire new timers or
-listeners.
-
-Agent input accepts `executionBudget` limits. The Agent runtime creates one
-Invocation-owned budget and Workspace Shell tools spend it, so separate tool
-calls cannot bypass the same limit. AI SDK model requests spend serialized prompt
-bytes on each attempt, and responses spend serialized content bytes (or content
-deltas while streaming). Provider retries and repair generations share the retry
-counter. `cancel(reason)` aborts the budget signal and clears its deadline timer.
-The AI SDK adapter also charges model usage when the provider reports token
-counts. It estimates four UTF-8 bytes per input or output token because model
-providers do not expose a portable byte count. Missing token counts remain
-unknown and do not spend a byte budget. Each reported model call is charged
-once, including calls made while streaming or repairing output.
 
 ## Understand the boundaries
 
@@ -349,19 +261,3 @@ Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 - [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
 - [Node Runtime diagnostics](https://vitehub.dev/docs/agents/capabilities/diagnostics)
 - [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)
-
-### Work checkpoints
-
-`createWorkTracker({ store })` owns single-process work deduplication and durable park/retry checkpoints. The store exposes asynchronous `get(key)` and `set(key, checkpoint)` operations. The application supplies a meaningful state fingerprint and decides whether a completed run should park or retry.
-
-```ts fragment
-import { createWorkTracker } from '@vite-hub/runtime'
-
-const work = createWorkTracker({ store, retryMs: 60_000, maxRetryMs: 3_600_000 })
-await work.run(key, observedFingerprint, async () => {
-  await repair()
-  return { disposition: 'park', fingerprint: repairedFingerprint }
-})
-```
-
-Unchanged parked work is skipped. Retries use bounded exponential backoff, including thrown errors. A changed fingerprint bypasses cooldown. Failed checkpoint writes retain a local cooldown and propagate the persistence failure; they do not claim durability. Active keys are exclusive within one tracker. Use an external lease for multiple hosts sharing work. `eligible(key, fingerprint)` supports discovery filtering, while `run` rechecks eligibility after acquiring local ownership.

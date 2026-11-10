@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
+
 import { describe, expect, it, onTestFinished } from "vitest"
-import { join, resolve } from "pathe"
+import { resolve } from "pathe"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
@@ -10,10 +11,10 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowBindingName, get
 import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
 import { hubWorkflow } from "../src/vite.ts"
 
-async function createProject() {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-config-"))
-  onTestFinished(() => rm(root, { recursive: true, force: true }))
-  return root
+async function resolvePlugin(plugin: ReturnType<typeof hubWorkflow>) {
+  const root = await mkdtemp(resolve(tmpdir(), "vitehub-workflow-config-"))
+  onTestFinished(() => rm(root, { force: true, recursive: true }))
+  await (plugin.configResolved as (config: unknown) => Promise<void>)({ root })
 }
 
 describe("workflow config", () => {
@@ -132,21 +133,21 @@ describe("workflow config", () => {
 
   it("does not prepare a Vercel schedule runtime for Cloudflare workflows", async () => {
     const plugin = hubWorkflow({ provider: "cloudflare" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: await createProject() })
+    await resolvePlugin(plugin)
 
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
   })
 
   it("leaves implicitly enabled Workflow disabled when Schedule prepares a Netlify build", async () => {
     const plugin = hubWorkflow(undefined, { hosting: "netlify", implicitlyEnabled: true })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: await createProject() })
+    await resolvePlugin(plugin)
 
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
   })
 
   it("keeps explicit Workflow provider enforcement when Schedule prepares a Netlify build", async () => {
     const plugin = hubWorkflow({}, { hosting: "netlify" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: await createProject() })
+    await resolvePlugin(plugin)
 
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow(/cannot be inferred for Netlify/)
   })

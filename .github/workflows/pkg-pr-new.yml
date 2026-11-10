@@ -8,9 +8,11 @@ on:
       - "!**"
   workflow_dispatch:
 
+# On main, a new push waits for the running publish instead of cancelling it.
+# GitHub keeps only the newest pending run, so main always gets a preview.
 concurrency:
   group: pkg-pr-new-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # No step receives the job token, so it only needs to read the repository.
 permissions:
@@ -25,6 +27,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
 
       # Published packages come from a fresh build, not from task cache
       # fingerprints. The root build task always enables the cache.

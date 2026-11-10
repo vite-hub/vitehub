@@ -1,26 +1,35 @@
-import { readFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
-import { createDocsSearch, docsManifestPages } from "../src/navigation.ts"
+import { createDocsSearch, docsIndexedPages, docsUnindexedSearchSections } from "../src/navigation.ts"
 
 import type { DocsSearchSection } from "../src/types.ts"
 
 // The vitehub.dev content is the real index: about 2,800 records, most of them headings and error codes.
 const contentDir = resolve(import.meta.dirname, "../../../docs/content")
+const examplesDir = resolve(import.meta.dirname, "../../../docs/app/examples")
 let search: ReturnType<typeof createDocsSearch>
 
 beforeAll(async () => {
   const manifest = createDocsManifest({ dir: contentDir, base: "/docs" })
-  const parse = createDocsParser()
+  const examples = Object.fromEntries(await Promise.all(
+    (await readdir(examplesDir)).filter(file => file.endsWith(".vue")).map(async file => [
+      file.slice(0, -4),
+      await readFile(resolve(examplesDir, file), "utf8"),
+    ] as const),
+  ))
+  const parse = createDocsParser({ examples })
   const records: DocsSearchSection[] = []
-  for (const page of docsManifestPages(manifest)) {
+  // As in the site search, a page that search engines skip, such as a generated diagnostic code page, has one record.
+  for (const page of docsIndexedPages(manifest)) {
     const { nodes } = await parse(await readFile(resolve(contentDir, page.file), "utf8"))
     records.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
   }
+  records.push(...docsUnindexedSearchSections(manifest))
   search = createDocsSearch(records)
 }, 60_000)
 
