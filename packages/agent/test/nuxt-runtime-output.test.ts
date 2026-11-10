@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
@@ -53,7 +52,7 @@ async function availablePort(): Promise<number> {
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const address = server.address()
-  if (!address || hasRuntimeType(address, "string")) throw new Error("Could not allocate a test port")
+  if (!address || typeof address === "string") throw new Error("Could not allocate a test port")
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
   return address.port
 }

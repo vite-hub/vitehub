@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import type { Plugin } from "esbuild"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 const tempDirs: string[] = []
 
 async function createTempDir() {
@@ -29,6 +31,7 @@ describe("bundleEsmEntry", () => {
     await writeFile(entry, `
 import { basename } from "node:path"
 import { createRuntimeContext, defineCapability, getCapability, ViteHubError, getViteHubErrorShape } from ${JSON.stringify(runtime)}
+
 const config = { errorType: "ViteHubError" }
 export const environment = () => process.env.NODE_ENV
 export const fileName = () => basename("/provider/entry.mjs")
@@ -225,8 +228,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await Promise.all(builds.map(async ({ catalog }) => await finalizeProviderDeploymentOutputs(catalog)))
     for (const { name, root } of builds) {
       const expected = name === "unconfigured"
-        ? "https://fallback.example.com/_vitehub/agents/bot/invocations/run%2F1"
-        : `https://${name}.example.com/${name}/portal/_vitehub/agents/bot/invocations/run%2F1`
+        ? hostedConsoleLink("https://fallback.example.com", "/agents/bot/invocations/run%2F1")
+        : hostedConsoleLink(`https://${name}.example.com/${name}/portal`, "/agents/bot/invocations/run%2F1")
       for (const file of [".netlify/v1/functions/agent.mjs", "cloudflare/index.mjs", "vercel/functions/__server.func/index.mjs"]) {
         expect((await import(pathToFileURL(resolve(root, file)).href)).url).toBe(expected)
       }

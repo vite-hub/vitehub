@@ -1,8 +1,8 @@
 import { computed, type ComputedRef } from "vue"
 import { useError, useRoute, useRuntimeConfig } from "#imports"
-import { useTutorialNavigation } from "./tutorial"
+import { useDocsSidebarExpanded } from "./tutorial"
 import manifest from "#docs/manifest"
-import { docsSectionForPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
+import { docsSectionForPath, docsSidebarCollapses, findDocsPage, normalizeDocsPath } from "#docs/navigation"
 
 import type { DocsAppPage, DocsManifest, DocsPublicConfig, DocsSection } from "@vite-hub/docs"
 
@@ -16,8 +16,7 @@ export function useDocsManifest(): DocsManifest<DocsAppPage> {
 
 /** The `docs` options of `nuxt.config`, as the app reads them. */
 export function useDocsConfig(): DocsPublicConfig {
-  // SAFETY: the docs module writes this key with the `DocsPublicConfig` shape.
-  return useRuntimeConfig().public.docs as DocsPublicConfig
+  return useRuntimeConfig().public.docs
 }
 
 /** Whether a path is one of the site pages that `start.links` lists. They open inside the start section. */
@@ -54,17 +53,31 @@ export function useDocsShell(): ComputedRef<boolean> {
 }
 
 /**
- * Whether the docs page shows its sidebar column. On wide screens that column then carries the brand, search, and the
- * site links, and the site header hides. A page with `sidebar: false`, or a code panel tutorial whose reader closed the
- * navigation, keeps the header.
+ * How the current route shows the sidebar on wide screens: `open`, `collapsed` to a strip whose button opens it, or
+ * `hidden`. A docs page sets it in its frontmatter and an app page in `definePageMeta({ layout: "docs", sidebar })`.
+ * Code panel tutorials start collapsed. Once the reader opens a collapsed sidebar, it stays open on every such page.
  */
-export function useDocsSidebarShown(): ComputedRef<boolean> {
+export function useDocsSidebar(): ComputedRef<{ state: "open" | "collapsed" | "hidden", collapsible: boolean }> {
   const shell = useDocsShell()
   const found = useDocsPage()
-  const tutorialNavigation = useTutorialNavigation()
+  const route = useRoute()
+  const expanded = useDocsSidebarExpanded()
   return computed(() => {
-    if (!shell.value || useError().value) return false
+    if (!shell.value || useError().value) return { state: "hidden", collapsible: false }
+    const meta = route.meta.sidebar
     const page = found.value?.page
-    return page?.sidebar !== false && (page?.codePanel !== true || tutorialNavigation.value)
+    const setting = meta === false || meta === "collapsed" ? meta : page ? (docsSidebarCollapses(page) ? "collapsed" : page.sidebar) : true
+    if (setting === false) return { state: "hidden", collapsible: false }
+    if (setting !== "collapsed") return { state: "open", collapsible: false }
+    return { state: expanded.value ? "open" : "collapsed", collapsible: true }
   })
+}
+
+/**
+ * Whether the route shows the sidebar column, open or collapsed. On wide screens that column then carries the brand,
+ * search, and the site links, and the site header hides. A page with `sidebar: false` keeps the header.
+ */
+export function useDocsSidebarShown(): ComputedRef<boolean> {
+  const sidebar = useDocsSidebar()
+  return computed(() => sidebar.value.state !== "hidden")
 }

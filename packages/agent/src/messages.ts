@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { AgentUsageRecord } from "./types.ts"
 import { messageDiagnostics } from "./message-diagnostics.ts"
 
@@ -42,7 +42,7 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
-const blobSizeGetter = /* @__PURE__ */ (() => hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined)()
+const blobSizeGetter = /* @__PURE__ */ (() => typeof globalThis.Blob === "function" ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined)()
 const arrayBufferByteLengthGetter = /* @__PURE__ */ (() => Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get)()
 const typedArrayTagGetter = /* @__PURE__ */ (() => Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get)()
 const typedArrayByteLengthGetter = /* @__PURE__ */ (() => Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get)()
@@ -86,21 +86,6 @@ export function isUint8ArrayValue(value: unknown): value is Uint8Array {
 export function uint8ArrayByteLength(value: Uint8Array): number {
   // SAFETY: The intrinsic TypedArray byteLength getter reads the internal slot.
   return Reflect.apply(typedArrayByteLengthGetter!, value, []) as number
-}
-
-export function blobSize(value: Blob): number {
-  // SAFETY: The intrinsic Blob size getter returns a number for a branded Blob.
-  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")!.get!.call(value) as number
-}
-
-export function blobType(value: Blob): string {
-  // SAFETY: The intrinsic Blob type getter returns a string for a branded Blob.
-  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "type")!.get!.call(value) as string
-}
-
-export function blobArrayBuffer(value: Blob): Promise<ArrayBuffer> {
-  // SAFETY: The intrinsic Blob arrayBuffer method returns a Promise<ArrayBuffer> for a branded Blob.
-  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "arrayBuffer")!.value.call(value) as Promise<ArrayBuffer>
 }
 
 export interface AttachmentPart {
@@ -203,7 +188,7 @@ export type MessagePart =
 export const isAttachmentBlob: (value: unknown) => value is Blob = isBlobValue
 
 export function isAttachmentData(value: unknown): value is AttachmentData {
-  return hasRuntimeType(value, "string")
+  return typeof value === "string"
     ? value.length > 0
     : isArrayBufferValue(value)
       ? value.byteLength > 0
@@ -213,7 +198,7 @@ export function isAttachmentData(value: unknown): value is AttachmentData {
 }
 
 export function isAttachmentPart(value: unknown): value is AttachmentPart {
-  if (!value || !hasRuntimeType(value, "object")) return false
+  if (!value || typeof value !== "object") return false
   // SAFETY: Message parsing establishes the asserted serialized message contract.
   const type = (value as { type?: unknown }).type
   return type === "audio" || type === "file" || type === "image"
@@ -227,7 +212,7 @@ export function currentInputAttachments(messages: Message[], messageId?: string)
 }
 
 export function resolveAttachmentData(part: AttachmentPart): Promise<AttachmentData | undefined> {
-  if (!hasRuntimeType(part.fetchData, "function")) return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
+  if (typeof part.fetchData !== "function") return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
   return Promise.resolve().then(() => part.fetchData!()).then(data => isAttachmentData(data) ? data : undefined)
 }
 
@@ -236,7 +221,7 @@ export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
   const memoized = messages.map((message) => {
     let messageChanged = false
     const parts = message.parts.map((part) => {
-      if (!isAttachmentPart(part) || !hasRuntimeType(part.fetchData, "function")) return part
+      if (!isAttachmentPart(part) || typeof part.fetchData !== "function") return part
       changed = true
       messageChanged = true
       const fetchData = part.fetchData
@@ -257,7 +242,7 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
     let messageChanged = false
     const parts = await Promise.all(message.parts.map(async (part) => {
       if (!isAttachmentPart(part)) return part
-      const hasFetchData = hasRuntimeType(part.fetchData, "function")
+      const hasFetchData = typeof part.fetchData === "function"
       const hasData = isAttachmentData(part.data)
       const hasProviderLocator = part.fetchMetadata !== undefined || part.url !== undefined
       if (!hasFetchData && !hasData && !hasProviderLocator) return part
@@ -420,92 +405,17 @@ function isDateValue(value: unknown): value is Date {
   }
 }
 
-function hasNativeDateJSONHook(value: object): boolean {
-  const nativeSource = /\[native code\]/
-  const isNative = (hook: unknown): hook is (...args: never[]) => unknown => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
-  // Native Date.prototype.toJSON has a stable intrinsic signature across realms.
-  // Other native-looking functions (for example bound user serializers) are
-  // ambiguous and must be rejected rather than trusted by their name.
-  const isIntrinsicDateJSON = (hook: unknown): boolean => {
-    if (!isNative(hook)) return false
-    // Callable proxies stringify as an anonymous native function even when
-    // their target is Date.prototype.toJSON. Require the intrinsic source
-    // shape so a proxy around an arbitrary serializer cannot pass as Date.
-    if (!/^function toJSON\(\) \{ \[native code\] \}$/.test(Function.prototype.toString.call(hook))) return false
-    const name = Reflect.getOwnPropertyDescriptor(hook, "name")
-    const length = Reflect.getOwnPropertyDescriptor(hook, "length")
-    return !!name && "value" in name && name.value === "toJSON" && !!length && "value" in length && length.value === 1
-  }
-  const findDescriptor = (start: object, key: string): PropertyDescriptor | undefined => {
-    let current: object | null = start
-    const visited = new Set<object>()
-    while (current && !visited.has(current)) {
-      visited.add(current)
-      const descriptor = Reflect.getOwnPropertyDescriptor(current, key)
-      if (descriptor) return descriptor
-      current = Reflect.getPrototypeOf(current)
-    }
-    return undefined
-  }
-  try {
-    const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
-    if (own && "value" in own) return false
-    const getTimeDescriptor = findDescriptor(value, "getTime")
-    const toISOStringDescriptor = findDescriptor(value, "toISOString")
-    const toJSONDescriptor = findDescriptor(value, "toJSON")
-    const getTime = getTimeDescriptor?.value
-    const toISOString = toISOStringDescriptor?.value
-    // A proxy can hide its target prototype from descriptor traversal. If no
-    // method descriptors are visible and no custom serializer is present, read
-    // the effective hook as a guarded fallback for that hidden-prototype case.
-    if (!getTimeDescriptor && !toISOStringDescriptor) {
-      if (toJSONDescriptor) return false
-      const hook = Reflect.get(value, "toJSON")
-      // A hidden prototype prevents us from proving which serializer would run.
-      // Reject any callable hook so a throwing proxy cannot cross validation.
-      return hasRuntimeType(hook, "function")
-    }
-    if (!isNative(getTime) || !isNative(toISOString)) return false
-    let prototype: object | null = Reflect.getPrototypeOf(value)
-    const visited = new Set<object>()
-    while (prototype && !visited.has(prototype)) {
-      visited.add(prototype)
-      const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
-      if (descriptor) {
-        if ("value" in descriptor) {
-          if (!hasRuntimeType(descriptor.value, "function")) return false
-          if (!isNative(descriptor.value)) return false
-          const name = Reflect.getOwnPropertyDescriptor(descriptor.value, "name")
-          const isBound = !!name && "value" in name && hasRuntimeType(name.value, "string") && name.value.startsWith("bound ")
-          return isIntrinsicDateJSON(descriptor.value) || !isBound
-        }
-        // An accessor may expose the native hook while hiding its value from
-        // descriptor inspection. Treat it as unsafe once native Date methods
-        // identify the surrounding object as a Date proxy.
-        return true
-      }
-      prototype = Reflect.getPrototypeOf(prototype)
-    }
-    // Hidden prototype proxies still expose the native Date methods.
-    const hook = Reflect.get(value, "toJSON")
-    return hasRuntimeType(hook, "function") ? isIntrinsicDateJSON(hook) : false
-  }
-  catch {
-    return false
-  }
-}
-
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
   if (value === undefined) return undefined
   if (isDateValue(value)) return Date.prototype.toISOString.call(value)
-  if (!hasRuntimeType(value, "string")) {
+  if (typeof value !== "string") {
     throw messageDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
   }
   return value
 }
 
 function normalizePart(part: MessagePart | string, index: number): MessagePart {
-  if (hasRuntimeType(part, "string")) {
+  if (typeof part === "string") {
     return { id: `text-${index}`, text: part, type: "text" }
   }
   return part
@@ -599,7 +509,7 @@ export function getToolInvocations(message: Message): ToolInvocation[] {
 }
 
 function assertString(value: unknown, field: string): void {
-  if (!hasRuntimeType(value, "string") || !value) {
+  if (typeof value !== "string" || !value) {
     throw messageDiagnostics.AGENT_R0647({ message: `[vitehub:messages] ${field} must be a non-empty string.` })
   }
 }
@@ -608,16 +518,16 @@ function assertSerializable(value: unknown, field: string): void {
   if (value === undefined) {
     throw messageDiagnostics.AGENT_R0648({ message: `[vitehub:messages] ${field} must not be undefined.` })
   }
-  if (hasRuntimeType(value, "function") || hasRuntimeType(value, "symbol") || hasRuntimeType(value, "bigint")) {
+  if (typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
     throw messageDiagnostics.AGENT_R0649({ message: `[vitehub:messages] ${field} must be JSON serializable.` })
   }
-  if (hasRuntimeType(value, "number") && !Number.isFinite(value)) {
+  if (typeof value === "number" && !Number.isFinite(value)) {
     throw messageDiagnostics.AGENT_R0650({ message: `[vitehub:messages] ${field} must be a finite number.` })
   }
-  if (!value || !hasRuntimeType(value, "object")) {
+  if (!value || typeof value !== "object") {
     return
   }
-  if (isDateValue(value) || hasNativeDateJSONHook(value)) {
+  if (isDateValue(value)) {
     throw messageDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {
@@ -633,7 +543,7 @@ export function validateMessage(message: Message): void {
   assertString(message.id, "message.id")
   assertSerializable(message.id, "message.id")
   if (message.createdAt !== undefined) {
-    if (!hasRuntimeType(message.createdAt, "string")) {
+    if (typeof message.createdAt !== "string") {
       throw messageDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
     }
     assertSerializable(message.createdAt, "message.createdAt")
@@ -653,7 +563,7 @@ export function validateMessage(message: Message): void {
     }
     switch (part.type) {
       case "text":
-        if (!hasRuntimeType(part.text, "string")) throw messageDiagnostics.AGENT_R0654({ message: "[vitehub:messages] text part requires text." })
+        if (typeof part.text !== "string") throw messageDiagnostics.AGENT_R0654({ message: "[vitehub:messages] text part requires text." })
         break
       case "tool-call":
         assertString(part.id, "tool-call.id")
@@ -668,7 +578,7 @@ export function validateMessage(message: Message): void {
         break
       case "approval-decision":
         assertString(part.id, "approval-decision.id")
-        if (!hasRuntimeType(part.approved, "boolean")) throw messageDiagnostics.AGENT_R0655({ message: "[vitehub:messages] approval-decision.approved must be a boolean." })
+        if (typeof part.approved !== "boolean") throw messageDiagnostics.AGENT_R0655({ message: "[vitehub:messages] approval-decision.approved must be a boolean." })
         if (!openToolCalls.has(part.id)) {
           throw messageDiagnostics.AGENT_R0656({ message: `[vitehub:messages] approval-decision "${part.id}" must follow a matching approval-request.` })
         }
@@ -689,7 +599,7 @@ export function validateMessage(message: Message): void {
       case "image": {
         const { fetchData: _fetchData, ...serializablePart } = part
         assertSerializable(serializablePart, `message.parts[${index}]`)
-        if (!hasRuntimeType(part.mediaType, "string") || !part.mediaType) {
+        if (typeof part.mediaType !== "string" || !part.mediaType) {
           throw messageDiagnostics.AGENT_R0659({ message: `[vitehub:messages] ${part.type} part requires a mediaType.` })
         }
         if (part.type === "audio" && !part.mediaType.startsWith("audio/")) {
@@ -699,8 +609,8 @@ export function validateMessage(message: Message): void {
           throw messageDiagnostics.AGENT_R0661({ message: "[vitehub:messages] image part requires an image/* mediaType." })
         }
         const hasData = isAttachmentData(part.data)
-        const hasFetchData = hasRuntimeType(part.fetchData, "function")
-        const hasUrl = hasRuntimeType(part.url, "string") && part.url.length > 0
+        const hasFetchData = typeof part.fetchData === "function"
+        const hasUrl = typeof part.url === "string" && part.url.length > 0
         if (!hasData && !hasFetchData && !hasUrl) {
           throw messageDiagnostics.AGENT_R0662({ message: `[vitehub:messages] ${part.type} part requires data, fetchData, or url.` })
         }
@@ -711,7 +621,7 @@ export function validateMessage(message: Message): void {
       case "error":
         break
       default:
-        if (hasRuntimeType(part.type, "string") && part.type.startsWith("data-")) {
+        if (typeof part.type === "string" && part.type.startsWith("data-")) {
           if (!("data" in part)) throw messageDiagnostics.AGENT_R0663({ message: "[vitehub:messages] data part requires data." })
           break
         }
@@ -802,10 +712,10 @@ export function serializeMessages(messages: Message[]): string {
   for (const [messageIndex, message] of messages.entries()) {
     validateMessage(message)
     for (const [partIndex, part] of message.parts.entries()) {
-      if (isAttachmentPart(part) && hasRuntimeType(part.fetchData, "function")) {
+      if (isAttachmentPart(part) && typeof part.fetchData === "function") {
         throw messageDiagnostics.AGENT_R0665({ message: `[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Resolve or remove the attachment callback before serializing.` })
       }
-      if (isAttachmentPart(part) && part.data !== undefined && !hasRuntimeType(part.data, "string")) {
+      if (isAttachmentPart(part) && part.data !== undefined && typeof part.data !== "string") {
         throw messageDiagnostics.AGENT_R0666({ message: `[vitehub:messages] serializeMessages() cannot serialize binary data in message[${messageIndex}].parts[${partIndex}]. Resolve it to a string or URL before serializing.` })
       }
     }
@@ -814,7 +724,7 @@ export function serializeMessages(messages: Message[]): string {
 }
 
 export function deserializeMessages(input: string | SerializedMessages): Message[] {
-  const parsed: unknown = hasRuntimeType(input, "string") ? JSON.parse(input) : input
+  const parsed: unknown = typeof input === "string" ? JSON.parse(input) : input
   if (!isRuntimeRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.messages)) {
     throw messageDiagnostics.AGENT_R0667({ message: "[vitehub:messages] Unsupported serialized messages payload." })
   }
@@ -832,7 +742,7 @@ export function createAgentChatData(
 ): AgentChatData {
   const values = new Map<string, unknown>()
   for (const part of parts) {
-    if (hasRuntimeType(part?.type, "string") && part.type.startsWith("data-") && part.type.length > 5) {
+    if (typeof part?.type === "string" && part.type.startsWith("data-") && part.type.length > 5) {
       const type = part.type.slice(5)
       if (part.data === null) values.delete(type)
       else values.set(type, part.data)
@@ -843,7 +753,7 @@ export function createAgentChatData(
     get(type: string, key?: string): unknown {
       const value = values.get(type)
       if (key === undefined) return value
-      return value && hasRuntimeType(value, "object")
+      return value && typeof value === "object"
         // SAFETY: Message parsing establishes the asserted serialized message contract.
         ? (value as Record<string, unknown>)[key]
         : undefined

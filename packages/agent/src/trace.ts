@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { redactCredentialText } from "./internal/credential-redaction.ts"
@@ -39,19 +39,19 @@ export const agentInvocationTraceIdContextKey = "agent.invocation.traceId"
 
 function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): { content?: string, truncated: boolean } {
   if (effect.kind !== "reply") return { truncated: false }
-  if (hasRuntimeType(effect.payload, "string")) {
+  if (typeof effect.payload === "string") {
     return {
       content: effect.payload.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
       truncated: effect.payload.length > MAX_CHANNEL_EFFECT_CONTENT_LENGTH,
     }
   }
-  const content = isRuntimeRecord(effect.payload) && hasRuntimeType(effect.payload.body, "string")
+  const content = isRuntimeRecord(effect.payload) && typeof effect.payload.body === "string"
     ? effect.payload.body
-    : isRuntimeRecord(effect.payload) && hasRuntimeType(effect.payload.markdown, "string")
+    : isRuntimeRecord(effect.payload) && typeof effect.payload.markdown === "string"
       ? effect.payload.markdown
-      : hasRuntimeType(effect.metadata?.body, "string")
+      : typeof effect.metadata?.body === "string"
         ? effect.metadata.body
-        : hasRuntimeType(effect.metadata?.markdown, "string")
+        : typeof effect.metadata?.markdown === "string"
           ? effect.metadata.markdown
       : undefined
   return {
@@ -219,7 +219,7 @@ export function createToolDurationTracker(now: () => number = Date.now): (event:
     if (event.type !== "tool-result") return event
     const start = startedAt.get(event.id)
     startedAt.delete(event.id)
-    if (hasRuntimeType(event.durationMs, "number") && Number.isFinite(event.durationMs) && event.durationMs > 0) return event
+    if (typeof event.durationMs === "number" && Number.isFinite(event.durationMs) && event.durationMs > 0) return event
     if (start === undefined) {
       const { durationMs: _durationMs, ...result } = event
       return result
@@ -232,7 +232,7 @@ function toolCapabilityId(
   contributions: readonly AgentDriverContribution[] | undefined,
   toolName: unknown,
 ): string | undefined {
-  if (!hasRuntimeType(toolName, "string")) return
+  if (typeof toolName !== "string") return
   for (let index = (contributions?.length || 0) - 1; index >= 0; index--) {
     const contribution = contributions?.[index]
     if (contribution?.names?.includes(toolName)) return contribution.capabilityId
@@ -241,26 +241,26 @@ function toolCapabilityId(
 
 function streamTitle(event: StreamEvent): string | undefined {
   if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
-  if (!event.data || !hasRuntimeType(event.data, "object")) return
+  if (!event.data || typeof event.data !== "object") return
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.
   const data = event.data as { title?: unknown, type?: unknown }
-  return data.type === "title" && hasRuntimeType(data.title, "string") && data.title.trim()
+  return data.type === "title" && typeof data.title === "string" && data.title.trim()
     ? data.title.trim()
     : undefined
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.
-  return value && hasRuntimeType(value, "object") && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
 function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
   if (event.type === "data-progress-summary") {
     const data = record(event.data)
-    const producerId = hasRuntimeType(data?.id, "string") && data.id.trim() ? data.id.trim() : "progress-summary"
-    const revision = hasRuntimeType(data?.revision, "number") ? data.revision : undefined
-    const summary = hasRuntimeType(data?.summary, "string") ? data.summary.trim() : ""
+    const producerId = typeof data?.id === "string" && data.id.trim() ? data.id.trim() : "progress-summary"
+    const revision = typeof data?.revision === "number" ? data.revision : undefined
+    const summary = typeof data?.summary === "string" ? data.summary.trim() : ""
     if (revision === undefined || !summary) return
     const id = `${producerId}:${revision}`
     return {
@@ -308,7 +308,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   }
   if (event.type !== "data-agent-event") return
   const data = record(event.data)
-  const kind = hasRuntimeType(data?.kind, "string") ? data.kind : undefined
+  const kind = typeof data?.kind === "string" ? data.kind : undefined
   const value = record(data?.value)
   if (kind === "content.delta" && value?.streamKind === "command_output") {
     return {
@@ -339,10 +339,10 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
       type: "run",
     }
   }
-  if (kind === "input.message" && hasRuntimeType(value?.message, "string") && value.message.trim()) {
+  if (kind === "input.message" && typeof value?.message === "string" && value.message.trim()) {
     return {
       attributes: {
-        "input.mode": hasRuntimeType(value.mode, "string") ? value.mode : undefined,
+        "input.mode": typeof value.mode === "string" ? value.mode : undefined,
         "message.content": value.message.slice(0, MAX_TRACE_TEXT_EVENT_LENGTH),
         "message.id": event.id,
         "message.role": "user",
@@ -357,7 +357,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   if (kind === "input.steered") {
     return {
       attributes: {
-        "input.mode": hasRuntimeType(value?.mode, "string") ? value.mode : "steer",
+        "input.mode": typeof value?.mode === "string" ? value.mode : "steer",
         "vitehub.action.name": "input.steered",
         "vitehub.activity.kind": "action",
         "vitehub.activity.title": "Steered active session",
@@ -367,7 +367,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
     }
   }
   if (kind?.startsWith("task.")) {
-    const status = hasRuntimeType(value?.status, "string") ? value.status : undefined
+    const status = typeof value?.status === "string" ? value.status : undefined
     const outcome = kind === "task.completed"
       ? status === "failed"
         ? "task.failed"
@@ -377,7 +377,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
       : kind
     return {
       attributes: {
-        "error.message": outcome === "task.failed" && hasRuntimeType(value?.summary, "string") ? value.summary : undefined,
+        "error.message": outcome === "task.failed" && typeof value?.summary === "string" ? value.summary : undefined,
         "step.id": event.id,
         "task.status": status,
         "vitehub.activity.body": data?.value,
@@ -444,9 +444,9 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
 function safeUsageMetadata(value: Record<string, unknown>): Record<string, unknown> {
   const safe: Record<string, unknown> = {
     ...value,
-    ...(hasRuntimeType(value.model, "string") ? { model: redactCredentialText(value.model) } : {}),
-    ...(hasRuntimeType(value.provider, "string") ? { provider: redactCredentialText(value.provider) } : {}),
-    ...(isRuntimeRecord(value.cost) && hasRuntimeType(value.cost.source, "string")
+    ...(typeof value.model === "string" ? { model: redactCredentialText(value.model) } : {}),
+    ...(typeof value.provider === "string" ? { provider: redactCredentialText(value.provider) } : {}),
+    ...(isRuntimeRecord(value.cost) && typeof value.cost.source === "string"
       ? { cost: { ...value.cost, source: redactCredentialText(value.cost.source) } }
       : {}),
   }
@@ -541,7 +541,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
   event: unknown,
 ): Promise<void> {
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.
-  if (!event || !hasRuntimeType(event, "object") || !hasRuntimeType((event as { type?: unknown }).type, "string")) return
+  if (!event || typeof event !== "object" || typeof (event as { type?: unknown }).type !== "string") return
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.
   const streamEvent = event as StreamEvent
   const title = streamTitle(streamEvent)
@@ -624,11 +624,11 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
       const tracedEvent = timing.track(event)
       const data = event.type === "data-agent-event" ? record(event.data) : undefined
       const value = record(data?.value)
-      if (isAgentDataStreamEvent(event) && data?.kind === "content.delta" && value?.streamKind === "command_output" && hasRuntimeType(value.delta, "string")) {
+      if (isAgentDataStreamEvent(event) && data?.kind === "content.delta" && value?.streamKind === "command_output" && typeof value.delta === "string") {
         const pendingData = pendingCommandOutput ? record(pendingCommandOutput.data) : undefined
         const pendingValue = record(pendingData?.value)
         let remaining = value.delta
-        if (pendingCommandOutput && pendingCommandOutput.id === event.id && hasRuntimeType(pendingValue?.delta, "string")) {
+        if (pendingCommandOutput && pendingCommandOutput.id === event.id && typeof pendingValue?.delta === "string") {
           remaining = pendingValue.delta + remaining
           pendingCommandOutput = undefined
         }
@@ -641,7 +641,7 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
         pendingCommandOutput = { ...event, data: { ...data, value: { ...value, delta: remaining } } }
         return
       }
-      if (event.type !== "text-delta" || !hasRuntimeType(event.text, "string")) {
+      if (event.type !== "text-delta" || typeof event.text !== "string") {
         await flush()
         await timing.trace(tracedEvent)
         return
@@ -681,7 +681,7 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
   return (async function* () {
     const timing = createStreamTraceTiming(context)
     for await (const event of events) {
-      if (isRuntimeRecord(event) && hasRuntimeType(event.type, "string")) {
+      if (isRuntimeRecord(event) && typeof event.type === "string") {
         // SAFETY: The runtime guard establishes the stream event shape used by tracing.
         await timing.trace(timing.track(event as StreamEvent))
       }
@@ -694,7 +694,7 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
 function valueFromPath(value: unknown, path: string[]): unknown {
   let current = value
   for (const key of path) {
-    if (!current || !hasRuntimeType(current, "object")) return undefined
+    if (!current || typeof current !== "object") return undefined
     // SAFETY: Trace normalization establishes the asserted telemetry event contract.
     current = (current as Record<string, unknown>)[key]
   }
@@ -702,7 +702,7 @@ function valueFromPath(value: unknown, path: string[]): unknown {
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => hasRuntimeType(value, "string") && value.length > 0)
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
 export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -750,7 +750,7 @@ export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeCon
       await traceAgentEvent(context, {
         attributes: {
           ...toolAttributes(event),
-          "error.message": error instanceof Error ? error.message : hasRuntimeType(error, "string") ? error : undefined,
+          "error.message": error instanceof Error ? error.message : typeof error === "string" ? error : undefined,
         },
         name: failed ? "agent.tool.error" : "agent.tool.finish",
         type: failed ? "error" : "run",

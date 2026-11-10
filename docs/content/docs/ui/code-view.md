@@ -3,7 +3,7 @@ title: Code View
 description: "Render syntax-highlighted files, and virtualized lists that mix files and diffs."
 navigation.order: 38
 navigation.group: Agent work
-icon: i-ph-code-light
+icon: i-lucide-code
 ---
 
 `CodeView` renders files and diffs in order in one virtualized scroll container (only visible rows render). `FileView` renders one highlighted file without a diff. Both use Pierre's `@pierre/diffs` views with the Nuxt UI theme. Use them to show the files an Agent read or wrote next to its changes.

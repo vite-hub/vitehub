@@ -79,6 +79,67 @@ pnpm add @openai/codex@0.149.1
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
+Declare the Codex credentials in Server Env:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
+
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { loadServerEnv } from '#vitehub/env/server'
@@ -422,18 +483,83 @@ export default defineAgent({
 
 The answers are the Invocation output, and their type comes from the questions. `runAgent()` returns a tuple, so destructure it and read `result.output`:
 
-```ts [server/label-email.ts]
+```ts [server/lib/label-invoice.ts]
 import { runAgent } from 'vite-hub/agent'
-import labeller from './agents/email-labeller'
+import labeller from '../agents/email-labeller'
 
-const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
-if (error) throw error
-const answers = result.output!
-answers.label.choice // 'invoice' | 'none'
-answers.urgent // boolean
+export async function labelInvoice() {
+  const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
+  if (error) throw error
+  const answers = result.output
+  if (!answers) throw new Error('Expected labeller output')
+  answers.label.choice // 'invoice' | 'none'
+  answers.urgent // boolean
+  return answers
+}
 ```
 
-No schema or parsing is needed. Jev reads the Invocation `data`, else the prompt, else the latest user message. To build questions per Invocation, pass a function. It gets the `driver.run` context:
+No output schema or parsing is necessary.
+
+Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`. This one reads the labels from Server Env:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/agents/labeller.ts]
 import { useServerEnv } from '#vitehub/env/server'
