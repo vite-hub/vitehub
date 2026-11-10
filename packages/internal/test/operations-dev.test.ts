@@ -129,8 +129,8 @@ describe("standalone operation installation", () => {
     try {
       vi.stubEnv(viteHubDevPeerKeyEnv, undefined)
       const { installStandaloneOperationRpc } = await import("../src/operations-vite.ts")
-      const config = { root, plugins: [{ name: "kv", vitehub: { operations: [{ module: "@vite-hub/kv/operations" }] } }] }
-      await installStandaloneOperationRpc(config, "serve", "@vite-hub/kv/operations")
+      const config = { root, plugins: [{ name: "@vite-hub/kv/vite", vitehub: { operations: [{ module: "/kv/dist/operations.js" }] } }] }
+      await installStandaloneOperationRpc(config, "serve", "/kv/dist/operations.js")
       const nitro = Reflect.get(config, "nitro") as { devHandlers: Array<{ handler?: unknown }> }
       expect(nitro.devHandlers.map(entry => entry.handler)).toEqual([viteHubDevPeerDevHandler])
       // The worker that the dev server starts inherits the key of this process.
@@ -142,7 +142,7 @@ describe("standalone operation installation", () => {
   it.each(["build", "root-disabled", "console"])("leaves the transport absent when another policy owns it: %s", async (mode) => {
     const { installStandaloneOperationRpc } = await import("../src/operations-vite.ts")
     const config = { root: "/unused", plugins: mode === "build" ? [] : [{ name: mode === "console" ? "vite-hub/console" : "vite-hub/dependencies" }] }
-    await installStandaloneOperationRpc(config, mode === "build" ? "build" : "serve", "@vite-hub/kv/operations")
+    await installStandaloneOperationRpc(config, mode === "build" ? "build" : "serve", "/kv/dist/operations.js")
     expect(Reflect.get(config, "nitro")).toBeUndefined()
   })
 })

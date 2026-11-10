@@ -1,45 +1,21 @@
-import { createCompiledCatalog, getCatalogDependentFiles, getCatalogForFile, getCatalogs } from "@lingui/cli/api"
+import { compileMessage } from "@lingui/message-utils/compileMessage"
 
-import type { LinguiConfigNormalized } from "@lingui/conf"
+import { isVisible } from "./record-format.ts"
 
-type CompiledMessages = Record<string, unknown>
-
-async function translationsFor(config: LinguiConfigNormalized, locale: string): Promise<Record<string, string>> {
-  const [catalog] = await getCatalogs(config)
-  if (!catalog) return {}
-  const { messages } = await catalog.getTranslations(locale, {
-    fallbackLocales: config.fallbackLocales,
-    sourceLocale: config.sourceLocale,
-  })
-  return messages
-}
-
-function compiledMessages(locale: string, messages: Record<string, string>): CompiledMessages {
-  const { source } = createCompiledCatalog(locale, messages, { namespace: "json" })
-  const parsed = JSON.parse(source) as CompiledMessages & { messages?: CompiledMessages }
-  return parsed.messages ?? parsed
-}
+import type { Messages } from "@lingui/core"
+import type { SourceMessages } from "./manifest.ts"
+import type { TranslationRecords } from "./record-format.ts"
 
 /**
- * Compiled messages of every locale, for the server. A message without a translation falls back to the source
- * language, so a page never shows a message ID.
+ * Compiled messages of one locale. With `sources`, a message without a translation gets its source text, so a page
+ * that ships only message IDs never shows an ID. A rejected translation, or one that fails Diglot's validation, also
+ * shows the source text.
  */
-export async function compileCatalogs(config: LinguiConfigNormalized): Promise<Record<string, CompiledMessages>> {
-  const result: Record<string, CompiledMessages> = {}
-  for (const locale of config.locales) {
-    result[locale] = compiledMessages(locale, await translationsFor(config, locale))
+export function compileMessages(records: TranslationRecords, sources?: SourceMessages): Messages {
+  const messages: Messages = {}
+  if (sources) for (const [id, source] of Object.entries(sources)) messages[id] = compileMessage(source.message)
+  for (const [id, record] of Object.entries(records)) {
+    if ((!sources || id in sources) && isVisible(record)) messages[id] = compileMessage(record.text)
   }
-  return result
-}
-
-/** A JavaScript module with `export const messages` for one `locales/<locale>.po` file. */
-export async function compileCatalogModule(config: LinguiConfigNormalized, relativeFile: string): Promise<{ code: string, dependencies: string[] } | undefined> {
-  const file = getCatalogForFile(relativeFile, await getCatalogs(config))
-  if (!file) return undefined
-  const { messages } = await file.catalog.getTranslations(file.locale, {
-    fallbackLocales: config.fallbackLocales,
-    sourceLocale: config.sourceLocale,
-  })
-  const { source } = createCompiledCatalog(file.locale, messages, { namespace: "es" })
-  return { code: source, dependencies: await getCatalogDependentFiles(file.catalog, file.locale) }
+  return messages
 }
