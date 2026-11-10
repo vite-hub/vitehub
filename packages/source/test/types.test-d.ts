@@ -24,9 +24,7 @@ import {
   type SourceRevision,
   useSource,
 } from "../src/index.ts"
-import { file } from "../src/file.ts"
-import { github } from "../src/github.ts"
-import { glob } from "../src/glob.ts"
+import { file, github, glob } from "../src/index.ts"
 import { mcpResources, type McpResourcesClient, type McpResourcesTransport } from "../src/mcp.ts"
 
 interface Meal {
