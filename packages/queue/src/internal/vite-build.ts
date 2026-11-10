@@ -12,7 +12,7 @@ import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
-import type { DiscoveredQueueDefinition, QueueModuleOptions } from "../types.ts"
+import type { DiscoveredQueueDefinition, QueueOptions } from "../types.ts"
 import type { QueueRuntimeOptions } from "./runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -28,6 +28,16 @@ const vercelQueueConsumerRoutePrefix = "/api/vitehub/queues/vercel"
 const packageDir = computePackageDir(import.meta.url)
 const packageRequire = createRequire(resolve(packageDir, "package.json"))
 const resolvePackageDependency = (specifier: string) => packageRequire.resolve(specifier)
+
+/** `@vercel/queue` and `@vercel/functions` are optional peers. A Vercel build needs both in the app. */
+function resolveVercelDependency(specifier: "@vercel/functions" | "@vercel/queue") {
+  try {
+    return packageRequire.resolve(specifier)
+  }
+  catch (cause) {
+    throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_UNAVAILABLE({ cause })
+  }
+}
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
 type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
@@ -48,7 +58,7 @@ export interface VercelQueueConsumerRoute {
   topic: string
 }
 
-function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting: string): NormalizedQueueOptions {
+function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: string): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false
   return normalizeQueueOptions(queue, { hosting }) || false
 }
@@ -113,7 +123,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
         : undefined
   return [
     "import { definePlugin } from 'nitro'",
-    ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
+    ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolveVercelDependency("@vercel/queue")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-vite")))}`] : []),
     ...(cloudflareRuntime ? [`import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-client")))}`] : []),
@@ -144,7 +154,7 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
   return [
     "import { defineMiddleware } from 'nitro'",
-    ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolvePackageDependency("@vercel/functions")))}`] : []),
+    ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolveVercelDependency("@vercel/functions")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     `import { enterQueueRuntimeEvent } from ${JSON.stringify(createImportPath(middlewareFile, resolveRuntimeModule("internal/runtime/state")))}`,
     "",
@@ -159,7 +169,7 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
   await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -244,17 +254,18 @@ export function createVercelQueueConsumerRoutes(definitions: DiscoveredQueueDefi
 
 function renderVercelQueueConsumerHandler(file: string, name: string) {
   return [
-    `import { defineHandler } from ${JSON.stringify(createImportPath(file, resolvePackageDependency("h3")))}`,
     `import { handleHostedVercelQueueCallback } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, missingQueueDefinitionError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("internal/runtime/state")))}`,
     "",
     `const name = ${JSON.stringify(name)}`,
     "",
-    "export default defineHandler(async (event) => {",
-    "  const definition = await loadQueueDefinition(name)",
-    "  if (!definition) throw missingQueueDefinitionError(name)",
-    "  return await handleHostedVercelQueueCallback(event, name, definition)",
-    "})",
+    "export default {",
+    "  async fetch(request) {",
+    "    const definition = await loadQueueDefinition(name)",
+    "    if (!definition) throw missingQueueDefinitionError(name)",
+    "    return await handleHostedVercelQueueCallback(request, name, definition)",
+    "  },",
+    "}",
     "",
   ].join("\n")
 }
