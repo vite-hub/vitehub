@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { initLogger } from "evlog"
+import { hostedConsoleUrl } from "@vite-hub/runtime"
 import { agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
 import { agentInvocationId, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
@@ -109,6 +110,29 @@ it("removes secrets and raw model content from nested log data", () => {
   expect(sanitizeAgentLog(data)).toEqual({ customer: "[EMAIL]", url: "https://example.org/a", nested: { message: "Bearer [REDACTED]" } })
 })
 
+it("keeps the query of a hosted Console link and drops it from other Console URLs", () => {
+  const link = "https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fbot%2Finvocations%2Fid"
+  expect(sanitizeAgentLog({ session_url: link, other: "https://console.vitehub.dev/link?p=secret#k=secret" })).toEqual({
+    session_url: link,
+    other: "https://console.vitehub.dev/link",
+  })
+})
+
+it("redacts outer and encoded query secrets before exporter delivery", async () => {
+  const { telemetry, exporter } = setup()
+  const canonical = hostedConsoleUrl("https://app.example.com/portal", "/agents/bot/invocations/id")
+  const outer = `${canonical}&token=private-query-value`
+  const encoded = hostedConsoleUrl("https://app.example.com/portal", "/agents/bot/invocations/id?access_token=private-query-value#private-fragment")
+  const project = new URL(canonical)
+  project.searchParams.set("project", "https://user:private-password@app.example.com/portal?token=private-query-value#private-fragment")
+  await telemetry.capture("review", { url: outer, message: `Invocation ${encoded}`, project: project.href, session_url: canonical })
+  const properties = exporter.capture.mock.calls[0]![1]
+  expect(properties.url).toBe(canonical)
+  expect(properties.message).toBe(`Invocation ${canonical}`)
+  expect(properties.session_url).toBe(canonical)
+  expect(JSON.stringify(properties)).not.toMatch(/private-(?:query-value|fragment|password)/)
+})
+
 it("filters minimal observability to lifecycle metadata", () => {
   expect(filterAgentObservability("minimal", {
     invocation_id: "inv-1", model: "gpt-test", duration_ms: 12,
@@ -198,7 +222,7 @@ it.each([
   const terminal = exporter.capture.mock.calls.find(([name]) => name === "$ai_trace")
   expect(await invocations.getByRunId("links", name)).toMatchObject({ agentName: name, id: await agentInvocationId("links", name) })
   expect(terminal?.[1].agent_name).toBe(name)
-  expect(terminal?.[1].session_url).toBe(`https://console.example/inspect/_vitehub/agents/${segment}/invocations/${await agentInvocationId("links", name)}`)
+  expect(terminal?.[1].session_url).toBe(hostedConsoleUrl("https://console.example/inspect", `/agents/${segment}/invocations/${await agentInvocationId("links", name)}`))
   await hooks.get("close")!()
   expect(telemetry.status().closed).toBe(true)
 })

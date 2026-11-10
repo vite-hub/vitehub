@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
@@ -96,7 +95,11 @@ interface InternalWorkflowModuleOptions {
   implicitlyEnabled?: boolean
   importBase?: string
   providerImportAliases?: Record<string, string>
-  includeUserAppEntry?: boolean
+  /**
+   * The app that the Workflow Provider Output serves next to the Workflows. `true` finds `src/server.ts` or
+   * `src/worker.ts`, a file name such as `"server-workflow.ts"` picks that file in `src`, and `false` serves no app.
+   */
+  includeUserAppEntry?: boolean | string
   workspaceDependencyRuntimeImports?: {
     sandboxTask?: string
     sandboxTaskRuntimeState?: string
@@ -533,7 +536,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       }
       const config = build?.config ?? resolved
       const buildProviderOutput = build?.providerOutput ?? providerOutput
-      if (!config || shouldSkipViteProviderBuild(config.command, getViteMode())) {
+      if (!config || shouldSkipViteProviderBuild(config.command)) {
         return
       }
       const rootDir = resolveViteHubProjectRoot(config.root)
@@ -644,7 +647,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         if (rejectedBuilds.has(buildEnvironment(this)) || shouldSkipProviderOutputEnvironment(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? resolved
-        if (!config || shouldSkipViteProviderBuild(config.command, getViteMode())) return
+        if (!config || shouldSkipViteProviderBuild(config.command)) return
         await finalizeProviderDeploymentOutputs(build?.providerOutput ?? providerOutput)
       },
     },

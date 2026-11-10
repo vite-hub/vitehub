@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { loadViteHubPageTools, viteHubPageToolsEdgeAt } from "../src/runtime/page-tools-loader.ts"
+import { loadViteHubPageTools, stopViteHubPageTools, viteHubPageToolsEdgeAt } from "../src/runtime/page-tools-loader.ts"
 import { readViteHubPageSession, viteHubPageSessionUrl } from "../src/runtime/page-tools-shared.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "../src/runtime/page-tools-loader.ts"
@@ -73,6 +73,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  stopViteHubPageTools()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-window, vitehub-tools-off")) element.remove()
   document.cookie = "vitehub-tools=; Path=/; Max-Age=0"
   document.documentElement.className = ""
@@ -764,6 +765,26 @@ describe("loadViteHubPageTools", () => {
     await exited()
     const { element, button } = offMark()
     expect(element.shadowRoot!.activeElement === button).toBe(focused)
+  })
+
+  it.each(["pill", "off mark"])("removes the %s with stopViteHubPageTools(), and its page watcher stops", async (shown) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    const { load, stopped } = modules()
+    await loadViteHubPageTools({ load })
+    if (shown === "off mark") pill().exit.click()
+    // The checks that the pill or the off mark start with run first.
+    await vi.advanceTimersByTimeAsync(250)
+    expect(document.querySelectorAll(shown === "pill" ? "vitehub-pill" : "vitehub-tools-off")).toHaveLength(1)
+    const under = vi.spyOn(document, "elementsFromPoint")
+    stopViteHubPageTools()
+    expect(document.querySelectorAll("vitehub-pill, vitehub-tools-off")).toHaveLength(0)
+    expect(stopped).toEqual(["comments", "console"])
+    // A change of the page starts no check of the pill's place, so no timer outlives the test window.
+    document.body.append(document.createElement("div"))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(under).not.toHaveBeenCalled()
   })
 
   it("keeps the mark on the next pages without starting a tool, until the mark or ?vitehub turns them on", async () => {
