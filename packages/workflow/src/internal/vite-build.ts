@@ -803,7 +803,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
   await writeFile(middlewareFile, [
     'import { defineMiddleware } from "nitro"',
     'import { env, waitUntil } from "cloudflare:workers"',
-    `import { enterWorkflowRuntimeEvent } from ${JSON.stringify(`${options.workflowImportBase ?? workflowPackageName}/runtime/state`)}`,
+    `import { enterWorkflowRuntimeEvent } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
     '',
     'export default defineMiddleware((event) => {',
     '  Object.assign(event, { env, waitUntil })',
