@@ -5,8 +5,6 @@ import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const agentTypeDiagnosticCodes = new Set([
-  "AGENT_R1006",
-  "AGENT_R1008",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -1462,9 +1460,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ trigger }: { trigger: string }) => `[vitehub] Channel trigger "${trigger}" declares durableState: true, but it ran without the Channel's State.`,
       fix: "Run the trigger through the Channel's webhook route, its webhook queue or context.dispatch(), and give the Agent a durable state provider.",
     },
-    AGENT_R1006: dynamicError,
     AGENT_R1007: dynamicError,
-    AGENT_R1008: dynamicError,
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
     AGENT_R1013: dynamicError,

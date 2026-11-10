@@ -31,9 +31,11 @@ Add `observability.logs` and `console` to the ViteHub options of your app. Keep 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
+const isDev = process.env.NODE_ENV === 'development'
+
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', observability: { logs: true }, console: { auth: false } },
+  vitehub: { preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
 })
 ```
 ::::
@@ -44,10 +46,15 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', observability: { logs: true }, console: { auth: false } }), nitro(),
-  ],
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      nitro(),
+    ],
+  }
 })
 ```
 ::::
@@ -57,17 +64,21 @@ export default defineConfig({
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', observability: { logs: true }, console: { auth: false } }),
-  ],
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+    ],
+  }
 })
 ```
 ::::
 :::
 
 - `observability: { logs: true }` saves the log events on your computer while the dev server runs.
-- `auth: false` lets you open the Console with no sign-in. Use it only on your computer. See [Console](/docs/development/console) before you deploy.
+- `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/development/console) before you deploy.
 
 ::
 

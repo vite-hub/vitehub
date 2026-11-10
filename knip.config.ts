@@ -285,8 +285,6 @@ const config: KnipConfiguration = {
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
     },
     ...packageWorkspaces,
-    // Workflows run these binaries by path: `./.github/ci-tools/node_modules/.bin/<name>`.
-    ".github/ci-tools": { ignoreDependencies: ["pkg-pr-new", "wrangler"] },
     docs: {
       entry: [
         // Markdown pages render these components by name.
