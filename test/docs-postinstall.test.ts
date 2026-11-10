@@ -19,7 +19,8 @@ describe("docs postinstall", () => {
 
   it("lets the setup action opt out, and only jobs that never touch the docs do", () => {
     const action = readFileSync(new URL(".github/actions/setup/action.yml", root), "utf8")
-    expect(action).toContain("VITEHUB_SKIP_DOCS_PREPARE: ${{ inputs.prepare-docs == 'false' && '1' || '' }}")
+    expect(action).toMatch(/VITEHUB_SKIP_DOCS_PREPARE: "1"\n\s+run: vp install --frozen-lockfile/)
+    expect(action).toMatch(/if: inputs\.prepare-docs != 'false'\n\s+shell: bash\n\s+run: vp run --filter vitehub-docs postinstall/)
     const ci = parseYaml(readFileSync(new URL(".github/workflows/ci.yml", root), "utf8")) as { jobs: Record<string, { steps: { uses?: string, with?: Record<string, string> }[] }> }
     const optedOut = Object.entries(ci.jobs)
       .filter(([, job]) => job.steps.some(step => step.uses === "./.github/actions/setup" && step.with?.["prepare-docs"] === "false"))

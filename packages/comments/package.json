@@ -54,11 +54,6 @@
       "import": "./dist/database/postgres.js",
       "default": "./dist/database/postgres.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
@@ -88,11 +83,6 @@
       "types": "./dist/runtime/connect/node.d.ts",
       "import": "./dist/runtime/connect/node.js",
       "default": "./dist/runtime/connect/node.js"
-    },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -129,14 +119,15 @@
     "@vite-hub/runtime": "workspace:*",
     "confbox": "^0.3.1",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs",
-    "nitro": "catalog:unjs"
+    "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "marked": "catalog:realtime",
+    "modern-screenshot": "4.7.0",
+    "nitro": "catalog:unjs",
     "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -149,6 +140,7 @@
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

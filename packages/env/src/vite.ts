@@ -57,6 +57,9 @@ const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
+const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
 const defaultRuntimeImports = {
   secret: "@vite-hub/env/secret",
   server: "@vite-hub/env/server",
@@ -287,31 +290,35 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         if (generatedStateWrites.get(projectRoot) === generatedStateWrite) generatedStateWrites.delete(projectRoot)
       }
     },
-    load(id) {
-      const viteConfig = this?.environment?.config
-      // SAFETY: environmentStateKey is defined only with ResolvedEnvState values above.
-      const environmentState = viteConfig ? Reflect.get(viteConfig, environmentStateKey) as ResolvedEnvState | undefined : undefined
-      const state = environmentState
-        ?? (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)
-        ?? (viteConfig?.root ? resolvedStates.get(resolveProjectRoot(viteConfig.root)) : undefined)
-        ?? (viteConfig?.root ? Array.from(pendingConfigStates.values()).findLast(state => state.projectRoot === resolveProjectRoot(viteConfig.root)) : undefined)
-        ?? Array.from(resolvedStates.values()).at(-1)
-        ?? Array.from(pendingConfigStates.values()).at(-1)
-      const publicConfig = state?.publicConfig ?? buildPublicConfig
-      const registry = state?.serverRegistry ?? serverRegistry
-      const providerModules = state?.providerModules ?? {}
-      if (id === RESOLVED_DESCRIPTION_ID) {
-        return createServerEnvDescriptionModule(registry)
-      }
-      if (id === RESOLVED_PUBLIC_ID) {
-        return createPublicEnvModule(publicConfig)
-      }
-      if (id === RESOLVED_SERVER_ID) {
-        return createServerEnvModule(registry, runtimeImports, providerModules, undefined, state?.developmentSecretEnvKey, state?.developmentSecretGenerated)
-      }
+    load: {
+      filter: { id: RESOLVED_ID_PATTERN },
+      handler(id) {
+        const viteConfig = this?.environment?.config
+        // SAFETY: environmentStateKey is defined only with ResolvedEnvState values above.
+        const environmentState = viteConfig ? Reflect.get(viteConfig, environmentStateKey) as ResolvedEnvState | undefined : undefined
+        const state = environmentState
+          ?? (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)
+          ?? (viteConfig?.root ? resolvedStates.get(resolveProjectRoot(viteConfig.root)) : undefined)
+          ?? (viteConfig?.root ? Array.from(pendingConfigStates.values()).findLast(state => state.projectRoot === resolveProjectRoot(viteConfig.root)) : undefined)
+          ?? Array.from(resolvedStates.values()).at(-1)
+          ?? Array.from(pendingConfigStates.values()).at(-1)
+        const publicConfig = state?.publicConfig ?? buildPublicConfig
+        const registry = state?.serverRegistry ?? serverRegistry
+        const providerModules = state?.providerModules ?? {}
+        if (id === RESOLVED_DESCRIPTION_ID) {
+          return createServerEnvDescriptionModule(registry)
+        }
+        if (id === RESOLVED_PUBLIC_ID) {
+          return createPublicEnvModule(publicConfig)
+        }
+        if (id === RESOLVED_SERVER_ID) {
+          return createServerEnvModule(registry, runtimeImports, providerModules, undefined, state?.developmentSecretEnvKey, state?.developmentSecretGenerated)
+        }
+      },
     },
     resolveId: {
       order: "pre",
+      filter: { id: ID_PATTERN },
       handler(id) {
         if (id === ENV_DESCRIPTION_ID) {
           return RESOLVED_DESCRIPTION_ID
@@ -324,12 +331,15 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         }
       },
     },
-    transform(code) {
-      if (!code.includes("/* @vitehub-env */") || !code.includes(ENV_SERVER_ID)) return
-      return code.replace(
-        /\/\* @vite-ignore \*\/\s*\/\* @vitehub-env \*\/\s*[\w$]+/g,
-        JSON.stringify(ENV_SERVER_ID),
-      )
+    transform: {
+      filter: { code: "/* @vitehub-env */" },
+      handler(code) {
+        if (!code.includes("/* @vitehub-env */") || !code.includes(ENV_SERVER_ID)) return
+        return code.replace(
+          /\/\* @vite-ignore \*\/\s*\/\* @vitehub-env \*\/\s*[\w$]+/g,
+          JSON.stringify(ENV_SERVER_ID),
+        )
+      },
     },
   }
 }

@@ -48,171 +48,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./_internal/agent": {
-      "types": "./dist/_internal/agent.d.ts",
-      "import": "./dist/_internal/agent.js",
-      "default": "./dist/_internal/agent.js"
-    },
-    "./_internal/agent/cloudflare": {
-      "types": "./dist/_internal/agent/cloudflare.d.ts",
-      "import": "./dist/_internal/agent/cloudflare.js",
-      "default": "./dist/_internal/agent/cloudflare.js"
-    },
-    "./_internal/agent/cloudflare/state": {
-      "types": "./dist/_internal/agent/cloudflare/state.d.ts",
-      "import": "./dist/_internal/agent/cloudflare/state.js",
-      "default": "./dist/_internal/agent/cloudflare/state.js"
-    },
-    "./_internal/agent/eve": {
-      "types": "./dist/_internal/agent/eve.d.ts",
-      "import": "./dist/_internal/agent/eve.js",
-      "default": "./dist/_internal/agent/eve.js"
-    },
-    "./_internal/agent/internal/workspace/internal/runtime/hosted": {
-      "types": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted.d.ts",
-      "import": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted.js",
-      "default": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted.js"
-    },
-    "./_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob": {
-      "types": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
-      "import": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob.js",
-      "default": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob.js"
-    },
-    "./_internal/agent/internal/workspace/runtime": {
-      "types": "./dist/_internal/agent/internal/workspace/runtime.d.ts",
-      "import": "./dist/_internal/agent/internal/workspace/runtime.js",
-      "default": "./dist/_internal/agent/internal/workspace/runtime.js"
-    },
-    "./_internal/agent/operations": {
-      "types": "./dist/_internal/agent/operations.d.ts",
-      "import": "./dist/_internal/agent/operations.js",
-      "default": "./dist/_internal/agent/operations.js"
-    },
-    "./_internal/agent/runtime/invocations-dev": {
-      "types": "./dist/_internal/agent/runtime/invocations-dev.d.ts",
-      "import": "./dist/_internal/agent/runtime/invocations-dev.js",
-      "default": "./dist/_internal/agent/runtime/invocations-dev.js"
-    },
-    "./_internal/agent/runtime/process": {
-      "types": "./dist/_internal/agent/runtime/process.d.ts",
-      "import": "./dist/_internal/agent/runtime/process.js",
-      "default": "./dist/_internal/agent/runtime/process.js"
-    },
-    "./_internal/agent/runtime/workflow": {
-      "types": "./dist/_internal/agent/runtime/workflow.d.ts",
-      "import": "./dist/_internal/agent/runtime/workflow.js",
-      "default": "./dist/_internal/agent/runtime/workflow.js"
-    },
-    "./_internal/agent/server": {
-      "types": "./dist/_internal/agent/server.d.ts",
-      "import": "./dist/_internal/agent/server.js",
-      "default": "./dist/_internal/agent/server.js"
-    },
-    "./_internal/agent/server/internal": {
-      "types": "./dist/_internal/agent/server/internal.d.ts",
-      "import": "./dist/_internal/agent/server/internal.js",
-      "default": "./dist/_internal/agent/server/internal.js"
-    },
-    "./_internal/agent/server/registry": {
-      "types": "./dist/_internal/agent/server/registry.d.ts",
-      "import": "./dist/_internal/agent/server/registry.js",
-      "default": "./dist/_internal/agent/server/registry.js"
-    },
-    "./_internal/agent/server/workspace": {
-      "types": "./dist/_internal/agent/server/workspace.d.ts",
-      "import": "./dist/_internal/agent/server/workspace.js",
-      "default": "./dist/_internal/agent/server/workspace.js"
-    },
-    "./_internal/agent/state/sqlite": {
-      "types": "./dist/_internal/agent/state/sqlite.d.ts",
-      "import": "./dist/_internal/agent/state/sqlite.js",
-      "default": "./dist/_internal/agent/state/sqlite.js"
-    },
-    "./_internal/auth/runtime/console": {
-      "types": "./dist/_internal/auth/runtime/console.d.ts",
-      "import": "./dist/_internal/auth/runtime/console.js",
-      "default": "./dist/_internal/auth/runtime/console.js"
-    },
-    "./_internal/comments/operations": {
-      "types": "./dist/_internal/comments/operations.d.ts",
-      "import": "./dist/_internal/comments/operations.js",
-      "default": "./dist/_internal/comments/operations.js"
-    },
-    "./_internal/content/operations": {
-      "types": "./dist/_internal/content/operations.d.ts",
-      "import": "./dist/_internal/content/operations.js",
-      "default": "./dist/_internal/content/operations.js"
-    },
-    "./_internal/comments/runtime/console": {
-      "types": "./dist/_internal/comments/runtime/console.d.ts",
-      "import": "./dist/_internal/comments/runtime/console.js",
-      "default": "./dist/_internal/comments/runtime/console.js"
-    },
-    "./_internal/content/runtime/console": {
-      "types": "./dist/_internal/content/runtime/console.d.ts",
-      "import": "./dist/_internal/content/runtime/console.js",
-      "default": "./dist/_internal/content/runtime/console.js"
-    },
-    "./_internal/markdown-template": {
-      "types": "./dist/_internal/markdown-template.d.ts",
-      "import": "./dist/_internal/markdown-template.js",
-      "default": "./dist/_internal/markdown-template.js"
-    },
-    "./_internal/sandbox/task/runtime/state": {
-      "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
-      "import": "./dist/_internal/sandbox/task/runtime/state.js",
-      "default": "./dist/_internal/sandbox/task/runtime/state.js"
-    },
-    "./_internal/task/operations": {
-      "types": "./dist/_internal/task/operations.d.ts",
-      "import": "./dist/_internal/task/operations.js",
-      "default": "./dist/_internal/task/operations.js"
-    },
-    "./_internal/workflow": {
-      "types": "./dist/_internal/workflow.d.ts",
-      "import": "./dist/_internal/workflow.js",
-      "default": "./dist/_internal/workflow.js"
-    },
-    "./_internal/workflow/runtime/state": {
-      "types": "./dist/_internal/workflow/runtime/state.d.ts",
-      "import": "./dist/_internal/workflow/runtime/state.js",
-      "default": "./dist/_internal/workflow/runtime/state.js"
-    },
-    "./_internal/workspace": {
-      "types": "./dist/_internal/workspace.d.ts",
-      "import": "./dist/_internal/workspace.js",
-      "default": "./dist/_internal/workspace.js"
-    },
-    "./_internal/workspace/internal/runtime/hosted": {
-      "types": "./dist/_internal/workspace/internal/runtime/hosted.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/hosted.js",
-      "default": "./dist/_internal/workspace/internal/runtime/hosted.js"
-    },
-    "./_internal/workspace/internal/runtime/hosted-vercel-blob": {
-      "types": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
-      "default": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js"
-    },
-    "./_internal/workspace/internal/runtime/registry": {
-      "types": "./dist/_internal/workspace/internal/runtime/registry.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/registry.js",
-      "default": "./dist/_internal/workspace/internal/runtime/registry.js"
-    },
-    "./_internal/workspace/internal/runtime/state": {
-      "types": "./dist/_internal/workspace/internal/runtime/state.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/state.js",
-      "default": "./dist/_internal/workspace/internal/runtime/state.js"
-    },
-    "./_internal/workspace/operations": {
-      "types": "./dist/_internal/workspace/operations.d.ts",
-      "import": "./dist/_internal/workspace/operations.js",
-      "default": "./dist/_internal/workspace/operations.js"
-    },
-    "./_internal/workspace/runtime": {
-      "types": "./dist/_internal/workspace/runtime.d.ts",
-      "import": "./dist/_internal/workspace/runtime.js",
-      "default": "./dist/_internal/workspace/runtime.js"
-    },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
@@ -677,6 +512,11 @@
       "types": "./dist/forms/runtime.d.ts",
       "import": "./dist/forms/runtime.js",
       "default": "./dist/forms/runtime.js"
+    },
+    "./forms/vue": {
+      "types": "./dist/forms/vue.d.ts",
+      "import": "./dist/forms/vue.js",
+      "default": "./dist/forms/vue.js"
     },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
@@ -1189,11 +1029,6 @@
       "import": "./dist/source/files.js",
       "default": "./dist/source/files.js"
     },
-    "./_internal/agent/invocations": {
-      "types": "./dist/_internal/agent/invocations.d.ts",
-      "import": "./dist/_internal/agent/invocations.js",
-      "default": "./dist/_internal/agent/invocations.js"
-    },
     "./console/documents": {
       "types": "./dist/console/runtime/server/documents.d.ts",
       "import": "./dist/console/runtime/server/documents.js",
@@ -1254,7 +1089,6 @@
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
     "nanotar": "^0.3.0",
-    "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
@@ -1347,6 +1181,7 @@
     "happy-dom": "21.0.3",
     "katex": "^0.18.7",
     "miniflare": "4.20260730.0",
+    "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "reka-ui": "^2.11.0",
@@ -1419,6 +1254,7 @@
     "dropbox": "catalog:storage",
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
+    "nitro": "catalog:nitro-compat",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",

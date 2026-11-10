@@ -22,7 +22,7 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
@@ -156,6 +156,7 @@ async function requiredPeerSpecs() {
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    nitro: await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/nitro/package.json")),
     nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
@@ -626,6 +627,7 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
+    "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
     "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
     "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
