@@ -416,7 +416,7 @@ describe("vitehub init", () => {
     expect(result.exitCode, result.stdout).toBe(0)
     expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548", "--nightly", "5x", "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
     expect(calls.slice(1)).toEqual([[pm, "add", ...result.json.install.packages]])
-    expect(result.json.install.packages.slice(0, 2)).toEqual([...initPackages.nuxt.prod])
+    expect(result.json.install.packages.slice(0, initPackages.nuxt.prod.length)).toEqual([...initPackages.nuxt.prod])
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", scaffold: { command: expect.stringContaining(nuxiPackage) }, status: "applied" })
     const config = await readFile(join(parent, "site/nuxt.config.ts"), "utf8")
     expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, preset: { value: "vercel" } } } })

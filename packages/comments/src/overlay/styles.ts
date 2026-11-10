@@ -181,6 +181,15 @@ export const pillBarStyles = `
 .toolbar { display: flex; flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; gap: 2px; font-variant-numeric: tabular-nums; }
 .toolbar svg { flex: none; }
 .sep { width: 4px; height: 4px; flex: none; }
+.actions { display: flex; flex-direction: inherit; align-items: inherit; gap: 2px; }
+.divider { width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
+.count { min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--vitehub-pill-hover); font-size: 10px; line-height: 17px; text-align: center; }
+button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
+.swatch { padding: 0; }
+.swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
+.swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }
+button.done:not(:disabled) { background: var(--vitehub-pill-on); color: var(--vitehub-pill-on-text); }
+button:disabled { opacity: .45; cursor: default; }
 .people { display: flex; padding: 0 2px; }
 .avatar { width: 20px; height: 20px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }

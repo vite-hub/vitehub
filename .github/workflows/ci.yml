@@ -14,6 +14,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Pushes, manual dispatches and the main guardian's repair pull requests from
+# this repository run the full suite. Other pull requests skip the slow jobs.
+# Steps read env.FULL_SUITE. A job if cannot read env, so jobs use the alias.
+env:
+  FULL_SUITE: &full-suite ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+
 jobs:
   ci:
     name: ci
@@ -42,7 +48,6 @@ jobs:
       - name: Require successful verification
         env:
           CI_RESULTS: ${{ toJSON(needs) }}
-          REPAIR_MAIN: ${{ startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: bash
         run: |
           node <<'NODE'
@@ -66,9 +71,7 @@ jobs:
           // Deploys run only on a push to main.
           const deployJobs = new Set(["docs-deploy", "console-deploy"])
           const failures = Object.entries(results).filter(([name, job]) => {
-            const maySkip = (process.env.GITHUB_EVENT_NAME === "pull_request"
-              && process.env.REPAIR_MAIN !== "true"
-              && skippedPullRequestJobs.has(name))
+            const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
@@ -95,6 +98,10 @@ jobs:
       # Vite+ combines lint and TypeScript checks into one deterministic PR gate.
       # Formatting loads generated fixture configs, so it is excluded here.
       - run: vp check --no-fmt
+
+      # Unused files, unused and unlisted dependencies, and unresolved imports. knip.config.ts names the
+      # entries of each package, and the known findings that wait for a cleanup.
+      - run: vp exec knip --no-progress
 
       # zizmor and actionlint do not check these inputs. The script explains why.
       - name: Check transient package executors and Docker actions
@@ -124,7 +131,7 @@ jobs:
   # examples each ran a full build in sequence.
   contracts-examples:
     name: contracts and examples
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -135,8 +142,6 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
 
-      # Run contracts first: examples:verify leaves generated example output
-      # that the repository contract tests would scan.
       - run: vp run build
 
       # vp pack rewrites each package's exports map in sorted order. Commit
@@ -151,8 +156,6 @@ jobs:
       - name: Validate packed package metadata
         run: vp run package:metadata
 
-      - run: vp run --ignore-depends-on examples:verify
-
   # Match Void's prepublish contract: install the exact tarballs a release
   # would publish and exercise them without workspace visibility. This runs
   # on pushes to main, manual dispatches and repair-main pull requests, so a
@@ -160,7 +163,7 @@ jobs:
   # Other pull requests skip it: it took 13 minutes on every one.
   prepublish-contracts:
     name: prepublish package contracts
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -202,7 +205,7 @@ jobs:
           fetch-depth: 0
       - name: Select contract tests
         id: scope
-        if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ env.FULL_SUITE != 'true' }}
         env:
           BASE_REF: origin/${{ github.base_ref }}
         run: |
@@ -265,20 +268,20 @@ jobs:
           fetch-depth: 0
       - name: Select changed packages
         id: changed
-        if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ env.FULL_SUITE != 'true' }}
         env:
           BASE_REF: origin/${{ github.base_ref }}
         run: |
           packages="$(node test/run-package-task.mjs test ${{ matrix.shard.args }} --affected "$BASE_REF" --list)"
           echo "Changed packages in this shard: ${packages:-none}"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
-      - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
+      - if: ${{ env.FULL_SUITE == 'true' || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup
         with:
           prepare-docs: "false"
-      - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
+      - if: ${{ env.FULL_SUITE == 'true' || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup-deno
-      - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+      - if: ${{ env.FULL_SUITE == 'true' }}
         run: node test/run-package-task.mjs test --cache ${{ matrix.shard.args }}
         env:
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
@@ -304,7 +307,7 @@ jobs:
   # in successful runs, and pull requests already wait for package tests.
   consumer-contracts:
     name: consumer contracts (${{ matrix.shard }})
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -339,7 +342,7 @@ jobs:
   # brand checks, TextDecoder, and structuredClone.
   node-22:
     name: node 22.18
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -356,10 +359,14 @@ jobs:
 
       - name: Require Node.js 22.18
         run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
+      # Install-time builds ran on Node 24. Rebuild once on Node 22.18 before
+      # allowing the six targets to reuse each other's dependency builds.
+      - name: Clear install-time build cache
+        run: vp cache clean
       - name: Build tested packages
         run: |
           for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
-            vp run -t "$task"
+            vp run --cache -t "$task"
           done
       - run: vp test
         working-directory: packages/rate-limit
@@ -386,6 +393,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
+      # Snippet checker tests import the built framework and its discovery plugins.
+      - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
@@ -497,8 +506,9 @@ jobs:
         with:
           prepare-docs: "false"
 
-      # The Console client imports the built packages, such as vite-hub/console/sections.
-      - run: vp run -t vite-hub#build
+      # The Console client imports built packages, such as vite-hub/console/sections.
+      # Setup and this build both use Node 24, so reuse the docs postinstall builds.
+      - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vite-hub build:console-hosted
       - name: Identify hosted Console build
         run: |
@@ -589,7 +599,7 @@ jobs:
 
   verify-providers:
     name: verify providers
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:

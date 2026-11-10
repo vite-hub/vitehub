@@ -193,6 +193,19 @@ describe("Console media library", () => {
     await expect(media("list")).resolves.toMatchObject({ status: 404 })
   })
 
+  it("rejects media actions and uploads when Blob was not installed", async () => {
+    for (const key of [consoleBlobKey, consoleBlobRegistryKey, consoleBlobRootKey]) {
+      Reflect.deleteProperty(scope, key)
+      Reflect.deleteProperty(process, key)
+    }
+    const failure = {
+      body: { message: "The media library needs Blob. Enable Blob in the ViteHub config." },
+      status: 404,
+    }
+    await expect(media("list")).resolves.toMatchObject(failure)
+    await expect(upload({ file: file("a.txt", "a") })).resolves.toMatchObject(failure)
+  })
+
   it("keeps the picker on the served store for an editor with a store grant", async () => {
     const siteDirectory = await mkdtemp(join(tmpdir(), "vitehub-console-media-site-"))
     try {

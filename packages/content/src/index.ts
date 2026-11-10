@@ -16,7 +16,7 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
-import { contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
@@ -72,7 +72,7 @@ export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
 export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
@@ -103,8 +103,8 @@ export type {
 export { optional } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
 // Blob owns the reference schemas. Content re-exports them so one import covers every field helper.
-export { file, image } from "@vite-hub/blob/reference"
-export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
+export { file, image } from "@vite-hub/blob"
+export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
 export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
@@ -439,7 +439,7 @@ export function defineContent<
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
     const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
-    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance })
+    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })

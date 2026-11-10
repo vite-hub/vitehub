@@ -16,7 +16,7 @@ import { summarizeRealtimeDefinitions } from "./inspect.ts"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
-import type { DiscoveredRealtimeDefinition, RealtimeModuleOptions } from "./types.ts"
+import type { DiscoveredRealtimeDefinition, RealtimeOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import unavailable from "./internal/runtime/unavailable.ts"
 
@@ -38,7 +38,7 @@ export interface RealtimeContribution {
   plugins?: string[]
 }
 
-export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
+export interface RealtimeVitePluginOptions extends RealtimeOptions {
   importBase?: string
   /**
    * Adds definitions owned by another package. It runs only when the build has a room authority (Cloudflare Durable
@@ -249,13 +249,19 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
     },
-    resolveId(id) {
-      if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+    resolveId: {
+      filter: { id: /^#vitehub\/realtime\/availability$/ },
+      handler(id) {
+        if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+      },
     },
-    load(id) {
-      if (id === resolvedRealtimeAvailabilityId) {
-        return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/realtime\/availability$/ },
+      handler(id) {
+        if (id === resolvedRealtimeAvailabilityId) {
+          return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+        }
+      },
     },
   }
 }
