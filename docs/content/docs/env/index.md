@@ -164,5 +164,7 @@ Use Env to declare public, build-time, server runtime, and secret values with ty
 
 Use `#vitehub/env/public` in browser-safe code and `#vitehub/env/server` in server code. Provider-backed Env values are read through the declared provider and do not become public automatically.
 
+For a token that the client carries but must not read or change, such as an upload ticket, a signed link, or OAuth state, use `seal()` and `unseal()` from `vite-hub/env`. Do not write your own AES-GCM or HMAC code.
+
 Prove missing, valid, and invalid values in the same host mode you will deploy. Inspect declaration metadata, never secret contents.
 ::
