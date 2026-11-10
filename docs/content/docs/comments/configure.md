@@ -470,7 +470,7 @@ import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
 import { migrateComments } from '@vite-hub/comments/database'
 
-const db = drizzle(createClient({ url: process.env.TURSO_DATABASE_URL!, authToken: process.env.TURSO_AUTH_TOKEN }))
+const db = drizzle({ client: createClient({ url: process.env.TURSO_DATABASE_URL!, authToken: process.env.TURSO_AUTH_TOKEN }) })
 console.log(await migrateComments(db))
 // { from: 'live', statements: [...], backup: 'vitehub_comment_threads_live' }
 ```

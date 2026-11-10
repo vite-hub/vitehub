@@ -82,9 +82,11 @@ describe("public package export contracts", () => {
     }
   })
 
-  it("keeps Comments dependencies installed and classifies its optional Vite peer", () => {
+  it("keeps Comments database peers required and classifies its optional Vite peer", () => {
     const manifest = readPackageManifest("comments")
-    expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["drizzle-orm"]).toBeUndefined()
+    expect(manifest.peerDependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["drizzle-orm"]?.optional).not.toBe(true)
     expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
     for (const subpath of ["database", "database/postgres", "operations", "server"]) {
