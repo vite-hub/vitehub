@@ -9,7 +9,6 @@ import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOption
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { findExportNames, hasCJSSyntax } from "mlly"
-import { transform } from "esbuild"
 import { normalizeRoute } from "h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
@@ -388,7 +387,11 @@ async function discoverBlobAuthorizeModule(rootDir: string, serverDirs: string[]
   const source = await readFile(file, "utf8")
   if (findExportNames(source).includes("authorize")) return file
   if (!file.endsWith(".cts") && !file.endsWith(".cjs") && !hasCJSSyntax(source)) return
-  const commonJS = file.endsWith(".cts") ? (await transform(source, { loader: "ts" })).code : source
+  let commonJS = source
+  if (file.endsWith(".cts")) {
+    const { transformWithOxc } = await import("vite")
+    commonJS = (await transformWithOxc(source, file, { lang: "ts" })).code
+  }
   await initCommonJS()
   return parseCommonJS(commonJS, file).exports.includes("authorize") ? file : undefined
 }

@@ -30,7 +30,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
       <article
         v-for="example in available"
         :key="example.slug"
-        class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-default bg-default"
+        class="flex min-w-0 flex-col overflow-hidden rounded-(--vh-frame-radius) border border-default bg-default"
       >
         <ExampleAppPreview :preview="example.preview" />
         <div class="flex flex-1 flex-col p-4 sm:p-5">
