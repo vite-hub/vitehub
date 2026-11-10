@@ -32,6 +32,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
 | `queue` | `@vite-hub/queue` |
 | `rateLimit` | `@vite-hub/rate-limit` |
+| `mcp` | `@vite-hub/mcp`, and with `auth` also `@better-auth/oauth-provider` |
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
