@@ -8,6 +8,7 @@ import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
+import { loadConsoleMedia } from "./blob.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
 
 import type { ConsoleRoute } from "./request.ts"
@@ -141,7 +142,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     const section = url.searchParams.get("section") ?? ""
     if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
     // Only a document editor section has a media library. Builds without one leave its code out.
-    const { uploadConsoleMedia } = await (import.meta.viteHubConsoleDocuments === false ? Promise.reject(consoleRequestError(404, "The Console document editor section is disabled.")) : import("./media.ts"))
+    const { uploadConsoleMedia } = await (import.meta.viteHubConsoleDocuments === false ? Promise.reject(consoleRequestError(404, "The Console document editor section is disabled.")) : loadConsoleMedia())
     return uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")

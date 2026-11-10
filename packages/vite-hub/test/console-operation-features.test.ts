@@ -54,8 +54,10 @@ it.each([
 })
 
 it.each([
+  "src/console/runtime/server/blob.ts",
   "src/console/runtime/server/rpc.ts",
   "src/console/runtime/server/definitions.get.ts",
+  "dist/console/runtime/server/blob.js",
   "dist/console/runtime/server/rpc.js",
   "dist/console/runtime/server/definitions.get.js",
 ])("bundles the document editor and media code of %s only when an owner contributes a document editor", async (entry) => {
@@ -80,8 +82,8 @@ it.each([
       }],
     })
     const inputs = Object.keys(result.metafile.inputs)
-    // The dist build names shared chunks after one of their modules, such as `media-<hash>.js`. Only the RPC uploads media.
-    for (const module of entry.includes("rpc") ? ["media", "documents"] : ["documents"]) {
+    // The dist build names shared chunks after one of their modules, such as `media-<hash>.js`.
+    for (const module of entry.includes("definitions.get") ? ["documents"] : ["media", "documents"]) {
       const bundled = inputs.some(input => new RegExp(`/(?:runtime/server/)?${module}(?:-[\\w-]+)?\\.[jt]s$`).test(input))
       expect(bundled, `${entry}: ${module} (documents: ${documents})`).toBe(documents)
     }

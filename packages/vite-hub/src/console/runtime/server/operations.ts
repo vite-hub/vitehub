@@ -2,6 +2,7 @@ import { defineOperation, operationAccessAllows, operationCall, operationSection
 import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
+import { loadConsoleMedia } from "./blob.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -297,7 +298,7 @@ const mediaAction = defineConsoleOperation({
   // A read-only grant still browses the library.
   readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
-  run: async ({ action, body, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : import("./media.ts"))).runConsoleMediaAction(section, action, body, context.access),
+  run: async ({ action, body, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : loadConsoleMedia())).runConsoleMediaAction(section, action, body, context.access),
   section: input => input.section,
 })
 
