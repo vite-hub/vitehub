@@ -15,6 +15,6 @@ icon: i-lucide-circle-alert
 - Local Workspace stores are stricter and reject symlinks.
 - Name each `cachedSource()` cache after its origin and access scope. Do not share a cache name between callers who see different data.
 - `cursor` and `limit` are reserved Collection query parameters. Invalid limits, cursors, and filters return HTTP `400`.
-- `array()` and `workspaceFile()` Collections tie each cursor to the data digest and query. A cursor used after the data changed, or with another filter or search, returns HTTP `409` with `SOURCE_R0027`. Reload from the first page.
-- `array()` and `workspaceFile()` load the whole array on each request. Keep it small enough to filter in memory, or use `table()`.
+- `array()` Collections tie each cursor to the data digest and query. A cursor used after the data changed, or with another filter or search, returns HTTP `409` with `SOURCE_R0027`. Reload from the first page.
+- `array()` loads the whole array on each request. Keep it small enough to filter in memory, or use `table()`.
 - Collection `authorize` controls the whole route. It does not filter rows per user.

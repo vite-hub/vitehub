@@ -66,7 +66,7 @@ It writes the ID to `.vitehub/provision.json`, and the build reads it there.
 Generate the migration and build:
 
 ```bash [Terminal]
-pnpm vitehub db generate
+pnpm vitehub database generate
 pnpm build
 ```
 
@@ -80,7 +80,7 @@ pnpm wrangler d1 migrations apply "$CLOUDFLARE_D1_DATABASE_NAME" \
   --remote --config .output/server/wrangler.json
 ```
 
-Wrangler applies migrations for native bindings, not `vitehub db migrate`.
+Wrangler applies migrations for native bindings, not `vitehub database migrate`.
 Review each pending migration first.
 
 Deploy with `pnpm exec nitro deploy --prebuilt`. Call the notes POST and GET
