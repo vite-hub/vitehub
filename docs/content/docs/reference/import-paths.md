@@ -37,6 +37,9 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. Re-exports `@vite-hub/forms/client`. |
 | `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
 | `vite-hub/forms/runtime` | `installedForms()`: the inbox of the running app, for server code. Re-exports `@vite-hub/forms/runtime`. |
+| `vite-hub/i18n` | [`t`, `plural`, `select`, `selectOrdinal`, `msg`](/docs/i18n/server-api), `getLocale()`, `getLocales()`, `setLocale()`, and `translate()`. Messages in the source language, compiled to IDs by the build. Re-exports `@vite-hub/i18n`. |
+| `vite-hub/i18n/vue` | [`createI18n()`](/docs/i18n/configure#add-i18n-to-a-vue-app) and `useLocale()` for Vue apps. Re-exports `@vite-hub/i18n/vue`; `vite-hub/nuxt` installs the plugin and auto-imports `useLocale()`. |
+| `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
 | `vite-hub/gateways` | [AI gateways](/docs/agents/ai-gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/agents/ai-gateways#use-a-model-with-the-ai-sdk): an AI SDK model that sends requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
 | `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |

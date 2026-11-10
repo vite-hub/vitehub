@@ -63,6 +63,7 @@ import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
+import type { I18nOptions } from "@vite-hub/i18n"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
 import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
@@ -117,6 +118,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/env": true,
   "@vite-hub/forms": true,
   "@vite-hub/gateways": true,
+  "@vite-hub/i18n": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/presets": true,
@@ -442,6 +444,12 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /**
+   * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
+   * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
+   * code. `vitehub i18n extract` collects the messages into `locales/<locale>.po`. Needs Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   */
+  i18n?: I18nOptions
   /**
    * Comments on the app's pages. `true`, or an object with the Database, the SQL dialect, or `overlay: false` (no page
    * tool), turns it on, with `server/comments.ts` or else the default `defineComments()`, and turns the Database on
@@ -1163,6 +1171,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
     ["email", options.email],
+    ["i18n", options.i18n],
     // `cache: { driver: "kv" }` stores the cache in KV.
     ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
     ["queue", options.queue && plan.services.queue.supported],
@@ -1410,6 +1419,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
+  }
+  if (options.i18n) {
+    // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
+    plugins.push(requireOptionalOwner(ownerModules.i18nVite, "i18n").hubI18n({ ...options.i18n, importBase: "vite-hub/i18n" } as I18nOptions))
   }
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
