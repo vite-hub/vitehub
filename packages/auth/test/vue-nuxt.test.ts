@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
   requestFetch: vi.fn(),
+  createError: vi.fn(() => new Error("nuxt")),
   getSession: vi.fn(),
   useSession: vi.fn(),
   createAuthClient: vi.fn(),
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("#app", () => ({
+  createError: mocks.createError,
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = middleware },
   navigateTo: mocks.navigateTo,
@@ -45,6 +47,9 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
+vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
+
+const { useAbility } = await import("../src/vue.ts")
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
   default: { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
 }
@@ -115,6 +120,15 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
     expect(mocks.middleware?.({ fullPath: "/login", meta: { auth: "guest" } })).toBe("/")
+  })
+
+  it("makes a refusal of authorize() Nuxt's fatal error, with the status and data of the server", async () => {
+    mocks.event.req.headers.delete("cookie")
+    await plugin.setup({ payload: mocks.payload })
+
+    const refused = await useAbility().authorize("posts.edit", { authorId: "u", published: true }).catch((error: unknown) => error)
+    expect(mocks.createError).toHaveBeenCalledWith({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "signed-out", details: undefined }, fatal: true })
+    expect(refused).toBe(mocks.createError.mock.results[0]!.value)
   })
 
   it("skips the session lookup for a signed-out SSR request and redirects synchronously", async () => {
