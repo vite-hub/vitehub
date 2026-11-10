@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 
 import { createClient } from "@libsql/client"
@@ -23,6 +23,8 @@ export interface MigrationPlan {
   database: string
   /** Where `vitehub database migrate` applies migrations, without credentials. */
   target: string
+  /** How many migrations of the journal the database already has. */
+  applied: number
   pending: PendingMigration[]
 }
 
@@ -185,13 +187,17 @@ export async function readMigrationPlan(
       const pending = listD1MigrationFiles(database.migrationsDir)
         .filter(file => !ledger.applied.has(file))
         .map(file => readPendingMigration(database.migrationsDir, file.slice(0, -".sql".length), entries))
-      return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
+      return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     const lastApplied = entries.length ? await readLastAppliedMillis(target, options) : undefined
+    // Drizzle Kit reads every journal SQL file, even applied ones. Preserve that validation before skipping Kit.
+    for (const entry of entries) {
+      if (lastApplied !== undefined && lastApplied >= entry.when) readFileSync(join(database.migrationsDir, `${entry.tag}.sql`))
+    }
     const pending = entries
       .filter(entry => lastApplied === undefined || lastApplied < entry.when)
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
-    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
+    return [undefined, { applied: entries.length - pending.length, database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)

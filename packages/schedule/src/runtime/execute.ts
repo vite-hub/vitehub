@@ -30,7 +30,7 @@ interface ExecuteStaticScheduleOptions {
 }
 
 export interface RunScheduleOptions {
-  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
+  /** Loads the definition from this registry instead of the registry that the build installs. */
   registry?: ScheduleDefinitionRegistry
   /**
    * The time the handler receives as `scheduledAt`, as if the cron fired then. A string is an ISO 8601 date-time with a

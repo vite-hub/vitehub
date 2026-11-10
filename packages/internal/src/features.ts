@@ -540,8 +540,8 @@ function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean
   })
 }
 
-/** Packages needed by a feature and its statically selected provider. */
-export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown"): string[] {
+/** Packages needed by a feature, its provider, and its enabled feature integrations. */
+export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown", enabled: readonly FeatureId[] = []): string[] {
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
@@ -557,6 +557,11 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  if (id === "console") {
+    if (enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
+    const auth = options ? options.auth : "app"
+    if ((isPlainObject(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.includes("auth"))) selected.push(...consoleFeaturePackages.signIn)
+  }
   return [...new Set([...definition.packages, ...selected])]
 }
 

@@ -5,19 +5,18 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleBuildKey, consoleBuildRegistryKey, consoleBuildRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleNitroPlugin, type ConsoleNitroPluginOptions } from "../src/console/plugin.ts"
 import { consoleBuildCheckInterval, useConsoleUpdate, watchConsoleBuild } from "../src/console/runtime/client/build.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
-import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
+import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleBuild, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
-import { allowed } from "./support/console-access.ts"
+import { consoleAccess } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 
-const sectionsHandler = allowed(sectionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
 const buildPattern = /installConsoleBuild\("[^"]+", "([0-9a-f]{16})"\)\n$/
 
@@ -25,8 +24,8 @@ function event(): ConsoleRequestEvent {
   return consoleEvent({ remoteAddress: "127.0.0.1", url: "http://localhost/_vitehub" })
 }
 
-async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {
-  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [])
+async function generatedBuild(file: string, root: string, sections: ConsoleNitroPluginOptions["sections"]): Promise<string> {
+  await writeConsoleNitroPlugin({ file, projectRoot: root, sections, catalog: { agents: [], content: {} }, blobStores: [] })
   const build = buildPattern.exec(await readFile(file, "utf8"))?.[1]
   if (!build) throw new TypeError("Expected the generated Console plugin to install a build id.")
   return build
@@ -90,7 +89,7 @@ describe("Console build id", () => {
     installConsoleSections("/second", ["kv"])
     installConsoleBuild("/second", "bbbbbbbbbbbbbbbb")
 
-    await expect(sectionsHandler(event())).resolves.toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
+    expect(listConsoleSections(await consoleAccess(event()))).toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
   })
 
   it("is read with the Console navigation", async () => {

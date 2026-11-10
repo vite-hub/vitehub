@@ -200,9 +200,23 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 }
 
 function dependencyResolver() {
-  const resolver = dependencyPlugin({ preset: "node", blob: true })
-  if (!resolver || !isCallable(resolver.resolveId)) throw new TypeError("Expected the framework dependency resolver.")
-  return resolver.resolveId
+  return filteredResolveId(dependencyPlugin({ preset: "node", blob: true }))
+}
+
+/** Skips the hook for an id that its filter rejects, as Rolldown and Vite do. */
+function matchesIdFilter(hook: unknown, id: unknown): boolean {
+  const filter = isRuntimeRecord(hook) ? hook.filter : undefined
+  if (!isRuntimeRecord(filter) || !("id" in filter)) return true
+  return typeof id === "string" && [filter.id].flat().some(pattern => pattern instanceof RegExp && pattern.test(id))
+}
+
+function filteredResolveId(plugin: Plugin) {
+  const hook = plugin.resolveId
+  const handler = isRuntimeRecord(hook) && "handler" in hook ? hook.handler : hook
+  if (!isCallable(handler)) throw new TypeError(`Expected the ${plugin.name} resolver.`)
+  return function (this: unknown, id: string, ...args: unknown[]): unknown {
+    return matchesIdFilter(hook, id) ? Reflect.apply(handler, this, [id, ...args]) : undefined
+  }
 }
 
 function callHook(hook: unknown, args: readonly unknown[]): unknown {
@@ -212,6 +226,7 @@ function callHook(hook: unknown, args: readonly unknown[]): unknown {
       ? hook.handler
       : undefined
   if (!isCallable(candidate)) throw new TypeError("Expected a callable plugin hook.")
+  if (!matchesIdFilter(hook, args[0])) return undefined
   return Reflect.apply(candidate, undefined, args)
 }
 
@@ -799,6 +814,7 @@ describe("vitehub", () => {
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
+        i18n: false,
         kv: "vite-hub/kv",
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
@@ -1279,12 +1295,22 @@ describe("vitehub", () => {
     sandboxTaskAliases["@vite-hub/sandbox/task"] = providerSandboxTaskFacade
     sandboxTaskAliases["vite-hub/sandbox/task"] = providerSandboxTaskFacade
 
-    const resolveId = plugin.resolveId
-    if (!isCallable(resolveId)) throw new TypeError("Expected the framework dependency resolver.")
+    const resolveId = filteredResolveId(plugin)
     expect(await resolveId.call(pluginContext, "vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, frameworkSandboxTaskFacade, "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+  })
+
+  it("skips relative, virtual, and app file ids before the dependency resolver runs", () => {
+    const plugin = dependencyPlugin()
+    const frameworkKVFacade = pluginAliases(plugin)["vite-hub/kv"]
+    expect(matchesIdFilter(plugin.resolveId, "./server.ts")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "\0virtual:vitehub-agent-cloudflare-state-exports")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "/app/server/api.ts")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "#vitehub/env/server")).toBe(true)
+    expect(matchesIdFilter(plugin.resolveId, "nitro/app")).toBe(true)
+    expect(matchesIdFilter(plugin.resolveId, frameworkKVFacade)).toBe(true)
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
