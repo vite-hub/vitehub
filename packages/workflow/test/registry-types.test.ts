@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest"
 import { createWorkflowTypes } from "../src/internal/registry-types.ts"
 
 describe("generated Workflow types", () => {
-  it.each(["@vite-hub/workflow", "vite-hub/workflow", "vite-hub/_internal/workflow"].flatMap(importBase => [false, true].map(allowJs => ({ allowJs, importBase }))))("supports steps through $importBase with allowJs: $allowJs", async ({ allowJs, importBase }) => {
+  it.each(["@vite-hub/workflow", "vite-hub/workflow"].flatMap(importBase => [false, true].map(allowJs => ({ allowJs, importBase }))))("supports steps through $importBase with allowJs: $allowJs", async ({ allowJs, importBase }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-js-types-"))
     try {
       await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
@@ -27,8 +27,7 @@ describe("generated Workflow types", () => {
       await writeFile(entry, [
         'import { defineWorkflow } from "@vite-hub/workflow"',
         'import { defineWorkflow as definePublicWorkflow } from "vite-hub/workflow"',
-        'import { defineWorkflow as defineInternalWorkflow } from "vite-hub/_internal/workflow"',
-        "for (const define of [defineWorkflow, definePublicWorkflow, defineInternalWorkflow]) {",
+        "for (const define of [defineWorkflow, definePublicWorkflow]) {",
         'define("release", async (_payload, { steps }) => {',
         "  await steps.javascript()",
         "  await steps.module(1)",
@@ -53,7 +52,6 @@ describe("generated Workflow types", () => {
         // Use the distribution's real barrels without building its unrelated integrations.
         paths: {
           "vite-hub/workflow": [resolve(import.meta.dirname, "../../vite-hub/src/workflow.ts")],
-          "vite-hub/_internal/workflow": [resolve(import.meta.dirname, "../../vite-hub/src/_internal/workflow.ts")],
         },
       })
       expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])

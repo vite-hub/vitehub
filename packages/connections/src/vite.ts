@@ -540,12 +540,10 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             ...(actorModule ? [`import actor from ${JSON.stringify(actorImport)}`] : []),
             "",
             // Without an actor module, only a development server allows management.
+            // The handler is a Fetchable: Nitro calls `fetch(event.req)`.
             actorModule
-              ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
-              : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
-            "",
-            // `handle` reads the Web Request from the event's Standard Context, on H3 1 and H3 2.
-            "export default (event: Parameters<typeof handle>[0]) => handle(event)",
+              ? `export default createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
+              : `export default createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
           ].join("\n"),
         );
@@ -598,11 +596,17 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const module = context.server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
       if (module) context.server.moduleGraph.invalidateModule(module);
     },
-    resolveId(id) {
-      if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+    resolveId: {
+      filter: { id: /^#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
+      },
     },
-    load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+    load: {
+      filter: { id: /^\0#vitehub\/connections\/registry$/ },
+      handler(id) {
+        if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
+      },
     },
   };
 }

@@ -108,6 +108,6 @@ describe("vitehub conversations export", () => {
     const contributor = await createAgentCliContributor({ rootDir, serverDirs: [] })
     const features = (name: string) => contributor!.namespaces.find(namespace => namespace.name === name)?.features.map(feature => feature.name)
     expect(features("conversations")).toEqual(["export"])
-    expect(features("channels")).toEqual(expect.arrayContaining(["export", "history", "replay", "sync"]))
+    expect(features("channels")).toEqual(["history", "replay", "sync"])
   })
 })

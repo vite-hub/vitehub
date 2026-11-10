@@ -10,8 +10,9 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineContent` from `vite-hub/content` | Define the Content runtime in `server/content.ts`. |
-| `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or singleton, and mark a field optional. |
+| `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
+| `documents`, `singleton` from `vite-hub/content/collections` | Define an editable collection or a singleton. This entry needs `@vite-hub/workspace`. |
+| `optional` from `vite-hub/content` | Mark a field optional. |
 | `cms` from `vite-hub/cms` | Store collections with `defineContent({ extends: cms })`. See [CMS](/docs/cms). |
 | `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
 | `image`, `file` from `vite-hub/content` | [Blob reference](/docs/blob/server-api#blob-reference-schemas) fields. Blob owns them, and `vite-hub/blob` exports them too. |
@@ -38,8 +39,9 @@ Libraries can install `@vite-hub/content` and import from `@vite-hub/content` an
 import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { cms } from 'vite-hub/cms'
-import { defineContent, documents, singleton } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { defineContent } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
+import { glob } from 'vite-hub/source'
 import { z } from 'zod'
 
 export const content = defineContent({

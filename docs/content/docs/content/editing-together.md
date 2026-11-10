@@ -25,11 +25,12 @@ export default defineDatabase({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate`. Content finds the Database through the Workspace Store, so `defineContent()` needs no new option. The examples on this page edit this `posts` collection:
+Run `vitehub database generate` and `vitehub database migrate`. Content finds the Database through the Workspace Store, so `defineContent()` needs no new option. The examples on this page edit this `posts` collection:
 
 ```ts [server/content.ts]
 import { cms } from 'vite-hub/cms'
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({

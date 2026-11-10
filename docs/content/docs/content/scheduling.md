@@ -12,7 +12,8 @@ The examples on this page schedule documents of this `posts` collection:
 
 ```ts [server/content.ts]
 import { cms } from 'vite-hub/cms'
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({

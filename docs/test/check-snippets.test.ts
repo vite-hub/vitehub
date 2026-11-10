@@ -205,8 +205,8 @@ describe("documentation snippet check", () => {
     const pageRoot = join(repoRoot, "docs/.snippets/env-page")
     const label = "vite.config.ts"
     const declarations = await generatedDeclarations([{
-      code: `import { env } from "@vite-hub/env/vite"
-export default { env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }`,
+      code: `import { env, hubEnv } from "@vite-hub/env/vite"
+export default { plugins: [Promise.resolve([hubEnv({ public: { appName: env({ default: "Acme", mode: "build" }) } })])] }`,
       file: join(pageRoot, label), fragment: false, label, line: 1, page: "env-page.md", pageRoot,
     }])
 
@@ -238,7 +238,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
 
     expect(env).toContain('"labeller": {')
     expect(env).toContain('"appName": string')
-    expect(env).toContain('"apiToken": import("@vite-hub/env/secret").SecretEnv<string>')
+    expect(env).toContain('"apiToken": import("@vite-hub/env").SecretEnv<string>')
     const labeller = snippets.find(snippet => snippet.label === "server/labeller.ts")!
     expect(checkSnippets([labeller], declarations).failures).toEqual([])
   }, 60_000)
@@ -279,7 +279,9 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     expect(snippets.find(snippet => snippet.code.includes("// Invalid") && snippet.code.includes("env: { server: { token:"))?.fragment).toBe(true)
     const declarations = await generatedDeclarations(snippets)
 
-    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"githubToken": import("@vite-hub/env/secret").SecretEnv<string>')
+    const env = declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code
+    expect(env).toContain('"token": import("@vite-hub/env").SecretEnv<string>')
+    expect(env).not.toContain('"githubToken":')
   })
 
   it("checks Vite import.meta.glob calls against the app's ambient types", () => {

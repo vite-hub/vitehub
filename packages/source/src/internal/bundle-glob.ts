@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises"
+import { gzipSync } from "node:zlib"
 
 import { collectGlobFiles, globFilePath, resolveGlobInput } from "../sources/glob.ts"
 
@@ -28,11 +29,11 @@ export interface GlobCall {
   end: number
   /** The call's options, or undefined when they are not literals and the files stay on disk. */
   input?: GlobInput
-  /** Where `files()` comes from, next to the `glob` the app imported (`vite-hub/source/files`, say). */
+  /** Where `files()` comes from: the module the app imported `glob` from (`vite-hub/source`, say). */
   filesModule: string
 }
 
-const GLOB_MODULE = /^(?:@vite-hub|vite-hub)\/source\/glob$/
+const GLOB_MODULE = /^(?:@vite-hub|vite-hub)\/source$/
 const OPTION_KEYS = new Set(["cwd", "dot", "followSymlinks", "ignore", "include", "keyCache", "prefix"])
 
 function isNode(value: unknown): value is Node {
@@ -85,7 +86,7 @@ export function findGlobCalls(program: Node): GlobCall[] {
     if (typeof source !== "string" || !GLOB_MODULE.test(source)) continue
     for (const specifier of statement.specifiers as Node[]) {
       const name = (specifier.imported as Node | undefined)?.name ?? (specifier.imported as Node | undefined)?.value
-      if (specifier.type === "ImportSpecifier" && name === "glob") imported.set((specifier.local as Node).name as string, source.replace(/\/glob$/, "/files"))
+      if (specifier.type === "ImportSpecifier" && name === "glob") imported.set((specifier.local as Node).name as string, source)
     }
   }
   if (imported.size === 0) return []
@@ -134,26 +135,39 @@ export async function collectBundledGlob(input: GlobInput, rootDir: string) {
   return { entries, prefix: options.prefix, watched }
 }
 
-const utf8 = new TextDecoder("utf-8", { fatal: true })
-
-/** One file in the generated module: text stays readable, anything else is base64. Both load as bytes, as glob() reads them. */
-function fileExpression(bytes: Uint8Array) {
-  try {
-    const text = utf8.decode(bytes)
-    if (!text.includes("\0")) return `text(${JSON.stringify(text)})`
-  }
-  catch {}
-  return `bytes(${JSON.stringify(Buffer.from(bytes).toString("base64"))})`
-}
-
-/** The generated module: the matched files, served through files(). */
+/**
+ * The generated module: the matched files, served through files(). Their bytes are one gzip blob in base64, and each
+ * key reads its range of the blob, which the server inflates on the first read. A host compiles a short string
+ * instead of every file as JavaScript when the server starts. Cloudflare Workers compile every module of the bundle
+ * when an isolate starts.
+ */
 export function renderBundledGlob(filesModule: string, entries: Record<string, Uint8Array>, prefix?: string): string {
-  const lines = Object.entries(entries).map(([key, bytes]) => `  ${JSON.stringify(key)}: ${fileExpression(bytes)},`)
+  const lines: string[] = []
+  let offset = 0
+  for (const [key, bytes] of Object.entries(entries)) {
+    lines.push(`  ${JSON.stringify(key)}: file(${offset}, ${offset + bytes.length}),`)
+    offset += bytes.length
+  }
+  const packed = gzipSync(Buffer.concat(Object.values(entries)), { level: 9 }).toString("base64")
   return [
     `import { files } from ${JSON.stringify(filesModule)}`,
-    `const encoder = new TextEncoder()`,
-    `const text = value => encoder.encode(value)`,
-    `const bytes = value => Uint8Array.from(atob(value), character => character.charCodeAt(0))`,
+    `let unpacked`,
+    `async function unpack(base64) {`,
+    // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib and node:buffer. On Node they decode about 5 times faster than atob() and DecompressionStream.
+    `  const zlib = globalThis.process?.getBuiltinModule?.("node:zlib")`,
+    `  const buffer = globalThis.process?.getBuiltinModule?.("node:buffer")`,
+    `  if (zlib && buffer) {`,
+    `    const bytes = zlib.gunzipSync(buffer.Buffer.from(base64, "base64"))`,
+    `    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)`,
+    `  }`,
+    // A loop, because Uint8Array.from() with a map function takes about 75 ms for 1.5 MB of base64.
+    `  const binary = atob(base64)`,
+    `  const gzip = new Uint8Array(binary.length)`,
+    `  for (let index = 0; index < binary.length; index++) gzip[index] = binary.charCodeAt(index)`,
+    `  return new Uint8Array(await new Response(new Response(gzip).body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())`,
+    `}`,
+    // slice() copies, so a caller that changes the bytes of one file does not change the others.
+    `const file = (start, end) => async () => (await (unpacked ??= unpack(${JSON.stringify(packed)}))).slice(start, end)`,
     `export default files({`,
     ...lines,
     `}${prefix ? `, { prefix: ${JSON.stringify(prefix)} }` : ""})`,

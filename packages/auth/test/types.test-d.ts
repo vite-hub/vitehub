@@ -1,6 +1,5 @@
 import { admin } from "better-auth/plugins"
 import { H3, type Middleware } from "h3"
-import type { UserConfig } from "vite"
 import virtualAuthRoute, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
@@ -19,7 +18,7 @@ import {
   type AuthDefinitionOptions,
   type AuthDefinitionResolver,
   type AuthFor,
-  type AuthModuleOptions,
+  type AuthOptions,
   type AuthRequest,
   type AuthReservedOption,
   type AuthResolvedDefinitionOptions,
@@ -107,12 +106,8 @@ describe("types", () => {
     expectTypeOf(defineAuth(resolver)).toEqualTypeOf<AuthDefinition<AuthDefinitionResolver<ReturnType<typeof resolver>>>>()
   })
 
-  it("augments vite user config with auth options", () => {
-    const config: UserConfig = {
-      auth: {},
-    }
-
-    expectTypeOf(config.auth).toMatchTypeOf<AuthModuleOptions | undefined>()
+  it("takes Auth options as the plugin argument", () => {
+    expectTypeOf(hubAuth).parameter(0).toEqualTypeOf<AuthOptions | undefined>()
     expectTypeOf(hubAuth()).toHaveProperty("api")
   })
 

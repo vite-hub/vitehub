@@ -14,7 +14,8 @@ A preview cookie lets one browser see drafts through your real pages. Requests w
 
 ```ts [server/content.ts]
 import { cms } from 'vite-hub/cms'
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({

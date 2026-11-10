@@ -62,18 +62,26 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubAuth } from "@vite-hub/auth/vite"
-import { hubSource, mergeGeneratedSourceNitroConfig, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
+import { hubSource, mergeGeneratedSourceNitroConfig, prepareSourceGeneration, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
-import {
-  hubSource as frameworkHubSource,
-  prepareSourceGeneration as prepareFrameworkSourceGeneration,
-} from "../src/source/vite.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 
 const tempDirectories: string[] = []
+
+const frameworkImports = { contentImportBase: "vite-hub/content", importBase: "vite-hub/source" }
+
+/** The Source plugins as `vitehub()` composes them: generated code imports `vite-hub/*`. */
+function frameworkHubSource(options: Parameters<typeof hubSource>[0] = {}) {
+  const source = hubSource({ ...frameworkImports, ...options })
+  return [source, viteHubTypesPlugin({ prepareSources: source.api.prepareSources })] as const
+}
+
+function prepareFrameworkSourceGeneration(options: Parameters<typeof prepareSourceGeneration>[0]) {
+  return prepareSourceGeneration({ ...frameworkImports, ...options })
+}
 
 async function createNestedProject() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-generated-types-"))
@@ -442,9 +450,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
     )
-    await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).resolves.toBe(
-      '/// <reference path="./collections.d.ts" />\n',
-    )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
   })
 
@@ -511,22 +516,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toContain(
       'from "@vite-hub/content"',
     )
-  })
-
-  it("uses framework imports when direct Source options explicitly leave the import base undefined", async () => {
-    const { root } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    await prepareFrameworkSourceGeneration({ importBase: undefined, projectRoot: root })
-    const generatedRoute = join(root, ".vitehub/source/routes/meals.mjs")
-    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
-
-    await rm(generatedRoute)
-    const [source] = frameworkHubSource({ importBase: undefined })
-    await configResolved(source!)({ root })
-
-    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
   })
 
   it("preserves a custom framework import base during CLI preparation", async () => {
@@ -663,66 +652,8 @@ describe("framework generated types", () => {
     await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
 
     await writeFile(definition, "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
-    await configResolved(source)({ auth: false, plugins: [auth], root })
-    await source.api.prepareSources({ projectRoot: root })
-    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
     await configResolved(source)({ plugins: [], root })
     await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
-  })
-
-  it("omits Auth's authorizer when the resolved Vite config disables Auth", async () => {
-    const { root } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    const [source] = frameworkHubSource({
-      auth: ({ configuredAuth }) => configuredAuth !== false,
-    })
-    await configResolved(source!)({ auth: false, root })
-
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
-      [
-        `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
-        ``,
-        `export default defineCollectionHandler(collection)`,
-        ``,
-      ].join("\n"),
-    )
-
-    await (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
-      [
-        `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
-        ``,
-        `export default defineCollectionHandler(collection)`,
-        ``,
-      ].join("\n"),
-    )
-  })
-
-  it("keeps queued Source preparation on the latest resolved Auth setting", async () => {
-    const { root, viteRoot } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    const [source] = frameworkHubSource({
-      auth: ({ configuredAuth }) => configuredAuth !== false,
-    })
-    const resolveConfig = configResolved(source!)({ auth: false, root: viteRoot })
-    const queuedPreparation = (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
-    await Promise.all([resolveConfig, queuedPreparation])
-
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
-      [
-        `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
-        ``,
-        `export default defineCollectionHandler(collection)`,
-        ``,
-      ].join("\n"),
-    )
   })
 
   it("serves server/content.ts through the Comark Content runtime", async () => {
@@ -1044,7 +975,7 @@ export const content = defineContent(${options})
 
     const [handler] = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
-    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
+    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default.fetch", expect.any(Function))
   })
 
   it("registers generated Collection handlers in plain Vite Nitro config", async () => {
@@ -2300,7 +2231,6 @@ export const content = defineContent(${options})
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
       await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
-      await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )

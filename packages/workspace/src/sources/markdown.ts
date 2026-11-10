@@ -1,4 +1,4 @@
-import { markdown as createMarkdownSource } from "@vite-hub/source/markdown"
+import { markdown as createMarkdownSource } from "@vite-hub/source"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"

@@ -608,7 +608,7 @@ export interface BlobStoresConfig extends BlobModuleBaseOptions {
   stores: Record<string, BlobStoreConfig>
 }
 
-export type BlobModuleOptions =
+export type BlobOptions =
   | false
   | BlobStoresConfig
   | (BlobModuleBaseOptions & HostedBlobStoreConfig & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)

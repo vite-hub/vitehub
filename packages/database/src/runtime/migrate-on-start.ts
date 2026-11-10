@@ -40,7 +40,7 @@ interface StartMigrationPlan {
   pending: Map<string, { migration: StartMigration, name: string }>
 }
 
-// Drizzle Kit's ledger, created with the same statement as `drizzle-orm/libsql/migrator`, so `vitehub db migrate`
+// Drizzle Kit's ledger, created with the same statement as `drizzle-orm/libsql/migrator`, so `vitehub database migrate`
 // and the server agree on what is applied.
 const migrationsTable = "__drizzle_migrations"
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`
@@ -70,7 +70,7 @@ async function readApplied(client: LibsqlMigrationClient): Promise<{ keys: Set<s
 
 /**
  * Applies the pending migrations of each local SQLite database before the server handles requests. It uses Drizzle
- * Kit's ledger and refuses migrations that lose data, like `vitehub db migrate`. It checks every database before the
+ * Kit's ledger and refuses migrations that lose data, like `vitehub database migrate`. It checks every database before the
  * first one changes, so a refusal leaves all of them as they were. All pending migrations of one SQLite file run in one
  * transaction, so a failure keeps none of them.
  */
