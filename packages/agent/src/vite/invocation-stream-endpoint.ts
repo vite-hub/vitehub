@@ -411,7 +411,7 @@ function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvoca
   if (isTriggerInputSchema(trigger.input)) {
     const prompt = promptFromBody(body)
     if (payload) return withPayloadDefaults(payload, { prompt })
-    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --payload or prompt.", { status: 400 })
+    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --input or a prompt.", { status: 400 })
     return { prompt }
   }
   if (trigger.id !== "chat.message") {
@@ -424,7 +424,7 @@ function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvoca
         run,
       }) as AgentRunInput<unknown>, signal)
     }
-    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --payload or prompt.", { status: 400 })
+    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --input or a prompt.", { status: 400 })
     return {
       abortSignal: signal,
       prompt,

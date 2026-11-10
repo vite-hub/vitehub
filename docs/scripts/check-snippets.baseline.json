@@ -365,11 +365,6 @@
     "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
-    "label": "vite.config.ts",
-    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type 'string | undefined' is not assignable to type 'EnvRuntimeConfigValue'.\n      Type 'undefined' is not assignable to type 'EnvRuntimeConfigValue'."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
     "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
@@ -413,11 +408,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#317457c7fc34",
     "label": "server/api/warmup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
-    "label": "vite.config.ts",
-    "error": "TS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'vitehub'.\nTS2304 Cannot find name 'vitehub'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
@@ -485,7 +475,7 @@
     "error": "TS18048 'body' is possibly 'undefined'.\nTS18048 'body' is possibly 'undefined'.\nTS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "packages/blob/README.md#0f443e92375d",
+    "id": "packages/blob/README.md#45378057acd1",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
   },
@@ -520,7 +510,7 @@
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
   },
   {
-    "id": "packages/env/README.md#a9239e812708",
+    "id": "packages/env/README.md#a071f6c066c6",
     "label": "server/sync.ts",
     "error": "TS18046 'airtableToken' is of type 'unknown'."
   },

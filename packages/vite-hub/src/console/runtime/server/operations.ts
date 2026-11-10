@@ -131,7 +131,7 @@ const agentsInvoke = defineConsoleOperation({
 })
 
 const databasesBrowse = defineConsoleOperation({
-  cli: { namespace: "db", command: "rows", positional: ["table"] },
+  cli: { namespace: "database", command: "rows", positional: ["table"] },
   description: "Read the rows of a database table, one page at a time. Without a table it reads the tables only.",
   input: v.strictObject({
     database: optionalText,
@@ -157,7 +157,7 @@ const databasesBrowse = defineConsoleOperation({
 })
 
 const databasesTables = defineConsoleOperation({
-  cli: { namespace: "db", command: "tables" },
+  cli: { namespace: "database", command: "tables" },
   description: "List the tables of a database with their columns and relationships.",
   input: v.strictObject({ database: optionalText }),
   kind: "read",
@@ -352,7 +352,7 @@ const statusGet = defineConsoleOperation({
 })
 
 const usageGet = defineConsoleOperation({
-  cli: { default: true },
+  cli: { command: "usage", namespace: "agent" },
   description: "Read token use and cost evidence of Agent Invocations.",
   input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
   kind: "read",

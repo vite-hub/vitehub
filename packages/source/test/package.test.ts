@@ -138,11 +138,6 @@ describe("@vite-hub/source package contract", () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", [
       ".",
       "./drizzle",
-      "./file",
-      "./files",
-      "./github",
-      "./glob",
-      "./markdown",
       "./mcp",
       "./vite",
     ])
@@ -151,8 +146,9 @@ describe("@vite-hub/source package contract", () => {
     await expect(readFile(tsconfig, "utf8")).resolves.toContain(".vitehub/types")
   })
 
-  it("keeps CommonJS dependency discovery out of the glob bundle", async () => {
-    const entry = join(import.meta.dirname, "..", "dist", "glob.js")
+  it("keeps CommonJS dependency discovery and Node built-ins out of the root's static imports", async () => {
+    // A Worker that imports the root and never calls github() must not load the Node built-ins that github() uses.
+    const entry = join(import.meta.dirname, "..", "dist", "index.js")
     const pending = [entry]
     const visited = new Set<string>()
     let output = ""
@@ -177,5 +173,6 @@ describe("@vite-hub/source package contract", () => {
     expect(runtimeOutput).not.toContain("createRequire")
     expect(runtimeOutput).not.toMatch(/from ["'](?:node:)?module["']/)
     expect(runtimeOutput).not.toMatch(/require\(["']picomatch["']\)/)
+    expect(runtimeOutput).not.toMatch(/from ["']node:(?:buffer|crypto|os|zlib)["']/)
   })
 })
