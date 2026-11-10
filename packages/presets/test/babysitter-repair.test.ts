@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import type { GitHubPullRequestOperations } from "@vite-hub/agent/server/github"
+import type { GitHubPullRequestOperations } from "../src/github/index.ts"
 import { resolveAgentCapabilities } from "../../agent/src/capability-runtime.ts"
 import { repairCapability } from "../src/babysitter/repair.ts"
 

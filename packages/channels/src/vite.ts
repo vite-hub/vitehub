@@ -185,11 +185,17 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       const module = context.server.moduleGraph.getModuleById(resolvedChannelsRegistryId)
       if (module) context.server.moduleGraph.invalidateModule(module)
     },
-    resolveId(id) {
-      if (id === CHANNELS_REGISTRY_ID) return resolvedChannelsRegistryId
+    resolveId: {
+      filter: { id: /^#vitehub\/channels\/registry$/ },
+      handler(id) {
+        if (id === CHANNELS_REGISTRY_ID) return resolvedChannelsRegistryId
+      },
     },
-    load(id) {
-      if (id === resolvedChannelsRegistryId) return renderRegistry(definitions)
+    load: {
+      filter: { id: /^\0#vitehub\/channels\/registry$/ },
+      handler(id) {
+        if (id === resolvedChannelsRegistryId) return renderRegistry(definitions)
+      },
     },
   }
 }

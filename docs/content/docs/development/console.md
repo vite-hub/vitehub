@@ -643,7 +643,7 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 - Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
 - Another browser or another Console origin has its own list. Link the projects again there.
 - When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
-- To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
+- To revoke access, remove the token's hash from `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. A Console that used that token then asks for a new one. See [Give each caller its own token](#give-each-caller-its-own-token).
 
 A project that signs in with the app keeps OAuth tokens in the same entry: an access token that is valid for 15 minutes, and a refresh token that is valid for 7 days. Each refresh gives a new refresh token. The Console refreshes the access token before a request when it expires within a minute. Requests that start at the same time wait for one refresh, and tabs take turns with the Web Locks API so they do not use the same refresh token. In browsers without Web Locks, a short lease in `localStorage` coordinates active tabs. This fallback is best effort: a suspended tab can miss lease renewal and overlap another tab's refresh. When the app refuses a refresh token that another tab already rotated, the Console uses the tokens that the other tab saved. When the project refuses an access token with `error="invalid_token"`, the Console refreshes once and sends the request again. When the refresh fails, the Console removes the tokens and asks you to sign in again. While a sign-in runs, the PKCE verifier and the `state` stay in `sessionStorage` of the tab, under `vitehub-console:oauth-sign-ins`. Each `state` works once. A browser that blocks site data for the Console keeps nothing across the redirect to the app, so the Console does not start a sign-in there and says `This browser blocks site data`. Allow site data for the Console origin, or use `auth: "token"`.
 
@@ -1122,7 +1122,7 @@ VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
 wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
 ```
 
-Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set or is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When no token hash variable is set, or one of them is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
 
 The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
 
@@ -1143,8 +1143,22 @@ export default defineConsoleAuthorize(({ via }) => {
 ```
 
 ::warning
-The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or redeploy the server. The old token stops working at once.
+The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles.
 ::
+
+### Give each caller its own token
+
+Next to `VITEHUB_CONSOLE_TOKEN_SHA256`, the server reads every variable named `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>`, where `<NAME>` has capital letters, digits, and underscores. Give each caller its own token and its own variable, such as one for a Console and one for the CLI in CI:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE=<console hash> \
+VITEHUB_CONSOLE_TOKEN_SHA256_CI=<ci hash> \
+node .output/server/index.mjs
+```
+
+Hosts never give a secret back, so a command can add or remove its own variable without reading the others. Removing one variable revokes only that caller. The server compares the token with every hash, so the time of the check does not show which one matched. A variable that is not 64 hex characters refuses every request with `CONSOLE_TOKEN_NOT_CONFIGURED`, and the message names it.
+
+To rotate a token with no downtime, add a variable with the hash of the new token and deploy. Give the new token to the caller, then remove the old variable and deploy again. The old token stops working at once.
 
 The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
 
@@ -1815,14 +1829,9 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 
 After you open the Console, go back to any app page. The ViteHub pill stays while its hint cookie is set, or when you open a page with `?vitehub`. The server checks each tool's access, because the cookie grants nothing. Signed-out visitors do not get the editor.
 
-Choose **Console** to open it in a floating window. **Content** shows only when Content is installed and you have the full `content` grant. With `content:read`, use Content through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the Content editor.
+Choose **Console** to open it in a floating window. Content lives in the Console's Content section, so the pill has no separate Content button. To change text on the page itself, use **Edit** in the [Comments](/docs/comments/configure#mark-content-fields) segment: a click on a field marked with `contentField()` edits its text in place, and a field that is not plain text opens its document in the Console window. Content's own read, write, and publish policies still apply.
 
-- While you select, an open Content window moves aside. <kbd>Esc</kbd>, a second **Select field**, or a click outside a field cancels and brings it back.
-- A click while you select never follows a link.
-- A minimized window stays minimized until you pick a field.
-- You can browse collections with the keyboard in the Content window. Content's read, write, and publish policies still apply.
-
-When the page belongs to a document with an unpublished saved draft, the Content segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
+When the page belongs to a document with an unpublished saved draft, the Console segment shows **View draft**. The pill finds the document from the collection `url` patterns, and shows the button only for documents you may read. **View draft** loads the page with that draft through a [preview frame](/docs/content/preview#preview-frames) form in this tab. Only this document shows as a draft, only your browser sees it, and the token stays in the form body.
 
 On the draft page, a **Draft** tab sits on the pill, on the side facing the page, and the page has no banner. The tab marks text blocks that differ from the live page, such as headings, paragraphs, and list items. **N changes** turns the marks off and on. The pill compares the text of each block with the live page in a hidden frame, so a moved paragraph is not a change. Images, links, and styles are not compared. Removed blocks are counted. The tab hides while the pill is collapsed. **Back to live** shows the page as guests see it. Client-side navigation shows the next page live and checks it for a draft. The draft view shows the saved draft, not unsaved text.
 
@@ -1835,7 +1844,7 @@ Expanding or minimizing the window keeps the document and unsaved text.
 
 The editor loads on first use. In production it uses a same-origin iframe and needs an accepted Console session. A normal Console page still refuses framing. `?embed=1` allows same-origin framing only after the access check. Your Content Security Policy must allow the same-origin frame.
 
-Comments uses the same window for the page's threads and replies, without **Open in new tab**. When the Content editing tool is available, the Comments **Edit** action opens the document editor. Otherwise, plain-text field editing stays available as the Comments and Content policies allow.
+Comments uses the same window for the page's threads and replies, without **Open in new tab**. Its **Edit** action edits plain-text fields in place. A field that is not plain text opens its document in Console. Without the Console tool, **Open Content** links to the Content page. The Comments and Content policies still apply.
 
 ## Inspect logs
 
