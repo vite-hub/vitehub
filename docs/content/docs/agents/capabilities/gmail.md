@@ -21,6 +21,51 @@ Use `gmail()` for a Gmail account your team owns, [`email()`](/docs/email/agent-
 
 Enable [Connections](/docs/connections/get-started#define-a-connection) and declare the Google client credentials in Env:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', connections: true }), nitro()],
+  env: {
+    server: {
+      google: {
+        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -38,6 +83,8 @@ export default defineConfig({
   },
 })
 ```
+:::
+::
 
 Define a Connection with the `google()` preset. `gmail.readonly` covers search and read; `gmail.compose` covers drafts.
 

@@ -121,6 +121,59 @@ The fallback applies only when no key was ever set, or the Connections store can
 
 `oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects a service account without a person. Use it when a service accepts only its own OAuth tokens, such as an MCP server with its own authorization server. You write only `login`, which signs in and approves like a browser. The examples on this page read their credentials from Server Env:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        portal: {
+          login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
+          acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
+          globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
+        },
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', connections: true }), nitro()],
+  env: {
+    server: {
+      portal: {
+        login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
+        acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
+        globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
+      },
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -142,6 +195,8 @@ export default defineConfig({
   },
 })
 ```
+:::
+::
 
 ```ts [server/connections/portal.ts]
 import { useServerEnv } from '#vitehub/env/server'
