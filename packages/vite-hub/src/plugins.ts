@@ -60,6 +60,7 @@ import type { EnvOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVOptions } from "@vite-hub/kv"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
+import type { McpOptions } from "@vite-hub/mcp"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/bundle-options"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitOptions } from "@vite-hub/rate-limit"
@@ -137,6 +138,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/i18n": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
+  "@vite-hub/mcp": true,
   "@vite-hub/presets": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
@@ -467,6 +469,11 @@ export interface ViteHubOptions {
    */
   env?: false | EnvOptions
   kv?: boolean | KVOptions
+  /**
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
+   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   */
+  mcp?: boolean | McpOptions
   /**
    * Request logs through Evlog, the logs that the Console and `vitehub logs` read with `logs`, and, with `service`, Agent
    * telemetry and papercut reports through `useObservability()`.
@@ -1201,6 +1208,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
     ["queue", options.queue && plan.services.queue.supported],
     ["rateLimit", options.rateLimit],
+    ["mcp", options.mcp],
     ["realtime", options.realtime],
     ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
@@ -1453,6 +1461,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.i18nVite, "i18n").hubI18n({ ...options.i18n, importBase: "vite-hub/i18n" } as I18nOptions))
   }
   if (options.bundle) plugins.push(hubBundle())
+  if (options.mcp) {
+    const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
+    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    if (mcpAuth && !options.auth) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+    }
+    plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
+      ...mcpOptions,
+      auth: mcpAuth,
+      imports: { authMcp: "vite-hub/auth/mcp", runtime: "@vite-hub/mcp/runtime" },
+      ...(options.name ? { name: options.name } : {}),
+    }))
+  }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({

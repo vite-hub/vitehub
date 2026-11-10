@@ -231,13 +231,40 @@ Commands must remain owned by their Sandbox session. ViteHub adds the reserved `
 
 The marker is read from each process's environment at launch. A process that starts with the marker remains owned by that Sandbox, even if it later changes its environment. A process started without the marker is not owned by that Sandbox, even if it references the Sandbox directory. This cleanup does not add process isolation.
 
+## Run in a caged container
+
+```ts fragment
+sandbox: {
+  runtime: {
+    kind: "container",
+    image: "node:24-bookworm",
+    egress: { allow: ["registry.npmjs.org"] },
+    credentials: {
+      GH_TOKEN: { hosts: ["api.github.com", "github.com"], value: () => useServerEnv().githubToken.unseal() },
+    },
+    memoryBytes: 4 * 1024 ** 3,
+  },
+  checkout: { ref, remote, sha },
+}
+```
+
+Each session starts a new container on an internal Docker network, through the Docker CLI of the ViteHub process. Without `egress`, the container has no network exit. With `egress: { allow }` or `egress: "open"`, a broker container (`mitmproxy/mitmproxy`, pinned) is the only exit. It refuses hosts outside the allowlist at `CONNECT` time and for each request. Credential hosts are always allowed.
+
+The Docker daemon must be rootful Docker Engine 28 or newer on native Linux. The isolated bridge has no host address, and the Sandbox has no `NET_RAW` capability. This blocks direct access to host services with or without egress. Docker Desktop, OrbStack, WSL, and rootless Docker have additional host routes outside this boundary and are rejected before resources are created, as are older daemons. The CLI may use a remote native Linux daemon. Host patterns without a port allow only port 443; use `host:port` for another HTTP or HTTPS port. The broker rejects raw TCP tunnels.
+
+Credential values resolve on the ViteHub host for each session and reach only the broker, through the Docker CLI environment. They are never on a command line. The Sandbox gets `vitehub-<NAME>-<random>` in each credential variable. The broker replaces it only in HTTPS request headers, including Basic authentication, to a host that the credential lists. A placeholder in a URL, over HTTP, to another host, or from an earlier session gets a `403` with a `SANDBOX_BROKER_B00x` code. The broker logs each request as a JSON line, without query strings. Read them with `docker logs`.
+
+The Sandbox trusts the broker certificate through `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE`, and `REQUESTS_CA_BUNDLE`, and uses `HTTPS_PROXY`, `HTTP_PROXY`, and `NODE_USE_ENV_PROXY=1`. The CA private key stays in the broker. Home is `/vitehub/home` and the workspace is `/vitehub/workspace`. Relative file paths are relative to the workspace. `spawn` forwards input only with `stdin: true`. `kill()` signals the process group in the container. Closing the session removes both containers and the network. Each Docker object has the `dev.vitehub.sandbox` label, so `docker ps -a --filter label=dev.vitehub.sandbox` finds anything that a crashed process left.
+
+The image needs `sh`, coreutils, GNU `find`, and `git` for a checkout. The runtime has no ports, no `cwd` mount, and no durable Home state. `cpus`, `memoryBytes`, and `pidsLimit` (default 4096) map to the `docker run` limits, and `user` runs commands as another image user. `docker` selects another Docker CLI.
+
 ## Bring a custom runtime
 
 A `runtime` can also be an object with `name`, `prepare(input)` and `open(input, options)`. Set `network: "direct"` only when its sessions reach the ViteHub process loopback services, for example through SSH reverse tunnels. Agents then pass host Capability tools into the Sandbox. A session may implement `importWorkspace(checkout, signal)` and `refreshDependencies(checkout, signal)` to replace the generic working-tree copy and the publishing of host-installed dependencies. Use them when the runtime can transfer or install faster on its own host.
 
 ## Security boundary
 
-A Sandbox isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `sandbox.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `"trusted-host"` only when the Agent may act with the host user's authority, and use an isolated Sandbox runtime such as `vercel` or `cloudflare` for untrusted code.
+A Sandbox isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `sandbox.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `"trusted-host"` only when the Agent may act with the host user's authority, and use an isolated Sandbox runtime such as `vercel`, `cloudflare`, or `container` for untrusted code.
 
 Resolved environment values, file contents, state keys, and physical Home paths are excluded from `sandbox.plan`; `sandbox.plan.home.state` lists declared target paths with opaque stable identities. Requirement failures discard command output, while every process inside the Sandbox remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 

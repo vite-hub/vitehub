@@ -169,6 +169,38 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("imports the last full version of a file that the page shows above the importing block", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/version-page")
+    const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "version-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet(1, "server/content.ts", "server/content.ts", "export const content = { posts: 1 }"),
+      snippet(5, "server/api/posts.ts", "server/api/posts.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(9, "2/server/content.ts", "server/content.ts", "export const content = { settings: 'site' }"),
+      snippet(12, "3/server/content.ts", "server/content.ts", "settings: 'site',", true),
+      snippet(15, "server/api/settings.ts", "server/api/settings.ts", "import { content } from '../content'\nexport const settings: string = content.settings"),
+      snippet(20, "server/api/stale.ts", "server/api/stale.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+    ])
+
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/api/stale.ts", [2339]],
+    ])
+  }, 60_000)
+
+  it("imports the first full version when no full definition appears above the importer", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/forward-page")
+    const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "forward-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet(1, "server/api/before.ts", "server/api/before.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(5, "server/content.ts", "server/content.ts", "export const content = { excerpt: true }", true),
+      snippet(9, "server/api/after-fragment.ts", "server/api/after-fragment.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(13, "2/server/content.ts", "server/content.ts", "export const content = { posts: 1 }"),
+      snippet(17, "server/api/after.ts", "server/api/after.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(21, "3/server/content.ts", "server/content.ts", "export const content = { settings: 'site' }"),
+    ])
+
+    expect(failures).toEqual([])
+  }, 60_000)
+
   it("generates Env declarations from a page's Vite config", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/env-page")
     const label = "vite.config.ts"

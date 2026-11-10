@@ -142,7 +142,9 @@ describe("Forms in a built Nitro 3 app", () => {
 
       // `vitehub forms` runs the same operations from the command line.
       vi.stubEnv("VITEHUB_CONSOLE_AUTHORIZATION", authorization)
-      onTestFinished(() => vi.unstubAllEnvs())
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
       const url = `http://127.0.0.1:${server.port}`
       const cli = async (...args: string[]) => {
         const result = await runCli(root, app(), ["forms", ...args, "--url", url, "--json"])

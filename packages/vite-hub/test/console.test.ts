@@ -545,7 +545,6 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       expect(config.nitro.publicAssets).toEqual([
@@ -691,7 +690,6 @@ describe("Agent invocation console", () => {
         `${mount}/_vitehub/rpc/**`,
         `${mount}/_vitehub/env/manage`,
         `${mount}/_vitehub/channels/replay`,
-        `${mount}/_vitehub/schedules/run`,
         `${mount}/_vitehub/mcp`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
@@ -725,7 +723,6 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/rpc/**",
         "/portal/_vitehub/env/manage",
         "/portal/_vitehub/channels/replay",
-        "/portal/_vitehub/schedules/run",
         "/portal/_vitehub/mcp",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
@@ -775,7 +772,6 @@ describe("Agent invocation console", () => {
       undefined,
       "/portal/_vitehub/rpc/**",
       "/portal/_vitehub/env/manage",
-      "/portal/_vitehub/schedules/run",
       "/portal/_vitehub/mcp",
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/**",
@@ -819,7 +815,6 @@ describe("Agent invocation console", () => {
         "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -884,7 +879,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/**", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/**", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/mcp"])
       expect(config.nitro?.handlers.find(handler => handler.route === "/_vitehub/env/manage")).toMatchObject({ method: "post" })
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from "vite-hub/console/setup"`)
@@ -1071,7 +1066,6 @@ describe("Agent invocation console", () => {
         "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -1120,7 +1114,6 @@ describe("Agent invocation console", () => {
         "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -1168,7 +1161,6 @@ describe("Agent invocation console", () => {
         "/**",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
