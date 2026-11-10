@@ -3394,6 +3394,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     resolveId: {
       // Run before Vite resolves installed optional peers to absolute module paths.
       order: "pre",
+      filter: { id: /^(?:@vite-hub\/kv|@ai-sdk\/openai|advocaat)$/ },
       async handler(source, importer, options) {
         if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
           // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
@@ -3531,60 +3532,64 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       invalidateAgentDevModules(context.server, moduleIds)
     },
-    async transform(code, id) {
-      if (!resolved?.root) return
-      const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
-      const typescriptModule = /\.(?:c|m)?[jt]s$/i.test(normalizedId)
-      const definitionServerDirs = serverDirs ?? [join(resolved.root, "server")]
-      const serverProjectModule = definitionServerDirs.some(directory =>
-        normalizedId.startsWith(`${resolve(directory).replace(/\\/g, "/")}/`),
-      )
-      // Configured server directories can belong to installed Nuxt layers and still need project transforms.
-      // Skip other installed packages to avoid parsing dependencies on the first dev request.
-      const projectModule = typescriptModule
-        && (serverProjectModule
-          || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
-      let transformed = code
-      if (projectModule) {
-        clearEveExtensionOwnership(normalizedId)
-        transformed = await transformEveExtensionCapabilities(
-          transformed,
-          value => this.parse(value),
-          async (specifier) => {
-            const identity = await resolveEveExtensionPackage(resolved!, specifier, normalizedId)
-            if (!identity) return false
-            const owner = eveExtensionOwners.get(identity)
-            if (owner && owner !== normalizedId) {
-              throw agentDiagnostics.AGENT_B0018({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.` })
-            }
-            eveExtensionOwners.set(identity, normalizedId)
-            return identity
-          },
-          specifier => resolveEveExtensionPackage(resolved!, specifier, normalizedId, false),
-        ) ?? transformed
-        const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
-          || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
-        const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
-          .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
-        if (definition) {
-          const skills = readColocatedAgentSkills(definition.handler)
-          transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
-            ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
-            discoveredAgentIdentityDecorator(definition),
-          ]) ?? transformed
-        }
-        if (definition) {
-          transformed = await transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!)) ?? transformed
-        }
-        if (transformed !== code) return transformed
-      }
-      if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
-        return transformGeneratedAgentWorkflowRegistry(
-          code,
-          runtimeCapabilities,
-          workflowState(resolved!),
+    transform: {
+      // Only project modules and the generated Workflow registry change, and both are JavaScript or TypeScript.
+      filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
+      async handler(code, id) {
+        if (!resolved?.root) return
+        const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+        const typescriptModule = /\.(?:c|m)?[jt]s$/i.test(normalizedId)
+        const definitionServerDirs = serverDirs ?? [join(resolved.root, "server")]
+        const serverProjectModule = definitionServerDirs.some(directory =>
+          normalizedId.startsWith(`${resolve(directory).replace(/\\/g, "/")}/`),
         )
-      }
+        // Configured server directories can belong to installed Nuxt layers and still need project transforms.
+        // Skip other installed packages to avoid parsing dependencies on the first dev request.
+        const projectModule = typescriptModule
+          && (serverProjectModule
+            || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
+        let transformed = code
+        if (projectModule) {
+          clearEveExtensionOwnership(normalizedId)
+          transformed = await transformEveExtensionCapabilities(
+            transformed,
+            value => this.parse(value),
+            async (specifier) => {
+              const identity = await resolveEveExtensionPackage(resolved!, specifier, normalizedId)
+              if (!identity) return false
+              const owner = eveExtensionOwners.get(identity)
+              if (owner && owner !== normalizedId) {
+                throw agentDiagnostics.AGENT_B0018({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.` })
+              }
+              eveExtensionOwners.set(identity, normalizedId)
+              return identity
+            },
+            specifier => resolveEveExtensionPackage(resolved!, specifier, normalizedId, false),
+          ) ?? transformed
+          const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
+            || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
+          const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
+            .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
+          if (definition) {
+            const skills = readColocatedAgentSkills(definition.handler)
+            transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
+              ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
+              discoveredAgentIdentityDecorator(definition),
+            ]) ?? transformed
+          }
+          if (definition) {
+            transformed = await transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!)) ?? transformed
+          }
+          if (transformed !== code) return transformed
+        }
+        if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
+          return transformGeneratedAgentWorkflowRegistry(
+            code,
+            runtimeCapabilities,
+            workflowState(resolved!),
+          )
+        }
+      },
     },
     vitehub: {
       // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
