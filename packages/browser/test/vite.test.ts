@@ -16,7 +16,6 @@ const roots: string[] = []
 const tsc = resolve(import.meta.dirname, "../../../node_modules/typescript/bin/tsc")
 
 interface BrowserBuildConfig extends Record<string, unknown> {
-  browser?: Record<string, unknown> | false
   build: { outDir: string }
   command: "build"
   mode: string
@@ -93,10 +92,9 @@ describe("hubBrowser", () => {
 
   it("honors top-level Browser config", async () => {
     const config: Record<string, unknown> = {
-      browser: { binding: "TOP_LEVEL_BROWSER" },
       nitro: {},
     }
-    const plugin = hubBrowser()
+    const plugin = hubBrowser({ binding: "TOP_LEVEL_BROWSER" })
 
     await runHook(plugin.config, config)
 
@@ -115,7 +113,6 @@ describe("hubBrowser", () => {
     )
     const plugin = hubBrowser({ binding: "CODE_BROWSER" })
     const config = {
-      browser: { binding: "CODE_BROWSER" },
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
@@ -235,9 +232,8 @@ describe("hubBrowser", () => {
       "export default defineBrowser(async () => undefined)\n",
       "utf8",
     )
-    const plugin = hubBrowser()
+    const plugin = hubBrowser({})
     const config = {
-      browser: {},
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
@@ -264,7 +260,6 @@ describe("hubBrowser", () => {
     )
     const plugin = hubBrowser(false)
     const config = {
-      browser: false,
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
@@ -292,9 +287,8 @@ describe("hubBrowser", () => {
       ].join("\n"),
       "utf8",
     )
-    const plugin = hubBrowser()
+    const plugin = hubBrowser({})
     const config = {
-      browser: {},
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
@@ -468,7 +462,6 @@ describe("hubBrowser", () => {
     }))
     const plugin = hubBrowser({ binding: "BROWSER", remote: true })
     await runBrowserProviderOutput(plugin, {
-      browser: { binding: "BROWSER", remote: true },
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
@@ -486,7 +479,6 @@ describe("hubBrowser", () => {
 
     const disabledPlugin = hubBrowser(false)
     await runBrowserProviderOutput(disabledPlugin, {
-      browser: false,
       build: { outDir: "dist" },
       command: "build",
       mode: "production",

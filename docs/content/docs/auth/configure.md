@@ -87,18 +87,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ auth: true }), nitro()],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
+          secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
         },
-        secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -110,18 +112,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ auth: true })],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
+          secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
         },
-        secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
       },
     },
-  },
+  })],
 })
 ```
 :::
@@ -480,14 +484,13 @@ To keep Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-database
 
 ## Vite Integration options
 
-`hubAuth(false)` turns the Auth integration off. The Vite config key `auth` overrides the plugin argument.
+`hubAuth(false)` turns the Auth integration off. Vite does not read a top-level `auth` key.
 
 ```ts [vite.config.ts]
 import { hubAuth } from '@vite-hub/auth/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubAuth()],
-  auth: false,
+  plugins: [hubAuth(false)],
 })
 ```
