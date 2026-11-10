@@ -214,7 +214,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
           What the statuses mean
         </summary>
         <dl
-          class="mt-3 grid gap-x-4 gap-y-2.5 rounded-lg border border-default p-4 sm:grid-cols-[auto_1fr]"
+          class="mt-3 grid gap-x-4 gap-y-2.5 rounded-(--vh-frame-radius) border border-default p-4 sm:grid-cols-[auto_1fr]"
         >
           <template v-for="(meta, level) of supportMatrixStatuses" :key="level">
             <dt class="flex items-center gap-2 font-medium text-highlighted">

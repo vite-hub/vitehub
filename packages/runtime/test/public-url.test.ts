@@ -73,11 +73,15 @@ describe("public URL", () => {
     expect(resolvePublicUrl({ agentName: "declared" })).toBe("https://first.example.com")
   })
 
-  it("builds one Console invocation URL with the application base path", () => {
-    expect(consoleInvocationUrl("https://agents.example.com", "team/support", "a/b")).toBe(
-      "https://agents.example.com/_vitehub/agents/~007400650061006d002f0073007500700070006f00720074/invocations/a%2Fb",
-    )
+  it("builds one hosted Console invocation URL with the application base path", () => {
+    const first = new URL(consoleInvocationUrl("https://agents.example.com", "team/support", "a/b"))
+    expect(first.origin + first.pathname).toBe("https://console.vitehub.dev/open")
+    expect(Object.fromEntries(first.searchParams)).toEqual({
+      project: "https://agents.example.com",
+      path: "/agents/~007400650061006d002f0073007500700070006f00720074/invocations/a%2Fb",
+    })
     vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
-    expect(consoleInvocationUrl("https://agents.example.com", "bot", "id")).toBe("https://agents.example.com/portal/_vitehub/agents/bot/invocations/id")
+    const mounted = new URL(consoleInvocationUrl("https://agents.example.com", "bot", "id"))
+    expect(Object.fromEntries(mounted.searchParams)).toEqual({ project: "https://agents.example.com/portal", path: "/agents/bot/invocations/id" })
   })
 })

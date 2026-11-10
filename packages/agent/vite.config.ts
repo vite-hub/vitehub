@@ -78,6 +78,8 @@ export default defineConfig({
       "src/invocations/d1.ts",
       "src/invocations/database.ts",
       "src/invocations/default.ts",
+      "src/invocations/default-core.ts",
+      "src/invocations/default-libsql.ts",
       "src/invocations/drizzle.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",

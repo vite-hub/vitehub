@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -149,6 +150,14 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout).not.toContain(REFRESH_TOKEN)
   })
 
+  it("prints the Connection's docs after its actions", async () => {
+    const harness = cli(createTestRuntime(async () => defineConnection({ provider: testProvider(), scopes: [], docs: "Sign in with the **support** inbox.\n" })))
+    expect(await harness.run("inspect", ["mail"])).toBe(0)
+    expect(harness.output.stdout).toMatch(/\n\nSign in with the \*\*support\*\* inbox\.\n$/)
+    expect(await harness.run("inspect", ["mail", "--json"])).toBe(0)
+    expect(harness.output.stdout).toContain('"docs": "Sign in with the **support** inbox.\\n"')
+  })
+
   it("prints the Console connect URL for a deployed app", async () => {
     const harness = cli()
     expect(await harness.run("connect", ["mail", "--url", "https://app.example.com"])).toBe(0)
@@ -194,6 +203,98 @@ describe("vitehub connections", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("sends the Console credentials to an app named by URL, never to a discovered dev server", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-connections-cli-"))
+    try {
+      await mkdir(join(root, ".vitehub"))
+      await writeFile(join(root, ".vitehub/dev-server.json"), JSON.stringify({ root, url: "http://127.0.0.1:4741/" }))
+      const sent: Record<string, string>[] = []
+      const fetch = (async (_input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+        sent.push(Object.fromEntries(new Headers(init?.headers)))
+        return Response.json({ connections: [] })
+      }) as typeof globalThis.fetch
+      const env = {
+        CF_ACCESS_CLIENT_ID: "access-id",
+        CF_ACCESS_CLIENT_SECRET: "access-secret",
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token",
+        VITEHUB_CONSOLE_COOKIE: "session=console",
+      }
+      const context = { env, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
+      expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(0)
+      expect(await runConnectionsCli("list", [], { ...context, env: { ...env, VITEHUB_CONNECTIONS_URL: "https://app.example.com" } }, { fetch })).toBe(0)
+      expect(await runConnectionsCli("list", ["--url", "https://app.example.com", "--cookie", "session=flag"], context, { fetch })).toBe(0)
+      expect(await runConnectionsCli("list", [], context, { fetch })).toBe(0)
+      const credentials = { "authorization": "Bearer console-token", "cf-access-client-id": "access-id", "cf-access-client-secret": "access-secret" }
+      expect(sent[0]).toMatchObject({ ...credentials, cookie: "session=console" })
+      expect(sent[1]).toMatchObject({ ...credentials, cookie: "session=console" })
+      expect(sent[2]).toMatchObject({ ...credentials, cookie: "session=flag" })
+      expect(Object.keys(sent[3]!)).not.toContain("authorization")
+      expect(Object.keys(sent[3]!)).not.toContain("cookie")
+      expect(Object.keys(sent[3]!)).not.toContain("cf-access-client-id")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([301, 302, 303, 307, 308])("refuses a cross-origin %i redirect without forwarding Console credentials", async (status) => {
+    const sent: Record<string, string | string[] | undefined>[] = []
+    const forwarded: Record<string, string | string[] | undefined>[] = []
+    let location = ""
+    const destination = createServer((request, response) => {
+      forwarded.push(request.headers)
+      request.resume()
+      response.setHeader("content-type", "application/json")
+      response.end(JSON.stringify({ connections: [] }))
+    })
+    const app = createServer((request, response) => {
+      sent.push(request.headers)
+      request.resume()
+      response.writeHead(status, { location })
+      response.end()
+    })
+    try {
+      await new Promise<void>(resolve => destination.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>(resolve => app.listen(0, "127.0.0.1", resolve))
+      const destinationAddress = destination.address()
+      const appAddress = app.address()
+      if (!destinationAddress || typeof destinationAddress === "string" || !appAddress || typeof appAddress === "string") throw new Error("Expected local test listeners")
+      location = `http://127.0.0.1:${destinationAddress.port}/redirected`
+      const output = { stderr: "", stdout: "" }
+      const context = {
+        env: {
+          CF_ACCESS_CLIENT_ID: "access-id",
+          CF_ACCESS_CLIENT_SECRET: "access-secret",
+          VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token",
+          VITEHUB_CONSOLE_COOKIE: "session=console",
+        },
+        stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+        stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+      }
+      const result = await runConnectionsCli("list", ["--url", `http://127.0.0.1:${appAddress.port}`], context)
+      expect(sent).toMatchObject([{ "authorization": "Bearer console-token", "cookie": "session=console", "cf-access-client-id": "access-id", "cf-access-client-secret": "access-secret" }])
+      expect(forwarded).toEqual([])
+      expect(result).toBe(1)
+      expect(output.stdout).toBe("")
+      expect(output.stderr).toContain(`returned ${status}`)
+    }
+    finally {
+      for (const server of [app, destination]) {
+        server.closeAllConnections()
+        await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      }
+    }
+  })
+
+  it("names the Console credentials when the app refuses the request", async () => {
+    const output = { stderr: "", stdout: "" }
+    const context = { env: {}, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
+    const fetch = (async () => Response.json({ code: "CONSOLE_UNAUTHORIZED", message: "Sign in to the Console.", ok: false, status: 401 }, { status: 401 })) as typeof globalThis.fetch
+    expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
+    expect(output.stderr).toContain("Sign in to the Console. (CONSOLE_UNAUTHORIZED)")
+    expect(output.stderr).toContain("Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET. Or pass --cookie.")
   })
 
   it("lists, approves, and revokes", async () => {

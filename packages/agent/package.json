@@ -105,6 +105,16 @@
       "import": "./dist/invocations/default.js",
       "default": "./dist/invocations/default.js"
     },
+    "./invocations/default-core": {
+      "types": "./dist/invocations/default-core.d.ts",
+      "import": "./dist/invocations/default-core.js",
+      "default": "./dist/invocations/default-core.js"
+    },
+    "./invocations/default-libsql": {
+      "types": "./dist/invocations/default-libsql.d.ts",
+      "import": "./dist/invocations/default-libsql.js",
+      "default": "./dist/invocations/default-libsql.js"
+    },
     "./invocations/drizzle": {
       "types": "./dist/invocations/drizzle.d.ts",
       "import": "./dist/invocations/drizzle.js",
@@ -212,7 +222,7 @@
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
