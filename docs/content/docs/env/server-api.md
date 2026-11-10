@@ -31,6 +31,53 @@ icon: i-lucide-code-2
 
 The examples in this section read these declarations:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv(), nitro()],
+  env: {
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
@@ -49,6 +96,8 @@ export default defineConfig({
   },
 })
 ```
+:::
+::
 
 Read Public Env in browser code. ViteHub generates the module behind this import.
 
