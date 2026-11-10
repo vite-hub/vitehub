@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { drainDeferredWebhookAdmissions } from "../src/server/webhook-inbox.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -33,7 +33,7 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
   let status: number | undefined
   const agent = defineAgent({
     channels: {
-      hook: defineChannel("hook", {
+      hook: channelAdapter("hook", {
         messages: false,
         triggers: {
           webhook: defineChannelTrigger({
