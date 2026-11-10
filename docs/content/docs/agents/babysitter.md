@@ -1,17 +1,40 @@
 ---
 title: Babysitter
-description: Deploy an Agent that repairs pull requests, waits for checks, and merges ready ones.
+description: Run an Agent that fixes your pull requests, waits for checks, and merges the ready ones.
 navigation.group: Presets
 navigation.order: 91
 navigation.kind: Guides
 ---
 
-The Babysitter preset repairs selected pull requests. It addresses review feedback from people and bots, fixes failing checks, and pushes the repair. Then it waits for check and review results without another model pass. It can also merge ready pull requests.
+The Babysitter preset (an Agent Definition that your Agent extends) fixes review feedback and failing checks on your pull requests, waits for new results without another model run, and can merge ready ones. One model run on a pull request is a *pass*.
 
 ## Enable the Agent integration
 
-Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure Nitro. Enable the Agent integration with the Node host preset:
+Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host preset:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -20,12 +43,14 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
+:::
+::
 
-The host needs Git, Corepack for dependency installation, and the selected provider CLI with its authentication. See [Agent Drivers](/docs/agents/agent-drivers) for provider setup. Configure GitHub and persistent SQL Agent State below before starting production work.
+The host needs Git, Corepack to install dependencies, and the authenticated CLI of your provider ([Agent Drivers](/docs/agents/agent-drivers)). Before production work, set up GitHub and persistent SQL Agent State, as shown below.
 
 ## Add the Agent
 
-Select the preset in a discovered Agent. The repository filter is required: the Babysitter looks for open pull requests only in these repositories.
+Extend the preset in `server/agents`. The repository filter is required, because the Babysitter looks for open pull requests only there.
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -48,36 +73,36 @@ export default defineAgent({
 })
 ```
 
-Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills the preset's instruction slot.
+Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it in its instruction slot.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
-| `lifecycle` | `{}` | Label lifecycle controls, such as `labels.require` and `labels.deny`, that gate eligible pull requests. |
-| `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set the model and provider settings with the ordinary `driver` field. |
+| `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
+| `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. |
-| `reviewChecks` | `[]` | Check names, such as a review bot's check, that keep a PR waiting while they run. |
-| `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews that report no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
-| `ignoreFeedbackAuthors` | `[]` | Logins, such as deployment preview bots, whose comments and reviews never need an assessment. They do not block a direct merge or wake a waiting PR. |
-| `deferWhilePending` | `true` | Wait for running current-head checks before a pass, so one pass handles CI and review results together. A fast failure also waits for the checks that still run. A conflict starts the pass at once. A check that runs for 30 minutes counts as stuck. |
-| `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits until its head changes or a person comments. `false` disables the budget. |
-| `dailyPassBudget` | `16` | Model passes on one PR in a rolling 24 hours. Then the PR parks until the oldest pass is 24 hours old. See [Limit passes per pull request](#limit-passes-per-pull-request). `false` disables the budget. |
-| `reviewPushBudget` | `3` | Review-driven pushes on one PR. After that many, bot feedback and failed `reviewChecks` no longer start a model pass. See [Stop review ping-pong](#stop-review-ping-pong). `false` disables the budget. |
-| `install` | `true` | Install dependencies on the host before the model starts. `true` detects pnpm, npm or Yarn from the lockfile and installs it frozen; `{ command, args }` overrides it; `{ cache: { directory, entries } }` configures the pnpm cache; `{ concurrency }` sets how many installs run at once (default `2`); `{ required: true }` parks the PR on a failed install instead of continuing without dependencies (default `false`); `false` skips it. See [Dependency installation](#dependency-installation). |
+| `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
+| `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
+| `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. |
+| `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A GitHub Actions check counts as stuck after 24 hours in the queue or 8 hours running. Other checks count as stuck after 30 minutes. |
+| `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
+| `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
+| `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
+| `install` | `true` | Host install before the model starts. `true` runs a frozen pnpm, npm, or Yarn install from the lockfile. `{ command, args }` replaces the command, `{ cache: { directory, entries } }` sets the pnpm cache, `{ concurrency }` sets parallel installs (default `2`), and `{ required: true }` parks the PR on failure (default `false`). `false` skips it. See [Dependency installation](#dependency-installation). |
 | `ciRecovery` | `true` | Rerun failed GitHub Actions runs once before a model pass repairs them. |
-| `mentionAllowlist` | `[]` | Exact GitHub logins the worker may notify through `mentionOnPullRequest`. The tool is reserved for verified blockers that need one person's action. |
-| `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, uses this limit. |
-| `modelConcurrency` | `concurrency` | Model passes that run at the same time. Set it to what your provider accounts can serve. |
-| `providerCooldownMs` | `300000` | First cooldown after a pass runs out of provider rate-limit retries. See [Provider rate limits](#provider-rate-limits). |
-| `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
-| `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
-| `placement` | None | Runs each pass on this host or in a Sandbox on another host. See [Bound local verification](#bound-local-verification). |
+| `mentionAllowlist` | `[]` | Exact GitHub logins that the worker can notify with `mentionOnPullRequest`, only for verified blockers that need one person to act. |
+| `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, also uses this limit. |
+| `modelConcurrency` | `concurrency` | Model passes at the same time. Match what your provider accounts can serve. |
+| `providerCooldownMs` | `300000` | First cooldown after a pass uses all its provider rate-limit retries ([Provider rate limits](#provider-rate-limits)). |
+| `admission` | `{}` | Token budgets, a free-space check, and custom checks that stop model passes ([Limit model passes](#limit-model-passes)). |
+| `capacity` | Process defaults | Host admission settings: `memory`, `cpu`, and `fallbackConcurrency`. |
+| `placement` | None | Runs each pass on this host or in a Sandbox on another host ([Bound local verification](#bound-local-verification)). |
 
-Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
+For a token or USD limit per pass, use the Agent's [`budget`](/docs/agents/capabilities/budget). `admission` is a host gate over time windows that can delay a new pass, based on journal usage. You can use both.
 
 ## Control work with labels
 
-Create the configured labels in your repositories. With the example above, add `agent:repair` when opening a pull request, or add it later to start work. Add `agent:paused` to pause it, and remove that label to resume while `agent:repair` remains present.
+Create the configured labels in your repositories. With the example above, add `agent:repair` to start work, add `agent:paused` to pause, and remove it to resume.
 
 | Pull request labels | Eligible for work |
 | --- | --- |
@@ -85,13 +110,16 @@ Create the configured labels in your repositories. With the example above, add `
 | `agent:repair` absent | No |
 | `agent:paused` present | No |
 
-`lifecycle.labels.require` needs at least one listed label. An empty or omitted list adds no requirement. `lifecycle.labels.deny` excludes a pull request with any listed label. The preset applies these rules to discovery and to `opened`, `labeled`, and `unlabeled` webhook events. Removing a required label or adding a denied label also cancels an active claim.
+- `lifecycle.labels.require` needs at least one listed label. An empty or omitted list adds no requirement.
+- `lifecycle.labels.deny` excludes a pull request with any listed label.
+- The rules apply to discovery and to `opened`, `labeled`, and `unlabeled` webhook events.
+- Removing a required label or adding a denied label also cancels the host's active claim on the pull request.
 
-Configure label controls in `lifecycle.labels` or selection rules in `filter.labels`. Defining both throws a configuration error. Labels control eligibility; they do not report progress, authorize a merge, or bypass check and review gates.
+Use `lifecycle.labels` or `filter.labels`, not both: both is a configuration error. Labels only select pull requests. They do not report progress, allow a merge, or skip check and review gates.
 
 ## Limit model passes
 
-The host checks `admission` before it claims a pull request. A spent limit stops model passes. Direct merges and recorded waits continue, so a ready pull request still merges.
+`admission` stops model passes when a limit is spent. The host checks it before it claims a pull request. Direct merges and recorded waits continue, so a ready pull request still merges.
 
 ```ts [server/agents/babysitter/agent.ts] fragment
 export default defineAgent({
@@ -112,40 +140,91 @@ export default defineAgent({
 
 | Field | Default | Purpose |
 | --- | --- | --- |
-| `inputTokens.hourly`, `inputTokens.daily` | No limit | Input tokens that the Agent's passes can use in the local clock hour and in the local day. Leave a window out for no limit. A pass continues when it goes past the limit; the next pass waits for the next window. |
-| `minFreeTmpMb` | `4096` | Free space, in MiB, that the temporary directory needs before a pass. `false` disables the check. |
-| `paused` | `false` | Stop every claim, including direct merges. Use it for a smoke boot or maintenance. |
-| `check` | None | Extra check before each claim, for example a provider quota. Return `{ reason, detail, retryAt }` to stop model passes, or `undefined` to continue. When it throws, the error is shown in health and passes continue. |
+| `inputTokens.hourly`, `inputTokens.daily` | No limit | Input tokens for the Agent's passes in the local clock hour and local day. Leave a window out for no limit. A pass over the limit continues; the next pass waits for the next window. |
+| `minFreeTmpMb` | `4096` | Free MiB that the temporary directory needs before a pass. `false` turns it off. |
+| `paused` | `false` | Stop every claim, including direct merges, for a smoke boot or maintenance. |
+| `check` | None | An extra check before each claim, such as a provider quota. Return `{ reason, detail, retryAt }` to stop model passes, or `undefined` to continue. If it throws, health shows the error and passes continue. |
 
-The preset reads no token-budget or provider-quota environment variables and no provider status files. Applications that used `BABYSITTER_HOURLY_INPUT_TOKENS`, `BABYSITTER_DAILY_INPUT_TOKENS` or provider-specific quota guards must map them into these options and `admission.check`.
+The preset reads no token-budget or provider-quota environment variables or provider status files. Map old `BABYSITTER_HOURLY_INPUT_TOKENS`, `BABYSITTER_DAILY_INPUT_TOKENS`, or provider quota guards into these options and `admission.check`.
 
-The health route shows the decision in `admission` and the token use, the limits and the `check` result in `budget`.
+Health shows the decision in `admission`, and token use, limits, and the `check` result in `budget`.
 
 ## Provider rate limits
 
-A pass retries a provider rate limit (HTTP 429) three times, 10 seconds apart. When the retries run out, the host opens a cooldown:
+On a provider rate limit (HTTP 429), a pass retries three times, 10 seconds apart. Then the host starts a cooldown:
 
-- Model passes stop until the cooldown ends. Host work continues: ready pull requests still merge directly and stacked pull requests are still retargeted. Pull requests that need a model pass stay queued, unchanged.
-- The pass that ran out of retries waits until the cooldown ends. It is not reported as failed and does not count against `noProgressBudget`. A pass cancelled after a rate limit does not count either.
-- The first cooldown lasts `providerCooldownMs`. Each further cooldown doubles, up to one hour, and halves the number of model passes that can start (never below two). Passes that fail together count once.
-- A successful pass removes one step only when it ends at least 30 minutes after the last cooldown, so capacity returns gradually.
+- Model passes stop until it ends. Host work continues: ready pull requests still merge directly and stacks still retarget. Pull requests that need a pass stay queued, unchanged.
+- The pass that ran out of retries waits for the cooldown. It is not reported as failed and does not count against `noProgressBudget`, and neither does a pass cancelled after a rate limit.
+- The first cooldown lasts `providerCooldownMs`. Each next one doubles, up to one hour, and halves the passes that can start, never below two. Passes that fail together count as one.
+- A successful pass removes one step only when it ends at least 30 minutes after the last cooldown, so capacity comes back slowly.
 
-A GitHub rate limit uses a separate breaker. It stops every GitHub request of the host for one hour, including merges.
+A GitHub rate limit uses a separate breaker that stops every GitHub request of the host, including merges, for one hour.
 
 ## Bound local verification
 
-Start with one concurrent repair on a shared Linux host. Use `options.capacity.memory.perInvocationBytes` for each worker's growth budget and `reserveBytes` for memory that other services need. Use `serviceReserveBytes` for the reserve inside the process or cgroup budget (1 GiB by default); the host reserve is applied only to host memory. Linux admission checks host pressure and each visible cgroup ancestor, including a delegated service parent. It uses the least remaining cgroup memory headroom and observes ancestor pressure and high events. It does not read above a namespaced cgroup mount. An unreadable known cgroup uses the configured sample fallback. Admission reserves growth headroom for active workers. Set `options.capacity.fallbackConcurrency` to zero if a failed sample must pause admission.
+On a shared Linux host, start with one repair at a time, then set `options.capacity.memory`:
 
-A Babysitter Sandbox uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
+- `perInvocationBytes`: how much each worker can grow.
+- `reserveBytes`: memory that other services need, applied to host memory only.
+- `serviceReserveBytes`: the reserve inside the process or cgroup budget. Default 1 GiB.
 
-To add capacity beyond one host, set `options.placement`. Its `place({ repository, number })` runs before host dependency installation and returns `{ sandbox?, release }`. A pass with a `sandbox` runs there, for example in a custom SSH runtime with `network: "direct"`, and skips the host install. The Sandbox installs through its session's `refreshDependencies`. A pass without a `sandbox` runs on this host. `release()` runs once when the pass ends. Return `remoteActive()` to count remote passes toward `concurrency` without reserving local memory for them. A configured `sandbox` always takes precedence over placement.
+On Linux, admission checks pressure on the host and on each visible cgroup (a group of processes with shared resource limits) ancestor, including a delegated service parent. It uses the smallest remaining headroom, watches ancestor pressure and high events, and keeps growth headroom for active workers. It does not read above a namespaced cgroup mount. When it cannot read a known cgroup, it uses the configured sample fallback. Set `options.capacity.fallbackConcurrency` to zero to pause admission when a sample fails.
 
-Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
+A Babysitter Sandbox uses the host-prepared pull request checkout as its `cwd`. You configure its runtime, Home, and requirements; the preset owns the working tree.
 
-## Share the Console journal
+To add capacity beyond one host, set `options.placement`:
 
-The Babysitter uses the invocation journal assigned to its discovered Agent. Set the Console journal in the ViteHub project configuration so the Console and the long-lived worker inspect the same records:
+- `place({ repository, number })` runs before the host install and returns `{ sandbox?, release }`.
+- A pass with a `sandbox` runs there and skips the host install, for example on a custom SSH runtime with `network: "direct"`. The Sandbox installs dependencies through its session's `refreshDependencies`.
+- A pass without a `sandbox` runs on this host.
+- `release()` runs once when the pass ends.
+- An optional `remoteActive()` function next to `place` counts remote passes toward `concurrency`. They reserve no local memory.
 
+A configured `sandbox` always takes precedence over placement.
+
+Admission only controls when new work starts. To contain provider commands and native tools, set [Sandbox memory limits](/docs/agents/sandboxes). The preset runs focused local tests and lint and leaves full typechecks and builds to hosted CI, unless a maintainer asks for a bounded local reproduction. After a memory-limit failure, shrink the workload or change the budget before you retry.
+
+## Share the Agent journal
+
+The Babysitter uses the invocation journal assigned to its discovered Agent. Set the location of the [default journal](/docs/agents/invocation-storage#use-the-default-journal) in the ViteHub project configuration, so the Console and the long-lived worker inspect the same records:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
+    console: {
+      auth: false,
+      authorize: './server/console-authorize.ts',
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
+    console: {
+      auth: false,
+      authorize: './server/console-authorize.ts',
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -153,23 +232,24 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',
-      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
   })],
 })
 ```
+:::
+::
 
-Create `server/console-authorize.ts` with your host session policy as shown in [Use another authentication library](/docs/development/console#use-another-authentication-library). Every Console data route calls this function before it reads data.
+Create `server/console-authorize.ts` with your host session policy, as [Use another authentication library](/docs/development/console#use-another-authentication-library) shows. Every Console data route calls it before it reads data.
 
-The worker records and recovers Invocations under `<discovered-agent-name>-worker`, for example `babysitter-worker`. Each discovered Babysitter Agent has its own recovery scope. Other Agents can keep using the same journal without having their active Invocations failed. A standalone process host without an assigned journal keeps its private `dataDir/invocations.sqlite` file.
-
+The worker records and recovers Invocations under `<discovered-agent-name>-worker`, such as `babysitter-worker`, so each Babysitter Agent has its own recovery scope. Other Agents can share the journal without their active Invocations failing. A standalone process host without an assigned journal keeps its own `dataDir/invocations.sqlite`.
 
 ## Configure GitHub
 
-Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. The Actions permission is required to rerun failed workflow jobs. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
+Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
 
 Set these variables on the host, or declare them in `env.server.github`:
 
@@ -177,99 +257,130 @@ Set these variables on the host, or declare them in `env.server.github`:
 | --- | --- |
 | `VITEHUB_GITHUB_APP_ID` | The App ID. |
 | `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | The App private key. |
-| `VITEHUB_GITHUB_WEBHOOK_SECRET` | The webhook secret. Deliveries without a valid signature are rejected. |
-| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional fixed installation. Requires `VITEHUB_GITHUB_APP_OWNER`; it applies only to that owner. |
+| `VITEHUB_GITHUB_WEBHOOK_SECRET` | The webhook secret. The host rejects deliveries without a valid signature. |
+| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional fixed installation, only for `VITEHUB_GITHUB_APP_OWNER`, which it needs. |
 | `VITEHUB_GITHUB_APP_OWNER` | Repository owner for the fixed installation, such as `vite-hub`. Server Env field `env.server.github.appOwner`. |
-| `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object mapping repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
-| `VITEHUB_AGENT_STATE_URL` | Agent State, for example `file:/var/lib/babysitter/state.sqlite`. Production builds require it. |
+| `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object that maps repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
+| `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. Production builds need it. |
 
-Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
+Declare the fixed ID as `env.server.github.installationId` with `appOwner`; without an owner, ViteHub ignores it. Other owners use GitHub App discovery, which needs access to the App API.
 
-Workers can use `readRepairState` to inspect the assigned head and base, verified publication, installation status, and claim validity without querying GitHub. `pushRepair` returns the verified published `head` alongside `pushed: true`.
+The worker (the provider session of a pass) gets no GitHub tokens, only tools bound to its pull request:
 
-`readFeedback` reads a comment, review, or inline review comment from the assigned PR's durable snapshot. Pass `kind` as `comment`, `review`, or `review-comment`, plus its `id`. Bodies arrive in pages of at most 16,000 JavaScript string characters. Continue with the returned `next.offset` and `next.version` until `complete` is true. Edits invalidate the version, and stale claims cannot read another head. Full feedback remains in the initial context in this release.
+- `readRepairState` shows the assigned head and base, the verified publication, the installation status, and whether the claim is valid. It does not query GitHub.
+- `pushRepair` returns the verified published `head` with `pushed: true`.
+- `readFeedback` reads a comment, review, or inline review comment from the PR's durable snapshot, by `kind` (`comment`, `review`, or `review-comment`) and `id`. Bodies come in pages of at most 16,000 JavaScript string characters; follow `next.offset` and `next.version` until `complete` is true. An edit invalidates the version, and a stale claim cannot read another head. In this release, the full feedback is also in the first context.
+- `commitRepair` commits with a message and explicit file paths. Workers must use it because the provider sandbox protects Git metadata. Commits use the App's bot identity.
 
-The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. See [Dependency installation](#dependency-installation) for what happens when it fails.
+The host install before the provider starts ([Dependency installation](#dependency-installation)):
 
-Host installation accepts the pnpm workspace settings `peerDependencyRules`, `minimumReleaseAge`, and `minimumReleaseAgeExclude`, because they run no code. Host installation accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`. Local dependencies and workspace patterns must stay inside the checkout. Other registries, network protocols, and custom ports are rejected before the package manager runs. Use `install: false` with dependencies prepared in an isolated workspace when a repository needs other sources.
+- accepts the pnpm workspace settings `peerDependencyRules`, `minimumReleaseAge`, and `minimumReleaseAgeExclude`, because they run no code
+- accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`
+- needs local dependencies and workspace patterns inside the checkout
+- rejects other registries, network protocols, and custom ports before the package manager runs
+
+For other sources, use `install: false` and prepare dependencies in an isolated workspace.
 
 ## Deploy
 
-The Babysitter runs a long-lived process, so deploy it with the Node server preset on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
+Deploy the long-running Babysitter with the Node server preset on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
 
-ViteHub starts the Babysitter when the server starts. A development server starts it only with `VITEHUB_AGENT_PROCESS_HOSTS=1`, so it does not repair real pull requests by accident.
+It starts with the server. A development server starts it only with `VITEHUB_AGENT_PROCESS_HOSTS=1`, so it does not repair real pull requests by accident.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked`, the PRs that a budget parked, with the reason. |
+| `GET /api/_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked` (parked by a budget, with the reason). |
 | `GET /api/_vitehub/host/drain` | Drain status: `accepting`, `draining`, or `drained`. |
 
-To replace the process, send SIGUSR2, wait until the drain route reports `drained`, then restart. Running passes finish first.
+To replace the process, send SIGUSR2, wait for the drain route to report `drained`, then restart. Running passes finish first.
 
 ## How it works
 
-1. Signed webhooks update a durable pull request inbox in Agent State. Once a minute, one GraphQL query per repository lists the open pull requests; a pull request whose state changed without a delivery gets a targeted read, so lost deliveries are recovered within about a minute.
-2. When a pull request needs work, the host clones its head and starts one repair pass with the Agent.
+1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute.
+2. When a pull request needs work, the host clones its head and starts one repair pass.
 3. After a repair push, the pass ends within 3 minutes and the pull request waits on the pushed head.
-4. Check results that the pass already knew, pending checks, and the push's own events keep it waiting. New feedback, a new failing check, a conflict, or an unresolved review thread wake it.
-5. With `merge: 'direct'`, passing required checks also wake it. The host merges when every check passed, every review thread is resolved, and GitHub reports the pull request as clean on the default branch. It never merges into another branch.
+4. Known check results, pending checks, and its own push events keep it waiting. New feedback, a new failing check, a conflict, or an unresolved review thread wake it.
+5. With `merge: 'direct'`, passing required checks also wake it. The host merges when every check passed, every review thread is resolved, and GitHub reports the pull request clean on the default branch. It never merges into another branch.
 
-Feedback that a pass assessed, or answered with a repair push, stays assessed on later heads. A later head needs a model pass only for new feedback, so a pull request whose push satisfied every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment does not cause a pass. Without required checks on the base branch, the newest run of every current-head check must finish before a merge. An earlier run of a rerun check is ignored.
+Assessed feedback stays assessed on later heads, so a pull request whose push fixed every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment causes no pass. When the base branch has no required checks, the newest run of every check on the current head must finish before a merge; earlier runs of a rerun check are ignored.
 
-A wait is bound to the head that the pass saw. A new head clears it, and a closed pull request stops its work. The host builds the wake condition from structured check, review, base and mergeability evidence, never from the model's text. A wait does not authorize a merge. The inbox is private Babysitter state; read it through the health route.
+A wait is bound to the head that the pass saw: a new head clears it, and closing the pull request stops work. Wake conditions come from structured evidence about checks, reviews, the base, and mergeability, never the model's text. A wait does not allow a merge. The inbox is private; read it through the health route.
 
-A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. A pull request that spent its `reviewPushBudget` waits for work that a bot did not ask for, as [Stop review ping-pong](#stop-review-ping-pong) explains. A pull request that spent its `dailyPassBudget` waits until the 24-hour window frees a pass, as [Limit passes per pull request](#limit-passes-per-pull-request) explains. A restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
+A restart releases the claims of the earlier process. When the parent of a stacked pull request merges into the default branch, the host retargets the child to the default branch. The budgets in the options table also make a pull request wait.
 
-The host installs dependencies in each pass workspace before the model starts. The install gets only `PATH`, `HOME`, locale, package manager and `NODE_OPTIONS` variables, never the provider or GitHub credentials, and disables lifecycle scripts for detected installs. Custom install commands are trusted host configuration. The result is in `.git/vitehub-install.json` for the model.
+The install in each pass workspace gets only the `PATH`, `HOME`, locale, package manager, and `NODE_OPTIONS` variables, never provider or GitHub credentials. Detected installs run without lifecycle scripts. Custom install commands are trusted host configuration. The model finds the result in `.git/vitehub-install.json`.
 
-Before a direct merge, the host compares the files that the pull request changes with the files that the base branch changed since the pull request's checks ran. Checks test the base of their moment, so two pull requests that change the same file can both pass and still break the base together. When the files overlap, or when the host cannot find the tested base, it updates the branch through GitHub and waits for checks on the new head instead of merging. Failed checks that ran on an older base get one update and retest every six hours when the current base tip has no failing check. Neither step starts a model pass.
+Two pull requests that change the same file can both pass checks and still break the base together. Before a direct merge, the host compares the changed files with files changed on the base since the checks ran. On overlap, or when the tested base is unknown, it updates the branch through GitHub and waits for checks on the new head instead. Failed checks from an older base get one update and retest every six hours, when the current base tip has no failing check. Neither step starts a model pass.
 
-The queue claims a pull request whose current head has a stored review first, then pull requests whose current-head checks all passed, then stack parents, then the oldest work. When GitHub still computes mergeability, the host reads the pull request again for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
+The queue claims, in order: a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
+
+While GitHub still computes mergeability, the host rereads the pull request for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
 
 ### Stop review ping-pong
 
-Review bots review every push, and a repair push for one finding often gets new findings. `reviewPushBudget` (default `3`) ends that loop on each pull request:
+A repair for one bot finding often gets new findings. `reviewPushBudget` (default `3`) ends that loop per pull request:
 
-- A push is review-driven when its pass had no merge conflict and no failing check outside `reviewChecks`. The host decides this from the GitHub state that the pass claimed, not from the model's report. A push that repairs a conflict or another failing check does not count. A pass that pushes counts once.
-- After `reviewPushBudget` review-driven pushes, comments, reviews and review threads from bots, and failures of the checks in `reviewChecks`, no longer wake the pull request.
-- A person's comment or review, a failing check outside `reviewChecks`, a merge conflict, and a head that someone else pushed still start a pass.
-- With `merge: 'direct'`, the host merges the pull request when its required checks pass, every review thread with a person's comment is resolved, and every comment from a person was assessed. Bot feedback and failed `reviewChecks` do not block that merge. GitHub branch rules still apply.
-- Otherwise the pull request parks. Its result says why and what resumes it, its GitHub status shows that result, and the health route lists it under `queue.parked` with `budget: "review-push-budget"`.
+- A push is review-driven when its pass had no merge conflict and no failing check outside `reviewChecks`, judged from the GitHub state the pass claimed, not the model's report. A pass that pushes counts once.
+- After the budget, bot comments, reviews, and review threads, and failures of `reviewChecks`, no longer wake the pull request.
+- A person's comment or review, a failing check outside `reviewChecks`, a merge conflict, and a head someone else pushed still start a pass.
+- With `merge: 'direct'`, the host merges when required checks pass, every review thread with a person's comment is resolved, and every comment from a person was assessed. Bot feedback and failed `reviewChecks` do not block it. GitHub branch rules still apply.
+- Otherwise the pull request parks. Its result and GitHub status say why and what resumes it. Health lists it under `queue.parked` with `budget: "review-push-budget"`.
 
-The count lasts for the life of the pull request. The inbox stores it in the pull request's `reviewPushBudget` record, `{ count, heads }`, which the inbox summary also returns. `heads` lists the heads that the worker pushed and the heads that already had a pass after the budget was spent.
+The count lasts for the life of the pull request, in its `reviewPushBudget` inbox record `{ count, heads }`, which the inbox summary also returns. `heads` lists heads the worker pushed and heads that had a pass after the budget was spent.
 
 ### Limit passes per pull request
 
-`dailyPassBudget` (default `16`) limits the model passes that one pull request gets in a rolling 24 hours. Each pass that starts the model counts once, when it starts. Host work, such as direct merges, CI reruns and recorded waits, does not count.
+`dailyPassBudget` (default `16`) limits model passes per pull request in a rolling 24 hours. Each pass counts once, when it starts. Host work, such as direct merges, CI reruns, and recorded waits, does not count.
 
-When the pull request already had `dailyPassBudget` passes in the last 24 hours, the host parks it before the next model pass. The wait resumes when the oldest pass is 24 hours old. The result names that time, the GitHub status shows it, and the health route lists the pull request under `queue.parked` with `budget: "daily-pass-budget"` and `resumeAt`. New feedback before that time does not start a pass.
-
-Three kinds of work still start a pass after the budget is spent. These passes count too:
+When the budget is spent, the host parks the pull request before the next pass until the oldest pass is 24 hours old. The result and GitHub status name that time. Health lists it under `queue.parked` with `budget: "daily-pass-budget"` and `resumeAt`. New feedback before then starts no pass, except these, which also count:
 
 - a person's comment or review that no pass saw yet
 - the first failing required check on a head
 - a merge conflict on a pull request with no failing check and no open review thread, once per head and base commit
 
-The inbox stores the pull request's `dailyPassBudget` record, `{ passes, human, exemptions }`, which the inbox summary also returns. `passes` holds the start time of each pass in the last 24 hours.
+The inbox stores the `dailyPassBudget` record `{ passes, human, exemptions }`, which the inbox summary also returns. `passes` holds the start time of each pass in the last 24 hours.
 
 ### Dependency installation
 
-Detected installs share `install.concurrency` slots (two by default). A pass waits up to ten minutes for a free slot and keeps its checkout while it waits.
+Detected installs share `install.concurrency` slots (two by default). A pass waits up to ten minutes for a slot and keeps its checkout meanwhile.
 
-By default, installation is optional. When it fails, the pass continues without dependencies and `.git/vitehub-install.json` records `"status": "failed"` with the reason. The model then repairs the pull request's lockfile or manifests when they caused the failure, or works without local dependencies, relies on hosted CI, and names the failure in its result. After a failed install, `commitRepair` does not verify dependencies against the install. An unresolved dependency conflict in a prepared merge still needs `refreshDependencies` before validation.
+By default, installation is optional. On failure, the pass continues without dependencies, and `.git/vitehub-install.json` records `"status": "failed"` with the reason. The model then repairs the lockfile or manifests when they caused it, or relies on hosted CI and names the failure in its result. After a failed install, `commitRepair` does not check dependencies against the install. An unresolved dependency conflict in a prepared merge still needs `refreshDependencies` before validation.
 
-With `install: { required: true }`, a failed install parks the pull request. Invalid installation inputs wait durably without a timer retry; correct them, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes. A lockfile that the frozen install rejects (for example `ERR_PNPM_OUTDATED_LOCKFILE`) goes to one more pass on the same head. That pass runs on this host without dependencies and gets the install error in a `<dependency-install-failure>` block, so the model can repair the lockfile.
+With `install: { required: true }`, a failed install parks the pull request:
 
-On Linux, a detected pnpm install reuses the `node_modules` trees of an earlier pass with the same repository identity, lockfile, workspace file, package manifests, `.npmrc` files, patches and Node version. The host copies trees with independent writable inodes (using copy-on-write when supported), and verifies them with a frozen offline install; a failed check gets a clean install. Passes that need the same trees wait for the first install. It defaults to `BABYSITTER_INSTALL_CACHE` or `vitehub-install-cache` in the temporary directory, and keeps `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8 entries. Set `install: { cache: false }` to disable it.
+- Invalid installation inputs wait durably with no timer retry. Fix them, then push a new head or comment to resume.
+- Installer capacity, filesystem, and package-manager failures retry after five minutes.
+- A lockfile that the frozen install rejects (such as `ERR_PNPM_OUTDATED_LOCKFILE`) gets one more pass on the same head, on this host without dependencies. The install error comes in a `<dependency-install-failure>` block, so the model can repair the lockfile.
 
-When the process temporary directory is inside the service's working directory, the host removes pass workspaces and pass temporary directories left by an earlier process at startup.
+On Linux, a detected pnpm install reuses `node_modules` trees of an earlier pass when the repository identity, lockfile, workspace file, package manifests, `.npmrc` files, patches, and Node version match:
+
+- Trees are copied with independent writable inodes, copy-on-write when supported.
+- A frozen offline install checks the copy; on failure, a clean install runs.
+- Passes that need the same trees wait for the first install.
+- The cache directory is `BABYSITTER_INSTALL_CACHE`, or `vitehub-install-cache` in the temporary directory. It keeps `BABYSITTER_INSTALL_CACHE_ENTRIES` entries, or 8.
+- `install: { cache: false }` turns it off.
+
+When the process temporary directory is inside the service working directory, the host removes pass workspaces and pass temporary directories left by an earlier process at startup.
 
 ### Health and prerequisites
 
-The process host checks Git and, for automatic dependency installs, Corepack before model admission. Missing tools appear in health with a `host-prerequisite` reason and an installation action. Checks are cached for five minutes on success and retried after thirty seconds on failure. Webhook intake and host reconciliation remain available. Installation capacity waits have the durable reason code `install-capacity` and do not consume a model repair attempt.
+Before model admission, the host checks for Git, and Corepack when it installs automatically. A missing tool shows in health with a `host-prerequisite` reason and an install action. Success is cached five minutes; failure retries after thirty seconds. Webhook intake and reconciliation stay available. A wait for installer capacity has the durable reason code `install-capacity` and uses no model repair attempt.
 
-Health separates runnable `queue.ready` work from `queue.scheduled` retries and reports `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts. Blocker counts can overlap, for example a timed wait can also await installer capacity. The application `release` and `framework.buildRevision` identify different code: the latter is a content fingerprint of the installed Agent build. `admission.accepting` is current; `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a historical skip.
+Health shows:
+
+- runnable work in `queue.ready`, separate from retries in `queue.scheduled`
+- `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts, which can overlap (a timed wait can also wait for installer capacity)
+- the application `release` and `framework.buildRevision` (a content fingerprint of the installed Agent build), which identify different code
+- `admission.accepting`, the current state. `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a past skip.
 
 ### Token admission estimates
 
-`admission.inputTokens.hourly` and `admission.inputTokens.daily` are best-effort thresholds over retained Invocation journal usage, not hard host budgets or billing caps. Health reports identify this accounting as `best-effort-retained-journal`. The host samples at most once per minute and caches the largest input-token observation per Invocation, assigned to its latest update time. Active observations are included through the journal API. Concurrent writes during pagination can be missed until a later scan; retention and host restarts can omit usage permanently. The standalone journal retains 5,000 terminal records. Read errors appear in health diagnostics and do not block admission. Use provider-side spending limits when a hard cap is required.
+`admission.inputTokens.hourly` and `admission.inputTokens.daily` are best-effort thresholds over usage kept in the Invocation journal, not hard host budgets or billing caps. Health calls this accounting `best-effort-retained-journal`.
+
+- The host samples at most once per minute and caches each Invocation's largest input-token value at its latest update.
+- The journal API includes active observations.
+- A scan can miss concurrent writes during pagination until a later scan. Retention and host restarts can lose usage permanently.
+- The standalone journal keeps 5,000 terminal records.
+- Read errors show in health diagnostics and do not block admission.
+
+For a hard cap, use provider-side spending limits.

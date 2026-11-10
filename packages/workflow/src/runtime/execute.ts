@@ -1,6 +1,7 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
 import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
 const defaultStepOptions = {
   retries: {
@@ -20,7 +21,8 @@ export async function runProviderStep<TResult>(
     return await step.do(name, options, run)
   }
 
-  return await run()
+  const recorder = getWorkflowDevRecorder()
+  return recorder ? await recorder.step(name, run) : await run()
 }
 
 /** `01.create-user.ts` becomes the `createUser` step. */

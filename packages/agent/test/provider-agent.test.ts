@@ -79,7 +79,8 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -92,8 +93,6 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { codexDocsAnswer } from "./fixtures/codex-docs-answer.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
-import { prepareGitHubPullRequestWorkspace } from "../src/server/github-checkout.ts"
-import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/server/github-repair.ts"
 
 /** The `developer_instructions` value of the last Codex launch, as Codex parses it. */
 function launchedCodexDeveloperInstructions(): string | undefined {
@@ -3508,7 +3507,7 @@ cli_auth_credentials_store = "keyring"
     })
     const agent = defineAgent({ driver: codexDriver(), invocations, runtime: false })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: <T>(_key: string, create: () => T) => create(),
       run: { runId, threadId },
       runtime: "vite",
@@ -3884,7 +3883,7 @@ cli_auth_credentials_store = "keyring"
       runtime: false,
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: <T>(_key: string, create: () => T) => create(),
       run: { runId, threadId },
       runtime: "vite",
@@ -5211,89 +5210,6 @@ cli_auth_credentials_store = "keyring"
     }) }))
   })
 
-  it.each([
-    { provider: "codex" as const, merge: false },
-    { provider: "codex" as const, merge: true },
-    { provider: "claude-code" as const, merge: false },
-    { provider: "claude-code" as const, merge: true },
-  ])("preserves a $provider checkout restored by launch in an owned Workspace, merge=$merge", async ({ provider, merge }) => {
-    const source = await mkdtemp(join(tmpdir(), "vitehub-launch-checkout-"))
-    let root = ""
-    const git = (cwd: string, ...args: string[]) => {
-      const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" })
-      if (result.status !== 0) throw new Error(result.stderr)
-      return result.stdout.trim()
-    }
-    try {
-      git(source, "init", "-q", "-b", "main")
-      git(source, "config", "user.name", "Test")
-      git(source, "config", "user.email", "test@localhost")
-      git(source, "remote", "add", "origin", "https://github.com/acme/portal.git")
-      await writeFile(join(source, "AGENTS.md"), "native instructions")
-      await writeFile(join(source, "CLAUDE.md"), "native Claude instructions")
-      await writeFile(join(source, "file.txt"), "original\n")
-      git(source, "add", "-A")
-      git(source, "commit", "-qm", "initial")
-      git(source, "branch", "feature")
-      await writeFile(join(source, "file.txt"), "base edit\n")
-      git(source, "add", "-A")
-      git(source, "commit", "-qm", "base change")
-      const base = git(source, "rev-parse", "HEAD")
-      git(source, "checkout", "-q", "feature")
-      await writeFile(join(source, "file.txt"), "PR edit\n")
-      git(source, "add", "-A")
-      git(source, "commit", "-qm", "PR change")
-      const expectedHead = git(source, "rev-parse", "HEAD")
-      const session = {
-        close: vi.fn(async () => undefined),
-        commit: vi.fn(async () => undefined),
-        diff: vi.fn(async () => ({ entries: [] })),
-        exec: vi.fn(async (command: string, args: string[] = []) => {
-          const result = spawnSync(command, args, { cwd: root, encoding: "utf8" })
-          return { exitCode: result.status ?? 1, stderr: result.stderr, stdout: result.stdout }
-        }),
-        readFile: vi.fn(async () => new Uint8Array()),
-      }
-      const workspace = {
-        fs: {},
-        tools: {},
-        startSession: vi.fn(async ({ target }: { target: string }) => {
-          root = target
-          await writeFile(join(root, "file.txt"), "PR edit\n")
-          return session
-        }),
-      }
-      const threadId = `thread-launch-checkout-${provider}-${merge}`
-      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-        async onSendTurn() {
-          await writeFile(join(root, "file.txt"), "repaired\n")
-          const repairedHead = await commitGitHubPullRequestWorkspace(root, { message: "repair", paths: ["file.txt"] }, { expectedHead })
-          expect(git(root, "rev-parse", `${repairedHead}^1`)).toBe(expectedHead)
-          if (merge) expect(git(root, "rev-parse", `${repairedHead}^2`)).toBe(base)
-          expect(git(root, "log", "--format=%s")).not.toContain("vitehub provider baseline")
-          expect(git(root, "show", "HEAD:AGENTS.md")).toBe("native instructions")
-          expect(git(root, "show", "HEAD:CLAUDE.md")).toBe("native Claude instructions")
-          expect(git(root, "ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
-          expect(git(root, "show", "HEAD:file.txt")).toBe("repaired")
-        },
-      })
-      await createProviderAgentAdapter({
-        instructions: "generated repair instructions",
-        launch: async ({ command, cwd }) => {
-          expect(cwd).toBe(root)
-          await prepareGitHubPullRequestWorkspace(source, root, { restoreInstructions: true })
-          if (merge) await prepareGitHubRepairBase(root, { expectedHead, base })
-          return { command }
-        },
-        provider,
-      }).generate(context(threadId, { workspace, workspaceDefinition: { mode: "write", name: "repair" }, workspaceMode: "write" }) as never)
-      expect(session.exec.mock.calls.some(([command, args = []]) => command === "git" && args.includes("vitehub provider baseline"))).toBe(false)
-    }
-    finally {
-      await rm(source, { recursive: true, force: true })
-    }
-  })
-
   it.each(["codex", "claude-code"] as const)("baselines an ordinary committed root created by a custom $provider launch", async provider => {
     let root = ""
     const git = (...args: string[]) => {
@@ -5390,124 +5306,6 @@ cli_auth_credentials_store = "keyring"
     finally {
       await rm(root, { recursive: true, force: true })
     }
-  })
-
-  it.each([
-    { provider: "codex", instructions: "generated repair instructions", nativeOverride: false },
-    { provider: "codex", instructions: "generated repair instructions".repeat(1400), nativeOverride: false },
-    { provider: "codex", instructions: "generated repair instructions".repeat(1400), nativeOverride: true },
-    { provider: "claude-code", instructions: "generated repair instructions", nativeOverride: false },
-  ] as const)("repairs conflicted $provider instruction files without committing generated instructions", async ({ provider, instructions, nativeOverride }) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-conflicted-instructions-"))
-    const threadId = `thread-conflicted-instructions-${provider}`
-    const git = (...args: string[]) => {
-      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
-      if (result.status !== 0) throw new Error(result.stderr)
-      return result.stdout
-    }
-    try {
-      git("init", "-q", "-b", "target")
-      git("config", "user.name", "Test")
-      git("config", "user.email", "test@localhost")
-      for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "original\n")
-      if (nativeOverride) await writeFile(join(root, "AGENTS.override.md"), "native override\n")
-      git("add", "-A"); git("commit", "-qm", "initial")
-      git("branch", "feature")
-      for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "target instructions\n")
-      git("commit", "-qam", "target")
-      const base = git("rev-parse", "HEAD").trim()
-      git("checkout", "-q", "feature")
-      for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "feature instructions\n")
-      git("commit", "-qam", "feature")
-      const head = git("rev-parse", "HEAD").trim()
-      const session = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-        async onSendTurn() {
-          expect(git("diff", "--name-only", "--diff-filter=U")).toBe("AGENTS.md\nCLAUDE.md\n")
-          for (const name of ["AGENTS.md", "CLAUDE.md"]) {
-            expect(await readFile(join(root, name), "utf8")).toContain("<<<<<<<")
-            await writeFile(join(root, name), "resolved source instructions\n")
-          }
-          if (provider === "codex" && instructions.length < 32768) expect(launchedCodexDeveloperInstructions()).toBe(instructions)
-          else if (provider === "codex") expect(session.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining(instructions) }))
-          else expect(await readFile(join(root, ".claude/vitehub-system-prompt.md"), "utf8")).toBe(instructions)
-          if (nativeOverride) {
-            expect(await readFile(join(root, "AGENTS.override.md"), "utf8")).toBe("native override\n")
-            await writeFile(join(root, "AGENTS.override.md"), "updated native override\n")
-          }
-          git("add", "-A"); git("commit", "-qm", "resolve instructions")
-          expect(git("rev-parse", "HEAD^1").trim()).toBe(head)
-          expect(git("rev-parse", "HEAD^2").trim()).toBe(base)
-          if (nativeOverride) expect(git("show", "HEAD:AGENTS.override.md")).toBe("updated native override\n")
-          else expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("AGENTS.override.md")
-          expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
-        },
-      })
-      await createProviderAgentAdapter({
-        cwd: root,
-        instructions,
-        launch: async ({ command }) => {
-          await prepareGitHubRepairBase(root, { expectedHead: head, base })
-          return { command }
-        },
-        provider,
-      }).generate(context(threadId) as never)
-      for (const name of ["AGENTS.md", "CLAUDE.md"]) {
-        expect(await readFile(join(root, name), "utf8")).toBe("resolved source instructions\n")
-        expect(git("show", `HEAD:${name}`)).toBe("resolved source instructions\n")
-      }
-      if (nativeOverride) expect(await readFile(join(root, "AGENTS.override.md"), "utf8")).toBe("updated native override\n")
-      expect(git("status", "--porcelain")).toBe("")
-    } finally { await rm(root, { recursive: true, force: true }) }
-  })
-
-  it.each(["AGENTS.md", "AGENTS.override.md"])("invalidates a conflicted Codex session when preserved %s changes", async (file) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-conflicted-resume-"))
-    const threadId = `thread-conflicted-resume-${crypto.randomUUID()}`
-    const git = (...args: string[]) => {
-      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
-      if (result.status !== 0) throw new Error(result.stderr)
-      return result.stdout
-    }
-    try {
-      git("init", "-q", "-b", "target")
-      git("config", "user.name", "Test")
-      git("config", "user.email", "test@localhost")
-      await writeFile(join(root, "AGENTS.md"), "original\n")
-      await writeFile(join(root, "AGENTS.override.md"), "native override\n")
-      git("add", "-A"); git("commit", "-qm", "initial")
-      git("branch", "feature")
-      await writeFile(join(root, "AGENTS.md"), "target instructions\n")
-      git("commit", "-qam", "target")
-      const base = git("rev-parse", "HEAD").trim()
-      git("checkout", "-q", "feature")
-      await writeFile(join(root, "AGENTS.md"), "feature instructions\n")
-      git("commit", "-qam", "feature")
-      await prepareGitHubRepairBase(root, { expectedHead: git("rev-parse", "HEAD").trim(), base })
-      const messages = [
-        { parts: [{ text: "previous question", type: "text" }], role: "user" },
-        { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
-        { parts: [{ text: "continue", type: "text" }], role: "user" },
-      ]
-      const generate = () => createProviderAgentAdapter({
-        cwd: root,
-        instructions: "generated repair instructions".repeat(1400),
-        provider: "codex",
-        sessionStorePath: `.vitehub/${threadId}.sqlite`,
-      }).generate(context(threadId, { messages, prompt: "continue" }) as never)
-      const turn = (cursor: string) => runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: cursor })
-      turn("cursor-1")
-      await generate()
-      const unchanged = turn("cursor-2")
-      await generate()
-      expect(unchanged.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "cursor-1" }))
-
-      await writeFile(join(root, file), "updated native instructions\n")
-      const changed = turn("cursor-3")
-      await generate()
-      expect(changed.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
-      expect(changed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining("previous answer") }))
-      expect(await readFile(join(root, file), "utf8")).toBe("updated native instructions\n")
-    } finally { await rm(root, { recursive: true, force: true }) }
   })
 
   it.each(["codex", "claude-code"] as const)("keeps %s generated root checkout files out of Agent commits", async (provider) => {

@@ -170,6 +170,20 @@ describe("workspace config", () => {
     })
   })
 
+  it("defaults to Vercel Blob when the project has a Blob store for OIDC", () => {
+    const config = normalizeWorkspaceOptions({}, {
+      env: { BLOB_STORE_ID: "store_1" },
+      hosting: "vercel",
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toStrictEqual({
+      access: "private",
+      provider: "vercel-blob",
+      token: "********",
+    })
+  })
+
   it("keeps the default Vercel Blob prefix unset", () => {
     const config = normalizeWorkspaceOptions({}, {
       env: { BLOB_READ_WRITE_TOKEN: "runtime-token" },
@@ -349,6 +363,17 @@ describe("workspace config", () => {
       root: "state/<workspace>",
       token: "********",
     })
+  })
+
+  it("leaves the token unset at runtime so the Vercel SDK uses OIDC with BLOB_STORE_ID", () => {
+    const store = { provider: "vercel-blob" as const, token: "********" }
+    expect(resolveRuntimeVercelBlobWorkspaceStore(store, { BLOB_STORE_ID: "store_1" })).toStrictEqual({ provider: "vercel-blob" })
+    expect(resolveRuntimeVercelBlobWorkspaceStore(store, { BLOB_READ_WRITE_TOKEN: "runtime-token", BLOB_STORE_ID: "store_1" })).toStrictEqual({ provider: "vercel-blob" })
+  })
+
+  it("reports missing Vercel Blob credentials at runtime", () => {
+    expect(() => resolveRuntimeVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, {}))
+      .toThrow("`BLOB_STORE_ID`")
   })
 
   it("rehydrates masked Vercel Blob tokens at runtime", () => {

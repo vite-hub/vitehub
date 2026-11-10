@@ -3,7 +3,8 @@ import { createExecutionContext, createRuntimeContext } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentErrorMessage } from "./agent-error.ts"
 import { channelsConsoleHost } from "./channels-console-host.ts"
-import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem, runAgent } from "./index.ts"
+import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem } from "./index.ts"
+import { runAgentWithContext } from "./internal/agent-run.ts"
 import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, type AgentInvocationRecordStatus, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
@@ -102,7 +103,7 @@ function resolveChannelHistory<TRuntimeConfig extends AgentRuntimeConfig>(
   }
   const history = definition.history
   if (!history) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channel}" has no history. Add history to its defineChannel() options.` })
+    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channel}" has no history. Add history to its defineChannel() or channelAdapter() options.` })
   }
   const triggerNames = Object.keys(definition.triggers || {})
   const triggerName = history.trigger
@@ -277,7 +278,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     }
     const token = await reservation?.handoffClaim()
     if (reservation && !token) throw new Error("Could not transfer the Invocation execution claim.")
-    const output = await runAgent(run.agent, { ...itemRuntime, ...(token ? { [inheritedAgentInvocationClaim]: token } : {}), run: runMetadata }, {
+    const output = await runAgentWithContext(run.agent, { ...itemRuntime, ...(token ? { [inheritedAgentInvocationClaim]: token } : {}), run: runMetadata }, {
       ...invocation.input,
       ...(run.actor ? { context: { ...invocation.input.context, actor: run.actor } } : {}),
       ...(run.dryRun ? { dryRun: true } : {}),

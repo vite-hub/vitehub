@@ -1,14 +1,14 @@
 ---
-title: Server API
+title: Logs server API
 navigation.title: Server API
 navigation.order: 4
-description: Server API for ViteHub Logs, powered by Evlog.
+description: "The Evlog logger API in vite-hub/logs, the LogSource read contract, the local buffer, and how the Console and the CLI read events."
 icon: i-lucide-logs
 ---
 
 ## Logger API
 
-`vite-hub/logs` re-exports Evlog's root API. Use official Evlog framework adapter imports for request context, such as `evlog/nitro/v3`. ViteHub does not rename those adapters or add a second logger lifecycle.
+`vite-hub/logs` re-exports the Evlog root API. For request context, import the official Evlog framework adapters, such as `evlog/nitro/v3`. ViteHub does not rename them or add a second logger lifecycle.
 
 ## Source contract
 
@@ -18,18 +18,18 @@ import type { LogSource, LogEntry, LogQuery, LogPage } from 'vite-hub/logs'
 
 A `LogSource` has `info` and an asynchronous `query(query, options)` method. `options.signal` can cancel a query.
 
-`info` contains `id`, `label`, `retention`, and supported `filters`. External retention uses `{ kind: 'external', description: 'Your backend retention policy' }`. Filters are `text`, `level`, and `service`.
+`info` has `id`, `label`, `retention`, and supported `filters`. External retention is `{ kind: 'external', description: 'Your backend retention policy' }`. Filters are `text`, `level`, and `service`.
 
-`LogQuery` accepts optional `text`, `level`, `service`, `cursor`, and `limit`. Levels are `debug`, `info`, `warn`, and `error`. Apply all supplied filters, or reject filters your source cannot support.
+`LogQuery` takes optional `text`, `level`, `service`, `cursor`, and `limit`. Levels are `debug`, `info`, `warn`, and `error`. Apply every filter, or reject those your source cannot support.
 
-Return a `LogPage` with `entries`, an optional next-page `cursor`, and optional `dropped` count. Return newest events first and use stable event IDs. A `LogEntry` contains `id`, ISO `timestamp`, `level`, `service`, `message`, and structured `data`.
+Return a `LogPage` with `entries`, an optional next-page `cursor`, and optional `dropped` count. Return the newest events first, with stable IDs. A `LogEntry` has `id`, ISO `timestamp`, `level`, `service`, `message`, and structured `data`.
 
-Throw `LogCursorExpiredError` when a cursor no longer identifies retained data. Keep pagination stable while newer events arrive.
+Throw `LogCursorExpiredError` when a cursor points to data that is gone. Keep pages stable while new events arrive.
 
 ## Local buffer
 
-`createLogBuffer()` returns `source`, `append`, `drain`, and `clear`. `append` accepts normalized `LogEntry` values. `drain` accepts an Evlog drain context after redaction. Neither method initializes Evlog. Invalid and oversized entries increase the dropped count.
+`createLogBuffer()` returns `source`, `append`, `drain`, and `clear`. `append` takes normalized `LogEntry` values. `drain` takes an Evlog drain context after redaction. Neither starts Evlog. Invalid and oversized entries raise the dropped count.
 
 ## Inspection
 
-The Console and CLI read the configured source. Use `vitehub logs --help` for the CLI commands and connection options. Console selection opens the full event in the right inspector. Serialized Nostics diagnostics retain their `name`, `why`, `fix`, and `docs` fields when added with `diagnostic.toJSON()`.
+The Console and CLI read the configured source. Run `vitehub logs --help` for CLI commands and connection options. Selecting an event in the Console opens it in the inspector. Nostics diagnostics added with `diagnostic.toJSON()` keep their `name`, `why`, `fix`, and `docs` fields.

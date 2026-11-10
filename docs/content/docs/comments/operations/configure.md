@@ -23,36 +23,36 @@ export default defineComments({
 
 | Field | Meaning |
 | --- | --- |
-| `user` | The signed-in user, including application fields such as `role`, or `null`. Stored authors and mention suggestions contain only `id`, `name`, and `image`. |
+| `user` | The signed-in user with app fields such as `role`, or `null`. Stored authors and mention suggestions keep only `id`, `name`, and `image`. |
 | `actor` | The Agent Actor when an agent acts for `user`. |
 | `action` | `read`, `write`, `resolve`, or `delete`. |
-| `thread` | The thread, when the action is about one. Not set for `create`, `list`, and `users`. |
-| `subject` | What the action is about: the subject of `thread`, the subject that `create` starts a thread on, or the subject that a `list` filters by. Not set for a `list` with no filter and for `users`. |
+| `thread` | The thread the action is about. Not set for `create`, `list`, and `users`. |
+| `subject` | The subject of `thread`, of the new thread for `create`, or of the `list` filter. Not set for `users` or an unfiltered `list`. |
 
-Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, agents, and the overlay API.
+Return `true` to allow. The policy runs for every operation on every surface: the Console, the CLI, MCP, agents, and the overlay API.
 
-- `user` is the user that `identify` builds for the request of the call, as in the overlay API. Without `identify`, it is the Console user.
-- Without `authorize`, the default policy of [Decide who can comment](/docs/comments/configure#decide-who-can-comment) applies. The operations run only after the Console admitted the call to its Comments section, so, without `identify`, those people may do everything that their grant allows. Anonymous people may only on the dev server, as guests.
-- Creating a thread asks `read`, then `write`, with its subject. Mention suggestions ask `read`, then `write`, without a thread or subject.
-- Every operation on a thread asks `read` for that thread first. A thread you may not read looks missing: `get` answers `null`, and `reply`, `edit`, `delete`, `resolve`, and `reopen` fail with `COMMENTS_R0002`, the same as for a thread that does not exist.
-- People edit their own messages and delete their own messages, once they may read the thread. Nobody else edits a message. An Agent has no such right, even when it acts for the author: `edit` needs `write`, and `delete` needs `delete`.
-- `delete` covers the messages of other people. A person deletes a whole thread, or its first message, only when every message in it is theirs; otherwise it needs `delete`.
+- `user` comes from `identify` for the call's request, as in the overlay API. Without `identify`, it is the Console user.
+- Without `authorize`, the default policy of [Decide who can comment](/docs/comments/configure#decide-who-can-comment) applies. Operations run only after the Console admits the call to its Comments section. So without `identify`, those people may do all that their grant allows. Anonymous people may act only on the dev server, as guests.
+- Creating a thread asks `read`, then `write`, with its subject. Mention suggestions ask `read`, then `write`, with no thread or subject.
+- Each operation on a thread asks `read` first. A thread you may not read looks missing: `get` returns `null`, and `reply`, `edit`, `delete`, `resolve`, and `reopen` fail with `COMMENTS_R0002`.
+- People who may read a thread can edit and delete their own messages. Nobody else edits a message. An Agent has no such right, even for the author: `edit` needs `write`, and `delete` needs `delete`.
+- `delete` covers other people's messages. Deleting a whole thread, or its first message, needs `delete` unless every message in it is yours.
 - `resolve` covers resolving and reopening.
-- `list` asks `read` for each thread, with up to 16 checks at once, and drops the threads you may not read.
-- `users()` suggests people only to someone who may `write`, and the store looks only at authors of threads you may read.
+- `list` asks `read` for each thread, up to 16 checks at once, and drops threads you may not read.
+- `users()` suggests people only to someone who may `write`, and only from authors of threads you may read.
 
 The operations also sit behind the Console section `comments`, so `console.authorize` decides who reaches them at all.
 
 ## Subjects
 
-A thread is about a subject: `{ kind, id }`. `kind` picks the numbering scope.
+Each thread is about a subject: `{ kind, id }`. `kind` picks the numbering scope.
 
 | Kind | `id` | Scope |
 | --- | --- | --- |
 | `page` | An app path such as `/pricing` | `site` |
 | `content` | `<collection>/<id>` | `site` |
 
-Numbers are unique inside a scope, so `?comment=3` names one thread of the site. Add your own kinds:
+Numbers are unique in a scope, so `?comment=3` names one thread of the site. Add your own kinds:
 
 ```ts [server/comments.ts]
 import { defineCommentSubject, defineComments } from 'vite-hub/comments'
@@ -68,13 +68,19 @@ export default defineComments({
 
 ## Mentions
 
-A message mentions people by id, and its text names each one with `@name`. The server checks three things: the id must belong to a real person, the text must contain `@` and that person's name, and `canMention` must allow them, by default when they may read the thread. Where people come from:
+A message mentions people by id, and its text names each one with `@name`. The server checks that:
 
-- With `people`, the people that it finds.
-- With [Auth](/docs/auth), the Better Auth users. `users()` searches their name, and returns only `id`, `name`, and `image`.
-- Without both, the authors that comments know, and only those with a thread that you may read.
+- The id belongs to a real person.
+- The text contains `@` and that person's name.
+- `canMention` allows them. By default, it allows people who may read the thread.
 
-`users({ query, threadId?, subject? })` leaves out the people that `canMention` refuses for that thread or subject. See [Mention people](/docs/comments/configure#mention-people).
+People come from:
+
+- `people`, when set.
+- [Auth](/docs/auth) Better Auth users. `users()` searches their name and returns only `id`, `name`, and `image`.
+- Otherwise, known comment authors who have a thread you may read.
+
+`users({ query, threadId?, subject? })` leaves out people that `canMention` refuses for that thread or subject. See [Mention people](/docs/comments/configure#mention-people).
 
 ```ts [server/comments.ts] fragment
 export default defineComments({
@@ -85,20 +91,48 @@ export default defineComments({
 })
 ```
 
-`onMention` runs once for each saved message, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It receives the people that the message mentions for the first time, and `link`, the app path that opens the thread. `comments.reply` replies to a resolved thread too, and the thread stays resolved: the comment UI keeps a reply box there.
+`onMention` runs once per saved message, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It gets the people the message mentions for the first time, and `link`, the app path that opens the thread. `comments.reply` also replies to a resolved thread, which stays resolved. The comment UI keeps a reply box there.
 
 ## Overlay
 
-The overlay is the `comments` page tool of [Turn comment mode on and off](/docs/comments/configure#turn-comment-mode-on-and-off). It works without the Console, for guests too when `authorize` allows them. `vitehub({ comments: { overlay: false } })` leaves it out.
+The overlay is the `comments` page tool from [Turn comment mode on and off](/docs/comments/configure#turn-comment-mode-on-and-off). It works without the Console, also for guests when `authorize` allows them. `vitehub({ comments: { overlay: false } })` removes it.
 
 ## Database
 
-With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on, and Comments use the default Database. When the app has no Database Definition, that is the implicit `default` Database, as for the Content cms preset. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
+With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on, and Comments use the default Database. Without a Database Definition, that is the implicit `default` Database, as for the Content cms preset. `database: false` fails the build with `COMMENTS_B0001`. To pick another Database:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { comments: { database: 'main' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
-vitehub({ comments: { database: 'main' } })
+export default defineConfig({
+  plugins: [vitehub({ comments: { database: 'main' } }), nitro()],
+})
 ```
+:::
 
-For Postgres set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, import `commentsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres`, and add it to your Database Definition.
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ comments: { database: 'main' } })],
+})
+```
+:::
+::
+
+For Postgres, set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, add `commentsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres` to your Database Definition.

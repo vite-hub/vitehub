@@ -5,8 +5,9 @@ import { useRoute, useRouter } from "vue-router";
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { provideConsoleMediaPicker } from "../client/media";
-import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
+import { consoleMediaBase, consoleMediaFileUrl, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
 import { ConsoleRequestError, isConsoleSignInRequired, requestConsole } from "../client/request";
+import { consoleQueryText } from "../client/route-query";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
@@ -113,7 +114,7 @@ if (hasMedia) {
     async describe(reference) {
       const file = await mediaClient.value.get(reference.pathname).catch(() => undefined);
       if (!file) return undefined;
-      const url = file.url ?? consoleMediaUrl(mediaInfo.value?.served, file.pathname);
+      const url = consoleMediaFileUrl(file, mediaInfo.value?.served);
       const thumbnail = url && consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, {
         fit: file.focal ? "inside" : "cover",
         height: 96,
@@ -208,6 +209,13 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
 }
 /** The document the editor opens: the route id, or the one document of a singleton. */
 const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
+/** The translation the editor opens, from `?locale=`. The source locale, the default, has no query. */
+const editorLocale = computed(() => {
+  const locale = consoleQueryText(route.query.locale);
+  const locales = collection.value?.locales;
+  return editorDocumentId.value && locale && locales?.includes(locale) && locale !== locales[0] ? locale : undefined;
+});
+const editorClient = computed(() => (editorLocale.value ? createConsoleDocumentsClient(props.documentsBase, section.value, editorLocale.value) : client.value));
 
 async function loadCollections(): Promise<void> {
   const current = ++collectionsRequest;
@@ -477,10 +485,12 @@ onBeforeUnmount(() => {
       </template>
       <template v-else-if="collection && (editorDocumentId || creating)">
         <ConsoleDocumentEditor
-          :key="`${collection.name}/${editorDocumentId ?? '~new'}`"
-          :client="client"
+          :key="`${collection.name}/${editorDocumentId ?? '~new'}${editorLocale ? `@${editorLocale}` : ''}`"
+          :client="editorClient"
           :collection="collection"
           :document-id="editorDocumentId"
+          :locale="editorLocale"
+          :source-client="editorLocale ? client : undefined"
           :parent="collection.kind === 'singleton' && settingsPage ? { label: settingsPage.label, to: pageRoute(settingsPage) } : undefined"
           :changes="changes"
           :setup="setup"

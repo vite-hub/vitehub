@@ -11,7 +11,7 @@ Pass ViteHub Source definitions, registered names, readers, reader factories, or
 
 ```ts
 import { defineContent } from "@vite-hub/content"
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 
 export const content = defineContent({
   sources: {
@@ -28,9 +28,15 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
+Install Comark when importing a parse plugin directly:
+
+```sh
+pnpm add comark
+```
+
 ```ts
 import { defineContent } from "@vite-hub/content"
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 import headings from "comark/plugins/headings"
 
 export const content = defineContent({
@@ -48,11 +54,15 @@ Use per-render Markdown APIs when plugin values must come from an individual
 request or invocation. Content parsing and cache refreshes use the plugin list
 configured on the content runtime.
 
-Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
+Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
 `defineContentHandler(content)` also returns 404 when this option is false.
+
+## Types
+
+In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
 
 ## Markdown rendering
 
@@ -72,7 +82,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-With the framework distribution, import from `vite-hub/ui/markdown`. The UI Nuxt module auto-imports `Markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
+With the framework distribution, import from `vite-hub/ui/markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
 
 Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not install `@comark/html`.
 
@@ -150,6 +160,16 @@ await content.publish({ expect: [{ collection: "settings", digest: draft.digest 
 await settings.get() // the published settings, also at /api/content/get/settings
 ```
 
+`documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"] })` keeps a document in several locales. The first locale is the source locale, and a document keeps its id in every locale: `guide` is `docs/en/guide.md` and `docs/es/guide.md`. `get()`, `raw()`, and `list()` take `locale`; without a translation, `get()` and `list()` return the source locale version with `fallback: true`. `save()`, `remove()`, and `restore()` take `{ locale }`. `get()` returns `source: { path, digest }`, the source locale version in the `sha256-` lineage form. A save in another locale with `sourceDigest: source.digest` records `derivedFrom: { path, digest }` of the source version that was read, as `@vite-hub/workspace/lineage` reads it. Without `sourceDigest`, an existing translation keeps its `derivedFrom` and a new one records the source locale draft. `status()` gives each source locale document `translations`, such as `{ es: "stale" }`: `current`, `stale` when the source changed since or `derivedFrom` names another file than the source locale file of the same id, or `missing`. `publish()` publishes every locale, and `publish({ expect })` entries take `locale`. A `url` pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale.
+
+```ts fragment
+const docs = content.collection("docs")
+const english = await docs.get("guide", { ref: "draft", locale: "es" }) // the fallback, with source: { path, digest }
+await docs.save("guide", { data: { title: "Guía" }, body: "Hola." }, { locale: "es", sourceDigest: english.source.digest }) // records derivedFrom
+await docs.get("intro", { locale: "es" }) // { locale: "en", fallback: true, ... } without a translation
+await docs.status("guide") // { locale: "en", translations: { es: "current" }, ... }
+```
+
 Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve `published`, except to a request with a valid preview cookie. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths: the `draft` ref accepts fields in progress, every other ref only valid documents. `save()` stores invalid fields and returns them as `issues`; `publish()` and `schedule()` refuse such drafts with `CONTENT_INVALID` naming each one. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.
 
 ## Draft preview
@@ -159,10 +179,11 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 ```ts
 // server/api/preview.post.ts
 import { withAuth } from "@vite-hub/auth/server"
+import type { H3Event } from "h3"
 import { createError, defineEventHandler } from "h3"
 import { content } from "../content"
 
-export default defineEventHandler(withAuth(async (event, { user }) => {
+export default defineEventHandler(withAuth(async (event: H3Event, { user }) => {
   if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
   return await content.preview.enable(event, { maxAge: 900 }) // content.preview.disable(event) clears it
 }))
@@ -202,7 +223,7 @@ vitehub content status [collection] [id]
 vitehub content diff <collection> [id]
 vitehub content revisions <collection> [id] [--ref published]
 vitehub content edit <collection> [id] [--file <path>|-] [--if-digest <digest>] [--override-lease]
-vitehub content rm <collection> [id] [--yes] [--override-lease]
+vitehub content delete <collection> [id] [--yes] [--override-lease]
 vitehub content restore <collection> [id] --revision <id> [--override-lease]
 vitehub content publish [--collection <name>] [--id <id>...] [--dry-run] [--yes]
 vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry-run] [--yes]
@@ -211,7 +232,7 @@ vitehub content unschedule <schedule>
 vitehub content sitemap [--site <url>] [--xml]
 ```
 
-Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation from `@vite-hub/content/operations` through the app's `/_vitehub/rpc/__call` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.
+Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation through the app's `/_vitehub/rpc/__call` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.
 
 ## Console MCP
 

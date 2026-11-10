@@ -1,18 +1,20 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { getAuthTables } from "better-auth/db"
+import { getTableName } from "drizzle-orm"
 import { admin, jwt } from "better-auth/plugins"
 import { getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
 import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { authPostgresSchema, authSqliteSchema, authTableSpecs } from "../src/schema.ts"
+import { authTableNames } from "../src/table-names.ts"
 import { assertAuthDatabaseSchema } from "../src/database-schema-options.ts"
 
 import type { AuthTableField, AuthTableSpec } from "../src/schema.ts"
 
-/** Better Auth's tables for the plugins that ViteHub ships, in the shape of `authTableSpecs`. */
+/** Better Auth's tables for the plugins that ViteHub ships and the database limiter, in the shape of `authTableSpecs`. */
 function betterAuthTables(): Record<string, AuthTableSpec> {
-  const tables = getAuthTables({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" })] })
+  const tables = getAuthTables({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" })], rateLimit: { storage: "database" } })
   return Object.fromEntries(Object.entries(tables).map(([model, table]) => {
     const fields = Object.fromEntries(Object.entries(table.fields).map(([key, field]) => {
       const spec: AuthTableField = { type: field.type as AuthTableField["type"] }
@@ -22,6 +24,7 @@ function betterAuthTables(): Record<string, AuthTableSpec> {
       const value: unknown = field.defaultValue
       if (value !== undefined) spec.defaultValue = typeof value === "function" ? "now" : value as AuthTableField["defaultValue"]
       if (field.onUpdate) spec.onUpdate = true
+      if (field.bigint) spec.bigint = true
       if (field.references) spec.references = { model: field.references.model as never, field: field.references.field, onDelete: (field.references.onDelete ?? "cascade") as "cascade" }
       return [key, spec]
     }))
@@ -67,5 +70,11 @@ describe("Auth tables", () => {
       ["oauthClientResource_clientId_idx", false],
       ["oauthClientResource_resourceId_idx", false],
     ])
+  })
+
+  it("lists every schema key and SQL name for the Database contribution", () => {
+    for (const schema of [authSqliteSchema, authPostgresSchema]) {
+      expect(Object.fromEntries(Object.entries(schema).map(([key, table]) => [key, getTableName(table)]))).toEqual(authTableNames)
+    }
   })
 })

@@ -1,6 +1,6 @@
 ---
 title: Queue hosts
-description: Check Queue discovery locally and inspect the Nitro output for Cloudflare and Vercel.
+description: Run Queue jobs in the dev server, check discovery, and inspect the Nitro output for Cloudflare and Vercel.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
@@ -8,41 +8,61 @@ icon: i-lucide-cloud-cog
 
 ## Develop locally
 
-With `preset: 'node'`, Queue uses the local provider in `pnpm dev` and in the built server. `runQueue()` stores the job in `.vitehub/data/queue`, and the server process runs the Queue Definition. This also works in Docker and in a StackBlitz WebContainer. The server logs the directory and the durability once when it starts:
+`pnpm dev` runs Queue jobs in the dev server for every preset. `sendQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs your queue file. Cloudflare and Vercel apps need no binding or credentials. Dev follows the retry, delay, and size rules of the build's provider, so a handler fails and retries as on the host. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for the rules and gaps.
 
 ```bash [Terminal]
 pnpm vitehub queue list
+pnpm vitehub queue jobs list
+pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs retry <message-id>
+pnpm vitehub queue jobs clear --state dead --yes
 ```
 
-The list shows `provider: "local"`, the job directory, `durability: "single-host"`, `deadLimit` (the dead jobs kept per Queue Definition), and the pending, running, and dead jobs of each Queue Definition. The jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container starts without them. Run one server process per directory. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+- `queue list` shows `provider: "local"`, the job folder, `durability: "single-host"`, `deadLimit` (dead jobs kept per queue), and the pending, running, and dead jobs of each queue. In a Cloudflare or Vercel app, also `rules`, the build's provider.
+- `queue jobs list` shows each stored job with its attempts and last error. `queue jobs show` adds the payload.
+- `queue jobs retry` runs a job now. A dead job gets new attempts.
+- `queue jobs clear` removes pending and dead jobs. It asks to confirm on a terminal and needs `--yes` elsewhere.
 
-For Cloudflare or Vercel, use a build to check that ViteHub discovers your Queue Definitions and generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
+Each command takes `--json`, and `--url` for a deployed app. The Console and agents run the same `queue.jobs-*` operations.
+
+With `preset: 'node'`, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+
+For Cloudflare or Vercel, build to check the Nitro output. A plain Node process, such as a `tsx` script, skips Vite discovery and the generated registry, so `sendQueue()` finds no queue files there.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/queue
 pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 ```
 
-The build writes `.vitehub/queue/registry.mjs`. `vitehub inspect definitions` lists the Queue Definitions that ViteHub found. Then inspect the Nitro output for the Queue Provider you configured.
+The build writes `.vitehub/queue/registry.mjs`. `vitehub inspect definitions` lists the queues that ViteHub found. Then check the Nitro output of your provider.
 
 | Provider | Output to inspect |
 | --- | --- |
 | Cloudflare | `.output/server/wrangler.json` queue producers and consumers. |
 | Vercel | `.vercel/output/functions/api/vitehub/queues/vercel/<name>.func/.vc-config.json` queue triggers. |
 
-Vercel projects that typecheck generated Queue files need `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
+To typecheck generated Queue files on Vercel, set `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
 
-For fast unit coverage, test the code that your handler calls. To prove Queue Enqueue and Queue Delivery together, use the Nitro build or a deployed app.
+For fast unit tests, test the code your handler calls. `pnpm dev` tests sending and delivery together with the provider's rules. To test the provider itself, run the built Worker with `wrangler dev`, or deploy.
 
 ## Host output
 
-Nitro is the only host output. The Queue Package discovers Queue Definitions, generates a Runtime Registry, and adds Queue Delivery to the Nitro config.
+Nitro is the only host output. The Queue package finds your queues, generates a registry, and adds delivery to the Nitro config.
 
 | Provider | Output |
 | --- | --- |
-| Cloudflare | `wrangler.json` queue producer and consumer entries. Nitro's `cloudflare:queue` hook runs the consumer. |
-| Vercel | One Nitro route per Queue Definition under `/api/vitehub/queues/vercel/`. `vercel.functionRules` gives each route its queue trigger, so Nitro writes one function per Queue Definition. |
-| Local | The Queue Nitro plugin. It reads `.vitehub/data/queue` when the server starts and runs the due jobs. |
+| Cloudflare | `wrangler.json` queue producers and consumers. Nitro's `cloudflare:queue` hook runs the consumer. |
+| Vercel | One Nitro route per queue under `/api/vitehub/queues/vercel/`. `vercel.functionRules` gives each route its queue trigger, so Nitro writes one function per queue. |
+| Local | The Queue Nitro plugin. It reads `.vitehub/data/queue` at server start and runs due jobs. `pnpm dev` uses it for every provider. The build keeps the output above. |
 
-Do not import generated files from application code.
+Do not import generated files in app code.
+
+## Preview deployments
+
+- A Cloudflare Version URL uses the production resources of its Worker version, so it sends to **production queues** ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)).
+- Two Cloudflare Previews that bind one queue name send to the same queue ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)).
+- For a Preview, declare queue producers in `previews.queues.producers` of your Wrangler config. ViteHub does not write that block, and Cloudflare accepts no consumers there ([Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/)).
+- For a separate preview Worker, set `queue.namePrefix` in its build.
+
+Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).

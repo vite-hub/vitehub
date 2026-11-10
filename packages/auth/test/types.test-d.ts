@@ -1,9 +1,9 @@
 import { admin } from "better-auth/plugins"
 import { H3, type Middleware } from "h3"
-import type { UserConfig } from "vite"
-import handleVirtualAuth, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
+import virtualAuthRoute, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
+import { requestEvent } from "./request-event.ts"
 
 import {
   authenticated,
@@ -18,7 +18,7 @@ import {
   type AuthDefinitionOptions,
   type AuthDefinitionResolver,
   type AuthFor,
-  type AuthModuleOptions,
+  type AuthOptions,
   type AuthRequest,
   type AuthReservedOption,
   type AuthResolvedDefinitionOptions,
@@ -106,12 +106,8 @@ describe("types", () => {
     expectTypeOf(defineAuth(resolver)).toEqualTypeOf<AuthDefinition<AuthDefinitionResolver<ReturnType<typeof resolver>>>>()
   })
 
-  it("augments vite user config with auth options", () => {
-    const config: UserConfig = {
-      auth: {},
-    }
-
-    expectTypeOf(config.auth).toMatchTypeOf<AuthModuleOptions | undefined>()
+  it("takes Auth options as the plugin argument", () => {
+    expectTypeOf(hubAuth).parameter(0).toEqualTypeOf<AuthOptions | undefined>()
     expectTypeOf(hubAuth()).toHaveProperty("api")
   })
 
@@ -141,12 +137,13 @@ describe("types", () => {
 
     expectTypeOf(handleAuthRequest(defineAuth({ appName: "ViteHub" }), h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
     expectTypeOf(withAuth(() => "ok")(h3LikeRequest)).toEqualTypeOf<Promise<string | Response>>()
-    expectTypeOf(handleVirtualAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(virtualAuthRoute.fetch).parameters.toEqualTypeOf<[Request]>()
+    expectTypeOf(virtualAuthRoute.fetch).returns.toEqualTypeOf<Promise<Response>>()
     expectTypeOf(withVirtualAuth(() => "ok")(h3LikeRequest)).toEqualTypeOf<Promise<string | Response>>()
   })
 
   it("runs protected handlers only with the result of an Auth guard", () => {
-    const event = { req: new Request("https://app.example.com/photos/user-1/meal.jpg") }
+    const event = requestEvent(new Request("https://app.example.com/photos/user-1/meal.jpg"))
     const guarded = withAuthorization(true, (input: typeof event, authorization) => {
       expectTypeOf(input).toEqualTypeOf<typeof event>()
       expectTypeOf(authorization).toEqualTypeOf<AuthAuthorization>()
@@ -163,7 +160,7 @@ describe("types", () => {
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
     withAuthorization(false, () => "photo")
     // @ts-expect-error Callers cannot pass their own authorization to a guarded handler.
-    void guarded(event, { request: event.req, session: {}, user: { id: "admin" } })
+    void guarded(event, { request: event["~standard"].req, session: {}, user: { id: "admin" } })
     // @ts-expect-error The guard can return a rejection `Response`, so callers must handle it.
     const body: Promise<string> = guarded(event)
     void body
@@ -191,7 +188,7 @@ describe("types", () => {
     // @ts-expect-error The middleware is the result of `requireAuth()`, not the function itself.
     void new H3().get("/me", () => "ok", { middleware: [requireAuth] })
     // @ts-expect-error `requireAuth()` returns middleware. It does not check an event.
-    void requireAuth({ req: new Request("https://app.example.com/me") })
+    void requireAuth(requestEvent(new Request("https://app.example.com/me")))
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
     void requireAuthorization(false)
   })

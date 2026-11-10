@@ -5,12 +5,11 @@ import { commentsRealtime } from "../src/realtime.ts"
 import { commentRoom } from "../src/page.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 
-import type { H3Event } from "h3"
+import { H3Event } from "h3"
 import type { RealtimeAuthorizeContext } from "@vite-hub/realtime"
 
 function event(): H3Event {
-  // SAFETY: The definition only uses the event as a key and passes it to `identify`.
-  return {} as H3Event
+  return new H3Event(new Request("http://site.test/"))
 }
 
 describe("commentsRealtime", () => {
@@ -35,6 +34,21 @@ describe("commentsRealtime", () => {
     const context = { definition: "comments", event: event(), request: new Request(`http://site.test${page ? `?page=${encodeURIComponent(page)}` : ""}`) }
     const user = await definition.identify!(context)
     expect(await definition.authorize!({ ...context, documentId: commentRoom(room), mode: "read", user: user ?? null })).toBe(allowed)
+  })
+
+  it("checks the subject that `page` maps the page to, and keeps the room of the page path", async () => {
+    const definition = commentsRealtime(defineComments({
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+      authorize: ({ subject }) => subject?.kind === "drop" && subject.id === "abc",
+    }))
+    const join = async (page: string, room: string) => {
+      const context = { definition: "comments", event: event(), request: new Request(`http://site.test?page=${encodeURIComponent(page)}`) }
+      await definition.identify!(context)
+      return await definition.authorize!({ ...context, documentId: commentRoom(room), mode: "read", user: null })
+    }
+    expect(await join("/d/abc", "/d/abc")).toBe(true)
+    expect(await join("/d/xyz", "/d/xyz")).toBe(false)
+    expect(await join("/d/abc", "/d/xyz")).toBe(false)
   })
 
   it("allows a page-only policy without needing a context-free read", async () => {

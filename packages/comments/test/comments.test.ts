@@ -70,7 +70,7 @@ describe("defineComments", () => {
   it("returns COMMENTS_INVALID_INPUT for an empty body, a bad page, or no subject", async () => {
     const comments = await createComments()
     const [empty] = await comments.create({ page: "/", anchor, body: "   ", author: ada })
-    expect(empty).toMatchObject({ code: "COMMENTS_INVALID_INPUT", docs: "https://vitehub.dev/docs/comments/limits-and-errors#comments_invalid_input" })
+    expect(empty).toMatchObject({ code: "COMMENTS_INVALID_INPUT", docs: "https://vitehub.dev/docs/comments/diagnostics/comments_invalid_input" })
     const [page] = await comments.create({ subject: { kind: "page", id: "pricing" }, anchor, body: "Hi", author: ada })
     expect(page?.why).toContain("page")
     const [none] = await comments.create({ anchor, body: "Hi", author: ada })
@@ -140,6 +140,15 @@ describe("defineComments", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: { id: "guest:1", name: "Visitor" } })
     expect(thread!.author).toEqual({ id: "guest:1", name: "Visitor", guest: true })
     expect((await comments.get(thread!.id))[1]!.messages[0]!.author.guest).toBe(true)
+  })
+
+  it("gives a guest's retry with the same requestId the first thread", async () => {
+    const comments = await createComments()
+    const author = { id: "visitor-1", name: "Visitor", guest: true }
+    const [, first] = await comments.create({ page: "/", anchor, body: "Hi", author, requestId: "draft-1" })
+    const [retryError, retry] = await comments.create({ page: "/", anchor, body: "Hi", author, requestId: "draft-1" })
+    expect(retryError).toBeUndefined()
+    expect(retry!.id).toBe(first!.id)
   })
 
   it("names its schema keys with the vitehub prefix, so they never meet an app's own comments table", () => {

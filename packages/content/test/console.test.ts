@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -659,6 +660,109 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
   })
 })
 
+describe("Content Console locales", { timeout: 30_000 }, () => {
+  async function localized() {
+    const content = defineContent({
+      workspace: await historyWorkspace({ sessions: true }),
+      collections: {
+        docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], url: "/docs/:id", fields: { title: z.string().min(1) } }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() } }),
+      },
+      authorize: roles,
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    return { actions: createContentConsoleActions({ content }), content }
+  }
+  const guide = { collection: "docs", id: "guide", data: { title: "Guide" }, body: "Hello.\n", ifDigest: null }
+
+  it("opens a missing translation as the source version and saves it in its locale", async () => {
+    const { actions, content } = await localized()
+    const collections = await actions.collections(editor)
+    expect(collections.find(entry => entry.name === "docs")).toMatchObject({ locales: ["en", "es"], paths: ["docs/en/**/*.md"] })
+    expect(collections.find(entry => entry.name === "posts")).not.toHaveProperty("locales")
+
+    const source = await actions.save(guide, editor)
+    expect(source).toMatchObject({ locale: "en", state: "draft", translations: { es: "missing" } })
+    const missing = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    expect(missing).toMatchObject({ locale: "en", fallback: true, digest: source.digest, data: { title: "Guide" }, translations: { es: "missing" } })
+    expect(missing).not.toHaveProperty("state")
+    expect(await actions.raw({ collection: "docs", id: "guide", locale: "es" }, editor)).toBeNull()
+
+    // The first save of the translation creates its file, records the source version, and needs no source lease.
+    await actions.session({ collection: "docs", id: "guide", session: "console-tab-source", action: "acquire" }, editor)
+    const translated = await actions.save({ ...guide, data: { title: "Guía" }, body: "Hola.\n", locale: "es", session: "console-tab-es" }, writer)
+    expect(translated).toMatchObject({ locale: "es", path: "docs/es/guide.md", state: "draft", url: "/es/docs/guide", translations: { es: "current" } })
+    expect(translated).not.toHaveProperty("fallback")
+    expect((await content.collection("docs").get("guide", { ref: "draft", locale: "es" }))?.derivedFrom).toEqual({ path: "docs/en/guide.md", digest: expect.stringMatching(/^sha256-/) })
+    expect((await actions.raw({ collection: "docs", id: "guide", locale: "es" }, editor))?.text).toContain("Hola.")
+    await expect(actions.get({ collection: "docs", id: "guide" }, editor)).resolves.toMatchObject({ data: { title: "Guide" }, translations: { es: "current" } })
+
+    // A source save makes the translation stale, in the editor and in the list.
+    await actions.save({ ...guide, data: { title: "Guide v2" }, ifDigest: source.digest, session: "console-tab-source" }, editor)
+    await expect(actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)).resolves.toMatchObject({ data: { title: "Guía" }, translations: { es: "stale" } })
+    expect((await actions.list({ collection: "docs" }, editor)).items).toMatchObject([{ id: "guide", translations: { es: "stale" } }])
+    expect((await actions.revisions({ collection: "docs", id: "guide", locale: "es" }, editor)).revisions.map(revision => revision.action)).toEqual(["save"])
+  })
+
+  it("records the source version the editor showed, keeps a stale translation stale, and marks it up to date on request", async () => {
+    const { actions } = await localized()
+    const a = await actions.save(guide, editor)
+    // The editor opens the missing translation with source A.
+    const shown = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    expect(shown).toMatchObject({ fallback: true, source: { path: "docs/en/guide.md", digest: expect.stringMatching(/^sha256-[0-9a-f]{64}$/) } })
+    // Someone saves source B before the first autosave of the translation.
+    await actions.save({ ...guide, data: { title: "Guide B" }, ifDigest: a.digest }, editor)
+    const first = await actions.save({ ...guide, data: { title: "Guía A" }, locale: "es", sourceDigest: shown!.source!.digest }, editor)
+    expect(first).toMatchObject({ locale: "es", translations: { es: "stale" } })
+
+    // A normal autosave keeps the recorded source version.
+    const edited = await actions.save({ ...guide, data: { title: "Guía A, sin errata" }, ifDigest: first.digest, locale: "es" }, editor)
+    expect(edited).toMatchObject({ translations: { es: "stale" } })
+
+    // Mark as up to date shows the current source, then saves with its digest.
+    const current = await actions.get({ collection: "docs", id: "guide" }, editor)
+    expect(current).toMatchObject({ data: { title: "Guide B" }, source: { path: "docs/en/guide.md" } })
+    const marked = await actions.save({ ...guide, data: { title: "Guía B" }, ifDigest: edited.digest, locale: "es", sourceDigest: current!.source!.digest }, editor)
+    expect(marked).toMatchObject({ translations: { es: "current" } })
+    expect(await failure(actions.save({ ...guide, ifDigest: current!.digest, sourceDigest: current!.source!.digest }, editor))).toMatchObject({ status: 400 })
+  })
+
+  it("publishes, restores, and removes a translation in its locale", async () => {
+    const { actions, content } = await localized()
+    const source = await actions.save(guide, editor)
+    const translated = await actions.save({ ...guide, data: { title: "Guía" }, locale: "es" }, editor)
+    await actions.publish({ collection: "docs", expect: [{ id: "guide", digest: translated.digest, locale: "es" }] }, editor)
+    expect(await content.collection("docs").status("guide", { locale: "es" })).toMatchObject({ state: "published" })
+    expect(await content.collection("docs").status("guide")).toMatchObject({ state: "draft", draft: source.digest })
+
+    const edited = await actions.save({ ...guide, data: { title: "Guía 2" }, ifDigest: translated.digest, locale: "es" }, editor)
+    const { revisions } = await actions.revisions({ collection: "docs", id: "guide", locale: "es" }, editor)
+    const first = revisions.find(revision => revision.ref === "draft" && revision.id !== edited.revision)!
+    await expect(actions.restore({ collection: "docs", id: "guide", revision: first.id, ifDigest: edited.digest, locale: "es" }, editor)).resolves.toMatchObject({ locale: "es", data: { title: "Guía" } })
+    const restored = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    await actions.remove({ collection: "docs", id: "guide", ifDigest: restored!.digest, locale: "es" }, editor)
+    // The source stays, and the translation still on the site shows as deleted.
+    await expect(actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)).resolves.toMatchObject({ fallback: true, state: "deleted" })
+    await expect(actions.get({ collection: "docs", id: "guide" }, editor)).resolves.toMatchObject({ digest: source.digest })
+  })
+
+  it("keeps edit leases on the source locale and checks the locale", async () => {
+    const { actions } = await localized()
+    await actions.save(guide, editor)
+    const presence = await actions.session({ collection: "docs", id: "guide", session: "console-tab-es", action: "acquire", locale: "es" }, editor)
+    expect(presence).toMatchObject({ available: false, editing: true, holder: null })
+    // The translation tab took no lease, so the source stays free for another tab.
+    await expect(actions.session({ collection: "docs", id: "guide", session: "console-tab-en", action: "acquire" }, writer)).resolves.toMatchObject({ editing: true })
+    await expect(actions.session({ collection: "docs", id: "guide", session: "console-tab-en", action: "acquire", locale: "en" }, writer)).resolves.toMatchObject({ available: true, editing: true })
+
+    expect(await failure(actions.session({ collection: "docs", id: "guide", session: "console-tab-fr", action: "report", locale: "fr" }, editor))).toMatchObject({ status: 400 })
+    expect(await failure(actions.get({ collection: "docs", id: "guide", locale: "fr" }, editor))).toMatchObject({ status: 400 })
+    expect(await failure(actions.get({ collection: "posts", id: "hello", locale: "es" }, editor))).toMatchObject({ status: 400 })
+    expect(await failure(actions.schedule({ collection: "docs", at: new Date(Date.now() + 60_000).toISOString(), expect: [{ id: "guide", digest: null, locale: "es" }] }, editor))).toMatchObject({ status: 400 })
+  })
+})
+
 describe("Content Console section", () => {
   async function entryFor(source: string): Promise<boolean> {
     const root = await temporaryRoot()
@@ -708,7 +812,7 @@ describe("Content Console section", () => {
 
   it("shows the section only when server/content.ts defines document collections", async () => {
     await expect(contentConsoleSection.entry({ projectRoot: await temporaryRoot() })).resolves.toBeUndefined()
-    const imports = `import { defineContent, documents } from "vite-hub/content"\n`
+    const imports = `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\n`
     await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)).resolves.toBe(true)
     // Read-only Sources, or no collections, leave nothing to edit.
     await expect(entryFor(`${imports}export const content = defineContent({ source: "content" })\n`)).resolves.toBe(false)
@@ -720,7 +824,7 @@ describe("Content Console section", () => {
     await expect(entryFor(`${imports}import { collections } from "./collections"\nexport const content = defineContent({ workspace: "site", collections })\n`)).resolves.toBe(true)
     await expect(entryFor(`${imports}import { options } from "./options"\nexport const content = defineContent({ ...options })\n`)).resolves.toBe(true)
     await expect(entryFor(`import { createContent } from "./create"\nexport const content = createContent()\n`)).resolves.toBe(true)
-    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: "@vite-hub/content/runtime/console", export: "createContentConsoleActions" } })
+    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: ownModule(import.meta.url, "runtime/console"), export: "createContentConsoleActions" } })
     // The dashboard opens at /_vitehub/content; Media shows only when the project enables Blob.
     expect(contentConsoleSection.pages).toEqual([
       { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },

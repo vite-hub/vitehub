@@ -23,9 +23,9 @@ describe("inline Workflow run retention", () => {
     const first = createWorkflow("tenant", () => "first result")
     const second = createWorkflow("tenant\0admin", () => "second result")
 
-    await first.run(undefined, { id: "admin\0run" })
+    await first.start(undefined, { id: "admin\0run" })
     await getWorkflowRunState(first.name, "admin\0run")!.promise
-    await second.run(undefined, { id: "run" })
+    await second.start(undefined, { id: "run" })
     await getWorkflowRunState(second.name, "run")!.promise
 
     const firstRun = await first.getRun("admin\0run")
@@ -142,9 +142,9 @@ describe("inline Workflow run retention", () => {
       await (payload ? first.promise : remaining.promise)
       return "done"
     })
-    await workflow.run(true, { id: "first" })
+    await workflow.start(true, { id: "first" })
     const firstState = getWorkflowRunState("pending", "first")!
-    const started = await Promise.all(Array.from({ length: 1_024 }, (_, index) => workflow.run(false, { id: String(index) })))
+    const started = await Promise.all(Array.from({ length: 1_024 }, (_, index) => workflow.start(false, { id: String(index) })))
     const pending = started.map(run => getWorkflowRunState("pending", run.id)!.promise)
     try {
       await expect(workflow.getRun("first")).resolves.toMatchObject({ status: "running" })

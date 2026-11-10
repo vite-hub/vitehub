@@ -9,7 +9,7 @@ import {
   noDestructureNonTuples,
   noModuleScopeDispatch,
   queuePayloadOptions,
-  validOutboundChannel,
+  validChannel,
   validScheduleCron,
   workflowStepNames,
 } from "../src/doctor/rules/definitions.ts"
@@ -31,12 +31,12 @@ describe("vitehub/known-definition-names", () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "server/api/send.post.ts": [
-        'import { runQueue, deferQueue } from "vite-hub/queue"',
-        'import { runWorkflow } from "@vite-hub/workflow"',
+        'import { sendQueue, deferQueue } from "vite-hub/queue"',
+        'import { startWorkflow } from "@vite-hub/workflow"',
         "export default async () => {",
-        '  await runQueue("welcom-email", {})',
+        '  await sendQueue("welcom-email", {})',
         '  deferQueue("digest", {})',
-        '  await runWorkflow("onbaord", {})',
+        '  await startWorkflow("onbaord", {})',
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0013", "VHUB0013", "VHUB0013"])
@@ -46,13 +46,13 @@ describe("vitehub/known-definition-names", () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "server/api/send.post.ts": [
-        'import { runQueue } from "vite-hub/queue"',
-        'import { runWorkflow } from "vite-hub/workflow"',
+        'import { sendQueue } from "vite-hub/queue"',
+        'import { startWorkflow } from "vite-hub/workflow"',
         'import { useChannel } from "vite-hub/channels/server"',
         "export default async (name: string) => {",
-        '  await runQueue("welcome-email", {})',
-        "  await runQueue(name, {})",
-        '  await runWorkflow("onboard", {})',
+        '  await sendQueue("welcome-email", {})',
+        "  await sendQueue(name, {})",
+        '  await startWorkflow("onboard", {})',
         '  await useChannel("alerts").send("hi", {})',
         "}",
       ].join("\n"),
@@ -119,9 +119,9 @@ describe("vitehub/queue-payload-options", () => {
   it("reports enqueue options inside the payload", async () => {
     expect(await codes(queuePayloadOptions, {
       "server/api/a.ts": [
-        'import { runQueue, dynamicQueue } from "vite-hub/queue"',
+        'import { sendQueue, dynamicQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await runQueue("welcome-email", { payload: { email }, delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { payload: { email }, delaySeconds: 60 })',
         '  dynamicQueue.defer("welcome-email", { payload: { email }, idempotencyKey: email })',
         "}",
       ].join("\n"),
@@ -131,11 +131,11 @@ describe("vitehub/queue-payload-options", () => {
   it("accepts options as the third argument and a payload field named payload", async () => {
     expect(await codes(queuePayloadOptions, {
       "server/api/a.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await runQueue("welcome-email", { email }, { delaySeconds: 60 })',
-        '  await runQueue("audit", { payload: { email }, region: "eu" })',
-        '  await runQueue("audit", { payload: { email } }, { delaySeconds: 1 })',
+        '  await sendQueue("welcome-email", { email }, { delaySeconds: 60 })',
+        '  await sendQueue("audit", { payload: { email }, region: "eu" })',
+        '  await sendQueue("audit", { payload: { email } }, { delaySeconds: 1 })',
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -146,9 +146,9 @@ describe("vitehub/no-module-scope-dispatch", () => {
   it("reports dispatch calls at module scope", async () => {
     expect(await codes(noModuleScopeDispatch, {
       "server/plugins/warmup.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         'import { deferWorkflow } from "vite-hub/workflow"',
-        'await runQueue("warmup", {})',
+        'await sendQueue("warmup", {})',
         'deferWorkflow("sync", {})',
       ].join("\n"),
     })).toEqual(["VHUB0017", "VHUB0017"])
@@ -156,8 +156,8 @@ describe("vitehub/no-module-scope-dispatch", () => {
 
   it("accepts dispatch calls in handlers and test files", async () => {
     expect(await codes(noModuleScopeDispatch, {
-      "server/api/a.ts": 'import { runQueue } from "vite-hub/queue"\nexport default defineEventHandler(async () => { await runQueue("warmup", {}) })\n',
-      "server/queues/a.test.ts": 'import { runQueue } from "vite-hub/queue"\nawait runQueue("warmup", {})\n',
+      "server/api/a.ts": 'import { sendQueue } from "vite-hub/queue"\nexport default defineEventHandler(async () => { await sendQueue("warmup", {}) })\n',
+      "server/queues/a.test.ts": 'import { sendQueue } from "vite-hub/queue"\nawait sendQueue("warmup", {})\n',
     })).toEqual([])
   })
 })
@@ -166,28 +166,29 @@ describe("vitehub/no-destructure-non-tuples", () => {
   it("reports tuple destructuring of values and Responses", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { runWorkflow } from "vite-hub/workflow"',
+        'import { startWorkflow, deferWorkflow } from "vite-hub/workflow"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
         "export async function run() {",
-        '  const [error, run] = await runWorkflow("onboard", {})',
+        '  const [error, run] = await startWorkflow("onboard", {})',
         '  const [failure, output] = await runSandboxTask("resize", {})',
+        '  const [deferred] = await deferWorkflow("onboard", {})',
         "  return { error, run, failure, output }",
         "}",
       ].join("\n"),
-    })).toEqual(["VHUB0018", "VHUB0018"])
+    })).toEqual(["VHUB0018", "VHUB0018", "VHUB0018"])
   })
 
   it("accepts direct results and the tuple form of runAgent", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { runWorkflow } from "vite-hub/workflow"',
+        'import { startWorkflow } from "vite-hub/workflow"',
         'import { runAgent } from "vite-hub/agent"',
         "export async function run(agent, options) {",
-        '  const run = await runWorkflow("onboard", {})',
+        '  const run = await startWorkflow("onboard", {})',
         '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
-        '  const [failure, text] = await runAgent(agent, { prompt: "hi" }, { output: "drained" })',
+        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { run, error, answer, failure, text, unknown, value }",
+        "  return { run, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -294,17 +295,20 @@ describe("vitehub/manual-schedule-run", () => {
   })
 })
 
-describe("vitehub/valid-outbound-channel", () => {
-  it("reports empty connectors, connectors without send, and an unknown default", async () => {
-    expect(await codes(validOutboundChannel, {
-      "server/channels/a.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nexport default defineOutboundChannel({ connectors: {} })\n',
-      "server/channels/b.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nexport default defineOutboundChannel({ connectors: { slack: { url: "x" } }, defaultConnector: "email" })\n',
-    })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023"])
+describe("vitehub/valid-channel", () => {
+  it("reports a missing adapter, an adapter without kind, and handlers on adapters that do not receive webhooks", async () => {
+    expect(await codes(validChannel, {
+      "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+    })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
-  it("accepts configured connectors", async () => {
-    expect(await codes(validOutboundChannel, {
-      "server/channels/a.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nimport { slack } from "./slack"\nexport default defineOutboundChannel({ connectors: { slack: slack(), log: { send: async () => ({}) } }, defaultConnector: "log" })\n',
+  it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
+    expect(await codes(validChannel, {
+      "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })
 })
@@ -315,11 +319,11 @@ describe("second review regressions", () => {
       "server/workflows/onboard.ts": workflow,
       "server/schedules/digest.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * *", manual: true, handler: async () => {} })\n',
       "server/api/inline.post.ts": [
-        'import { createWorkflow, runWorkflow } from "vite-hub/workflow"',
+        'import { createWorkflow, startWorkflow } from "vite-hub/workflow"',
         'import { runSchedule } from "vite-hub/schedule/runtime"',
         'createWorkflow("inline", async () => {})',
         "export default defineEventHandler(async () => {",
-        '  await runWorkflow("inline", {})',
+        '  await startWorkflow("inline", {})',
         '  await runSchedule("custom", { registry })',
         "})",
       ].join("\n"),
@@ -359,9 +363,9 @@ describe("second review regressions", () => {
 })
 
 describe("pullfrog review regressions", () => {
-  it("accepts destructured Agent output from runAgent with a Runtime Context", async () => {
+  it("accepts the destructured runAgent tuple with a Runtime Context", async () => {
     expect(await codes(noDestructureNonTuples, {
-      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [first, second] = await runAgent(agent, ctx, { prompt: "hi" }); return { first, second } })\n',
+      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [error, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: ctx }); return { error, result } })\n',
     })).toEqual([])
   })
 
@@ -380,9 +384,9 @@ describe("third review regressions", () => {
     expect(await projectCodes(knownDefinitionNames, {
       "server/workflows/onboard.ts": workflow,
       "server/api/inline.post.ts": [
-        'import { createWorkflow, runWorkflow } from "vite-hub/workflow"',
+        'import { createWorkflow, startWorkflow } from "vite-hub/workflow"',
         'createWorkflow({ name: "inline", handler: async () => {} })',
-        'export default defineEventHandler(async () => { await runWorkflow("inline", {}) })',
+        'export default defineEventHandler(async () => { await startWorkflow("inline", {}) })',
       ].join("\n"),
     })).toEqual([])
   })
@@ -393,11 +397,11 @@ describe("TypeScript parameter properties", () => {
     expect(await projectCodes(knownDefinitionNames, {
       "server/queues/welcome.ts": queue,
       "server/utils/mailer.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         "export class Mailer {",
-        '  constructor(private runQueue: (name: string) => void) { runQueue("local") }',
+        '  constructor(private sendQueue: (name: string) => void) { sendQueue("local") }',
         "}",
-        'export const send = () => runQueue("welcome", {})',
+        'export const send = () => sendQueue("welcome", {})',
       ].join("\n"),
     })).toEqual([])
   })

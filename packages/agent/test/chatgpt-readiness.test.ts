@@ -2,13 +2,14 @@ import { afterEach, expect, it, vi } from "vitest"
 import { chatgpt } from "@vite-hub/gateways"
 
 const codex = vi.hoisted(() => ({ executable: "/fake/codex" as string | undefined }))
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/internal/provider-runtime-packages.ts")>(),
   resolveInstalledProviderExecutable: () => codex.executable,
 }))
 
-import { codexDriver, defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 
 afterEach(() => {
   codex.executable = "/fake/codex"
@@ -32,7 +33,7 @@ function setup(connection: { status: string, plan: "enabled" | "disabled" }) {
       },
     },
   }
-  return { prepare, useChatGPTCredential, run: () => runAgent(agent, host, { prompt: "How do I install it?" }) }
+  return { prepare, useChatGPTCredential, run: () => runAgentWithContext(agent, host, { prompt: "How do I install it?" }) }
 }
 
 it("asks for a ChatGPT sign-in before the Invocation prepares Capabilities", async () => {
@@ -78,7 +79,7 @@ it("asks to install Codex when Codex is gone at launch", async () => {
       },
     },
   }
-  await expect(runAgent(agent, host, { prompt: "How do I install it?" })).rejects.toMatchObject({
+  await expect(runAgentWithContext(agent, host, { prompt: "How do I install it?" })).rejects.toMatchObject({
     code: "AGENT_R1026",
     fix: expect.stringContaining("@openai/codex"),
   })

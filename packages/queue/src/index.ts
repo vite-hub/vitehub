@@ -1,13 +1,7 @@
-export { normalizeQueueOptions } from "./config.ts"
 export { defineQueue } from "./definition.ts"
 export { createQueueMessageId } from "./enqueue.ts"
-export { createCloudflareQueueBatchHandler } from "./providers/cloudflare.ts"
-export { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName } from "./integrations/cloudflare.ts"
-export { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
-export { getVercelQueueTopicName } from "./integrations/vercel.ts"
-export { deferQueue, dynamicQueue, getQueue, runQueue } from "./runtime/client.ts"
+export { deferQueue, dynamicQueue, sendQueue, useQueue } from "./runtime/client.ts"
 export { createQueueClient } from "./runtime/create-client.ts"
-export { createQueueCloudflareWorker } from "./internal/runtime/cloudflare-vite.ts"
 
 export type {
   CloudflareQueueBatchHandlerOptions,
@@ -19,6 +13,7 @@ export type {
   LocalQueueClient,
   LocalQueueErrorCode,
   LocalQueueProviderOptions,
+  LocalQueueRules,
   LocalQueueSendBatchMessage,
   QueueClient,
   QueueDefinition,
@@ -31,11 +26,12 @@ export type {
   QueueErrorCode,
   QueueHandler,
   QueueJob,
-  QueueModuleOptions,
+  QueueOptions,
   QueueModuleProviderOptions,
   QueueProvider,
   QueueProviderOptions,
   QueueSendResult,
+  ResolvedLocalQueueOptions,
   ResolvedQueueOptions,
   VercelQueueCallbackOptions,
   VercelQueueClient,

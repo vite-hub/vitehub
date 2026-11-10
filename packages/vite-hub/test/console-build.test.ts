@@ -5,33 +5,27 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleBuildKey, consoleBuildRegistryKey, consoleBuildRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleNitroPlugin, type ConsoleNitroPluginOptions } from "../src/console/plugin.ts"
 import { consoleBuildCheckInterval, useConsoleUpdate, watchConsoleBuild } from "../src/console/runtime/client/build.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
-import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
+import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleBuild, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
-import { allowed } from "./support/console-access.ts"
+import { consoleAccess } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
-const sectionsHandler = allowed(sectionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
 const buildPattern = /installConsoleBuild\("[^"]+", "([0-9a-f]{16})"\)\n$/
 
 function event(): ConsoleRequestEvent {
-  const headers = new Headers({ host: "localhost" })
-  return {
-    headers,
-    method: "GET",
-    node: { req: { method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "http://localhost/_vitehub" } },
-    req: { method: "GET", url: "http://localhost/_vitehub" },
-  }
+  return consoleEvent({ remoteAddress: "127.0.0.1", url: "http://localhost/_vitehub" })
 }
 
-async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {
-  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [])
+async function generatedBuild(file: string, root: string, sections: ConsoleNitroPluginOptions["sections"]): Promise<string> {
+  await writeConsoleNitroPlugin({ file, projectRoot: root, sections, catalog: { agents: [], content: {} }, blobStores: [] })
   const build = buildPattern.exec(await readFile(file, "utf8"))?.[1]
   if (!build) throw new TypeError("Expected the generated Console plugin to install a build id.")
   return build
@@ -81,7 +75,7 @@ describe("Console build id", () => {
       const first = await generatedBuild(file, root, ["kv"])
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
-      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleClient, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
       expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {
@@ -95,13 +89,13 @@ describe("Console build id", () => {
     installConsoleSections("/second", ["kv"])
     installConsoleBuild("/second", "bbbbbbbbbbbbbbbb")
 
-    await expect(sectionsHandler(event())).resolves.toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
+    expect(listConsoleSections(await consoleAccess(event()))).toEqual({ build: "bbbbbbbbbbbbbbbb", sections: ["kv"] })
   })
 
   it("is read with the Console navigation", async () => {
     stubSections(["aaaaaaaaaaaaaaaa"])
 
-    await expect(loadConsoleNavigation("/navigation-build/api/_vitehub/console/sections")).resolves.toMatchObject({ build: "aaaaaaaaaaaaaaaa" })
+    await expect(loadConsoleNavigation("/navigation-build/_vitehub/api/sections")).resolves.toMatchObject({ build: "aaaaaaaaaaaaaaaa" })
   })
 
   it("marks an update when the deployed build changes, on an interval and when the tab is visible again", async () => {
@@ -110,7 +104,7 @@ describe("Console build id", () => {
     const sectionsMock = stubSections(["first", "first", "second"])
     const updateReady = useConsoleUpdate()
 
-    watchConsoleBuild("/watch-build/api/_vitehub/console/sections")
+    watchConsoleBuild("/watch-build/_vitehub/api/sections")
     await vi.waitFor(() => expect(sectionsMock).toHaveBeenCalledTimes(1))
 
     await vi.advanceTimersByTimeAsync(consoleBuildCheckInterval)

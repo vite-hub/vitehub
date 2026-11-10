@@ -1,19 +1,16 @@
 ---
 title: Rate Limit capability
-description: Consume a Rate Limiter before an Agent Invocation starts, choose the identity to limit, and use a custom driver.
+description: Limit Agent runs before they start, choose the identity to limit, and use a custom driver.
 navigation.title: Agent capability
 navigation.order: 5
 icon: i-lucide-gauge
 ---
 
-`rateLimit()` consumes one budget unit before the main Agent Invocation starts. The Capability owns trusted Agent identity and rejection behavior, while the [Rate Limit primitive](/docs/rate-limit) owns atomic enforcement.
+`rateLimit()` uses one unit of budget before each Agent Invocation (one Agent run) starts. This Capability decides the trusted identity and what happens on rejection. The [Rate Limit primitive](/docs/rate-limit) does the atomic counting.
 
 ## Configure a limiter
 
-Create a direct limiter beside the Agent and pass it to the Capability. The Capability needs the portable decision to attach Agent identity and rejection context, so the handler-only `requireRateLimit()` guard is not its input.
-
-The built-in memory driver is an owner-package API. Install that package when
-using it.
+Create a direct limiter next to the Agent and pass it to the Capability. The Capability needs the full decision to add identity and rejection details, so it does not take the route guard `requireRateLimit()`. The memory driver comes from its own package:
 
 ```bash [Terminal]
 pnpm add @vite-hub/rate-limit
@@ -43,19 +40,20 @@ export default defineAgent({
 
 ## How rate limits work
 
-The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the `RateLimiter` exactly once.
+The Capability runs in the input phase. It builds a stable key from the Capability id, scope, and trusted identity, then calls the `RateLimiter` once.
 
-A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP handler maps that code to `429` and emits `retry-after` headers only when the selected driver reports `retryAfter`. Cloudflare native enforcement does not return portable quota metadata.
+- A rejection throws `ViteHubError` with code `RATE_LIMIT_REJECTED`. The HTTP handler returns `429` and sends `retry-after` headers only when the driver reports `retryAfter`. Cloudflare native enforcement returns no portable quota metadata.
+- When the limiter cannot decide (`reason: 'unavailable'`), the Capability throws `RATE_LIMIT_UNAVAILABLE`, and the HTTP handler returns `503`.
 
-When the limiter cannot decide (`reason: 'unavailable'`), the Capability throws `RATE_LIMIT_UNAVAILABLE` instead, and the HTTP handler maps it to `503`. The invocation does not run in either case.
+The run does not start in either case.
 
-The decision is stored under the Capability id in Agent Invocation Context and exposed as a finish extension. It contains the primitive decision plus `capabilityId`, `identity`, `identitySource`, `key`, and `scope`.
+The decision is stored under the Capability id in the Invocation Context and exposed as a finish extension. It holds the primitive decision plus `capabilityId`, `identity`, `identitySource`, `key`, and `scope`.
 
 ## Choose identity
 
-The Agent Definition chooses the identity, not the Rate Limit Driver. The default `identity: 'auto'` prefers the Agent Invoker, then Agent Run metadata, then trusted IP headers, and finally an anonymous identity.
+The Agent chooses the identity, not the driver. The default `identity: 'auto'` uses the Agent Invoker (the caller), then Agent Run metadata, then trusted IP headers, then an anonymous identity.
 
-Use `identity: 'invoker'` when authentication provides a stable Agent Invoker. Use `identity: 'ip'` only after naming headers that the deployed host sets and sanitizes.
+Use `identity: 'invoker'` when authentication gives a stable Invoker. Use `identity: 'ip'` only after you name headers that the host sets and cleans.
 
 ```ts [server/agents/public-support.ts] fragment
 rateLimit({
@@ -65,11 +63,12 @@ rateLimit({
 })
 ```
 
-Do not trust a client-controlled forwarding header. The Capability reads only the headers listed in `trustedIpHeaders`, but the application remains responsible for ensuring the host overwrites them.
+> [!WARNING]
+> Do not trust a forwarding header that the client controls. The Capability reads only the headers in `trustedIpHeaders`. You must make sure the host overwrites them.
 
 ## Use a custom driver
 
-Pass any `RateLimiter` when the application owns state or enforcement outside managed ViteHub Rate Limits.
+Pass any `RateLimiter` when your app owns the state or enforcement.
 
 ```ts [server/rate-limiter.ts]
 import { createRateLimiter } from 'vite-hub/rate-limit'
@@ -92,27 +91,27 @@ import { invocationLimiter } from '../rate-limiter'
 rateLimit({ limiter: invocationLimiter })
 ```
 
-The custom driver must implement atomic `consume()`. ViteHub does not provide a generic KV adapter because a portable `get()` followed by `set()` cannot guarantee an atomic decision under concurrency.
+A custom driver must implement an atomic `consume()`. ViteHub has no generic KV adapter, because a `get()` then `set()` is not atomic when requests run at the same time.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `limiter` | `RateLimiter \| function` | required | Direct limiter or runtime resolver. |
-| `id` | `string` | `"rate-limit"` | Capability id and Agent Invocation Context key. |
-| `identity` | `"auto" \| "invoker" \| "ip" \| "run" \| function` | `"auto"` | Identity used to derive the private rate-limit key. |
-| `scope` | `string \| function` | Capability id | Additional key partition. |
-| `trustedIpHeaders` | `string[]` | none | Host-controlled headers allowed for IP identity. |
-| `message` | `string \| function` | default rejection message | Error message for a rejected decision. |
+| `id` | `string` | `"rate-limit"` | Capability id and Invocation Context key. |
+| `identity` | `"auto" \| "invoker" \| "ip" \| "run" \| function` | `"auto"` | Identity for the private key. |
+| `scope` | `string \| function` | Capability id | Extra key part. |
+| `trustedIpHeaders` | `string[]` | none | Host-set headers allowed for IP identity. |
+| `message` | `string \| function` | default rejection message | Error message on rejection. |
 | `onDecision` | `function` | none | Callback after every decision. |
 | `onAllowed` | `function` | none | Callback after an allowed decision. |
 | `onRejected` | `function` | none | Callback after a rejected decision. |
 
-Decision callbacks receive a limiter with `consume()`, `peek()`, and `reset()`. A consume-only input remains supported. If that input omits `peek()` or `reset()`, the corresponding callback operation returns `status: "unsupported"` with a reason.
+Decision callbacks get a limiter with `consume()`, `peek()`, and `reset()`. A limiter with only `consume()` still works. Then `peek()` or `reset()` returns `status: "unsupported"` with a reason.
 
 ## Migrate from an inline store
 
-The Capability no longer owns `limit`, `window`, `action`, or `store`. Move policy into a direct `RateLimiter`, then replace `store` with `limiter`.
+The Capability no longer owns `limit`, `window`, `action`, or `store`. Move the policy into a direct `RateLimiter`, then replace `store` with `limiter`.
 
 ```ts [Before] fails=TS2561
 import { rateLimit } from 'vite-hub/agent/capabilities'
@@ -142,9 +141,9 @@ rateLimit({
 
 ## Verify it
 
-Run repeated Agent Invocations with the same identity. Confirm that the first `limit` invocations reach the Agent Driver and the next fails with code `RATE_LIMIT_REJECTED` before model, provider, or custom-run execution.
+Run the Agent several times with the same identity. Confirm that the first `limit` runs reach the Agent Driver and the next one fails with `RATE_LIMIT_REJECTED` before the model, provider, or custom run starts.
 
-For local tests, use a dedicated memory driver instance. For Cloudflare, resolve the request binding in the limiter resolver and test the deployed binding because the native decision depends on request-scoped Worker environment.
+For local tests, use a separate memory driver instance. On Cloudflare, get the request binding in the limiter resolver and test the deployed binding, because the native decision depends on the request's Worker environment.
 
 ## Related
 

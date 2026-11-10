@@ -2,13 +2,14 @@ import { defineOperation, operationAccessAllows, operationCall, operationSection
 import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
+import { loadConsoleMedia } from "./blob.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ConsoleAccess } from "./access.ts"
-import type { ConsoleDatabaseResponse } from "./database.get.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 // Standalone runtime imports retain every operation; host builds replace these flags before bundling.
@@ -42,7 +43,7 @@ type ConsoleOperationContext = Omit<OperationContext, "access"> & { access: Cons
 
 function legacyEvent(route: string, method: "GET" | "POST", request: LegacyRequest, context: ConsoleOperationContext): ConsoleRequestEvent {
   const id = request.id ? `/${encodeURIComponent(request.id)}` : ""
-  const url = new URL(`/api/_vitehub/console/${route}${id}`, "http://vitehub.local")
+  const url = new URL(`/_vitehub/api/${route}${id}`, "http://vitehub.local")
   for (const [key, value] of Object.entries(request.query ?? {})) {
     if (value === undefined) continue
     if (Array.isArray(value)) value.forEach(entry => url.searchParams.append(key, entry))
@@ -51,14 +52,18 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
   const params: Record<string, string> = {}
   if (request.agent) params.agent = request.agent
   if (request.id) params.id = request.id
+  const body = method === "POST" && request.body !== undefined ? JSON.stringify(request.body) : undefined
   const event: ConsoleRequestEvent = {
-    env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
-    method,
-    req: { json: async () => request.body, method, signal: context.request?.signal, url },
-    res: context.response ?? {},
+    // The handlers of an operation read this request event as they read the one of an HTTP route.
+    "~standard": {
+      vendor: "vitehub-console",
+      req: new Request(url, { body, headers: context.request?.headers, method, signal: context.request?.signal }),
+      res: context.response ?? {},
+      runtime: context.env ? { cloudflare: { env: context.env } } : {},
+      ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
+    },
   }
-  if (context.waitUntil) event.waitUntil = context.waitUntil
   return bindConsoleAccess(context.access, event)
 }
 
@@ -93,6 +98,8 @@ export function defineConsoleOperation<Input, Output>(definition: Omit<Operation
       if (!operationAccessAllows(access, operationSection(definition, input), operationCall(definition, input))) {
         throw consoleRequestError(403, "This Console access does not include this operation.")
       }
+      // As in a guarded Console route, only an accepted call loads the Console runtime.
+      await loadConsoleRuntime()
       return definition.run(input, { ...context, access })
     },
   })
@@ -103,7 +110,7 @@ const agentsList = defineConsoleOperation({
   input: v.strictObject({}),
   kind: "read",
   name: "agents.list",
-  run: async (_input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./agents.get.ts"))).default(legacyEvent("agents", "GET", {}, context)),
+  run: async () => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./agents.get.ts"))).listConsoleAgents(),
   section: "agents",
 })
 
@@ -127,7 +134,7 @@ const agentsInvoke = defineConsoleOperation({
 })
 
 const databasesBrowse = defineConsoleOperation({
-  cli: { namespace: "db", command: "rows", positional: ["table"] },
+  cli: { namespace: "database", command: "rows", positional: ["table"] },
   description: "Read the rows of a database table, one page at a time. Without a table it reads the tables only.",
   input: v.strictObject({
     database: optionalText,
@@ -141,10 +148,10 @@ const databasesBrowse = defineConsoleOperation({
   kind: "read",
   name: "databases.browse",
   run: async (input, context) => {
-    const result = await (await (import.meta.viteHubConsoleDatabase === false ? disabledConsoleFeature("Database") : import("./database.get.ts"))).default(legacyEvent("database", "GET", { query: input }, context))
+    const result = await (await (import.meta.viteHubConsoleDatabase === false ? disabledConsoleFeature("Database") : import("./database.get.ts"))).browseConsoleDatabase(input)
     // The Console page reads the tables first and shows an empty page for a name that vanished. A command or a tool that
     // names a table that does not exist should hear about it, not read an empty list.
-    if (input.table && context.surface !== "console" && !(result instanceof Response) && result.table !== input.table) {
+    if (input.table && context.surface !== "console" && result.table !== input.table) {
       throw consoleRequestError(404, `The database has no table "${input.table}".`)
     }
     return result
@@ -153,13 +160,13 @@ const databasesBrowse = defineConsoleOperation({
 })
 
 const databasesTables = defineConsoleOperation({
-  cli: { namespace: "db", command: "tables" },
+  cli: { namespace: "database", command: "tables" },
   description: "List the tables of a database with their columns and relationships.",
   input: v.strictObject({ database: optionalText }),
   kind: "read",
   name: "databases.tables",
-  run: async (input, context) => {
-    const { database, databases, relationships, tables } = actionResult(await (await (import.meta.viteHubConsoleDatabase === false ? disabledConsoleFeature("Database") : import("./database.get.ts"))).default(legacyEvent("database", "GET", { query: input }, context))) as ConsoleDatabaseResponse
+  run: async input => {
+    const { database, databases, relationships, tables } = await (await (import.meta.viteHubConsoleDatabase === false ? disabledConsoleFeature("Database") : import("./database.get.ts"))).browseConsoleDatabase(input)
     return { database, databases, relationships, tables }
   },
   section: "databases",
@@ -173,7 +180,7 @@ const definitionsList = defineConsoleOperation({
   name: "definitions.list",
   run: async ({ section }, context) => {
     if (!section) throw selectionError()
-    return (await import("./definitions.get.ts")).default(legacyEvent("definitions", "GET", { query: { section } }, context))
+    return (await import("./definitions.get.ts")).listConsoleDefinitions({ section }, context.access)
   },
   section: input => input.section,
 })
@@ -190,7 +197,14 @@ const documentsAction = defineConsoleOperation({
     : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
-    const result = actionResult(await (await import("./documents.ts")).default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
+    const documents = await import("./documents.ts")
+    // JSON cannot preserve an omitted body. Use the checked operation's access for that call.
+    if (body === undefined) {
+      const actions = await documents.loadConsoleDocumentActions(section)
+      const user = await documents.consoleDocumentActionContext(context.access)
+      return await documents.runConsoleDocumentAction(() => actions[action](body, user)) ?? null
+    }
+    const result = actionResult(await documents.default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
     return result.value
   },
   section: input => input.section,
@@ -211,7 +225,7 @@ const invocationsList = defineConsoleOperation({
   input: v.strictObject({ agent: optionalText, capability: optionalText, cursor: optionalText, id: v.optional(v.array(text)), limit: optionalCount, triggeredBy: optionalText }),
   kind: "read",
   name: "invocations.list",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocations.get.ts"))).default(legacyEvent("invocations", "GET", { query: input }, context)),
+  run: async input => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocations.get.ts"))).listConsoleInvocations(input),
   section: "agents",
 })
 
@@ -251,7 +265,7 @@ const invocationsCapabilities = defineConsoleOperation({
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
   name: "invocations.capabilities",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocation-capabilities.get.ts"))).default(legacyEvent("invocation-capabilities", "GET", { query: input }, context)),
+  run: async input => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocation-capabilities.get.ts"))).listConsoleInvocationCapabilities(input),
   section: "agents",
 })
 
@@ -270,7 +284,7 @@ const logsList = defineConsoleOperation({
   input: v.strictObject({ text: optionalText, level: v.optional(v.picklist(["debug", "info", "warn", "error"])), service: optionalText, cursor: optionalText, limit: optionalCount }),
   kind: "read",
   name: "logs.list",
-  run: async (input, context) => (await import("./logs.get.ts")).default(legacyEvent("logs", "GET", { query: input }, context)),
+  run: async (input, context) => (await import("./logs.get.ts")).readConsoleLogs(legacyEvent("logs", "GET", { query: input }, context)),
   section: "logs",
 })
 
@@ -283,8 +297,18 @@ const mediaAction = defineConsoleOperation({
   // A read-only grant still browses the library.
   readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
-  run: async ({ action, body, section }, context) => (await import("./media.ts")).runConsoleMediaAction(section, action, body, context.access),
+  run: async ({ action, body, section }, context) => (await loadConsoleMedia()).runConsoleMediaAction(section, action, body, context.access),
   section: input => input.section,
+})
+
+const projectGet = defineConsoleOperation({
+  cli: { command: "info", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "project.get",
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  section: false,
 })
 
 const searchQuery = defineConsoleOperation({
@@ -293,9 +317,13 @@ const searchQuery = defineConsoleOperation({
   input: v.strictObject({ cursor: optionalText, limit: optionalCount, search: optionalText }),
   kind: "read",
   name: "search.query",
-  run: async (input, context) => {
-    const event = legacyEvent("search", "GET", { query: input }, context)
-    const response = await (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./search.get.ts"))).consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: "GET" }))
+  run: async input => {
+    // The Collection handler reads its query from the URL.
+    const url = new URL("http://vitehub.local/_vitehub/api/search")
+    for (const [key, value] of Object.entries(input)) {
+      if (value !== undefined) url.searchParams.set(key, String(value))
+    }
+    const response = await (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./search.get.ts"))).consoleSearchCollectionHandler.fetch(new Request(url))
     if (!response.ok) throw await searchError(response)
     return await response.json()
   },
@@ -307,7 +335,7 @@ const sectionsList = defineConsoleOperation({
   input: v.strictObject({}),
   kind: "read",
   name: "sections.list",
-  run: async (_input, context) => (await import("./sections.get.ts")).default(legacyEvent("sections", "GET", {}, context)),
+  run: async (_input, context) => (await import("./sections.get.ts")).listConsoleSections(context.access),
   section: false,
 })
 
@@ -316,7 +344,7 @@ const skillsInspect = defineConsoleOperation({
   input: v.strictObject({ agent: optionalText, path: optionalText }),
   kind: "read",
   name: "skills.inspect",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./skills.get.ts"))).default(legacyEvent("skills", "GET", { query: input }, context)),
+  run: async input => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./skills.get.ts"))).inspectConsoleSkills(input),
   section: "skills",
 })
 
@@ -326,17 +354,17 @@ const statusGet = defineConsoleOperation({
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
   name: "status.get",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./status.get.ts"))).default(legacyEvent("status", "GET", { query: input }, context)),
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./status.get.ts"))).readConsoleStatus(legacyEvent("status", "GET", { query: input }, context)),
   section: "agents",
 })
 
 const usageGet = defineConsoleOperation({
-  cli: { default: true },
+  cli: { command: "usage", namespace: "agent" },
   description: "Read token use and cost evidence of Agent Invocations.",
   input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
   kind: "read",
   name: "usage.get",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).default(legacyEvent("usage", "GET", { query: input }, context)),
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).readConsoleUsage(legacyEvent("usage", "GET", { query: input }, context)),
   section: "usage",
 })
 
@@ -375,6 +403,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  projectGet,
   searchQuery,
   sectionsList,
   skillsInspect,

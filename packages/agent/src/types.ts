@@ -1,8 +1,10 @@
+import type { ChannelDefinition } from "@vite-hub/channels"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
+import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
 import type { AgentRetentionPolicy } from "./retention.ts"
@@ -58,7 +60,6 @@ export interface AgentWorkflowRuntimeBinding {
   name?: string
 }
 export type AgentWaitUntil = RuntimeWaitUntil
-export type AgentIntegrationOption = "auto" | boolean
 export interface AgentHealthDescriptor {
   handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
 }
@@ -89,7 +90,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   runtime: AgentRuntimeName
 }
 
-/** Runtime Context that a caller passes to `runAgent()`. ViteHub creates a fresh memo cache when `memo` is absent. */
+/**
+ * Runtime Context that a caller passes as `runtimeContext` to `runAgent()` and `streamAgent()`, and to `startAgentInvocation()`.
+ * ViteHub creates a fresh memo cache for the Invocation when `memo` is absent.
+ */
 export type AgentRuntimeContextInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & Partial<Pick<AgentRuntimeContext<TRuntimeConfig>, "memo">>
 
@@ -975,9 +979,10 @@ export interface AgentTriggerTask<
 > {
   /**
    * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * A resolver can return an Agent or its default-export module, such as `() => import('./agent')`, to avoid an import cycle.
    * An unset `run.origin` of the Invocation defaults to the task key.
    */
-  agent?: AgentInput
+  agent?: AgentInput | (() => MaybePromise<AgentInput | { default: AgentInput }>)
   /**
    * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
    * The trigger's `failed` stays the fallback for tasks without one.
@@ -1108,9 +1113,14 @@ export type AgentInterceptHandler<
   TIntercept = unknown,
 > = (context: AgentInterceptContext<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData>) => MaybePromise<TIntercept | undefined>
 
-export interface AgentRunResult {
+export interface AgentRunResult<TOutput = unknown> {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   finishReason?: unknown
+  /**
+   * Output of the Invocation after `runAgent()` consumes its streams: the `driver.output` schema value, the
+   * `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns.
+   */
+  output?: TOutput
   raw?: unknown
   text?: string
   usage?: unknown
@@ -2160,16 +2170,6 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
-/**
- * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
- * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
- * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
- */
-export interface AgentInvocationsHostSettings {}
-
-/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
-export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
-
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2187,7 +2187,11 @@ type AgentSharedSettings<
   budget?: AgentBudgetOptions
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
-  channels?: AgentChannelInputs<TRuntimeConfig>
+  /**
+   * The Channels whose messages this Agent answers: names of Channels in `server/channels`, such as `['slack']`, or
+   * Channels defined inline by name, such as `{ slack: defineChannel({ adapter: slack() }) }`.
+   */
+  channels?: AgentChannelInputs<TRuntimeConfig> | readonly string[]
   cli?: AgentDefinitionCliOptions
   /** Standard Schema for Invocation `data`. ViteHub validates `data` before Capabilities, hooks, and the Driver run. */
   data?: StandardSchemaV1<TDataInput, TData>
@@ -2196,7 +2200,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocationsInput
+  invocations?: AgentInvocationsSetting
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -2312,22 +2316,7 @@ export interface AgentStateProviderOptions {
 export type ResolvedAgentStateProviderOptions =
   Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
 
-export interface AgentSchedulerProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
-}
-
-export interface AgentSandboxProviderOptions {
-  provider?: "auto" | "cloudflare" | "vercel" | (string & {})
-}
-
-export interface AgentIntegrationsOptions {
-  sandbox?: AgentIntegrationOption
-  workflow?: AgentIntegrationOption
-}
-
 export interface AgentProvidersOptions {
-  sandbox?: AgentSandboxProviderOptions
-  scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
 }
 
@@ -2385,14 +2374,23 @@ export interface AgentShutdownOptions {
   drainMs?: number
 }
 
-export interface AgentModuleOptions {
+export interface AgentChannelsOptions {
+  /**
+   * In `vite dev`, run the Slack, Discord, Teams, and Telegram Channels on a simulated chat with no provider
+   * credentials. Each Channel's webhook route then accepts AI SDK chat requests and streams the reply.
+   * The plugin sets `VITEHUB_CHANNELS=simulate` in `vite dev` only; the runtime ignores it when `NODE_ENV` is `production`.
+   */
+  simulate?: boolean
+}
+
+export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
+  channels?: AgentChannelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
   imports?: boolean
-  integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
@@ -2408,10 +2406,7 @@ export interface ResolvedAgentModuleOptions {
   execution: AgentExecution
   shutdown: false | AgentShutdownOptions
   imports: boolean
-  integrations: Required<AgentIntegrationsOptions>
   providers: {
-    sandbox: Required<AgentSandboxProviderOptions>
-    scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
   routes: ResolvedAgentRoutesOptions
@@ -2906,8 +2901,9 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
+  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelInput<TRuntimeConfig>>

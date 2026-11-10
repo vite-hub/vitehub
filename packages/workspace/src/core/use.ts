@@ -1,11 +1,10 @@
-import {
-  createWorkspaceTools,
-  type ShellEnabled,
-  type WorkspaceMaterializeSourcesResult,
-  type WorkspaceReadOperations,
-  type WorkspaceShellResult,
-  type WorkspaceWriteOperations,
-  type WorkspaceWriteToolMap,
+import type {
+  ShellEnabled,
+  WorkspaceMaterializeSourcesResult,
+  WorkspaceReadOperations,
+  WorkspaceShellResult,
+  WorkspaceWriteOperations,
+  WorkspaceWriteToolMap,
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
@@ -181,10 +180,13 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
   copyPath(from: WorkspaceWritablePath<Name>, to: WorkspaceWritablePath<Name>, options?: { overwrite?: boolean }): Promise<void>
 }
 
-export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+export interface ReadonlyWorkspaceFiles<Name extends WorkspaceName = WorkspaceName> {
   fs: ReadonlyWorkspaceFs<Name>
   history: WorkspaceHistoryReader
   getMeta?(key: string): Promise<unknown>
+}
+
+export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> extends ReadonlyWorkspaceFiles<Name> {
   tools: WorkspaceReadToolSet
 }
 
@@ -192,7 +194,7 @@ export interface WorkspaceHistory extends History<WorkspaceSnapshot>, WorkspaceR
   rebase(options?: WorkspaceRebaseOptions): Promise<void>
 }
 
-export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+export interface WritableWorkspaceFiles<Name extends WorkspaceName = WorkspaceName> {
   capabilities(): Promise<WorkspaceCapabilities>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
@@ -203,6 +205,9 @@ export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
+}
+
+export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> extends WritableWorkspaceFiles<Name> {
   tools: WorkspaceWriteToolSet
 }
 
@@ -482,7 +487,7 @@ function mergeSearchHits(primary: WorkspaceSearchHit[] = [], fallback: Workspace
   })
 }
 
-function createReadonlyFs<Name extends WorkspaceName>(
+export function createReadonlyFs<Name extends WorkspaceName>(
   name: Name,
   workspace: Workspace,
 ): ReadonlyWorkspaceFs<Name> {
@@ -589,66 +594,10 @@ function createReadonlyFs<Name extends WorkspaceName>(
   return readonlyFs
 }
 
-function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
-  return { list: options?.list, materialize: options?.materialize ?? true, read: options?.read, search: options?.search }
-}
-
-function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
-  return {
-    ...toReadOperations(options),
-    write: {
-      appendFile: options?.appendFile !== false,
-      copyPath: options?.copyPath !== false,
-      deletePath: options?.deletePath !== false,
-      makeDir: options?.makeDir !== false,
-      movePath: options?.movePath !== false,
-      writeFile: options?.writeFile !== false,
-    },
-  }
-}
-
-function createDefaultToolSet<TOptions, TDefaultTools extends ToolSet>(
-  createTools: (options?: TOptions) => ToolSet,
-) {
-  return createTools() as TDefaultTools
-}
-
-function emptyTools(): ToolSet {
-  return {}
-}
-
-export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode: "write" }): WritableWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
+export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions) {
   if (options?.mode === "write") {
     const workspace = createLazyWorkspace(name, options.definition)
-    const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
-      broadSearchPaths: opts?.broadSearchPaths,
-      cwd: opts?.cwd,
-      maxShellCalls: opts?.maxShellCalls,
-      maxOutputLength: opts?.maxOutputLength,
-      operations: toWriteOperations(opts),
-      sourceRequests: opts?.sourceRequests,
-      timeout: opts?.timeout,
-    })
-    const createReadTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(createReadonlyFs(name, workspace), {
-      broadSearchPaths: opts?.broadSearchPaths,
-      cwd: opts?.cwd,
-      maxShellCalls: opts?.maxShellCalls,
-      maxOutputLength: opts?.maxOutputLength,
-      operations: toReadOperations(opts),
-      sourceRequests: opts?.sourceRequests,
-      timeout: opts?.timeout,
-    })
-    const tools = createDefaultToolSet<
-      WritableWorkspaceFacadeToolOptions,
-      WorkspaceWriteTools
-    >(createTools) as WritableWorkspaceFacade<Name>["tools"]
-    tools.inspect = createReadTools as WritableWorkspaceFacade<Name>["tools"]["inspect"]
-    tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
-    tools.none = emptyTools
-    const facade: WritableWorkspaceFacade<Name> & WorkspaceStoreTargetCarrier = {
+    const facade: WritableWorkspaceFiles<Name> & WorkspaceStoreTargetCarrier = {
       [workspaceStoreTarget]: async () => {
         return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
       },
@@ -666,29 +615,13 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
       sync: async options => await workspace.sync(options),
-      tools,
     }
     forwardWorkspaceMetadataTarget(workspace, facade)
-    return facade
+    return { mode: "write" as const, workspace, facade }
   }
 
   const workspace = createLazyWorkspace(name, options?.definition, { reuseStartupSnapshots: options?.refresh === false })
   const fs = createReadonlyFs(name, workspace)
-  const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
-    broadSearchPaths: opts?.broadSearchPaths,
-    cwd: opts?.cwd,
-    maxShellCalls: opts?.maxShellCalls,
-    maxOutputLength: opts?.maxOutputLength,
-    operations: toReadOperations(opts),
-    sourceRequests: opts?.sourceRequests,
-    timeout: opts?.timeout,
-  })
-  const tools = createDefaultToolSet<
-    WorkspaceFacadeToolOptions,
-    WorkspaceReadTools
-  >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
-  tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
-  tools.none = emptyTools
   const facade = {
     fs,
     history: {
@@ -699,9 +632,16 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       usage: () => requireWorkspaceHistory(workspace).usage(),
     },
     getMeta: async (key: string) => await workspace.getMeta?.(key),
-    tools,
   }
   forwardWorkspaceMetadataTarget(fs, facade)
   forwardWorkspaceStoreTarget(workspace, facade)
-  return facade
+  return { mode: "read" as const, workspace, facade }
+}
+
+/** File and history access without constructing Agent tools or bundling a shell. */
+export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFiles<Name>
+export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFiles<Name>
+export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode: "write" }): WritableWorkspaceFiles<Name>
+export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name> {
+  return createWorkspaceFileRuntime(name, options).facade
 }
