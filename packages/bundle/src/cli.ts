@@ -4,7 +4,7 @@ import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { formatBytes } from "./bytes.ts"
 import { compareBundleReports, readSavedBundleReport } from "./compare.ts"
-import { readEnvironmentReports } from "./files.ts"
+import { readBundleReportRoot, readEnvironmentReports } from "./files.ts"
 import { createBundleReport, explainBundle, explainBundleRoute } from "./report.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
@@ -16,9 +16,11 @@ const missingReport = "No bundle report in .vitehub/bundle/. Set `bundle: true` 
 
 export { formatBytes }
 
-/** The CLI passes the Vite root, which is `app/` in Nuxt. Reports live in the project root. */
+/** A loaded project supplies its Vite root; runtime dispatch uses the last build's location. */
 function projectRoot(context: ViteHubCliContext): string {
-  return resolveViteHubProjectRoot(context.rootDir)
+  const root = resolveViteHubProjectRoot(context.rootDir)
+  if (resolve(context.cwd) !== resolve(context.rootDir)) return root
+  return readBundleReportRoot(context.cwd) ?? readBundleReportRoot(root) ?? root
 }
 
 interface ParsedArgs {
