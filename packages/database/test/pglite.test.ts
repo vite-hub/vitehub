@@ -15,6 +15,7 @@ import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { hubDb as hubDbNuxt } from "../src/nuxt.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
 import { postgresEnvNames } from "../src/runtime/postgres-env.ts"
+import { runWithDatabaseRequestStats } from "../src/runtime/request-stats.ts"
 import { hubDb } from "../src/vite.ts"
 
 const notes = pgTable("notes", {
@@ -162,6 +163,32 @@ describe("a Postgres Database without a server in development", () => {
     expect(await db.execute(sql`select 1 as one`)).toMatchObject({ rows: [{ one: 1 }] })
     expect(existsSync(join(root, "pglite/PG_VERSION"))).toBe(true)
     await Reflect.get(db, "$client").close()
+  }, 60_000)
+
+  it("counts the Drizzle queries on PGlite in the request stats, also in transactions and when they fail", async () => {
+    const root = await mkdtemp(join(import.meta.dirname, ".pglite-"))
+    roots.push(root)
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const db = await createDevPostgresDatabase({ dialect: "postgresql", drizzle: {}, name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
+      dataDir: join(root, "pglite"),
+      migrationsDir: join(root, "migrations"),
+    })
+    const client = Reflect.get(db, "$client") as { close: () => Promise<void>, query: (query: string) => Promise<unknown> }
+    const set = vi.fn()
+    await runWithDatabaseRequestStats({ req: { context: { log: { set } } } }, async () => {
+      await db.execute(sql`create table notes (id serial primary key, title text not null)`)
+      await db.transaction(async (tx) => {
+        await tx.insert(notes).values({ title: "first" })
+        await tx.transaction(async nested => nested.select().from(notes))
+      })
+      await expect(db.execute(sql`select * from missing_table`)).rejects.toThrow()
+      // `db.$client` stays PGlite's own client, so a direct call is not counted.
+      await client.query("select 1")
+    })
+
+    // create, insert, savepoint, select, release savepoint, and the failed select.
+    expect(set).toHaveBeenCalledExactlyOnceWith({ database: { calls: 6, ms: expect.any(Number), maxConcurrent: 1 } })
+    await client.close()
   }, 60_000)
 
   it("keeps one PGlite client per folder when `vite dev` evaluates the databases module again", async () => {

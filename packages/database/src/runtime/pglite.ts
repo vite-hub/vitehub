@@ -8,6 +8,7 @@ import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { runsOnPglite } from "./postgres-env.ts"
 import { createPostgresDatabase } from "./postgres.ts"
+import { keepOwnClient, trackPgliteClient } from "./request-stats.ts"
 
 import type { PGlite as PgliteClient } from "@electric-sql/pglite"
 import type { LocalPostgresDatabase, PostgresDatabaseDefaults } from "./postgres.ts"
@@ -58,8 +59,9 @@ export async function loadPglite<TSchema extends Record<string, unknown>>(
   // The same relations as the postgres.js client, so `db.query.<table>` works.
   const relations = defineRelations(definition.schema)
 
+  // Drizzle's queries count in the request stats. `db.$client` stays the client that Drizzle got.
   function open(client: PgliteClient): RuntimePostgresDatabase<TSchema> {
-    return drizzle({ client, relations })
+    return keepOwnClient(drizzle({ client: trackPgliteClient(client), relations }), client)
   }
 
   // In app tests, each reset gives an empty in-memory database with the migrations of the Definition.
