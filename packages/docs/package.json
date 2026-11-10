@@ -74,7 +74,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "defu": "catalog:unjs",
-    "nuxt-agent-discovery": "^0.8.1",
+    "nuxt-agent-discovery": "^0.8.2",
     "nuxt-link-checker": "^6.0.1",
     "nuxt-llms": "^0.2.0",
     "nuxt-og-image": "^7.0.7",
@@ -88,7 +88,7 @@
   },
   "devDependencies": {
     "@comark/html": "catalog:markdown-ui",
-    "@comark/vue": "0.8.1",
+    "@comark/vue": "0.9.0",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
