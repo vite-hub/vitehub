@@ -3,7 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it, vi } from "vitest"
 import { codexDriver, defineAgent } from "@vite-hub/agent"
-import { agentWithColocatedSkills } from "@vite-hub/agent/runtime/workflow"
+import { agentRuntimeModule } from "@vite-hub/agent/vite"
+import { agentWithColocatedSkills } from "../../agent/dist/runtime/workflow.js"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 
 it("loads colocated Skills into the production Console definition", async () => {
@@ -20,7 +21,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     await writeConsoleNitroPlugin(plugin, root, ["agents"], [{ name: "bot-dev", handler }], { agents: [], content: {} }, [], undefined, undefined, true)
     const generated = await readFile(plugin, "utf8")
     const skillsImport = generated.match(/import \{ agentWithColocatedSkills \} from "([^"]+)"/)?.[1]
-    expect(skillsImport).toBe("vite-hub/_internal/agent/runtime/workflow")
+    expect(skillsImport).toBe(agentRuntimeModule("runtime/workflow"))
     if (!skillsImport) throw new Error("Expected the generated Skills import")
     const skillsRuntime = await import(skillsImport)
     expect(skillsRuntime.agentWithColocatedSkills).toBeTypeOf("function")

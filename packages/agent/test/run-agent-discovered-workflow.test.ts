@@ -28,7 +28,7 @@ function discoveredWorkflowHost() {
       // SAFETY: This fixture supplies the Workflow dispatch boundary under test.
       createWorkflow: ((name: string, handler?: unknown) => ({
         name,
-        run: async () => {
+        start: async () => {
           started.push({ inline: Boolean(handler), name })
           return { id: "hello-run", provider: "openworkflow", status: "queued" }
         },
