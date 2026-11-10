@@ -525,9 +525,6 @@ catalogs:
     minimatch:
       specifier: ^10.2.6
       version: 10.2.6
-    mountx:
-      specifier: 0.0.2
-      version: 0.0.2
     mrmime:
       specifier: ^2.0.1
       version: 2.0.1
@@ -1305,28 +1302,6 @@ importers:
         specifier: 3.5.44
         version: 3.5.44(typescript@6.0.3)
 
-  packages/blob/examples/vite:
-    dependencies:
-      '@vite-hub/blob':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.261102-rc
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
-
   packages/browser:
     dependencies:
       '@cloudflare/playwright':
@@ -1980,31 +1955,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
 
-  packages/database/examples/vite:
-    dependencies:
-      '@vite-hub/database':
-        specifier: workspace:*
-        version: link:../..
-      drizzle-orm:
-        specifier: catalog:database
-        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.261102-rc
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
-
   packages/decisions:
     dependencies:
       '@vite-hub/gateways':
@@ -2278,28 +2228,6 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../..
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      typescript:
-        specifier: catalog:tooling
-        version: 6.0.3
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
-
-  packages/env/examples/vite:
-    dependencies:
-      '@vite-hub/env':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -2665,25 +2593,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
 
-  packages/kv/examples/vite:
-    dependencies:
-      '@vite-hub/kv':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
-
   packages/markdown-template:
     dependencies:
       character-entities-legacy:
@@ -2834,28 +2743,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
 
-  packages/queue/examples/vite:
-    dependencies:
-      '@vite-hub/queue':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.261102-rc
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
-
   packages/rate-limit:
     dependencies:
       '@valibot/to-json-schema':
@@ -2898,28 +2785,6 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
-
-  packages/rate-limit/examples/vite:
-    dependencies:
-      '@vite-hub/rate-limit':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.261102-rc
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
 
   packages/realtime:
     dependencies:
@@ -3146,31 +3011,6 @@ importers:
         specifier: catalog:runtime
         version: 4.6.7
 
-  packages/sandbox/examples/vite:
-    dependencies:
-      '@cloudflare/sandbox':
-        specifier: catalog:sandbox
-        version: 1.0.3
-      '@vercel/sandbox':
-        specifier: catalog:sandbox
-        version: 3.9.1
-      '@vite-hub/sandbox':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
-
   packages/schedule:
     dependencies:
       '@valibot/to-json-schema':
@@ -3219,25 +3059,6 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
-
-  packages/schedule/examples/vite:
-    dependencies:
-      '@vite-hub/schedule':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
 
   packages/shell:
     dependencies:
@@ -4022,30 +3843,8 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
 
-  packages/workflow/examples/vite:
-    dependencies:
-      '@vite-hub/workflow':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
-
   packages/workspace:
     dependencies:
-      '@standard-schema/spec':
-        specifier: catalog:runtime
-        version: 1.1.0
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -4091,9 +3890,6 @@ importers:
       minimatch:
         specifier: catalog:workspace
         version: 10.2.6
-      mountx:
-        specifier: catalog:workspace
-        version: 0.0.2(unstorage@1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3)))
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
@@ -4158,25 +3954,6 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
-
-  packages/workspace/examples/vite:
-    dependencies:
-      '@vite-hub/workspace':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
 
   playground/console:
     dependencies:
@@ -17593,15 +17370,6 @@ packages:
     peerDependencies:
       '@vueuse/core': '>=10.0.0'
       vue: 3.5.44
-
-  mountx@0.0.2:
-    resolution: {integrity: sha512-9e9DB2zUA0gCk5d7EzaN4o4+R8+36Fn7NzEhCibe8FlaN3xDC9JtDcEotI3q++ENOcxzByzIPIOoiztZn/TIUg==}
-    hasBin: true
-    peerDependencies:
-      unstorage: '*'
-    peerDependenciesMeta:
-      unstorage:
-        optional: true
 
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
@@ -39418,10 +39186,6 @@ snapshots:
       - react
       - react-dom
       - remix
-
-  mountx@0.0.2(unstorage@1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3))):
-    optionalDependencies:
-      unstorage: 1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3))
 
   mri@1.2.0: {}
 
