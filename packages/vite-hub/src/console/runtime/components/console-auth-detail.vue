@@ -9,7 +9,7 @@ import type {
 import { computed, ref, shallowRef, watch } from "vue";
 import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
 import { consoleDurationWords } from "../client/format";
-import { isRemoteProject, projectConsoleUrl, projectUrl } from "../client/project";
+import { isRemoteProject, projectUrl } from "../client/project";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
 import type { ConsoleProperty } from "./console-facts";
@@ -127,7 +127,7 @@ const impersonation = computed(() => {
   if (!settings || !detail.value) return undefined;
   // Impersonation sets a session cookie of the app, which a Console on another origin cannot set.
   if (isRemoteProject()) {
-    return { enabled: false, note: "Impersonation sets a cookie of the app, so it works only in the Console that the app serves.", openInApp: projectConsoleUrl("/auth/users") };
+    return { enabled: false, note: "Impersonation sets a session cookie of the app, so the Console cannot start it from another origin." };
   }
   const blocked = [
     props.description.actions.impersonate,
@@ -138,7 +138,6 @@ const impersonation = computed(() => {
     note:
       blocked?.reason ??
       `The session lasts ${consoleDurationWords(settings.duration)}. Activity records the start and the stop.`,
-    openInApp: undefined,
   };
 });
 </script>
@@ -158,18 +157,6 @@ const impersonation = computed(() => {
         <ConsoleSection v-if="impersonation" :level="3" title="Open the app as this user" class="p-4">
           <template #actions>
             <UButton
-              v-if="impersonation.openInApp"
-              variant="outline"
-              class="shrink-0"
-              trailing-icon="i-lucide-arrow-up-right"
-              aria-describedby="auth-impersonate-note"
-              :to="impersonation.openInApp"
-              target="_blank"
-              external
-              >Open in the app</UButton
-            >
-            <UButton
-              v-else
               icon="i-lucide-venetian-mask"
               variant="outline"
               class="shrink-0"

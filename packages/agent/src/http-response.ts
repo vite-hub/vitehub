@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { encodeUIMessageStream } from "./stream-output.ts"
 
 interface AgentStreamResult {
@@ -19,7 +18,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 
 function isResponseLike(value: unknown): value is Response {
   try {
-    if (!hasRuntimeType(value, "object")) return false
+    if (typeof value !== "object") return false
     const prototype = Response.prototype
     const get = (name: string) => {
       const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
@@ -145,7 +144,7 @@ export function toAgentHttpResult(value: unknown, stream: boolean): Response | u
     return value
   }
   if (stream && isAgentStreamResult(value)) {
-    if (hasRuntimeType(value.toUIMessageStreamResponse, "function")) {
+    if (typeof value.toUIMessageStreamResponse === "function") {
       return value.toUIMessageStreamResponse()
     }
     const response = value.toTextStreamResponse?.()

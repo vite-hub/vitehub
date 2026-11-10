@@ -3,6 +3,7 @@
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
 import { H3Event } from "h3"
+import { hostedConsoleUrl } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
@@ -188,7 +189,7 @@ function consoleAuthReturnPath(request: Request, mountBaseURL: string): string |
   const home = `${mount}/_vitehub`
   const asked = url.pathname === home || url.pathname === `${home}/sign-in` ? url.searchParams.get("redirect") : `${url.pathname}${url.search}`
   const target = consoleReturnPath(asked, url, mount)
-  return target === home ? undefined : target
+  return target === `${home}/sign-in` ? undefined : target
 }
 
 /** Where Better Auth returns after a Console Auth sign-in that `/_vitehub?auth_start=1&redirect=<page>` starts. */
@@ -343,6 +344,7 @@ export type ConsoleAppAuthResolver = (
 /** Use the app's configured social providers and session without a second Auth Definition or client. */
 export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): {
   signIn: (event: object, denied?: Response) => Promise<Response>
+  signedIn: (event: object) => Promise<Response>
   authBasePath: (event: object) => Promise<string>
 } {
   async function requestAuth(event: object) {
@@ -365,6 +367,9 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
     return { auth, context, request, url }
   }
   return {
+    async signedIn(event) {
+      return consoleSignedInPage((await requestAuth(event)).url)
+    },
     async authBasePath(event) {
       const { context } = await requestAuth(event)
       return new URL(context.baseURL).pathname.replace(/\/$/, "")
@@ -385,8 +390,8 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
             appPath: `${mount}/`,
           })
         }
-        // The impersonation ended after the check. The Console can open now.
-        return new Response(null, { headers: { "cache-control": "no-store", location: `${mount}/_vitehub` }, status: 303 })
+        // The impersonation ended after the check.
+        return new Response(null, { headers: { "cache-control": "no-store", location: page }, status: 303 })
       }
       if (denied) {
         const diagnostic = v.safeParse(v.object({ code: v.literal("CONSOLE_ACCESS_DENIED") }), await denied.clone().json().catch(() => undefined))
@@ -401,7 +406,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
       const providers = context.socialProviders.map(provider => ({ id: provider.id, label: provider.id === "github" ? "GitHub" : provider.name }))
       // Better Auth's OAuth provider sends an MCP client's login and consent steps here, with a signed query.
       if (request.method !== "POST" && url.searchParams.has("sig") && url.searchParams.has("client_id")) {
-        return consoleAuthOAuthPage({ password, providers }, authURL.pathname.replace(/\/$/, ""), `${mount}/_vitehub`)
+        return consoleAuthOAuthPage({ password, providers }, authURL.pathname.replace(/\/$/, ""), page)
       }
       const target = consoleReturnPath(url.searchParams.get("redirect"), url, mount)
       const retry = new URL(page, url)
@@ -432,7 +437,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
         return consoleSignInDocument(
           url.host,
           message ?? (!actions
-            ? "No sign-in method is configured. Enable email and password or a social provider in server Auth, or set console.signInPage to your app's sign-in page."
+            ? "No sign-in method is configured. Enable email and password or a social provider in server Auth."
             : view === "sign-up" ? "Create an account for this app." : "Sign in to access the ViteHub Console."),
           actions,
           actions ? 200 : 503,
@@ -497,13 +502,28 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
   }
 }
 
+/**
+ * Where a sign-in returns: a path below `/_vitehub` on the app origin, else the sign-in page, which then shows the
+ * signed-in state. Apps serve no Console page, so `/_vitehub` itself is no target.
+ */
 function consoleReturnPath(value: string | null, url: URL, mount: string): string {
-  const fallback = `${mount}/_vitehub`
+  const fallback = `${mount}/_vitehub/sign-in`
   if (!value || !/^\/(?!\/)[^\\\s]*$/.test(value)) return fallback
   const target = new URL(value, url)
-  if (target.origin !== url.origin || !(target.pathname === fallback || target.pathname.startsWith(`${fallback}/`))) return fallback
-  if (target.pathname === `${fallback}/sign-in`) return fallback
+  if (target.origin !== url.origin || !target.pathname.startsWith(`${mount}/_vitehub/`)) return fallback
   return `${target.pathname}${target.search}${target.hash}`
+}
+
+/** The sign-in page of a person who is signed in and may use the Console. It links the app in the hosted Console. */
+export function consoleSignedInPage(url: URL): Response {
+  let link = ""
+  try {
+    link = `<a class="button" href="${escapeHTML(hostedConsoleUrl(`${url.origin}${consoleMountBase(url.pathname)}`, "/"))}">Open the Console</a>`
+  }
+  catch {
+    // The hosted Console opens only https:// apps and loopback development servers.
+  }
+  return consoleSignInDocument(url.host, "You are signed in. Open this app in the ViteHub Console, or close this tab.", link, 200, "Signed in")
 }
 const consoleSessionSchema = v.looseObject({ user: v.looseObject({ id: v.pipe(v.string(), v.minLength(1)) }) })
 const endedSessionSchema = v.looseObject({ statusCode: v.literal(401), body: v.looseObject({ code: v.literal("FAILED_TO_GET_SESSION") }) })

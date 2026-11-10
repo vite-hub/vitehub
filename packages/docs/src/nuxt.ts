@@ -324,6 +324,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
+    // Nuxt types runtime config from its value, and that type has no fields for objects in arrays, such as `socials`.
+    addTypeTemplate({ filename: "types/vite-hub-docs.d.ts", getContents: () => docsRuntimeConfigTypes })
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
     addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
@@ -594,6 +596,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
+    addPlugin({ src: join(runtime, "app/plugins/icon-stroke.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
@@ -773,6 +776,18 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
 
+const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
+
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "@nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+
+export {}
+`
+
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
   const url = (site.url ?? "").replace(/\/+$/, "")
@@ -796,7 +811,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
-    icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", ...options.icons },
+    icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", stroke: 1.5, ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },

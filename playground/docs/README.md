@@ -40,11 +40,11 @@ for file in $(cd content && find . -name '*.md' | sed 's|^\./||'); do
 done
 ```
 
-Open <http://127.0.0.1:4731/_vitehub/content>, open a page, and select **Preview the page**. An edit shows in the preview through the docs UI before it is saved. **Publish** copies the draft to the `published` ref. The site still renders the files in `content/`.
+Open the Console link that the dev server prints, select **Content**, and open a page. **Publish** copies the draft to the `published` ref. The site still renders the files in `content/`.
 
 ## Comment on a page
 
-The docs module turns on ViteHub Comments, so the site needs no `server/comments.ts`. `vitehub database generate` and `vitehub database migrate` above create its tables too. Open <http://127.0.0.1:4731/docs/getting-started/install?vitehub> and select **Comments** in the pill. The window lists the threads of `/docs/getting-started/install`. The development server lets everyone comment as a guest. The Console lists the same threads at <http://127.0.0.1:4731/_vitehub/comments>.
+The docs module turns on ViteHub Comments, so the site needs no `server/comments.ts`. `vitehub database generate` and `vitehub database migrate` above create its tables too. Open <http://127.0.0.1:4731/docs/getting-started/install?vitehub> and select **Comments** in the pill. The window lists the threads of `/docs/getting-started/install`. The development server lets everyone comment as a guest. The Comments section of the Console lists the same threads.
 
 The `@vite-hub/*` packages are listed in `package.json` only because Nitro 2 leaves them external in this workspace, and Node resolves them from the app folder. `@nuxt/ui` is listed in `modules` so that Nuxt installs `@nuxt/icon` with it.
 

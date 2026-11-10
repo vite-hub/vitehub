@@ -1,7 +1,6 @@
 import { parseMarkdown } from "comark"
 import { renderMarkdownTemplateInternal } from "@vite-hub/markdown-template/internal/composition"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export interface ComposeInstructionDocumentOptions {
   context?: Record<string, unknown>
@@ -54,7 +53,7 @@ export async function composeInstructionDocument(content: string, options: Compo
   const customTree = await parseInstructionTemplate(customMasked)
   const customInCode = instructionTokensInCode(customTree.nodes, customPrefix)
   for (const index of rawHtmlCodeSlotIndexes(content, customPattern)) customInCode.add(index)
-  if (customInstructions !== undefined && !hasRuntimeType(customInstructions, "string")) {
+  if (customInstructions !== undefined && typeof customInstructions !== "string") {
     throw new TypeError("[vitehub] context.customInstructions must be a string.")
   }
   if (hasExecutableCustomInstructionReference(content)) {

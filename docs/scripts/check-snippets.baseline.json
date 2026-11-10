@@ -20,11 +20,6 @@
     "error": "TS2304 Cannot find name 'diagnostics'.\nTS2304 Cannot find name 'nodeRuntimeResources'.\nTS2304 Cannot find name 'operations'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/gmail.md#a3dfcb0239a0",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2339 Property 'unseal' does not exist on type '{}'."
@@ -47,7 +42,7 @@
   {
     "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
     "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineAgentInvocations'.\nTS7006 Parameter 'error' implicitly has an 'any' type.\nTS7006 Parameter 'observation' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineAgentInvocations'.\nTS2552 Cannot find name 'store'. Did you mean 'Storage'?\nTS7006 Parameter 'error' implicitly has an 'any' type.\nTS7006 Parameter 'observation' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
@@ -65,29 +60,14 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/auth/configure.md#17f5681b94a4",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/auth/configure.md#e343728ee49a",
     "label": "server/auth.ts",
     "error": "TS2304 Cannot find name 'defineAuth'.\nTS7031 Binding element 'env' implicitly has an 'any' type.\nTS7031 Binding element 'requestOrigin' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/auth/configure.md#efe4a2209ad9",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
-  },
-  {
-    "id": "docs/content/docs/blob/server-api.md#40d768790f89",
-    "label": "server/api/files.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
@@ -125,106 +105,6 @@
     "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
-    "label": "server/connections/github.ts",
-    "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#4744d64a62e0",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/content/configure.md#23a4c159d075",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/configure.md#867e2e731d17",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/editing-together.md#97e032df96d3",
-    "label": "server/api/editor/session.post.ts",
-    "error": "TS2305 Module '\"../../content\"' has no exported member 'content'.\nTS2339 Property 'id' does not exist on type 'unknown'.\nTS2339 Property 'input' does not exist on type 'unknown'.\nTS2339 Property 'kind' does not exist on type 'unknown'.\nTS2339 Property 'session' does not exist on type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/content/editing-together.md#23c0eb7e404f",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'ifDigest'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'session'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'content'.\nTS2552 Cannot find name 'input'. Did you mean 'oninput'?\nTS2552 Cannot find name 'input'. Did you mean 'oninput'?\nTS2552 Cannot find name 'input'. Did you mean 'oninput'?"
-  },
-  {
-    "id": "docs/content/docs/content/preview.md#c3b134d9e669",
-    "label": "server/api/preview.delete.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2305 Module '\"../content\"' has no exported member 'content'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/content/scheduling.md#dec9e9e48053",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/scheduling.md#618e7dd77d81",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/seo.md#05a05ebd4974",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#139c05ce1130",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#0e9a317e2637",
-    "label": "server/api/posts/[id].put.ts",
-    "error": "TS2307 Cannot find module '../../content' or its corresponding type declarations.\nTS2339 Property 'body' does not exist on type 'unknown'.\nTS2339 Property 'data' does not exist on type 'unknown'.\nTS2339 Property 'digest' does not exist on type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#8b23014facdb",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#42ada598802a",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#7ba2536387e3",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#d9d7f3c0f961",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#79b53202307f",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS7006 Parameter 'document' implicitly has an 'any' type.\nTS7031 Binding element 'collection' implicitly has an 'any' type.\nTS7031 Binding element 'draft' implicitly has an 'any' type.\nTS7031 Binding element 'id' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#76781be9528c",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#7b6726fa7f0b",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#a2313c25fa52",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'createError'."
-  },
-  {
     "id": "docs/content/docs/database/configure.md#b8b90fb4cd95",
     "label": "my-module/module.ts",
     "error": "TS2307 Cannot find module 'my-package/vite' or its corresponding type declarations."
@@ -235,26 +115,6 @@
     "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/database/server-api.md#1de41e225584",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'notes' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
-  },
-  {
-    "id": "docs/content/docs/database/server-api.md#b670c18de498",
-    "label": "server/api/events.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'."
-  },
-  {
-    "id": "docs/content/docs/database/server-api.md#61de8494b7bc",
-    "label": "server/utils/files.ts",
-    "error": "TS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
-  },
-  {
-    "id": "docs/content/docs/decisions/index.md#d3a4290d45e6",
-    "label": "server/api/choices.post.ts",
-    "error": "TS2304 Cannot find name 'createError'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'.\nTS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
@@ -263,51 +123,6 @@
     "id": "docs/content/docs/development/operations.md#e4b8751bd4fb",
     "label": "server/agents/editor.ts",
     "error": "TS2304 Cannot find name 'defineAgent'."
-  },
-  {
-    "id": "docs/content/docs/env/app-secret.md#0b0e47c788ee",
-    "label": "server/utils/session.ts",
-    "error": "TS2305 Module '\"#vitehub/env/server\"' has no exported member 'deriveSecret'."
-  },
-  {
-    "id": "docs/content/docs/env/bridge.md#17b4f7a44fce",
-    "label": null,
-    "error": "TS18046 'env.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/configure.md#61fd7644a2f7",
-    "label": "server/labeller.ts",
-    "error": "TS18046 'labeller' is of type 'unknown'.\nTS18046 'labeller' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/index.md#dce61165544a",
-    "label": "src/app.ts",
-    "error": "TS2322 Type 'unknown' is not assignable to type 'string'."
-  },
-  {
-    "id": "docs/content/docs/env/index.md#caaac143beec",
-    "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/server-api.md#eaad493ab07b",
-    "label": "server/github.ts",
-    "error": "TS18046 'github' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/server-api.md#8695179e5f32",
-    "label": "server/sources/private-repository.ts",
-    "error": "TS18046 'env.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/guides/better-auth-cloudflare.md#efe4a2209ad9",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/queue/limits-and-errors.md#f6a4c53b875d",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
@@ -323,71 +138,6 @@
     "id": "docs/content/docs/realtime/server-api.md#63e5b270fc82",
     "label": "server/realtime/pages.ts",
     "error": "TS18048 'fields' is possibly 'undefined'.\nTS18048 'fields' is possibly 'undefined'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#e3f6e4dc09d2",
-    "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
-    "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
-    "label": "server/api/crm.get.ts",
-    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
-    "label": "server/api/crm.get.ts",
-    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
-    "label": "server/auth.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(options: AuthDefinitionResolver<AuthResolvedDefinitionOptions>): AuthDefinition<AuthDefinitionResolver<AuthResolvedDefinitionOptions>>', gave the following error.\n    Object literal may only specify known properties, and 'baseURL' does not exist in type 'AuthDefinitionResolver<AuthResolvedDefinitionOptions>'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#502346b37dd8",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#9e3479e36459",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#a1f6494d54b7",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#b42814f33aee",
-    "label": "server/schemas.ts",
-    "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'.\n  Type 'BlobReferenceSchema' is missing the following properties from type 'OptionalSchema<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown>': type, reference, expects, wrapped, and 4 more."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#ad9a38fa659e",
-    "label": "server/plugins/warmup.ts",
-    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#317457c7fc34",
-    "label": "server/api/warmup.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
-    "label": "nuxt.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
-  },
-  {
-    "id": "docs/content/docs/sandbox/configure.md#a0e8d52d7c6f",
-    "label": "server/tools/resize.sandbox-task.ts",
-    "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'.\n  Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }>'.\n    Types of parameters 'payload' and 'payload' are incompatible.\n      Type '{ width: number; } | undefined' is not assignable to type '{ width: number; }'.\n        Type 'undefined' is not assignable to type '{ width: number; }'."
   },
   {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
@@ -425,16 +175,6 @@
     "error": "TS2339 Property 'tenantId' does not exist on type '{}'.\nTS2339 Property 'token' does not exist on type '{}'.\nTS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'.\nTS2344 Type '{ token: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
   },
   {
-    "id": "packages/auth/README.md#73fb174ae71d",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "packages/auth/README.md#16f5ad8e7cb4",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "packages/blob/README.md#45378057acd1",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
@@ -455,29 +195,9 @@
     "error": "TS18004 No value exists in scope for the shorthand property 'anchor'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'render'."
   },
   {
-    "id": "packages/content/README.md#c29a0c62bef2",
-    "label": null,
-    "error": "TS2304 Cannot find name 'defineContent'.\nTS2304 Cannot find name 'glob'.\nTS2307 Cannot find module 'comark-knap' or its corresponding type declarations."
-  },
-  {
-    "id": "packages/content/README.md#583e1af8cf11",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'content'.\nTS2304 Cannot find name 'createError'."
-  },
-  {
     "id": "packages/database/README.md#4de5ceb072d1",
     "label": null,
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
-  },
-  {
-    "id": "packages/env/README.md#a071f6c066c6",
-    "label": "server/sync.ts",
-    "error": "TS18046 'airtableToken' is of type 'unknown'."
-  },
-  {
-    "id": "packages/env/README.md#82031b9440a2",
-    "label": null,
-    "error": "TS18046 'snapshot.githubToken' is of type 'unknown'."
   },
   {
     "id": "packages/queue/README.md#d7d22d97097e",

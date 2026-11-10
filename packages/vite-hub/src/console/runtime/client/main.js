@@ -391,7 +391,6 @@ const appearance = startConsoleAppearance({
 });
 
 router.beforeEach(async (to) => {
-  if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
   // The first page waits until the project opens, so its requests carry the token and go to the linked project.
   await consoleProjectReady();
   if (to.matched.length === 0) {

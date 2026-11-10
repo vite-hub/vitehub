@@ -1186,13 +1186,13 @@ async function writeContentArtifact(
   else await rm(output, { force: true })
   const handlers: GeneratedSourceHandler[] = []
   // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
-  // Previews need collections. Without them the plugin would only load the Content runtime at server startup.
+  // Previews need collections. The plugin imports the small preview entry and loads server/content.ts on the first
+  // preview request, so the server starts without the Content runtime and its Markdown renderer.
   if (features.collections) {
     await writeFileIfChanged(preview, [
-      `import { defineContentPreviewPlugin } from ${importBase}`,
-      `import { content } from ${contentModule}`,
+      `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
       "",
-      "export default defineContentPreviewPlugin(content)",
+      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.content))`,
       "",
     ].join("\n"))
     handlers.push({ handler: preview, plugin: true })
