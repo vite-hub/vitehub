@@ -97,7 +97,7 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
     });
     await builder.buildApp();
     await expect(readFile(join(root, ".vitehub/workflow.d.ts"), "utf8")).resolves.toContain([
-      `declare module "vite-hub/_internal/workflow" {`,
+      `declare module "vite-hub/workflow" {`,
       `  interface WorkflowStepRegistry {`,
       `    "onboard-user": {`,
       `      "createUser": typeof import("../server/workflows/onboard-user/01.create-user.ts").default`,
