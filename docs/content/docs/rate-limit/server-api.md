@@ -50,11 +50,11 @@ if (!decision.allowed) return genericCard()
 
 | Import | Use |
 | --- | --- |
-| `requireRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
-| `checkRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
-| `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
-| `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
-| `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
+| `requireRateLimit` from `vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
+| `checkRateLimit` from `vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
+| `createRateLimiter` from `vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
+| `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
+| `cloudflareRateLimitDriver` from `vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Add call discovery, runtime setup, and Provider Output without the framework preset. |
 
 `@vite-hub/rate-limit/runtime` is for framework integrations only. Apps call `requireRateLimit()` or build a direct limiter.
@@ -95,8 +95,8 @@ pnpm add @vite-hub/rate-limit
 ```
 
 ```ts
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const limiter = createRateLimiter({
   driver: memoryRateLimitDriver(),

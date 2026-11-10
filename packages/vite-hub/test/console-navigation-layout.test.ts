@@ -12,4 +12,15 @@ describe("shared Console navigation layout", () => {
     expect(databaseSections).toHaveLength(2)
     for (const section of databaseSections) expect(enabled).toContain(section)
   })
+
+  it("loads only the requested syntax grammar for workspace previews", () => {
+    const preview = readFileSync(new URL("../src/console/runtime/components/console-session-code-preview.vue", import.meta.url), "utf8")
+    const languages = readFileSync(new URL("../src/console/runtime/client/highlight-languages.ts", import.meta.url), "utf8")
+    expect(preview).toContain('import("shiki/core")')
+    expect(preview).toContain('import { consoleHighlightLanguages } from "../client/highlight-languages"')
+    expect(preview).toContain("consoleHighlightLanguages[languageName]")
+    expect(languages).toContain('typescript: () => import("shiki/langs/typescript.mjs")')
+    expect(preview).not.toContain('import("shiki/bundle/web")')
+    expect(languages).not.toContain('import("shiki/bundle/web")')
+  })
 })

@@ -46,6 +46,21 @@ export declare const schema: DefaultDatabaseEntry["schema"]
 
 export declare const databases: RuntimeDatabaseLookup
 
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
+
+/** The Database that `useDatabase()` returns without a name: `default`, else the only one. */
+type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
+  ? "default"
+  : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
+
+/**
+ * Returns the Drizzle client and schema of a discovered Database. Without a name, it returns the `default` Database or
+ * the only one. It throws `DATABASE_NOT_FOUND` for a name without a Database Definition, and `DATABASE_NAME_REQUIRED`
+ * without a name when the app has several Databases and none is named `default`.
+ */
+export declare function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
+  ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
+): RuntimeDatabaseRegistry[Name]
 export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
 
 export declare const db: DefaultDatabaseEntry["db"]
