@@ -99,7 +99,6 @@ const consolidatedOwnerExports = new Set([
   "@vite-hub/content/collections",
   "@vite-hub/docs/navigation",
   "@vite-hub/source/drizzle",
-  "@vite-hub/workspace/ai",
 ]);
 
 const lowLevelOwnerExports = new Set([
@@ -204,7 +203,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata";
   if (packageName === "@vite-hub/cli") return "framework tooling";
-  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
+  if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path))

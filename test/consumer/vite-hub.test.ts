@@ -1382,7 +1382,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "index.ts",
       ], appDir)
       const missingShell = await run("node", ["--input-type=module", "--eval", `
-        import { createWorkspaceTools } from "@vite-hub/workspace/ai"
+        import { createWorkspaceTools } from "@vite-hub/workspace"
         let shellResolved = true
         try { import.meta.resolve("@vite-hub/shell") } catch { shellResolved = false }
         try {

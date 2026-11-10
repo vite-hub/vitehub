@@ -350,7 +350,6 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./server",
     "./vite",
     "./package.json",
-    "./tsconfig",
   ],
   "@vite-hub/ui": [
     ".",
@@ -417,7 +416,6 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
   ],
   "@vite-hub/workspace": [
     ".",
-    "./ai",
     "./blob-database",
     "./checkout",
     "./cloudflare",
@@ -425,8 +423,6 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./internal/path",
     "./lineage",
     "./loader",
-    "./mountx",
-    "./nitro",
     "./runtime",
     "./server",
     "./source-metadata",
@@ -702,7 +698,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   }],
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
-  ["@vite-hub/workspace/nitro", { "vite": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
