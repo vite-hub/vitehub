@@ -3,7 +3,7 @@ title: Connection Status
 description: "Show whether a realtime editor is connecting, connected, or reconnecting."
 navigation.order: 31
 navigation.group: Collaboration
-icon: i-ph-wifi-high-light
+icon: i-lucide-wifi
 ---
 
 `ConnectionStatus` shows the connection of a realtime editor. `status` takes the values that y-websocket, Hocuspocus, and y-partyserver emit, so pass a provider's status as it is. Like [Kibo UI's Status](https://www.kibo-ui.com/components/status), it has an indicator dot and a label.

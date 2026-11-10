@@ -66,7 +66,7 @@ Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on other s
 A Workflow Definition is a file that names long-running work.
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow('onboard-user', async (payload: { email: string }) => {
   const user = await createUser(payload.email)
@@ -99,7 +99,7 @@ pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow, type WorkflowProviderContext } from '@vite-hub/workflow'
+import { defineWorkflow, type WorkflowProviderContext } from 'vite-hub/workflow'
 
 interface OnboardPayload {
   email: string
