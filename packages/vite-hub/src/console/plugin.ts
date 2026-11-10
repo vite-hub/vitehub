@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -8,13 +7,12 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
-import { resolveConsoleClient } from "./client.ts"
 import { consoleFixtureRevision, readConsoleFixture, type ConsoleFixture } from "./fixture.ts"
-import { consoleRuntimeDigestFile, digestConsoleRuntime } from "./runtime-digest.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
+import { consoleOAuthDataRoutes } from "./runtime/console-route.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
@@ -23,35 +21,13 @@ function resolveConsoleRuntimeRoot(): string {
   const root = [
     fileURLToPath(new URL("./runtime", import.meta.url)),
     fileURLToPath(new URL("./console/runtime", import.meta.url)),
-  ].find(root => ["page.get.ts", "page.get.js"].some(file => existsSync(join(root, "server", file))))
+  ].find(root => ["rpc.ts", "rpc.js"].some(file => existsSync(join(root, "server", file))))
   if (!root) throw viteHubErrorDiagnostics.VITE_HUB_B0001({ message: "[vitehub] Could not locate the packaged Console runtime." })
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 /** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
 export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
-let consoleRuntimeDigest: string | undefined
-
-/**
- * The digest of the packaged Console runtime. The package build writes it, so an installed package does not read the
- * runtime files on each start. Source checkouts compute it once per process.
- */
-function readConsoleRuntimeDigest(): string {
-  if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
-  const file = join(consoleRuntimeRoot, consoleRuntimeDigestFile)
-  consoleRuntimeDigest = existsSync(file) ? readFileSync(file, "utf8").trim() : digestConsoleRuntime(consoleRuntimeRoot)
-  return consoleRuntimeDigest
-}
-
-/** A short id of the generated Console output and the Console client. It is the same for the same Console. */
-function consoleBuildId(contents: string): string {
-  return createHash("sha256")
-    .update(contents)
-    .update("\0")
-    .update(readConsoleRuntimeDigest())
-    .digest("hex")
-    .slice(0, 16)
-}
 
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
@@ -67,9 +43,10 @@ export interface ConsoleAccessBuild {
   oauth?: { issuer?: string, path: string, resource?: string }
   /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
   impersonation?: true
-  /** Path of the sign-in page under the application mount, such as `/sign-in`. */
-  signInPage?: string
-  /** `console.origins`, for `token` mode only: the browser origins that may call the data routes with the token. */
+  /**
+   * `console.origins`: the browser origins that may call the data routes, such as the hosted Console. `token` mode
+   * accepts them with the token. `local` and `open` accept them on the development server only.
+   */
   origins?: readonly string[]
 }
 
@@ -131,12 +108,12 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     const routes = JSON.stringify(access.check.appRoutes)
     imports.push('import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from "vite-hub/console/sections"')
     oauthAuth = "(request, event) => vitehubAuthForRequest(request, undefined, event)"
-    fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
+    fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "signedIn: vitehubConsoleAppPages.signedIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
     // The Auth server module loads Better Auth. Import it on the first Console request, not when the server starts.
     setup.push(
       'const vitehubAuthServer = () => import("#vitehub/auth/server")',
       // The Console reads app Auth for its own request URL and `baseURL`, which `useAuth(event)` does not take.
-      "const vitehubAuthForRequest = async (request, runtimeOptions, event) => (await import(\"vite-hub/_internal/auth/runtime/console\")).authForRequest(request, runtimeOptions, event)",
+      "const vitehubAuthForRequest = async (request, runtimeOptions, event) => (await import(\"@vite-hub/auth/runtime/console\")).authForRequest(request, runtimeOptions, event)",
       "const vitehubRequireAuthAccessRoutes = async (...input) => (await vitehubAuthServer()).requireAuthAccessRoutes(...input)",
       "const vitehubRequireSession = async event => (await vitehubAuthServer()).withAuthorization(true, () => undefined)(event)",
       "const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubAuthForRequest)",
@@ -147,7 +124,11 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
         'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "vite-hub/auth/runtime/server"',
         'import { resolveConsoleAppAuthIdentity as vitehubResolveConsoleAppAuthIdentity } from "vite-hub/console/sections"',
       )
-      afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)
+      // The MCP endpoint, and the data routes that a hosted Console calls with an access token.
+      const base = access.oauth.path.slice(0, -"/mcp".length)
+      for (const path of [access.oauth.path, ...consoleOAuthDataRoutes.map(route => `${base}${route}`)]) {
+        afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(path)}, vitehubResolveConsoleAppAuthIdentity)`)
+      }
     }
   }
   if (access.oauth && access.mode === "auth" && oauthAuth) {
@@ -160,7 +141,6 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     fields.push("authorize: vitehubConsoleAuthorize")
   }
   if (access.impersonation) fields.push("impersonation: true")
-  if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   // Install the list even when it is empty, so a reload in the same process revokes origins that were removed.
   afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins ?? [])})`)
   return {
@@ -195,9 +175,6 @@ export interface ConsoleNitroPluginOptions {
   access?: ConsoleAccessBuild
   runtimeCapabilityImports?: Record<string, false | string>
   development?: boolean
-  applicationBase?: string
-  /** Add the Console link to the page tools pill. */
-  pageTools?: boolean
 }
 
 function renderConsoleNitroPlugin(
@@ -213,8 +190,6 @@ function renderConsoleNitroPlugin(
     access,
     runtimeCapabilityImports,
     development = false,
-    applicationBase = "/",
-    pageTools = true,
   }: ConsoleNitroPluginOptions,
   fixtureSnapshot: ConsoleFixture | undefined,
 ): string {
@@ -280,16 +255,13 @@ function renderConsoleNitroPlugin(
       ? [`installConsoleAgentDefinitions([${definitions}], ${fixture ? `{ invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }` : `{ projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} }`})`]
       : []),
   ]
-  // The page loads the prebuilt app of @vite-hub/console-client. A Console that serves only the RPC needs no app.
-  const client = pageTools ? resolveConsoleClient() : undefined
   return [
-    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, ${client ? "installConsoleClient, " : ""}installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/setup"`,
     ...accessCode.imports,
     ...(agentsEnabled && fixture ? [`import { installConsoleFixtureInvocations } from "vite-hub/console/server"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
-    ...(client ? [`installConsoleClient(${JSON.stringify({ script: client.script, style: client.style, pageTool: client.pageTool })})`] : []),
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
@@ -307,10 +279,7 @@ function renderConsoleNitroPlugin(
     ...(agentsEnabled && fixture
       ? [`const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`]
       : []),
-    // The Console link lives in the shared page tools pill.
-    pageTools
-      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(applicationBase)} }) }`
-      : "export default function viteHubConsolePlugin() {}",
+    "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
 }
@@ -326,9 +295,7 @@ export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(options, snapshot)
-  // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
-  const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
+  const contents = renderConsoleNitroPlugin(options, snapshot)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

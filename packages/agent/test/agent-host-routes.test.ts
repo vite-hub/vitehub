@@ -6,11 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { agentHostRoutes } from '../src/host-routes-vite.ts'
-import { hasRuntimeType } from '../src/internal/runtime-type.ts'
 
 async function configure(options: Parameters<typeof agentHostRoutes>[0], config: import('vite').UserConfig) {
   const hook = agentHostRoutes(options).config
-  if (!hasRuntimeType(hook, 'function')) throw new Error('Expected a config hook')
+  if (typeof hook !== 'function') throw new Error('Expected a config hook')
   // SAFETY: This plugin only reads the supplied configuration, not the Vite hook context.
   return await hook.call({} as never, config, { command: 'build', mode: 'production' })
 }
