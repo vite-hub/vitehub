@@ -36,10 +36,25 @@ pnpm add @formisch/vue
 </template>
 ```
 
-It draws plain elements with `data-*` attributes. Style them with CSS:
+| Prop | Default | What it does |
+| --- | --- | --- |
+| `name` | | The form: the file `server/forms/<name>.ts`. |
+| `schema` | | The Valibot object schema, the same that the server uses. |
+| `base` | `/` | The base path of the app, when it is not at the root. |
+| `submit-label` | `Send` | The text of the button. |
+| `sent-message` | `Thanks. Your message was sent.` | The text after a send. The `sent` slot replaces it. |
+| `error-message` | `The message was not sent. Check the form and try again.` | The text after a post without JavaScript that the server refused. |
+| `honeypot` | `website` | The honeypot field of `defineForm()`. `false` leaves it out. |
+| `anchor` | | The selected sentence, sent as `_anchor`. |
+
+The form posts to its route also before the app loads, or without JavaScript. The server sends the browser back with `?form=sent` or `?form=error`, and `AutoForm` shows the result in its status region.
+
+It draws plain elements with `data-*` attributes, so the app owns the styles. Keep inputs at 16px, so iOS does not zoom on focus, and the button at least 44px high, so it is easy to tap:
 
 ```css fragment
 [data-vitehub-form] [data-field] { display: grid; gap: 0.25rem; }
+[data-vitehub-form] :is(input, select, textarea) { font-size: 1rem; }
+[data-vitehub-form] button { min-height: 2.75rem; }
 [data-vitehub-form] [data-error] { color: crimson; }
 ```
 

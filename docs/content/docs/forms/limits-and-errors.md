@@ -18,6 +18,8 @@ Set `maxBytes` and `rateLimit` in `defineForm()` to change the body and message 
 | Selected text (`_anchor.exact`) | 1,000 characters |
 | `forms.list` page | 100, at most 500 |
 
+The address is the peer address that the host reports, and an IPv6 address counts as its /64 network. Behind a reverse proxy, such as nginx, Caddy, or a Docker ingress, the peer is the proxy, so all visitors share one budget. Raise `rateLimit` there, or turn it off and limit at the proxy.
+
 ## Errors
 
 A wrong `defineForm()` throws when you define it. The inbox returns `[error, data]`.

@@ -9,16 +9,22 @@ icon: i-lucide-inbox
 
 ::product-hero{tagline="Write the schema of a form. ViteHub checks each message, stores it, emails you, and shows it in the Console." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
   :::code-tree
-  ```ts [server/forms/contact.ts] fragment
+  ```ts [shared/schemas.ts] fragment
   import * as v from 'valibot'
+
+  export const ContactSchema = v.object({
+    email: v.pipe(v.string(), v.email()),
+    message: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(5000)),
+  })
+  ```
+
+  ```ts [server/forms/contact.ts] fragment
   import { defineForm } from 'vite-hub/forms'
+  import { ContactSchema } from '../../shared/schemas'
 
   // One file is one form, at POST /api/_vitehub/forms/contact
   export default defineForm({
-    schema: v.object({
-      email: v.pipe(v.string(), v.email()),
-      message: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(5000)),
-    }),
+    schema: ContactSchema,
     notify: { email: { to: 'you@example.com', replyTo: 'email' } },
   })
   ```
@@ -26,7 +32,7 @@ icon: i-lucide-inbox
   ```vue [app/components/ContactForm.vue] fragment
   <script setup lang="ts">
   import { AutoForm } from 'vite-hub/forms/vue'
-  import { ContactSchema } from '#shared/schemas'
+  import { ContactSchema } from '../../shared/schemas'
   </script>
 
   <!-- Labels, inputs, errors, and the honeypot from the same schema -->
