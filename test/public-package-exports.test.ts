@@ -168,8 +168,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/agent", "@vite-hub/workflow"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
-      ["@vite-hub/browser/internal/chromium", "playwright-core"],
-      ["@vite-hub/browser/internal/chromium.workerd", "playwright-core"],
       ["@vite-hub/browser/vite", "vite"],
       ["@vite-hub/kv/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],

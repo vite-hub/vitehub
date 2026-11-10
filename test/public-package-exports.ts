@@ -39,8 +39,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
   ["@vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
-  ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
-  ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/comments/vite", { "vite": "both" }],
   ["@vite-hub/cms/access", { "@vite-hub/comments": "declaration", "better-auth": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],

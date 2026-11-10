@@ -3379,6 +3379,9 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.22.0)
       '@vite-hub/bundle':
         specifier: workspace:*
         version: link:../bundle
@@ -3762,9 +3765,6 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
-      '@vercel/functions':
-        specifier: catalog:vercel
-        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
@@ -3805,6 +3805,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
