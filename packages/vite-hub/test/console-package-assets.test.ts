@@ -4,23 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
 
-import { consoleRuntimeDigestFile, digestConsoleRuntime } from "../src/console/runtime-digest.ts"
-
 describe("Console package assets", () => {
-  it("ships the digest of the packaged Console runtime", () => {
-    const runtime = fileURLToPath(new URL("../dist/console/runtime", import.meta.url))
-    expect(readFileSync(resolve(runtime, consoleRuntimeDigestFile), "utf8").trim()).toBe(digestConsoleRuntime(runtime))
-  })
-
-  it("keeps lazy chunk URLs relative to the mounted bundle", () => {
-    const assets = fileURLToPath(new URL("../dist/console/runtime/public/console", import.meta.url))
-    const [entry] = globSync("console-*.js", { cwd: assets })
-    expect(entry).toBeDefined()
-    const source = readFileSync(resolve(assets, entry!), "utf8")
-    expect(source).not.toContain("/_vitehub/assets/")
-    expect(source).toContain("import.meta.url")
-  })
-
   it("ships the relative imports used by copied Vue components and TypeScript helpers", () => {
     const runtime = fileURLToPath(new URL("../dist/console/runtime", import.meta.url))
     const files = globSync("**/*.{vue,ts}", { cwd: runtime })

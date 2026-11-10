@@ -19,7 +19,7 @@ Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email`
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
-| `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailVitePluginOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
+| `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |
 
 The `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` paths stay stable for libraries and apps that install only `@vite-hub/email`, without `vite-hub`.
@@ -137,7 +137,7 @@ pnpm add @vite-hub/email
 
 ```ts [welcome.test.ts]
 import { expect, it } from 'vitest'
-import { createTestEmail } from '@vite-hub/email/test'
+import { createTestEmail } from 'vite-hub/email/test'
 
 it('sends the welcome message', async () => {
   const mail = createTestEmail()
