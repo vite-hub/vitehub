@@ -3,7 +3,8 @@ import { createOperationRegistry, runOperation } from "@vite-hub/internal/operat
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
+import { defineComments, defineCommentSubject } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
@@ -11,7 +12,7 @@ import { ada, createDatabase, grace } from "./harness.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { DefineCommentsOptions } from "../src/types.ts"
-import type { InstallCommentsOptions } from "../src/index.ts"
+import type { InstallCommentsOptions } from "../src/install.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
 const page = { kind: "page", id: "/pricing" }

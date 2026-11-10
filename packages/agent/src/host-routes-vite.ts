@@ -40,9 +40,12 @@ export function agentHostRoutes(options: {
         const moduleImport = exportName === 'default'
           ? `import inspect from ${JSON.stringify(entry)}`
           : `import { ${exportName} as inspect } from ${JSON.stringify(entry)}`
+        // Each route is a Fetchable module (https://fetchable.org), so any host that calls `fetch(request)` serves it.
+        // The `:id` segment is counted from the end of the path, so a Nitro base URL before the route does not move it.
+        const idFromEnd = route.split('/').length - route.split('/').indexOf(':id')
         const body = kind === 'health'
-          ? `import { defineEventHandler } from 'h3'\n${moduleImport}\nexport default defineEventHandler(() => inspect())\n`
-          : `import { defineEventHandler, getQuery, getRouterParam } from 'h3'\n${moduleImport}\nexport default defineEventHandler(event => { const path = getQuery(event).path; return inspect(getRouterParam(event, 'id') || '', typeof path === 'string' ? path : undefined) })\n`
+          ? `${moduleImport}\nexport default {\n  async fetch() {\n    const value = await inspect()\n    return value instanceof Response ? value : value === undefined ? new Response(null, { status: 204 }) : Response.json(value)\n  },\n}\n`
+          : `${moduleImport}\nexport default {\n  fetch(request) {\n    const url = new URL(request.url)\n    const segments = url.pathname.replace(/\\/+$/, '').split('/')\n    const paths = url.searchParams.getAll('path')\n    return inspect(segments[segments.length - ${idFromEnd}] || '', paths.length === 1 ? paths[0] : undefined)\n  },\n}\n`
         await mkdir(directory, { recursive: true })
         await writeFile(handler, body)
         handlers.push({ route, handler, method: 'GET' }, { route, handler, method: 'HEAD' })

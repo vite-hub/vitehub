@@ -31,6 +31,15 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     const bin = join(dir, "wrangler")
     writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fakeWrangler}" "$@"\n`)
     chmodSync(bin, 0o755)
+    // Project lookup must also use the fixture when the runner exposes Wrangler via NODE_PATH.
+    installLocalWrangler()
+  }
+
+  function installLocalWrangler() {
+    const pkg = join(dir, "node_modules", "wrangler")
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "wrangler", bin: { wrangler: "cli.mjs" } }))
+    writeFileSync(join(pkg, "cli.mjs"), `import ${JSON.stringify(pathToFileURL(fakeWrangler).href)}\n`)
   }
 
   // HOME points at the empty tmp dir, so no real login can leak into a test.
@@ -82,10 +91,7 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
   })
 
   it.each([".env", ".env.local"])("uses project-local Wrangler without a global executable and ignores %s", async (file) => {
-    const pkg = join(dir, "node_modules", "wrangler")
-    mkdirSync(pkg, { recursive: true })
-    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "wrangler", bin: { wrangler: "cli.mjs" } }))
-    writeFileSync(join(pkg, "cli.mjs"), `import ${JSON.stringify(pathToFileURL(fakeWrangler).href)}\n`)
+    installLocalWrangler()
     writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
 
     const result = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ FAKE_WRANGLER_MODE: "project-state" }) })

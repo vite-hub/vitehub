@@ -7,7 +7,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 // Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
 import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
-import { defineComments, installComments } from "../src/index.ts"
+import { defineCommentSubject, defineComments } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsStore } from "../src/operations-core/store.ts"
@@ -175,6 +176,49 @@ it("passes custom user fields to policies without storing them in comments", asy
   expect((await store.getById(thread.id))?.resolvedBy).toEqual({ id: admin.id, name: admin.name })
   expect(await call("comments.delete", { threadId: thread.id }, { ...member, id: "other" })).toMatchObject({ ok: false, status: 403 })
   expect(await call("comments.delete", { threadId: thread.id }, admin)).toEqual({ ok: true, value: null })
+})
+
+it("returns the first thread when create retries with the same requestId", async () => {
+  const onComment = vi.fn()
+  const store = setup(defineComments({ authorize: () => true, onComment, subjects: [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })] }))
+  const first = await create(member, { ...input, requestId: "draft-1" })
+  const retry = await create(member, { ...input, body: "Review this page, again.", requestId: "draft-1" })
+  expect(retry).toEqual(first)
+  expect(await store.list({})).toHaveLength(1)
+  expect(onComment).toHaveBeenCalledOnce()
+
+  const otherScope = await create(member, { ...input, requestId: "draft-1", subject: { id: "guide", kind: "doc" } })
+  expect(otherScope).toMatchObject({ scope: "doc:guide" })
+  const withoutKey = await create()
+  const againWithoutKey = await create()
+  expect(new Set([first.id, otherScope.id, withoutKey.id, againWithoutKey.id]).size).toBe(4)
+  expect(await store.list({})).toHaveLength(4)
+})
+
+it("refuses a requestId that another author or a hidden thread already uses", async () => {
+  const hidden = new Set<string>()
+  const store = setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || !hidden.has(thread.id) }))
+  const first = await create(member, { ...input, requestId: "draft-1" })
+  expect(await call("comments.create", { ...input, requestId: "draft-1" }, admin)).toMatchObject({ ok: false, status: 409, code: "COMMENTS_R0022" })
+  hidden.add(first.id)
+  expect(await call("comments.create", { ...input, requestId: "draft-1" })).toMatchObject({ ok: false, status: 409, code: "COMMENTS_R0022" })
+  expect(await store.list({})).toHaveLength(1)
+})
+
+it("refuses a requestId that a thread on another page of the scope already uses", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const first = await create(member, { ...input, requestId: "draft-1" })
+  expect(await call("comments.create", { ...input, requestId: "draft-1", subject: { id: "/docs", kind: "page" } }, member)).toMatchObject({ ok: false, status: 409, code: "COMMENTS_R0022" })
+  expect(await store.list({})).toEqual([first])
+})
+
+it("returns the first thread to a retry after the author lost write access", async () => {
+  let canWrite = true
+  setup(defineComments({ authorize: ({ action }) => action !== "write" || canWrite }))
+  const first = await create(member, { ...input, requestId: "draft-1" })
+  canWrite = false
+  expect(await call("comments.create", { ...input, requestId: "draft-1" }, member)).toEqual({ ok: true, value: first })
+  expect(await call("comments.create", { ...input, requestId: "draft-2" }, member)).toMatchObject({ ok: false, status: 403 })
 })
 
 it("checks read access on the subject before creating a thread", async () => {
@@ -354,13 +398,13 @@ it.each(["admin", "stranger"])("identifies %s through the standalone CLI operati
     headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
     body: JSON.stringify({ operation: "comments.create", input }),
   }), { ip: "127.0.0.1" })
-  const event = new H3Event(request)
-  const response = await handler(event)
+  const response = await handler.fetch(request)
   expect(response.status).toBe(person === "admin" ? 200 : 403)
   expect(await response.json()).toMatchObject(person === "admin"
     ? { ok: true, value: { author: { id: "admin", name: "Admin" } } }
     : { ok: false, status: 403 })
-  expect(identify).toHaveBeenCalledWith({ event })
+  // The RPC passes the Request as the event of the call, and `identify` reads its Standard Context.
+  expect(identify).toHaveBeenCalledWith({ event: request })
   expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: person === "admin" ? identified : null }))
 })
 

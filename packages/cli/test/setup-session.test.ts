@@ -51,6 +51,31 @@ describe("createSetupSession", () => {
     expect(await readFile(join(root, configFile), "utf8")).not.toBe(before)
   })
 
+  it.each(["vite", "nuxt"])("preserves a %s config saved during uninstall", async (framework) => {
+    const configFile = `${framework}.config.ts`
+    const before = framework === "vite"
+      ? viteConfig('{ preset: "node", realtime: true }')
+      : 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "node", realtime: true }]] })\n'
+    const edited = `${before}\n// Saved while uninstall runs.\n`
+    const root = await createProject({
+      "package.json": JSON.stringify({ name: "app", packageManager: "pnpm@10.0.0", dependencies: { "@vite-hub/realtime": "1.0.0" } }),
+      [configFile]: before,
+    })
+    const session = createSetupSession({ env: {}, root, run: async () => {
+      await writeFile(join(root, configFile), edited)
+      return { exitCode: 0 }
+    } })
+    const planned = await session.plan({ action: "remove", features: ["realtime"] })
+    expect(planned.exitCode, JSON.stringify(planned.body)).toBe(0)
+
+    const applied = await session.apply(planned.body.planId)
+
+    expect(applied.exitCode).toBe(4)
+    expect(applied.body.error).toMatchObject({ code: "SETUP_STALE_PLAN" })
+    expect(await readFile(join(root, configFile), "utf8")).toBe(edited)
+    expect((await session.apply(planned.body.planId)).body.error).toMatchObject({ code: "SETUP_PLAN_UNKNOWN" })
+  })
+
   it("keeps the restart-triggering config when uninstall fails", async () => {
     const before = viteConfig('{ preset: "node", realtime: true }')
     const root = await createProject({

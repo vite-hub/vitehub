@@ -101,7 +101,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   ])]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
-    `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
+    `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("index")))}`,
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
@@ -246,7 +246,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    async list(options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"list\"); return error ? [error, undefined] : storage.list(options) },",
           "    async put(pathname, body, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"put\"); return error ? [error, undefined] : storage.put(pathname, body, options) },",
           "    async sign(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"sign\"); return error ? [error, undefined] : storage.sign(pathname, options) },",
-          "    async serve(event, pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); return error ? [error, undefined] : storage.serve(event, pathname, options) },",
+          "    async serve(request, pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); if (error) throw error; return storage.serve(request, pathname, options) },",
           "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createLazyGeneratedBlobStorage),",
           "  }",
           "}",

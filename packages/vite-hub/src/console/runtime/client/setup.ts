@@ -1,6 +1,6 @@
 /** The dev Setup endpoints of the Vite dev server, as the Setup section calls them. */
 
-import { projectHeaders } from "./project"
+import { projectRequest } from "./project"
 
 export type SetupLevel = "native" | "explicit" | "unsupported" | "unknown"
 
@@ -123,8 +123,8 @@ export async function connectSetup(route: string): Promise<SetupClient> {
   const headers = { accept: "application/json", "x-vitehub-dev-token": token }
   const request = async <T>(path: string, body?: unknown): Promise<T> => {
     const response = await fetch(`${route}/${path}`, body === undefined
-      ? { cache: "no-store", credentials: "same-origin", headers: projectHeaders(headers) }
-      : { body: JSON.stringify(body), cache: "no-store", credentials: "same-origin", headers: projectHeaders({ ...headers, "content-type": "application/json" }), method: "POST" })
+      ? { cache: "no-store", credentials: "same-origin", headers: (await projectRequest("", headers)).headers }
+      : { body: JSON.stringify(body), cache: "no-store", credentials: "same-origin", headers: (await projectRequest("", { ...headers, "content-type": "application/json" })).headers, method: "POST" })
     const text = await response.text()
     let value: unknown
     try {

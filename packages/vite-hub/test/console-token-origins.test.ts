@@ -30,6 +30,8 @@ const app = "https://app.example.com"
 const consoleOrigin = "https://console.vitehub.dev"
 const token = "test-console-token-0123456789abcdef"
 const tokenHash = createHash("sha256").update(token).digest("hex")
+const ciToken = "test-ci-token-0123456789abcdef0123"
+const ciTokenHash = createHash("sha256").update(ciToken).digest("hex")
 const policyKey = Symbol.for("vitehub.console.access")
 const originsKey = Symbol.for("vitehub.console.origins")
 
@@ -75,6 +77,37 @@ describe("console: { auth: \"token\" }", () => {
     expect((await send(request)).status).toBe(200)
   })
 
+  it("accepts the token of every VITEHUB_CONSOLE_TOKEN_SHA256_<NAME> variable, so removing one revokes only that caller", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", tokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CI", ` ${ciTokenHash.toUpperCase()} `)
+    expect((await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+    expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", undefined)
+    const revoked = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
+    expect(revoked.status).toBe(401)
+    await expect(revoked.json()).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID" })
+    expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+  })
+
+  it("reads the named variables from the Cloudflare env of the request too", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    const request = Object.assign(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }), {
+      runtime: { name: "cloudflare", cloudflare: { context: { passThroughOnException: vi.fn(), waitUntil: vi.fn() }, env: { DB: {}, VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE: tokenHash } } },
+    })
+    expect((await send(request)).status).toBe(200)
+  })
+
+  it("ignores variables that only start like the name", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256X", tokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_lower", tokenHash)
+    expect((await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))).status).toBe(401)
+  })
+
   it.each([
     ["a wrong token", `Bearer ${token}x`, "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
     ["the hash in place of the token", `Bearer ${tokenHash}`, "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
@@ -92,10 +125,12 @@ describe("console: { auth: \"token\" }", () => {
   })
 
   it.each([
-    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment, and it is not set"],
-    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "it is not set"],
+    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` or a `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>` variable in the server environment, and none is set"],
+    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "none is set"],
     ["the hash is not 64 hex characters", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.slice(1) }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["the hash has a non-hex character", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash.slice(1)}g` }, "is not 64 hex characters"],
+    ["a named variable is not a hash", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash, VITEHUB_CONSOLE_TOKEN_SHA256_CI: token }, "`VITEHUB_CONSOLE_TOKEN_SHA256_CI` is not 64 hex characters"],
+    ["a comma list", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash},${ciTokenHash}` }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["only the raw token is set", { VITEHUB_CONSOLE_TOKEN: token }, "`VITEHUB_CONSOLE_TOKEN` is set, but the server reads only `VITEHUB_CONSOLE_TOKEN_SHA256`"],
   ] satisfies Array<[string, Record<string, string>, string]>)("refuses every request with a diagnostic when %s", async (_name, env, message) => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
@@ -129,15 +164,16 @@ describe("console: { auth: \"token\" }", () => {
     expect(seen[0]).not.toHaveProperty("user")
   })
 
-  it("compares in constant time: it hashes the bearer with SHA-256 and compares the digests", async () => {
-    const expected = Uint8Array.from(Buffer.from(tokenHash, "hex"))
+  it("compares in constant time: it hashes the bearer once with SHA-256 and compares it with every digest", async () => {
+    const expected = [tokenHash, ciTokenHash].map(hash => Uint8Array.from(Buffer.from(hash, "hex")))
     const digest = vi.spyOn(crypto.subtle, "digest")
     await expect(consoleTokenMatchesHash(expected, token)).resolves.toBe(true)
+    await expect(consoleTokenMatchesHash(expected, ciToken)).resolves.toBe(true)
     await expect(consoleTokenMatchesHash(expected, `${token}x`)).resolves.toBe(false)
     await expect(consoleTokenMatchesHash(expected, tokenHash)).resolves.toBe(false)
-    expect(digest.mock.calls.map(([algorithm]) => algorithm)).toEqual(["SHA-256", "SHA-256", "SHA-256"])
+    expect(digest.mock.calls.map(([algorithm]) => algorithm)).toEqual(["SHA-256", "SHA-256", "SHA-256", "SHA-256"])
     const hashed = digest.mock.calls.map(([, data]) => new TextDecoder().decode(data as Uint8Array))
-    expect(hashed).toEqual([token, `${token}x`, tokenHash])
+    expect(hashed).toEqual([token, ciToken, `${token}x`, tokenHash])
   })
 
   it("never gives an Agent's operation calls the token context, which means a verified token", async () => {
@@ -224,11 +260,11 @@ describe("console.origins", () => {
   it("lets Channel replay take a token call from a listed origin", async () => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
-    const replay = (origin: string) => channelReplayHandler(requestEvent(new Request(`${app}/_vitehub/channels/replay`, {
+    const replay = (origin: string) => channelReplayHandler.fetch(new Request(`${app}/_vitehub/channels/replay`, {
       body: JSON.stringify({}),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin },
       method: "POST",
-    })))
+    }))
     const listed = await replay(consoleOrigin)
     // The origin check passed: the route now asks for an Agent name.
     expect(listed.status).toBe(400)

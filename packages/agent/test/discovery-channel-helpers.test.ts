@@ -370,7 +370,7 @@ it.each([
   ["github({ pullRequest: { workspace: {} } })", true],
   ["{ pullRequest: true }", false],
   ['{ kind: "custom", pullRequest: true }', false],
-  ['defineChannel("custom", { pullRequest: true })', false],
+  ['channelAdapter("custom", { pullRequest: true })', false],
 ])("applies GitHub ownership under the github key: %s", async (options, ownsWorkspace) => {
   const source = `${imports} export default defineAgent({ channels: { github: ${options} } })`
   const definition = await discover(source)
@@ -421,9 +421,9 @@ it.each([
 
 it.each([
   '{ kind: "custom", capabilities: [], ...extra }',
-  'defineChannel("custom", { capabilities: [], ...extra })',
+  'channelAdapter("custom", { capabilities: [], ...extra })',
 ])("rejects opaque generic Channel option spreads: %s", async channel => {
-  const source = `${imports} import { defineChannel } from "vite-hub/agent/channels"; import { defineCapability } from "vite-hub/agent"; const storage = defineCapability({ workspace: {} }); const makeOptions = () => ({ capabilities: [storage] }); const extra = makeOptions(); export default defineAgent({ channels: { custom: ${channel} } })`
+  const source = `${imports} import { channelAdapter } from "vite-hub/agent/channels"; import { defineCapability } from "vite-hub/agent"; const storage = defineCapability({ workspace: {} }); const makeOptions = () => ({ capabilities: [storage] }); const extra = makeOptions(); export default defineAgent({ channels: { custom: ${channel} } })`
   await expect(discover(source)).rejects.toThrow("opaque Channel")
   const definition = await discover(source.replace("defineAgent({ channels", "defineAgent({ workspace: {}, channels"))
   expect(definition?.workspace).toBe("review")
@@ -680,7 +680,7 @@ it.each<[string, string, Record<string, string>]>([
 it.each([
   ['import { github } from "vite-hub/agent/channels"; export default github({ pullRequest: true })'],
   ['import { github } from "vite-hub/agent/channels"; export default github({ pullRequest: { workspace: { mount: "repo" } } })'],
-  ['import { defineCapability } from "vite-hub/agent"; import { defineChannel } from "vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default defineChannel("custom", { capabilities: [storage] })'],
+  ['import { defineCapability } from "vite-hub/agent"; import { channelAdapter } from "vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default channelAdapter("custom", { capabilities: [storage] })'],
   ['export default { kind: "custom", capabilities: [defineCapability({ workspace: {} })] }'],
 ])("detects an imported Channel module that owns a Workspace: %s", async (channel) => {
   const definition = await discover('import portal from "../../portal.ts"; export default defineAgent({ channels: { github: portal } })', { "portal.ts": channel })

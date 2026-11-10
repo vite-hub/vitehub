@@ -19,8 +19,8 @@ async function files(dir: string): Promise<string[]> {
   return entries.filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name))
 }
 
-/** Strings that only the dev Setup endpoints and the setup writer contain. */
-const writerMarkers = [setupDevRoute, "vite-hub/setup-dev", "createSetupSession", "planSetupAdd", "planSetupRemove", "applySetupAdd", "editViteHubConfig", "SETUP_STALE_PLAN", "x-vitehub-dev-token"]
+/** Server endpoint and writer markers. The shared browser app also contains the dev-token request header. */
+const writerMarkers = [setupDevRoute, "vite-hub/setup-dev", "createSetupSession", "planSetupAdd", "planSetupRemove", "applySetupAdd", "editViteHubConfig", "SETUP_STALE_PLAN"]
 
 describe("dev Setup in a production build", () => {
   it.each([

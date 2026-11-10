@@ -11,7 +11,7 @@ Pass ViteHub Source definitions, registered names, readers, reader factories, or
 
 ```ts
 import { defineContent } from "@vite-hub/content"
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 
 export const content = defineContent({
   sources: {
@@ -49,11 +49,15 @@ Use per-render Markdown APIs when plugin values must come from an individual
 request or invocation. Content parsing and cache refreshes use the plugin list
 configured on the content runtime.
 
-Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
+Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
 `defineContentHandler(content)` also returns 404 when this option is false.
+
+## Types
+
+In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
 
 ## Markdown rendering
 
@@ -205,7 +209,7 @@ vitehub content status [collection] [id]
 vitehub content diff <collection> [id]
 vitehub content revisions <collection> [id] [--ref published]
 vitehub content edit <collection> [id] [--file <path>|-] [--if-digest <digest>] [--override-lease]
-vitehub content rm <collection> [id] [--yes] [--override-lease]
+vitehub content delete <collection> [id] [--yes] [--override-lease]
 vitehub content restore <collection> [id] --revision <id> [--override-lease]
 vitehub content publish [--collection <name>] [--id <id>...] [--dry-run] [--yes]
 vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry-run] [--yes]
@@ -214,7 +218,7 @@ vitehub content unschedule <schedule>
 vitehub content sitemap [--site <url>] [--xml]
 ```
 
-Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation from `@vite-hub/content/operations` through the app's `/_vitehub/rpc/__call` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.
+Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation through the app's `/_vitehub/rpc/__call` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.
 
 ## Console MCP
 

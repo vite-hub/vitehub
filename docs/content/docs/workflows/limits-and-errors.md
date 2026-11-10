@@ -1,6 +1,6 @@
 ---
 title: Workflows limits and errors
-description: Throw stable Workflow errors with structured codes, and check a Workflow and its provider before production.
+description: Throw Workflow errors with stable codes, and check a Workflow and its provider before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -8,13 +8,13 @@ icon: i-lucide-circle-alert
 
 ## Structured errors
 
-Throw `ViteHubError` when app code needs a stable failure contract across Workflow Providers. ViteHub-owned failures use the package's fixed `WorkflowErrorCode` vocabulary.
+Throw `ViteHubError` for failures that look the same on every provider. ViteHub's own failures use the fixed `WorkflowErrorCode` list.
 
 ```ts [server/workflows/transcribe.ts] fragment
 import { ViteHubError } from '@vite-hub/runtime'
 import { defineWorkflow } from '@vite-hub/workflow'
 
-export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
+export default defineWorkflow('transcribe', async (payload: { recordingId: string }) => {
   try {
     return await transcribeRecording(payload.recordingId)
   }
@@ -27,10 +27,10 @@ export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
 })
 ```
 
-Every `ViteHubError` requires a stable `code` and public `message`. Calling `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`; it omits `cause`, which stays on the in-memory error for logging and debugging. ViteHub's built-in codes are typed as `WorkflowErrorCode` with code-derived messages and code-specific details. Configure retries on the Workflow Step; throwing an error does not override the Step's retry policy.
+Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`. It leaves out `cause`, which stays on the error in memory for debugging. Built-in codes have the `WorkflowErrorCode` type, with a message and details per code. Set retries on the Workflow Step. A thrown error does not change its retry policy.
 
 ## Production checks
 
-Use Queue when background delivery is enough. Use Workflow when the app must inspect run state, resume work, or coordinate multiple steps over time.
+Use Queue when background delivery is enough. Use Workflow when you must inspect run state, resume work, or run several steps over time.
 
-Keep credentials and database URLs in Server Env. Hosted workflow providers may require explicit state storage or deployment setup.
+Keep credentials and database URLs in Server Env. Hosted providers may need their own state storage or deploy setup.
