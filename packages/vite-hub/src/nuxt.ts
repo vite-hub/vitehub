@@ -27,8 +27,8 @@ import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
-import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
-import { vitehub, type ViteHubOptions } from "./index.ts"
+import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
+import { viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
@@ -998,6 +998,7 @@ type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
   getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
+    compatibility: { server: "nitro3" }
     configKey: "vitehub"
     name: "vite-hub/nuxt"
   }>
@@ -1294,7 +1295,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
-  const installedPlugins = flattenPlugins(vitehub(markCmsPresetFeaturesResolved({
+  const installedPlugins = flattenPlugins(viteHubPlugins(markCmsPresetFeaturesResolved({
     ...options,
     ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
   } as ViteHubOptions)))
@@ -1846,6 +1847,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 }
 
 viteHubNuxtModule.getMeta = async () => ({
+  // Nuxt 5 then skips its Nitro 2 compatibility scan of this package, which parses every file that the
+  // module's server entries import.
+  compatibility: { server: "nitro3" },
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })
