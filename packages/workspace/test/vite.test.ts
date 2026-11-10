@@ -839,7 +839,7 @@ describe("hubWorkspace", () => {
 
     it("installs every hosted store when the build cannot load a definition", async () => {
       const pluginSource = await buildPlugin({
-        broken: `import { missing } from "./missing.ts"\nexport default missing\n`,
+        broken: `import { missing } from "./missing.ts"\nvoid missing\nexport default {}\n`,
       })
 
       expect(pluginSource).toContain(`import { installHostedCloudflareArtifactsWorkspaceStore, installHostedGitHubWorkspaceStore } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
@@ -1662,20 +1662,59 @@ describe("hubWorkspace", () => {
     expect(wrangler.artifacts).toEqual([{ binding: "WORKSPACE_ARTIFACTS", namespace: "quiver-airtable" }])
   })
 
-  it("skips a Definition that cannot load at build time and does not name Cloudflare Artifacts", async () => {
+  it("skips a Definition that cannot load at build time when its source shows a store without an Artifacts binding", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
-      `import store from "#generated-workspace-store"`,
-      `export default { store }`,
+      `import "virtual:generated-workspace-metadata"`,
+      `// Store is configured in the module as cloudflare-artifacts.`,
+      `export default { rules: { "/**": { read: true } } }`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(root, "src", "notes.workspace.ts"), [
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store: { provider: "memory" } }`,
       ``,
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ assets: false, store: { provider: "memory" } })
+    const plugin = hubWorkspace({ assets: false, store: { binding: "WORKSPACE_FILES", namespace: "workspaces", provider: "cloudflare-artifacts" } })
     await testFunction(plugin.configResolved, async (_config: { command: "build", root: string }) => {})({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
     await testFunction(plugin.closeBundle, async () => {})()
 
-    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([{ binding: "WORKSPACE_FILES", namespace: "workspaces" }])
+  })
+
+  it("fails with WORKSPACE_B0005 when a Definition that cannot load at build time imports its store", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), [
+      `export default {`,
+      `  binding: "DEFINITION_FILES",`,
+      `  namespace: "definition-workspaces",`,
+      `  provider: "cloudflare-artifacts",`,
+      `}`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import store from "./artifact-store"`,
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const expected = expect.objectContaining({
+      code: "WORKSPACE_B0005",
+      message: expect.stringContaining(`Workspace "docs" sets a store that may need a Cloudflare Artifacts binding`),
+    })
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).rejects.toThrow(expected)
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    await testFunction(plugin.configResolved, async (_config: { command: "build", root: string }) => {})({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
+
+    await expect(testFunction(plugin.closeBundle, async () => {})()).rejects.toThrow(expected)
   })
 
   it("fails with WORKSPACE_B0005 when a Definition that names Cloudflare Artifacts cannot load at build time", async () => {
@@ -1688,7 +1727,7 @@ describe("hubWorkspace", () => {
     const expected = expect.objectContaining({
       code: "WORKSPACE_B0005",
       fix: expect.stringContaining("Set the Cloudflare Artifacts Store in the `workspace` config"),
-      message: expect.stringContaining(`Workspace "docs" names the Cloudflare Artifacts Store`),
+      message: expect.stringContaining(`Workspace "docs" sets a store that may need a Cloudflare Artifacts binding`),
     })
     const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
 

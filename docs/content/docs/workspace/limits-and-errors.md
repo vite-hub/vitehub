@@ -12,7 +12,7 @@ Each Workspace name has one definition.
 
 - `WORKSPACE_B0003`: a discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) share a name, or two contributions share one.
 - `WORKSPACE_B0004`: a contribution is not `{ name, definition: { module, export? }, reason? }`, or its `definition.module` is relative.
-- `WORKSPACE_B0005`: the build cannot load a definition that names `cloudflare-artifacts`, so it cannot write the Artifacts binding. Set the store in the `workspace` config.
+- `WORKSPACE_B0005`: the build cannot load a definition, and its source does not show a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`. So the build cannot write the Artifacts binding that the store may need. Set the store in the `workspace` config.
 
 ## Retained history
 

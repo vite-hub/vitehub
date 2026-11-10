@@ -168,17 +168,21 @@ function babelStaticObjectProperties(node: BabelNode | undefined): BabelNode[] |
   return node.properties
 }
 
-/** Only prune loaders for a directly declared store whose provider cannot change when the module runs again. */
-async function sourceModuleHasStaticWorkspaceStore(
+/**
+ * Reads a store from the source of a Definition's default export when its provider cannot change when the module runs
+ * again: `{}` for no store or a custom Store, `{ provider }` for a hosted store, and `undefined` when the source does not
+ * show it. Comments do not count, because this reads the syntax tree.
+ */
+async function readStaticWorkspaceStore(
   file: string,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   exportedName = "default",
-): Promise<boolean> {
+): Promise<{ provider?: string } | undefined> {
   // Indirect and contributed exports keep every loader unless we can establish their store contract here.
-  if (exportedName !== "default") return false
+  if (exportedName !== "default") return
   const loaded = await readSourceModule(file)
-  if (!loaded) return false
-  let staticStore = false
+  if (!loaded) return
+  let staticStore: { provider?: string } | undefined
   loader.transform({
     filename: loaded.file,
     jsx: extname(loaded.file).endsWith("x"),
@@ -196,7 +200,7 @@ async function sourceModuleHasStaticWorkspaceStore(
             if (!properties) return
             const storeProperty = properties.findLast(property => (property.key?.name ?? property.key?.value) === "store")
             if (!storeProperty) {
-              staticStore = true
+              staticStore = {}
               return
             }
             if (storeProperty.type !== "ObjectProperty") return
@@ -204,7 +208,7 @@ async function sourceModuleHasStaticWorkspaceStore(
             const store = unwrapBabelExpression(storeProperty.value as BabelNode)
             // This public factory always returns a custom Store, independent of its runtime arguments.
             if (babelCallsWorkspaceImport(store, path, "createBlobDatabaseWorkspaceStore", "/blob-database")) {
-              staticStore = true
+              staticStore = {}
               return
             }
             const storeProperties = babelStaticObjectProperties(store)
@@ -212,12 +216,13 @@ async function sourceModuleHasStaticWorkspaceStore(
             const readFile = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "readFile")
             if (readFile) {
               // A custom Store must remain a custom Store when the module is evaluated in production.
-              staticStore = readFile.type === "ObjectMethod" && readFile.kind === "method"
+              if (readFile.type === "ObjectMethod" && readFile.kind === "method") staticStore = {}
               return
             }
             const provider = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "provider")
             // SAFETY: An ObjectProperty's value is an expression node.
-            staticStore = provider?.type === "ObjectProperty" && unwrapBabelExpression(provider.value as BabelNode)?.type === "StringLiteral"
+            const providerValue = provider?.type === "ObjectProperty" ? unwrapBabelExpression(provider.value as BabelNode) : undefined
+            if (providerValue?.type === "StringLiteral" && typeof providerValue.value === "string") staticStore = { provider: providerValue.value }
           },
         },
       })],
@@ -227,9 +232,9 @@ async function sourceModuleHasStaticWorkspaceStore(
 }
 
 /**
- * Reads each Definition's store by loading the Definition, as the runtime does. A Definition that the build cannot load
- * has an unknown store. If its file names the Cloudflare Artifacts Store, the build cannot write the binding that the
- * store needs, so it fails and tells the developer to set the store in the `workspace` config.
+ * Reads each Definition's store by loading the Definition, as the runtime does. When the build cannot load a Definition,
+ * it skips it only if the source shows that its store needs no Artifacts binding. Otherwise the build cannot write the
+ * binding that the store may need, so it fails and tells the developer to set the store in the `workspace` config.
  */
 async function resolveDefinitionCloudflareArtifactsConfigs(
   definitions: DiscoveredWorkspaceDefinition[],
@@ -253,16 +258,17 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if ((await readSourceModule(definitionFile))?.source.includes("cloudflare-artifacts")) {
+      const store = await readStaticWorkspaceStore(definitionFile, loader, definition.export)
+      if (!store || store.provider === "cloudflare-artifacts") {
         throw workspaceErrorDiagnostics.WORKSPACE_B0005({
           cause: error,
-          message: `[vitehub] Workspace "${definition.name}" names the Cloudflare Artifacts Store, but the build cannot load ${definitionFile} to read the Artifacts binding: ${error instanceof Error ? error.message : String(error)}`,
+          message: `[vitehub] Workspace "${definition.name}" sets a store that may need a Cloudflare Artifacts binding, but the build cannot load ${definitionFile} to read it: ${error instanceof Error ? error.message : String(error)}`,
         })
       }
       options.storeUsage?.add("unknown")
       continue
     }
-    if (options.storeUsage && !await sourceModuleHasStaticWorkspaceStore(definitionFile, loader, definition.export)) {
+    if (options.storeUsage && !await readStaticWorkspaceStore(definitionFile, loader, definition.export)) {
       options.storeUsage.add("unknown")
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
