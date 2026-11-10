@@ -1,5 +1,5 @@
 import { consoleInvocationsFallbackKey, markConsoleFixtureInvocations, resolveConsoleInvocations } from "../../internal.ts"
-import { agentInvocationsDisabledKey, resolveDefaultAgentInvocations } from "../../../_internal/agent/invocations.ts"
+import { agentInvocationsDisabledKey, resolveDefaultAgentInvocations } from "../../../internal/agent-invocations.ts"
 import { installConsoleInvocations } from "./invocations.ts"
 import * as v from "valibot"
 import { markDiscoveredAgentName } from "@vite-hub/agent/server/internal"

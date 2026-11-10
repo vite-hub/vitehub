@@ -2,7 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
@@ -11,7 +12,11 @@ import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { Plugin } from "vite"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
+import type { AgentInvocationsDefault } from "./internal/agent-invocations.ts"
+
+// Generated code imports this vite-hub module by path. It is not a package export.
+const agentInvocationsModule = ownModule(import.meta.url, "internal/agent-invocations")
+const agentInvocationsLibsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
 
@@ -89,7 +94,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ? [
         `projectRoot: ${JSON.stringify(options.projectRoot)}`,
         ...(options.d1Binding ? [`d1: { binding: ${JSON.stringify(options.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }`] : []),
-        ...(options.libsql === false ? [] : [`libsql: () => import("vite-hub/_internal/agent/invocations/default-libsql")`]),
+        ...(options.libsql === false ? [] : [`libsql: () => import(${JSON.stringify(agentInvocationsLibsqlModule)})`]),
       ]
     : []
   const settings = [
@@ -98,7 +103,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ...(journal.length ? [`journal: { ${journal.join(", ")} }`] : []),
   ]
   return [
-    `import { installAgentInvocations } from "vite-hub/_internal/agent/invocations"`,
+    `import { installAgentInvocations } from ${JSON.stringify(agentInvocationsModule)}`,
     "",
     // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,
@@ -146,8 +151,8 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
           ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
         assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined, setting?.databaseUrl)
-        if (environment?.command === "build") assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
         libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, preset: options.preset })
+        if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
         localFileWarning = environment?.command === "build" && !setting?.databaseUrl && presetsWithoutPersistentFiles.has(options.preset ?? "")
           ? `[vitehub] Agent Invocation journal: the ${options.preset} preset has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
           : undefined

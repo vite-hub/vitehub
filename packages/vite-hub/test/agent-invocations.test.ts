@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -8,7 +9,7 @@ import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import { defineAgent } from "../src/agent.ts"
-import { agentInvocationsDisabledKey, installAgentInvocations, resolveDefaultAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { agentInvocationsDisabledKey, installAgentInvocations, resolveDefaultAgentInvocations } from "../src/internal/agent-invocations.ts"
 import { renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
 import {
   consoleInvocationsIdentityKey,
@@ -28,7 +29,8 @@ import type { AgentInvocationStore } from "@vite-hub/agent/server"
 import type { Plugin } from "vite"
 
 // The libSQL driver that the generated plugin passes outside a Cloudflare production build.
-const libsql = async () => await import("../src/_internal/agent/invocations/default-libsql.ts")
+const libsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const driver = { run: () => "done" }
 const context = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
@@ -251,9 +253,9 @@ describe("vitehub({ agent: { invocations } })", () => {
   })
 
   it("renders the default journal for an app that sets no journal", () => {
-    expect(renderAgentInvocationsNitroPlugin({ database: false, projectRoot: "/app" })).toContain(`installAgentInvocations({ journal: { projectRoot: "/app", libsql: () => import("vite-hub/_internal/agent/invocations/default-libsql") } })`)
+    expect(renderAgentInvocationsNitroPlugin({ database: false, projectRoot: "/app" })).toContain(`installAgentInvocations({ journal: { projectRoot: "/app", libsql: () => import(${JSON.stringify(libsqlModule)}) } })`)
     expect(renderAgentInvocationsNitroPlugin({ database: false, d1Binding: "DB", default: { retention: { maxAge: "14d" } }, projectRoot: "/app" }))
-      .toContain(`installAgentInvocations({ default: {"retention":{"maxAge":"14d"}}, journal: { projectRoot: "/app", d1: { binding: "DB", env: async () => (await import("cloudflare:workers")).env }, libsql: () => import("vite-hub/_internal/agent/invocations/default-libsql") } })`)
+      .toContain(`installAgentInvocations({ default: {"retention":{"maxAge":"14d"}}, journal: { projectRoot: "/app", d1: { binding: "DB", env: async () => (await import("cloudflare:workers")).env }, libsql: () => import(${JSON.stringify(libsqlModule)}) } })`)
     // A store setting needs no default journal location.
     expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory", projectRoot: "/app" })).toContain(`installAgentInvocations({ default: "memory" })`)
   })
@@ -277,7 +279,7 @@ describe("vitehub({ agent: { invocations } })", () => {
   it("renders only the configured parts", () => {
     expect(renderAgentInvocationsNitroPlugin({ database: true })).toContain(`installAgentInvocations({ database: () => import("vite-hub/agent/invocations/database") })`)
     expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`installAgentInvocations({ default: "memory" })`)
-    expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`import { installAgentInvocations } from "vite-hub/_internal/agent/invocations"`)
+    expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`import { installAgentInvocations } from ${JSON.stringify(ownModule(import.meta.url, "internal/agent-invocations"))}`)
   })
 
   it("adds the plugin for every app with Agents, unless the app turns journals off", () => {

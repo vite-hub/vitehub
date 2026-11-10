@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -31,7 +32,13 @@ describe("Workflow registry", () => {
       name: "__proto__",
       source: kind === "agent" ? "agent-workflow" : "server-workflows",
       ...(kind === "steps" ? { steps: [step] } : {}),
-    }]), "utf8")
+    }], {
+      agent: {
+        index: resolve(packageRoot, "../agent/dist/index.js"),
+        runtimeWorkflow: resolve(packageRoot, "../agent/dist/runtime/workflow.js"),
+        serverInternal: resolve(packageRoot, "../agent/dist/server/internal.js"),
+      },
+    }), "utf8")
 
     const generated = await import(pathToFileURL(registryFile).href)
     expect(Object.keys(generated.default)).toEqual(["__proto__"])
@@ -60,8 +67,8 @@ describe("Workflow registry", () => {
     }])
 
     expect(contents).toBe([
-      'import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"',
-      'import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"',
+      `import { createWorkflowSteps } from ${JSON.stringify(workflowRuntimeModule("execute"))}`,
+      `import { takeInlineWorkflowDefinitionForModule } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
       "",
       "const registryEntryCache = new Map()",
       "",

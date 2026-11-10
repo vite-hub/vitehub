@@ -8,7 +8,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations, resolveDefaultAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { installAgentInvocations, resolveDefaultAgentInvocations } from "../src/internal/agent-invocations.ts"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 
@@ -16,7 +16,7 @@ import type { Client } from "@libsql/client"
 import type { AgentInvocationStoreCreateInput, AgentRetentionPolicy } from "@vite-hub/agent/server"
 
 // The libSQL driver that the generated plugin passes outside a Cloudflare production build.
-const libsql = async () => await import("../src/_internal/agent/invocations/default-libsql.ts")
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const day = 24 * 60 * 60 * 1000
 const ago = (milliseconds: number) => new Date(Date.now() - milliseconds).toISOString()

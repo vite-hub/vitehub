@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -8,6 +9,7 @@ import { describe, expect, it } from "vitest"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
+const libsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
 const agentRoot = resolve(packageRoot, "../agent")
 const internalSource = resolve(packageRoot, "../internal/src")
 type PackageExports = Record<string, { import?: string }>
@@ -28,6 +30,7 @@ function exportSource(root: string, exports: PackageExports, subpath: string): s
 
 /** The source file of a relative, `vite-hub/*`, `@vite-hub/agent/*`, or `@vite-hub/internal/*` specifier. */
 function sourceFile(specifier: string, importer?: string): string | undefined {
+  if (specifier.startsWith(`${packageRoot}/`)) return specifier.replace(`${packageRoot}/dist/`, `${packageRoot}/src/`).replace(/\.js$/, ".ts")
   if (specifier.startsWith(".") && importer) return resolve(dirname(importer), specifier)
   if (specifier.startsWith("vite-hub/")) return exportSource(packageRoot, viteHubExports, `./${specifier.slice("vite-hub/".length)}`)
   if (specifier.startsWith("@vite-hub/agent/")) return exportSource(agentRoot, agentExports, `./${specifier.slice("@vite-hub/agent/".length)}`)
@@ -93,7 +96,7 @@ describe("default Agent Invocation journal libSQL driver", () => {
     { command: "build", preset: "vercel" },
   ] as const)("loads libSQL when the journal can select SQLite or libSQL: %j", async (options) => {
     const generated = await generatedPlugin(options)
-    expect(generated).toContain(`libsql: () => import("vite-hub/_internal/agent/invocations/default-libsql")`)
+    expect(generated).toContain(`libsql: () => import(${JSON.stringify(libsqlModule)})`)
     expect(journalPackages(generated)).toContain("@libsql/client")
   })
 })

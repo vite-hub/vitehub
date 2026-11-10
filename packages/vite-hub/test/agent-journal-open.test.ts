@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { installAgentInvocations } from "../src/internal/agent-invocations.ts"
 import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 
 // The libSQL driver that the generated plugin passes outside a Cloudflare production build.
-const libsql = async () => await import("../src/_internal/agent/invocations/default-libsql.ts")
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const opens = vi.hoisted(() => ({ count: 0 }))
 
