@@ -214,14 +214,12 @@ describe("Eve extension capabilities", () => {
     )).resolves.toContain(`from ${JSON.stringify(agentRuntimeModule("eve"))}`)
 
     const watcher = new EventEmitter()
-    ;(plugin.config as unknown as (config: { agent: boolean }) => void)({ agent: false })
     await (plugin.configureServer as (server: unknown) => Promise<void>)({
-      config: { root, logger: { error: vi.fn() } },
+      config: { root, logger: { error: vi.fn() }, server: {} },
       middlewares: { use: () => {} },
       moduleGraph: { idToModuleMap: new Map(), invalidateModule: vi.fn() },
       watcher,
     })
-    ;(plugin.config as unknown as (config: { agent: Record<string, never> }) => void)({ agent: {} })
     const otherId = join(root, "server", "agents", "other.ts")
     watcher.emit("unlink", otherId)
     try {

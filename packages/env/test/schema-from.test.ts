@@ -78,9 +78,8 @@ async function buildServer(directory: string, server: Record<string, unknown>) {
       ssr: join(directory, "server.ts"),
     },
     configFile: false,
-    env: { server: server as never },
     logLevel: "silent",
-    plugins: [hubEnv()],
+    plugins: [hubEnv({ server: server as never })],
     root: directory,
   })
 }
