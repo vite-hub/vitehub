@@ -38,6 +38,7 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
 | `vite-hub/forms/operations` | The `forms.list`, `forms.get`, and `forms.mark` operations of the Console, `vitehub forms`, and MCP. Re-exports `@vite-hub/forms/operations`. |
 | `vite-hub/forms/runtime` | `installedForms()`: the inbox of the running app, for server code. Re-exports `@vite-hub/forms/runtime`. |
+| `vite-hub/forms/vue` | `AutoForm`, a whole form from a Valibot object schema, and `useFormSubmit()` for a Formisch form. Needs `@formisch/vue`. Re-exports `@vite-hub/forms/vue`; `useFormSubmit()` is auto-imported in Nuxt. |
 | `vite-hub/i18n` | [`t`, `plural`, `select`, `selectOrdinal`, `msg`](/docs/i18n/server-api), `getLocale()`, `getLocales()`, `setLocale()`, and `translate()`. Messages in the source language, compiled to IDs by the build. Re-exports `@vite-hub/i18n`. |
 | `vite-hub/i18n/vue` | [`createI18n()`](/docs/i18n/configure#add-i18n-to-a-vue-app) and `useLocale()` for Vue apps. Re-exports `@vite-hub/i18n/vue`; `vite-hub/nuxt` installs the plugin and auto-imports `useLocale()`. |
 | `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
