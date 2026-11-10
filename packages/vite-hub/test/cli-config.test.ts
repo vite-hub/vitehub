@@ -285,7 +285,7 @@ export default ({ command, mode }) => ({
     );
     const { stdout } = await execFileAsync(
       process.execPath,
-      [bin, "inspect", "provider-output", "--json"],
+      [bin, "inspect", "output", "--json"],
       { cwd: root },
     );
     expect(JSON.parse(stdout).providerOutput).toEqual(
@@ -419,7 +419,7 @@ export default function (_options, nuxt) {
     );
     const { stdout } = await execFileAsync(
       process.execPath,
-      [bin, "inspect", "provider-output", "--json"],
+      [bin, "inspect", "output", "--json"],
       { cwd: root },
     );
     expect(JSON.parse(stdout).providerOutput).toEqual(

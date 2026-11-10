@@ -71,7 +71,7 @@ describe("root app secret", () => {
     expect(await generated.unseal("app:upload", sealed)).toEqual([undefined, { userId: "u_1" }])
     expect(await unseal("app:upload", sealed, { secret })).toEqual([undefined, { userId: "u_1" }])
     warn.mockRestore()
-    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export const seal: typeof import(\"@vite-hub/env/server\").seal")
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export const seal: typeof import(\"@vite-hub/env/internal/server\").seal")
   })
 
   it("isolates generated, configured, and later generated projects", async () => {
