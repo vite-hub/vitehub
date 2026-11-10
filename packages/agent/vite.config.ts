@@ -3,8 +3,22 @@ import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
-// These entries resolve only through the "#vitehub/agent/provider-agent" package import, so they are not public exports.
-const privateEntryExports = new Set(["./provider-agent", "./runtime/provider-agent-worker"]);
+// These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
+// (`agentRuntimeModule()` in `./vite`). They are not public exports.
+const privateEntryExports = new Set([
+  "./eve",
+  "./internal/workspace/internal/runtime/hosted",
+  "./internal/workspace/internal/runtime/hosted-vercel-blob",
+  "./internal/workspace/runtime",
+  "./operations",
+  "./provider-agent",
+  "./runtime/invocations-dev",
+  "./runtime/provider-agent-worker",
+  "./runtime/registry",
+  "./runtime/workflow",
+  "./server/registry",
+  "./server/workspace",
+]);
 
 // These packages are only on pkg.pr.new, so the published manifest must not name them.
 // Bundle them, and bundle what they import (such as their own Effect version), so npm installs need no URL.
@@ -66,8 +80,11 @@ export default defineConfig({
       "src/observability/host.ts",
       "src/observability/posthog.ts",
       "src/operations.ts",
+      "src/invocations/app.ts",
       "src/invocations/d1.ts",
+      "src/invocations/database.ts",
       "src/invocations/default.ts",
+      "src/invocations/drizzle.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
@@ -77,7 +94,6 @@ export default defineConfig({
       "src/runtime/provider-agent-worker.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
-      "src/server/github.ts",
       "src/server/internal.ts",
       "src/server/registry.ts",
       "src/server/workspace.ts",
@@ -108,6 +124,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

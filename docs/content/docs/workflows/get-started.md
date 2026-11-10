@@ -113,11 +113,11 @@ Create `server/api/onboard.post.ts`. This route starts the `onboard-user` Workfl
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from 'vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
-  return runWorkflow('onboard-user', payload)
+  return startWorkflow('onboard-user', payload)
 })
 ```
 
@@ -155,7 +155,7 @@ Local inline execution keeps the final result of the run. The run returned by `g
 You can also start a run without a route. Keep the dev server running, and run:
 
 ```bash [commands/cli-start]
-pnpm vitehub workflow start onboard-user --payload '{"email":"ada@example.com"}'
+pnpm vitehub workflow start onboard-user '{"email":"ada@example.com"}'
 ```
 
 Then read the run back with its id:
