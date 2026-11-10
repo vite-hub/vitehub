@@ -1,7 +1,7 @@
 import { contentFieldAttribute, contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
-import { appPathname } from "../../comments-overlay/loader-core.ts"
+import { appPathname } from "./app-path.ts"
 
 const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}
 button.view-draft{gap:6px}button.view-draft[hidden]{display:none}
