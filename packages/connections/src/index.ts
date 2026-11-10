@@ -7,7 +7,7 @@ export { CONNECTIONS_ROUTE, createConnectionsHandler } from "./http.ts"
 export type { ApiKeyProviderOptions } from "./api-key.ts"
 export type { OAuthLoginProviderOptions } from "./oauth-login.ts"
 export type { ConnectionsCatalogCode, ConnectionsErrorCode } from "./errors.ts"
-export type { ConnectionsAccessPolicy, ConnectionsActor, ConnectionsHandlerOptions } from "./http.ts"
+export type { ConnectionsAccessPolicy, ConnectionsActor, ConnectionsHandler, ConnectionsHandlerOptions } from "./http.ts"
 export type { ConnectionDefinitionName } from "./registry-types.ts"
 export type {
   ConnectionAccessPreset,

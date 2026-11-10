@@ -19,7 +19,7 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 | `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
 | `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
-| `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection handler by hand. |
+| `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
 | `hubSource` from `vite-hub/source/vite` | Finds Collections and Content and generates their routes. `vitehub()` and the Nuxt module add it. |
 | `useDatabase` from `vite-hub/database/drizzle` | Get a database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read registry, path, and loader failures by `SOURCE_*` code. |
@@ -295,6 +295,17 @@ ViteHub finds modules in `server/collections` and generates their types and read
 - Export a Collection named like the file: `articles.ts` exports `articles` and serves `/api/articles`. Do not add a matching `server/api` handler.
 - Nuxt auto-imports `useCollection`. Elsewhere, import it from `vite-hub/source/client`.
 - Restart Nuxt after you add, remove, or rename a Collection, so Nitro rebuilds its handler list.
+
+To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
+
+```ts [server/routes/feed.get.ts]
+import { defineCollectionHandler } from 'vite-hub/source/server'
+import { articles } from '../collections/articles'
+
+export default defineCollectionHandler(articles)
+```
+
+A Collection with `authorize` also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`.
 
 `useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` moves the cursor. For a small Collection, `all: true` fetches every page in the background. It returns `items`, `pending`, `error`, `hasMore`, `loadMore()`, and `refresh()`, plus `total` and `facets` from the latest page when present.
 
