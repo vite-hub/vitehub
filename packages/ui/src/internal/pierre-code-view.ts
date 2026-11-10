@@ -29,6 +29,33 @@ const selectedLinesProp = {
 
 const scrollToSelectedLinesProp = { default: false, type: Boolean };
 
+// Pierre can keep the previous source rendered while a replacement's highlighter loads.
+class SelectionFileModel extends PierreFileModel<unknown> {
+  isSourceRendered() {
+    const file = this.getLatestFile();
+    const rendered = this.getRenderedFile();
+    if (!file || !rendered) return false;
+    if (file.cacheKey != null || rendered.cacheKey != null) return file.cacheKey === rendered.cacheKey;
+    return file.name === rendered.name && file.contents === rendered.contents && file.lang === rendered.lang;
+  }
+}
+
+class SelectionDiffModel extends PierreFileDiffModel<unknown> {
+  isSourceRendered() {
+    return sameDiffSource(this.getLatestDiff(), this.getRenderedDiff());
+  }
+}
+
+class SelectionUnresolvedFileModel extends PierreUnresolvedFileModel<unknown> {
+  isSourceRendered() {
+    return sameDiffSource(this.getLatestDiff(), this.getRenderedDiff());
+  }
+}
+
+function sameDiffSource(diff: FileDiffMetadata | undefined, rendered: FileDiffMetadata | undefined) {
+  return diff === rendered || (diff?.cacheKey != null && diff.cacheKey === rendered?.cacheKey);
+}
+
 /**
  * Centers `row` in the nearest ancestor of the view that scrolls, else in the page. `scrollIntoView` alone also moves
  * each `overflow: hidden` ancestor, such as an app shell.
@@ -52,7 +79,7 @@ function scrollToRow(host: HTMLElement, row: HTMLElement) {
  * Scrolls the first selected line into view, once for each new range or `source`. Pierre marks the selected rows in a
  * later frame and renders the file after its highlighter loads, so this waits for the row of the new selection.
  */
-function createSelectionScroll(getHost: () => HTMLElement | null) {
+function createSelectionScroll(getHost: () => HTMLElement | null, isSourceRendered: () => boolean) {
   let key: readonly unknown[] | undefined;
   let observer: MutationObserver | undefined;
   const stop = () => {
@@ -70,12 +97,18 @@ function createSelectionScroll(getHost: () => HTMLElement | null) {
     stop();
     if (!range || !host || !root) return;
     const scroll = () => {
-      const row = root.querySelector<HTMLElement>(
+      if (!isSourceRendered()) return;
+      const rows = root.querySelectorAll<HTMLElement>(
         '[data-line][data-selected-line="first"], [data-line][data-selected-line="single"]',
       );
-      const line = Number(row?.dataset.line);
-      // A row of the selection before this one stays marked until Pierre's next frame.
-      if (!row || (line !== range.start && line !== range.end)) return;
+      const row = Array.from(rows).find((row) => {
+        const line = Number(row.dataset.line);
+        const side = row.closest("[data-deletions]") || row.dataset.lineType === "change-deletion" ? "deletions"
+          : row.closest("[data-additions]") || row.dataset.lineType === "change-addition" ? "additions" : undefined;
+        return (line === range.start && (!side || side === (range.side ?? "additions")))
+          || (line === range.end && (!side || side === (range.endSide ?? range.side ?? "additions")));
+      });
+      if (!row) return;
       stop();
       scrollToRow(host, row);
     };
@@ -165,8 +198,8 @@ export const PierreDiff = defineComponent({
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let instance: PierreFileDiffModel<unknown> | undefined;
-    const selectionScroll = createSelectionScroll(() => host);
+    let instance: SelectionDiffModel | undefined;
+    const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     const fileDiff = computed<FileDiffMetadata | undefined>(() => {
       if (props.fileDiff) return trackShallow(props.fileDiff);
       if (props.patch !== undefined) return getSingularPatch(props.patch);
@@ -187,7 +220,7 @@ export const PierreDiff = defineComponent({
         return;
       }
       const options = accessibleDiffOptions(props.options, props.selectedLines, fileDiff.value);
-      if (!instance) instance = new PierreFileDiffModel(options, undefined, true);
+      if (!instance) instance = new SelectionDiffModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({
         fileContainer: host,
@@ -231,8 +264,8 @@ export const PierreFile = defineComponent({
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let instance: PierreFileModel<unknown> | undefined;
-    const selectionScroll = createSelectionScroll(() => host);
+    let instance: SelectionFileModel | undefined;
+    const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
       if (!host) return;
@@ -242,7 +275,7 @@ export const PierreFile = defineComponent({
         return;
       }
       const options = accessibleOptions(props.options, props.selectedLines);
-      if (!instance) instance = new PierreFileModel(options, undefined, true);
+      if (!instance) instance = new SelectionFileModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({
         file: file.value,
@@ -282,8 +315,8 @@ export const PierreUnresolvedFile = defineComponent({
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let instance: PierreUnresolvedFileModel<unknown> | undefined;
-    const selectionScroll = createSelectionScroll(() => host);
+    let instance: SelectionUnresolvedFileModel | undefined;
+    const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     let renderedFile: FileContents | undefined;
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
@@ -299,7 +332,7 @@ export const PierreUnresolvedFile = defineComponent({
         instance = undefined;
       }
       const options = accessibleOptions(props.options, props.selectedLines);
-      if (!instance) instance = new PierreUnresolvedFileModel(options, undefined, true);
+      if (!instance) instance = new SelectionUnresolvedFileModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({
         file: file.value,

@@ -136,6 +136,67 @@ describe("lazy Pierre renderer", () => {
     }
   });
 
+  it("waits for the new file when its selected range is unchanged", async () => {
+    const onPostRender = vi.fn();
+    const scrolled: string[] = [];
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(function (this: HTMLElement) {
+      scrolled.push(this.getRootNode().textContent ?? "");
+    });
+    const wrapper = mount(FileView, {
+      props: {
+        file: { name: "before.txt", contents: "before one\nbefore target\nbefore three" },
+        options: { onPostRender },
+        scrollToSelectedLines: true,
+        selectedLines: { start: 2, end: 2 },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(scrolled).toHaveLength(1));
+      expect(scrolled[0]).toContain("before target");
+      await wrapper.setProps({
+        file: { name: "after.css", contents: ".after {\n  color: red;\n}" },
+        // Loading a new theme keeps Pierre's previous source in the DOM until it is ready.
+        options: { onPostRender, theme: "github-dark-high-contrast" },
+      });
+      await vi.waitFor(() => expect(scrolled).toHaveLength(2));
+      expect(scrolled[1]).toContain("color: red");
+      expect(scrolled[1]).not.toContain("before target");
+      expect(onPostRender).toHaveBeenCalledWith(wrapper.get("diffs-container").element, expect.anything(), "update");
+    } finally {
+      wrapper.unmount();
+      scrollIntoView.mockRestore();
+    }
+  });
+
+  it.each(["split", "unified"] as const)("scrolls to the new diff side at the same line in a %s diff", async (diffStyle) => {
+    const scrolled: (string | null | undefined)[] = [];
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(function (this: HTMLElement) {
+      const code = this.closest("code");
+      scrolled.push(
+        code?.hasAttribute("data-deletions") || this.dataset.lineType === "change-deletion" ? "deletions"
+          : code?.hasAttribute("data-additions") || this.dataset.lineType === "change-addition" ? "additions" : undefined,
+      );
+    });
+    const wrapper = mount(MultiFileDiff, {
+      props: {
+        oldFile, newFile,
+        options: { diffStyle },
+        scrollToSelectedLines: true,
+        selectedLines: { start: 5, end: 5, side: "deletions" },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(scrolled).toEqual(["deletions"]));
+      await wrapper.setProps({ selectedLines: { start: 5, end: 5, side: "additions" } });
+      await vi.waitFor(() => expect(scrolled).toEqual(["deletions", "additions"]));
+    } finally {
+      wrapper.unmount();
+      scrollIntoView.mockRestore();
+    }
+  });
+
   it("scrolls to selected lines on the side of a diff that has them", async () => {
     const scrolled: (string | undefined)[] = [];
     const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(function (this: HTMLElement) {
