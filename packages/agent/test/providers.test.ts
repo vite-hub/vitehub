@@ -23158,14 +23158,17 @@ describe("server helpers", () => {
         ? new Uint8Array([1, 2, 3]).buffer
         : kind === "foreign prototype blob"
           ? runInNewContext(`
-            // Native Blob slots with a constructor and prototype created in this VM.
+            // Native Blob slots with a constructor and prototype created in this VM. Like a Blob class from
+            // another realm, the prototype has its own Blob methods.
             class RealmBlob {
               constructor(parts, options) {
                 return Reflect.construct(NativeBlob, [parts, options], new.target)
               }
             }
+            const { constructor: _constructor, ...blobMethods } = nativeBlobMethods
+            Object.defineProperties(RealmBlob.prototype, blobMethods)
             new RealmBlob([new Uint8Array([1, 2, 3])], { type: "application/octet-stream" })
-          `, { NativeBlob: Blob })
+          `, { NativeBlob: Blob, nativeBlobMethods: Object.getOwnPropertyDescriptors(Blob.prototype) })
           : kind === "spoofed blob"
             ? { [Symbol.toStringTag]: "Blob", size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }
             : runInNewContext(kind === "foreign bytes"
