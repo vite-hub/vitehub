@@ -40,7 +40,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
-import { discoverConsoleBuildCatalog } from "./console/build.ts"
+import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
@@ -567,25 +567,38 @@ function addNitroImports(config: Record<string, unknown>, from: string, names: r
   }
 }
 
-async function installConsole(
-  nuxt: NuxtLike,
-  projectRoot: string,
-  discoveryRoot: string,
-  workflowDiscoveryRoot: string,
-  queueDiscoveryRoot: string,
-  sections: readonly ConsoleSectionId[],
-  blobStores: readonly string[],
-  fixture?: string,
-  serverDirs?: string[],
-  writeGeneratedPlugin = true,
-  invoke = false,
-  invocationRootState?: ConsoleInvocationRootState,
-  canDiscoverDefinitions: () => boolean = () => true,
-  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "contentImportBase" | "databaseDiscoveryRoot" | "plugins" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
-  independentAuth: ConsoleAuthMode | false = false,
-  access?: ConsoleAccessBuild,
-  runtimeCapabilityImports?: Record<string, false | string>,
-): Promise<string> {
+interface NuxtConsoleInstallOptions {
+  nuxt: NuxtLike
+  projectRoot: string
+  sections: readonly ConsoleSectionId[]
+  fixture?: string
+  /** Where Console discovery reads Agents, Schedules, Databases, and contributed sections. */
+  discovery: Omit<Parameters<typeof discoverConsoleBuildCatalog>[0], "projectRoot" | "sections">
+  /** Write the generated plugin at setup and on development changes. CLI discovery writes nothing. */
+  writeGeneratedPlugin: boolean
+  invocationRootState: ConsoleInvocationRootState
+  /** Whether Nitro config is resolved, so discovery can read Database and contributed section definitions. */
+  canDiscoverDefinitions: () => boolean
+  independentAuth: ConsoleAuthMode | false
+  access?: ConsoleAccessBuild
+  /** Writes the generated Console Nitro plugin. The `nitro:config` hook writes it with the same writer. */
+  writePlugin: (file: string, catalog: ConsoleBuildCatalog) => Promise<string>
+}
+
+async function installConsole({
+  nuxt,
+  projectRoot,
+  sections,
+  fixture,
+  discovery,
+  writeGeneratedPlugin,
+  invocationRootState,
+  canDiscoverDefinitions,
+  independentAuth,
+  access,
+  writePlugin,
+}: NuxtConsoleInstallOptions): Promise<string> {
+  const { discoveryRoot, serverDirs } = discovery
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   const routeRules = (nuxt.options.routeRules ??= {})
@@ -636,38 +649,11 @@ async function installConsole(
     const discoverySections = canDiscoverDefinitions()
       ? sections
       : sections.filter(section => section !== "databases" && !isConsoleContributedSectionId(section))
-    const catalog = await discoverConsoleBuildCatalog({
-      ...discoveryOptions,
-      contentImportBase: discoveryOptions.contentImportBase ?? "vite-hub/content",
-      discoveryRoot,
-      projectRoot,
-      queueDiscoveryRoot,
-      sections: discoverySections,
-      serverDirs,
-      workflowDiscoveryRoot,
-    })
-    const identity = await writeConsoleNitroPlugin(
-      plugin,
-      projectRoot,
-      sections,
-      catalog.agents,
-      catalog,
-      blobStores,
-      fixture,
-      invocationRootState?.binding,
-      invoke,
-      () => !invocationRootState?.closed,
-      independentAuth,
-      access,
-      runtimeCapabilityImports,
-      nuxt.options.dev === true,
-      nuxt.options.app?.baseURL,
-    )
-    if (invocationRootState) {
-      updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
-    }
+    const catalog = await discoverConsoleBuildCatalog({ ...discovery, projectRoot, sections: discoverySections })
+    const identity = await writePlugin(plugin, catalog)
+    updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
   })
-  if (fixture && invocationRootState) {
+  if (fixture) {
     configureConsoleFixtureLifecycle(invocationRootState, plugin, refreshAgentDefinitions)
     // Nuxt closes after Vite startup failures that happen before buildStart can own this fixture binding.
     nuxt.hook?.("close", async () => closeConsoleInvocationRootState(invocationRootState))
@@ -1202,6 +1188,23 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     resolvedConsoleFixture = fixture ? resolve(projectRoot, fixture) : undefined
     if (resolvedConsoleFixture) readConsoleFixture(resolvedConsoleFixture)
   }
+  // Module setup and the `nitro:config` hook write the same Console plugin. Only the file and the catalog differ.
+  const writeNuxtConsolePlugin = (file: string, catalog: ConsoleBuildCatalog) => writeConsoleNitroPlugin({
+    file,
+    projectRoot,
+    sections: consoleSections,
+    catalog,
+    blobStores: consoleBlobStores,
+    fixture: resolvedConsoleFixture,
+    runtimeBinding: consoleInvocationRootState.binding,
+    invoke: consoleInvokeEnabled && !resolvedConsoleFixture,
+    active: () => !consoleInvocationRootState.closed,
+    independentAuth: registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
+    access: consoleAccess,
+    runtimeCapabilityImports,
+    development: nuxt.options.dev === true,
+    applicationBase: nuxt.options.app?.baseURL,
+  })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
@@ -1634,22 +1637,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, options.workspace),
           workflowDiscoveryRoot: rootDir,
         })
-        await writeConsoleNitroPlugin(
+        await writeNuxtConsolePlugin(
           generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
-          projectRoot,
-          consoleSections,
-          consoleCatalog.agents,
           consoleCatalog,
-          consoleBlobStores,
-          resolvedConsoleFixture,
-          consoleInvocationRootState.binding,
-          consoleInvokeEnabled && !resolvedConsoleFixture,
-          () => !consoleInvocationRootState.closed,
-          registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
-          consoleAccess,
-          runtimeCapabilityImports,
-          nuxt.options.dev === true,
-          nuxt.options.app?.baseURL,
         )
       }
     }
@@ -1785,33 +1775,31 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }
   }
   if (consoleOptions) {
-    generatedConsolePluginPath = await installConsole(
+    generatedConsolePluginPath = await installConsole({
       nuxt,
       projectRoot,
-      viteRoot,
-      rootDir,
-      rootDir,
-      consoleSections,
-      consoleBlobStores,
-      resolvedConsoleFixture,
-      resolveNuxtServerDirs(nuxt.options),
-      !nuxt.options.vitehubCliDiscovery,
-      consoleInvokeEnabled && !resolvedConsoleFixture,
-      consoleInvocationRootState,
-      () => consoleWorkflowConfigResolved,
-      {
+      sections: consoleSections,
+      fixture: resolvedConsoleFixture,
+      discovery: {
         contentImportBase: "vite-hub/content",
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
+        discoveryRoot: viteRoot,
         plugins: nuxt.options.vite?.plugins,
+        queueDiscoveryRoot: rootDir,
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, options.rateLimit),
         rateLimitScanDirs: configuredScanDirs(options.rateLimit),
         scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
+        workflowDiscoveryRoot: rootDir,
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, options.workspace),
       },
-      registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
-      consoleAccess,
-      runtimeCapabilityImports,
-    )
+      writeGeneratedPlugin: !nuxt.options.vitehubCliDiscovery,
+      invocationRootState: consoleInvocationRootState,
+      canDiscoverDefinitions: () => consoleWorkflowConfigResolved,
+      independentAuth: registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
+      access: consoleAccess,
+      writePlugin: writeNuxtConsolePlugin,
+    })
   }
 }
 
