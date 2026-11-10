@@ -28,6 +28,16 @@ const vercelQueueConsumerRoutePrefix = "/api/vitehub/queues/vercel"
 const packageDir = computePackageDir(import.meta.url)
 const packageRequire = createRequire(resolve(packageDir, "package.json"))
 const resolvePackageDependency = (specifier: string) => packageRequire.resolve(specifier)
+
+/** `@vercel/queue` and `@vercel/functions` are optional peers. A Vercel build needs both in the app. */
+function resolveVercelDependency(specifier: "@vercel/functions" | "@vercel/queue") {
+  try {
+    return packageRequire.resolve(specifier)
+  }
+  catch (cause) {
+    throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_UNAVAILABLE({ cause })
+  }
+}
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
 type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
@@ -113,7 +123,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
         : undefined
   return [
     "import { definePlugin } from 'nitro'",
-    ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
+    ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolveVercelDependency("@vercel/queue")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-vite")))}`] : []),
     ...(cloudflareRuntime ? [`import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-client")))}`] : []),
@@ -144,7 +154,7 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
   return [
     "import { defineMiddleware } from 'nitro'",
-    ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolvePackageDependency("@vercel/functions")))}`] : []),
+    ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolveVercelDependency("@vercel/functions")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     `import { enterQueueRuntimeEvent } from ${JSON.stringify(createImportPath(middlewareFile, resolveRuntimeModule("internal/runtime/state")))}`,
     "",

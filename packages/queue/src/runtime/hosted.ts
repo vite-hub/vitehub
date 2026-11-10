@@ -51,7 +51,7 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
 
 /** Handle one Vercel Queue delivery. The generated consumer route is a Fetchable module that passes its Request here. */
 export async function handleHostedVercelQueueCallback(request: Request, name: string, definition: QueueDefinition): Promise<Response> {
-  const queue = await dynamicQueue.get(name)
+  const queue = await dynamicQueue.use(name)
   if (queue.provider !== "vercel") {
     throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "vercel", provider: queue.provider })
   }

@@ -55,7 +55,7 @@ export function validateChannelDefinition(value: unknown): asserts value is Chan
  * @example
  * export default defineChannel({
  *   adapter: stripe(),
- *   on: { 'checkout.session.completed': event => runQueue('fulfil', event.data) },
+ *   on: { 'checkout.session.completed': event => sendQueue('fulfil', event.data) },
  * })
  */
 export function defineChannel<TAdapter extends ChannelAdapter<never>>(

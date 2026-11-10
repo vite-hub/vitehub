@@ -165,7 +165,7 @@ function agentChannelTriggerState(request: Request | undefined, channelId: strin
 export type AgentChannelQueuedDispatch = (
   context: ResolvedAgentRuntimeContext,
   items: readonly AgentChannelDispatchItem[],
-  options: AgentChannelDispatchOptions,
+  options: AgentChannelDispatchOptions & { rawBody?: Uint8Array },
 ) => Promise<ReplayChannelResult>
 
 const channelTriggerQueues = new WeakMap<Request, { admit: AgentChannelQueuedDispatch, channelId: string }>()
