@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SANDBOX_TASK_R0005 and SANDBOX_TASK_R0047.
 export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {
@@ -12,7 +13,6 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0002: dynamicError,
     SANDBOX_TASK_R0003: dynamicError,
     SANDBOX_TASK_R0004: dynamicError,
-    SANDBOX_TASK_R0005: dynamicError,
     SANDBOX_TASK_R0006: dynamicError,
     SANDBOX_TASK_R0007: dynamicError,
     SANDBOX_TASK_R0008: dynamicError,
@@ -67,7 +67,6 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_C0011: dynamicError,
     SANDBOX_TASK_C0012: dynamicError,
     SANDBOX_TASK_C0013: dynamicError,
-    SANDBOX_TASK_R0047: dynamicError,
     SANDBOX_TASK_R0048: dynamicError,
     SANDBOX_TASK_R0049: dynamicError,
     SANDBOX_TASK_R0050: dynamicError,

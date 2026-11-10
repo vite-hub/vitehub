@@ -54,7 +54,7 @@ published on 27 October 2026.
 | Queue, Workflows, Schedule | Not in the `hub` config | Available on the hosts in the support matrix |
 | Sandbox, Browser, Email, Auth, Rate Limit, Realtime | Not in the `hub` config | Available on the hosts in the support matrix |
 | AI and Agents | Removed in v0.10 | Agent Definitions, Capabilities, and Channels |
-| Inspection | Nuxt DevTools shows the database. NuxtHub Admin had an end date of 31 December 2025. | Console at `/_vitehub` and the `vitehub` CLI |
+| Inspection | Nuxt DevTools shows the database. NuxtHub Admin had an end date of 31 December 2025. | The hosted Console at console.vitehub.dev and the `vitehub` CLI |
 | License | Apache-2.0 | Apache-2.0 |
 
 The [support matrix](/docs/frameworks-hosts/support-matrix) lists each ViteHub
@@ -121,7 +121,7 @@ key.
   Postgres database needs a Postgres server.
 - NuxtHub detects the host, so you write less config.
 - NuxtHub shows the database in Nuxt DevTools. ViteHub has its own
-  [Console](/docs/development/console).
+  [Console](/docs/development/console) at console.vitehub.dev.
 
 ## Move a Nuxt app from NuxtHub
 

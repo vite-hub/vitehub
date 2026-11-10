@@ -32,6 +32,7 @@ vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({
   default: { plugins: [{ name: "app-plugin", post: (state: { tree: { nodes: unknown[] } }) => void state.tree.nodes.push(["p", {}, "Added by the app plugin"]) }] },
+  githubRepo: "vite-hub/vitehub",
 }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
@@ -122,10 +123,13 @@ describe("sitemap route", () => {
 describe("parser option", () => {
   const app = new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
 
-  it("parses the page route and search with the app's Comark plugins", async () => {
-    getItem.mockImplementation(async key => readFileSync(resolve(import.meta.dirname, "fixtures/content", key), "utf8"))
+  it("parses the page route and search with the app's Comark plugins and the site's repository", async () => {
+    getItem.mockImplementation(async key => `${readFileSync(resolve(import.meta.dirname, "fixtures/content", key), "utf8")}\nFixed in #12.\n`)
     const response = await app.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
-    expect((await response.json()).document.nodes).toContainEqual(["p", {}, "Added by the app plugin"])
+    const { nodes } = (await response.json()).document
+    expect(nodes).toContainEqual(["p", {}, "Added by the app plugin"])
+    // `docs.github.repo` is the repository that `#12` links to.
+    expect(JSON.stringify(nodes)).toContain("https://github.com/vite-hub/vitehub/issues/12")
     const index = await app.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
     expect(await index.json()).toContainEqual(expect.objectContaining({ id: expect.stringMatching(/^\/docs\/kv/), content: expect.stringContaining("Added by the app plugin") }))
   })

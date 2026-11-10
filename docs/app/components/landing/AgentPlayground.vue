@@ -50,11 +50,11 @@ const projects: ExampleProject[] = [
       {
         path: "server/agents/review/agent.ts",
         label: "agent.ts",
-        content: `import githubTools from "@github-tools/eve-extension"
-import { codexDriver, defineAgent } from "@vite-hub/agent"
+        content: `import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { github } from "@vite-hub/agent/channels"
 import {
   browser,
+  forge,
   skills,
 } from "@vite-hub/agent/capabilities"
 
@@ -69,7 +69,7 @@ export default defineAgent({
   },
   capabilities: [
     browser(),
-    githubTools({ preset: "code-review" }),
+    forge({ mode: "write" }),
     skills({ path: "./skills" }),
   ],
 })`,
@@ -337,7 +337,7 @@ const capabilityOptions = [
   { code: "email({ from, recipients })", icon: "i-lucide-mail", key: "email", label: "Email" },
   { code: "sandbox({ commands })", icon: "i-lucide-box", key: "sandbox", label: "Sandbox" },
   { code: "schedule({ mode: 'write', allowSelfTarget: true })", icon: "i-lucide-calendar-clock", key: "schedule", label: "Schedules" },
-  { code: "githubTools({ preset: 'code-review' })", icon: "i-lucide-git-pull-request", key: "github-tools", label: "GitHub tools" },
+  { code: "forge({ mode: 'write' })", icon: "i-lucide-git-pull-request", key: "forge", label: "Forge" },
   { code: "mcp({ servers: { nuxt } })", icon: "i-lucide-plug-zap", key: "mcp", label: "MCP servers" },
   { code: "webSearch({ mode: 'tool', provider: 'exa' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
@@ -394,7 +394,7 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     driverKey: "codex",
     runtimeKey: "workflow",
     workspaceKey: "github",
-    capabilityKeys: ["browser", "github-tools", "skills"],
+    capabilityKeys: ["browser", "forge", "skills"],
     channelKeys: ["github"],
   },
   nuxt: {

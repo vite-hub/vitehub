@@ -6,14 +6,14 @@ import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOpt
 
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
 
-import type { AuthModuleOptions } from "./types.ts"
+import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { AuthPageMeta, AuthPageMode, AuthRedirects } from "./nuxt-types.ts"
 
 export interface AuthNuxtModuleOptions {
-  auth?: AuthModuleOptions
+  auth?: AuthOptions
   env?: false | { projectRoot?: string }
   importsFrom?: string
   nitro?: boolean
@@ -39,7 +39,6 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     vite?: {
-      auth?: AuthModuleOptions
       define?: Record<string, unknown>
       plugins?: unknown[]
       root?: string
@@ -47,7 +46,7 @@ type NuxtLike = {
   }
 }
 
-const composables = ["useAuthClient", "useSession", "useSignIn", "useSignUp", "useUserSession"]
+const composables = ["useAuthClient", "useSession", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
@@ -87,7 +86,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)
   if (!vitePlugins.some(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME)) nuxt.options.vite.plugins.push(authPlugin)
 
-  const resolveAuthOptions = () => nuxt.options.vite?.auth ?? options.auth
+  const resolveAuthOptions = () => options.auth
   const resolveAuthConfig = () => {
     const configRoot = resolve(viteRoot)
     const serverDirs = resolveNuxtServerDirs(nuxt.options)
@@ -113,7 +112,6 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
         nitro: nitroConfig,
         projectRoot: viteRoot,
         serverDirs: resolveNuxtServerDirs(nuxt.options),
-        viteAuth: nuxt.options.vite?.auth,
       }))
     })
   }

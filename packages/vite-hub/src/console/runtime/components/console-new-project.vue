@@ -338,7 +338,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
         <section v-if="plan.options.length" class="grid gap-4" aria-labelledby="new-project-options-heading">
           <div class="grid gap-1">
             <h2 id="new-project-options-heading" class="vitehub-new-project__heading">Options</h2>
-            <p class="vitehub-new-project__text">{{ hostLabel }} needs these options for the features that you picked.</p>
+            <p class="vitehub-new-project__text">Configure the features that you picked for {{ hostLabel }}.</p>
           </div>
           <div class="grid gap-5">
             <UFormField
@@ -349,6 +349,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             >
               <template #label>
                 <ConsoleCodeText code :text="input.path" />
+                <span v-if="input.optional" class="text-muted"> (optional)</span>
               </template>
               <template #description>
                 <span class="text-pretty">{{ features[input.feature].title }}: <ConsoleCodeText :text="input.detail" /></span>

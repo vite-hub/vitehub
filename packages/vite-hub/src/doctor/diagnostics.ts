@@ -30,7 +30,6 @@ const entries = [
   { code: "VHUB0025", ruleId: "vitehub/realtime-persistence" },
   { code: "VHUB0026", ruleId: "vitehub/forge-error-imports" },
   { code: "VHUB0027", ruleId: "vitehub/sandbox-runtime-options" },
-  { code: "VHUB0028", ruleId: "vitehub/define-agent-from-vite-hub" },
   { code: "VHUB0029", ruleId: "vitehub/rate-limit-capability-limiter" },
   { code: "VHUB0030", ruleId: "vitehub/no-vitehub-plugin-in-nuxt" },
   { code: "VHUB0031", ruleId: "vitehub/valid-vitehub-options" },

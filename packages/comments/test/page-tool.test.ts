@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
+import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -29,7 +29,7 @@ async function start() {
   return { pill, bar }
 }
 
-const comment = (bar: HTMLElement) => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"Comment (C)\"]")
+const comment = (bar: HTMLElement) => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[aria-keyshortcuts=\"C\"]")
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -37,8 +37,10 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
-afterEach(() => {
+afterEach(async () => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  stopViteHubPageTools()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-tools-off")) element.remove()
   localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""
@@ -65,6 +67,8 @@ describe("the Comments page tool", () => {
     await vi.waitFor(() => expect(request.mock.calls.some(([path]) => path.startsWith(`/api/_vitehub/comments/${stage}`))).toBe(true))
     if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button.exit")!.click()
     else document.querySelector("vitehub-comments")!.remove()
+    // Let the pill finish its exit before watching for work from the stopped overlay.
+    await new Promise(resolve => setTimeout(resolve, 0))
 
     const documentListeners = vi.spyOn(document, "addEventListener")
     const windowListeners = vi.spyOn(window, "addEventListener")
@@ -139,15 +143,17 @@ describe("the Comments page tool", () => {
     // In comment mode a click on the page starts a comment. A click on the pill does not.
     pill.shadowRoot!.querySelector<HTMLButtonElement>("button[aria-label=\"Turn off ViteHub tools\"]")!.click()
     expect(document.querySelector("vitehub-comments")).toBeNull()
-    expect(document.querySelector("vitehub-pill")).toBeNull()
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
     expect(location.search).toBe("")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(document.querySelector("vitehub-pill")).toBeNull()
   })
 
   it("keeps its segment hidden when the Comments session does not allow reading", async () => {
     site({ read: false, comment: false })
     const { bar } = await start()
-    await vi.waitFor(() => expect(document.querySelector("vitehub-comments")!.shadowRoot!.querySelector(".toast")).toBeTruthy())
-    expect(bar.hidden).toBe(true)
+    await vi.waitFor(() => expect(bar.hidden).toBe(true))
+    // A page load says nothing: there is nothing this person can do about it.
+    expect(document.querySelector("vitehub-comments")!.shadowRoot!.querySelector(".toast")).toBeNull()
   })
 })

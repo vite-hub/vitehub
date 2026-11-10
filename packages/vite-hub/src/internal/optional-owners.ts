@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
@@ -25,6 +26,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/email"
     | "@vite-hub/forms"
     | "@vite-hub/gateways"
+    | "@vite-hub/i18n"
     | "@vite-hub/kv"
     | "@vite-hub/markdown-template"
     | "@vite-hub/mcp"
@@ -69,6 +71,7 @@ export const optionalFeaturePackages = {
   // `server/forms/` turns Forms on, and its submissions go to the Database.
   "forms": ["@vite-hub/forms"],
   "gateways": ["@vite-hub/gateways"],
+  "i18n": features.i18n.packages,
   "kv": features.kv.packages,
   // `.template.md` imports and `vite-hub/markdown-template`.
   "markdown-template": ["@vite-hub/markdown-template"],
@@ -90,16 +93,35 @@ export type OptionalFeature = keyof typeof optionalFeaturePackages
 
 /** Whether the app installed `packageName`, as `vite-hub` resolves it. */
 export function isPackageInstalled(packageName: string): boolean {
+  try {
+    import.meta.resolve(`${packageName}/package.json`)
+    return true
+  }
+  catch (error) {
+    // A missing package fails the same way for its entry. Each failed lookup walks every node_modules folder up to the
+    // file system root, and most owner packages are missing in a typical app.
+    if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
+  }
   // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
-  return [`${packageName}/package.json`, packageName].some((specifier) => {
-    try {
-      import.meta.resolve(specifier)
-      return true
-    }
-    catch {
-      return false
-    }
-  })
+  try {
+    import.meta.resolve(packageName)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * Whether the app at `root` installed `packageName` in its own `node_modules` or one of its parents. `isPackageInstalled`
+ * resolves from `vite-hub`, which also sees the development dependencies of a source checkout. `require.resolve` also
+ * reads `NODE_PATH`, which pnpm bin scripts point at every hoisted package.
+ */
+export function isPackageInstalledInApp(root: string, packageName: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(join(directory, "node_modules", packageName, "package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
 }
 
 /** Loads a module of an optional owner package, or returns `undefined` when the app did not install the package. */

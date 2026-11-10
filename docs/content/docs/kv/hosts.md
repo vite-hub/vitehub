@@ -20,12 +20,12 @@ KV picks the store and generates store-name types. Put namespaces, bindings, and
 pnpm vitehub kv list --prefix users:
 pnpm vitehub kv get settings --json
 pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
-pnpm vitehub kv del settings
+pnpm vitehub kv delete settings
 ```
 
 - They run the app's `kv.*` [operations](/docs/development/operations) in the Nitro runtime, on the same storage. They target the dev server or, with `--url`, a deployed app with the [Console](/docs/development/console) on. `--store <name>` picks a named store.
 - Each write prints what it changed. There is no `clear` command.
-- `kv set` and `kv del` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
+- `kv set` and `kv delete` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
 
 Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
 

@@ -56,20 +56,15 @@
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js",
+      "default": "./dist/preview.js"
     },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
-    },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -82,7 +77,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/content#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/content#build && vp test"
+    "test": "vp run --cache -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
@@ -101,7 +96,6 @@
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "diff": "catalog:runtime",
-    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "yaml": "catalog:tooling"
   },
@@ -113,6 +107,7 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

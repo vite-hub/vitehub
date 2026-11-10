@@ -37,7 +37,7 @@ describe("Console Env", () => {
   it("loads declaration metadata without importing provider-backed Server Env", async () => {
     const root = await temporaryDirectory("vitehub-console-env-")
     const plugin = join(root, "console.mjs")
-    await writeConsoleNitroPlugin(plugin, root, ["env"], [], { agents: [], content: {} }, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["env"], catalog: { agents: [], content: {} }, blobStores: [] })
     const generated = await readFile(plugin, "utf8")
     // The Console runtime loads the declarations with the first Console request.
     const runtimeImports = generated.split("\n").find(line => line.includes("await Promise.all("))

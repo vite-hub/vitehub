@@ -90,7 +90,7 @@ Filter a list (All / Errors / Warnings)?                           → UTabs wit
 
 ## Icons
 
-Lucide (`i-lucide-*`) for every interface icon, and the ViteHub set (`i-vitehub-*`) for primitives. Brand logos come from Simple Icons (`i-simple-icons-*`). Never mix in another icon set.
+Use the ViteHub set (`i-vitehub-*`) for Server Primitives and docs areas, and Lucide (`i-lucide-*`) for other interface icons. The docs draw both on a 24px grid with a 1.5px stroke, round caps, and round joins. Add a missing primitive icon to `packages/icons`. Brand logos come from Simple Icons (`i-simple-icons-*`). Never mix in another icon set.
 
 ## Console parts
 
