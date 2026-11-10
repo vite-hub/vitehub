@@ -33,18 +33,27 @@ Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative lo
 
 ## Color
 
-The public docs use a monochrome system with equal light and dark modes.
+The docs share one design with the comark-ui site. It lives in `@vite-hub/docs` (`packages/docs/runtime/theme/design.css`) as neutral grays in OKLCH on the Nuxt UI `--ui-*` variables, with equal light and dark modes. Use the variables, not the hex values.
 
-| Role | Light | Dark | Use |
-| --- | --- | --- | --- |
-| Canvas | `#ffffff` | `#09090b` | Page background |
-| Raised | `#fafafa` | `#18181b` | Cards, code, and raised controls |
-| Line | `#e4e4e7` | `#27272a` | Borders and route rails |
-| Text | `#3f3f46` | `#e4e4e7` | Body text |
-| Highlighted | `#18181b` | `#fafafa` | Logo, headings, and selected states |
-| Muted | `#71717a` | `#a1a1aa` | Secondary text and endpoint dots |
+| Role | Variable | Light | Dark | Use |
+| --- | --- | --- | --- | --- |
+| Canvas | `--ui-bg` | `#ffffff` | `#0a0a0a` | Page background |
+| Raised | `--ui-bg-muted` | `#f7f7f7` | `#131313` | Code, panels, and raised controls |
+| Line | `--ui-border` | `#e4e4e4` | `#242424` | Borders and hairlines |
+| Text | `--ui-text` | `#404040` | `#d4d4d4` | Body text |
+| Highlighted | `--ui-text-highlighted` | `#171717` | `#f2f2f2` | Logo, headings, and selected states |
+| Muted | `--ui-text-muted` | `#5d5d5d` | `#9e9e9e` | Secondary text |
 
-Keep the system black, white, and zinc. Active states can use stronger ink, heavier borders, or route-line placement instead of hue.
+Keep the system black, white, and gray, with no hue. Active states use stronger ink or a heavier border instead of a color.
+
+## Icons
+
+Every icon on the site comes from one family: the 24px Lucide grid with a 1.5px stroke, round caps, and round joins.
+
+- A Server Primitive or docs area uses its ViteHub icon, `i-vitehub-<name>` from `packages/icons`, wherever it appears: the rail, the sidebar, the home page grid, the docs catalog, the README, and the Console. If one is missing, draw it in `packages/icons`. Do not borrow a stock icon for a primitive.
+- Every other icon is Lucide, `i-lucide-<name>`. `@vite-hub/docs` draws Lucide at 1.5px, the stroke of the ViteHub set.
+- Brand logos, `i-simple-icons-<name>`, are only for a real product: a host, a package manager, GitHub, or Discord. The sidebar shows line icons only.
+- Do not use Phosphor or another set in the site. The `@vite-hub/ui` examples keep the icons that the components ship with.
 
 ## Typography
 
@@ -62,7 +71,7 @@ The visual system should be quiet, technical, and precise.
 - Prefer compact docs layouts over marketing-heavy composition.
 - Use sharp alignment, clear spacing, and restrained borders.
 - Use grounded route, rail, endpoint, and primitive-block motifs when illustration is needed.
-- Use icons to identify primitives such as Blob, KV, Queue, Workflow, Sandbox, Chat, and Workspace.
+- Use the ViteHub icon of a primitive to identify it, as the Icons section says.
 - Keep provider visuals neutral unless a provider page needs a real provider logo.
 
 Avoid decorative gradients, orbs, mascot art, heavy shadows, and dark cyberpunk styling.

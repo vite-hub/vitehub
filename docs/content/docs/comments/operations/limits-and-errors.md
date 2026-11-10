@@ -46,7 +46,7 @@ A thread and its first message are written together: with `batch()` on libSQL an
 | `COMMENTS_R0016` | 409 | The thread is resolved and takes no replies. Reopen it, or pass `allowResolved` to `comments.reply()`. |
 | `COMMENTS_R0017` | 400, 413, 415 | The file is empty, not Base64, over 5 MB, or of a type Comments does not attach. |
 | `COMMENTS_R0018` | 400 | The `metadata`, page context, `revision`, attachment keys, or text are over the limits. |
-| `COMMENTS_R0019` | 503 | The Database has old comment tables, or none. On a ViteHub Database, run the migration in [Upgrade to one model](/docs/comments/configure#upgrade-to-one-model). For the live-site tables, use the SQL of `commentsMigrationSql({ from: "live" })`. Otherwise run `vitehub db generate` and `vitehub db migrate`. |
+| `COMMENTS_R0019` | 503 | The Database has old comment tables, or none. On a ViteHub Database, run the migration in [Upgrade to one model](/docs/comments/configure#upgrade-to-one-model). For the live-site tables, use the SQL of `commentsMigrationSql({ from: "live" })`. Otherwise run `vitehub database generate` and `vitehub database migrate`. |
 | `COMMENTS_R0020` | 404 | No thread the caller may read has this attachment key, or the file is gone. |
 | `COMMENTS_R0021` | 501 | `storeAttachment` is set, but `readAttachment` is missing, so files cannot be read back. |
 | `COMMENTS_R0022` | 409 | Another thread of the scope already uses this `requestId`, and the caller did not start it, started it on another subject, or may not read it. Send a new `requestId` for a new comment. |

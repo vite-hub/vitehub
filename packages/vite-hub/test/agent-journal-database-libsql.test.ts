@@ -25,7 +25,7 @@ describe("Agent Invocation journal Drizzle", () => {
     const { metafile } = await build({
       bundle: true,
       conditions: ["workerd", "worker", "browser"],
-      entryPoints: [join(packageRoot, "src/agent/invocations/journal-database.ts")],
+      entryPoints: [join(packageRoot, "../agent/src/invocations/journal-database.ts")],
       external: ["cloudflare:workers", "node:*"],
       format: "esm",
       metafile: true,

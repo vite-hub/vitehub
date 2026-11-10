@@ -65,7 +65,7 @@ async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
     return await run()
   }
   catch (cause) {
-    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}. Apply the Forms tables with \`vitehub db generate\` and \`vitehub db migrate\`.`, cause })
+    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}. Apply the Forms tables with \`vitehub database generate\` and \`vitehub database migrate\`.`, cause })
   }
 }
 

@@ -177,7 +177,7 @@ content.preview.disable(event)
 await content.preview.run(event, () => content.collection("posts").get("hello")) // outside Nitro
 ```
 
-ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 4 (Nitro 2) apps. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
+ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 5 apps. It imports `@vite-hub/content/preview` and loads `server/content.ts` on the first request with a preview cookie, a preview frame, or `?vitehub-content-published`, so the server starts without the Content runtime. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
 
 The same plugin serves preview frames, such as the side browser of the Console document editor. A frame posts a form to the page URL with `?vitehub-content-preview` (`contentPreviewFrameParameter`), whose field of the same name holds `{ token, document? }` as JSON. `content.preview.sign({ collection, id })` returns a token for that one document, without a cookie; check `content.can()` with `read` first. The page runs as a `GET` of its own URL. Collection `get()`/`list()` without `ref` or `revision` return the posted version of the signed document, or its stored draft, so edits that were not saved render through the real routes. Every other read, other documents and collections included, is `published`. Nothing is stored. A form without a valid frame token, with another document, or from another site, gets 403. A frame token never works as the preview cookie. A redirect of the page to the same origin becomes a `307` with `?vitehub-content-preview=<hop>`, so the browser posts the same form there and selects and sets cookies itself; a redirect to another origin or past five gets an error page with `<meta name="vitehub-content-preview-error">` (`contentPreviewErrorName`). A request with `?vitehub-content-published` (`contentPreviewPublishedParameter`), or a same-origin `Referer` with it, reads `published` with or without a preview cookie, nested runs included, and leaves the cookie unchanged; the Console Published view uses it. An HTTP redirect from such a request to the same host name gets the parameter in its `Location`, so the destination reads `published` too.
 
@@ -209,7 +209,7 @@ vitehub content status [collection] [id]
 vitehub content diff <collection> [id]
 vitehub content revisions <collection> [id] [--ref published]
 vitehub content edit <collection> [id] [--file <path>|-] [--if-digest <digest>] [--override-lease]
-vitehub content rm <collection> [id] [--yes] [--override-lease]
+vitehub content delete <collection> [id] [--yes] [--override-lease]
 vitehub content restore <collection> [id] --revision <id> [--override-lease]
 vitehub content publish [--collection <name>] [--id <id>...] [--dry-run] [--yes]
 vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry-run] [--yes]

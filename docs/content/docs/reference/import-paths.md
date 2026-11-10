@@ -10,7 +10,11 @@ Stable import paths are the ViteHub imports your app may use. Behind them can be
 
 ## Canonical application imports
 
-With `vite-hub` installed, import `vitehub()` from the root and app APIs from feature subpaths.
+Applications that install `vite-hub` use the root only for framework
+composition and explicit feature subpaths for application APIs.
+Each feature subpath, such as `vite-hub/agent`, re-exports the matching owner
+path, such as `@vite-hub/agent`, unchanged. Both paths give the same values and
+the same behavior.
 
 | Import path | Use |
 | --- | --- |
@@ -50,6 +54,7 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/presets/workspace` | Opt-in preset that cites where Workspace sources come from. |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and its schema statements. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
+| `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/agent/runtime/process` | Adaptive per-process Agent capacity for self-hosted Node apps. |
@@ -67,11 +72,14 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/console/operations` | Console operation registration. The generated Console plugin loads it on the first Console request or Agent operation tool, not when the server starts. |
 | `vite-hub/console/sections` | Registers the Console section manifest for framework servers. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
+| `vite-hub/console/setup` | The Console setters that the generated Console plugin calls when the server starts, without the access checks and sign-in pages of `vite-hub/console/sections`. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
-| `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition, editable document collections, every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
-| `vite-hub/cms` | The `cms` preset, which stores document collections in a Workspace it adds. |
-| `vite-hub/cms/access` | CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and their policies: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, `cmsConsoleAuthorize`. |
-| `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` Workspace, its tables, and a Database if the app has none. `vitehub()` registers it. |
+| `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
+| `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
+| `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
+| `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
+| `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
+| `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` preset's Workspace, its tables, and a Database when the app has none. `vitehub()` registers it. |
 | `vite-hub/docs/nuxt` | The Nuxt module of a [docs site](/docs/docs-site): pages from a Markdown folder, the docs shell and theme, search, and agent resources. Re-exports `@vite-hub/docs/nuxt`. |
 | `vite-hub/docs` | Docs site frontmatter schema, manifest types, and navigation helpers. Re-exports `@vite-hub/docs`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, the Agent preset that answers reader questions from the docs, and `docsRateLimit()`. Re-exports `@vite-hub/docs/assistant`. |
@@ -130,7 +138,8 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/shell/providers/just-bash` | Just Bash Shell provider. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, and Rate Limit, Server Env values, and Channel deliveries. See [Testing](/docs/development/testing). |
-| `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, Collections (`defineCollection`, `array`, `table`), and the built-in loaders `file()`, `files()`, `glob()`, `markdown()`, and `github()`. `files()` is the Source that `glob()` becomes in a server build. |
+| `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, Collections (`defineCollection`, `array`), and the built-in loaders `file()`, `files()`, `glob()`, `markdown()`, and `github()`. `files()` is the Source that `glob()` becomes in a server build. |
+| `vite-hub/source/drizzle` | `table()`, a Collection over a Drizzle table. Needs `drizzle-orm`. |
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
@@ -146,7 +155,7 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
-| `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, registry APIs, and the `workspaceFile()` Collection source. |
+| `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, and registry APIs. |
 | `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/checkout` | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |
 | `vite-hub/workspace/lineage` | `derivedFrom` helpers: `lineageDigest()`, `readDerivedFrom()`, and `staleDerivedFiles()`. |
@@ -202,6 +211,7 @@ You can install each package on its own. These paths are stable for libraries, s
 | `@vite-hub/connections/server` and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, and the Agent primitive handle. `createConnectionsHandler()` comes from `@vite-hub/connections`. |
 | `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, and `@vite-hub/comments/database/postgres` | Comments Package | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
+| `@vite-hub/content/preview` | Content Package | The Content preview API and `defineContentPreviewPlugin()`, with a runtime or a loader. |
 | `@vite-hub/cms` and `@vite-hub/cms/vite` | CMS Package | The `cms` preset that stores document collections on a contributed Workspace, and `hubCms()`, the Vite plugin that adds that Workspace, its tables, and a Database when the app has none. |
 | `@vite-hub/cms/access` | CMS Package | The CMS roles for the Better Auth `admin` plugin and the policies from those roles. It needs `better-auth`. |
 | `@vite-hub/docs/nuxt` | Docs Package | The Nuxt module of a [docs site](/docs/docs-site). |
@@ -279,17 +289,6 @@ You can install each package on its own. These paths are stable for libraries, s
 | `@vite-hub/source/vite` | Source discovery, generated files, and Nitro routes. |
 | `@vite-hub/workflow/vite` | The Workflow Vite plugin. |
 | `@vite-hub/workspace/vite` | The Workspace Vite plugin. |
-
-If you use `@vite-hub/source/vite` directly, extend `@vite-hub/source/tsconfig`. It includes the generated Collection registry, so you need no framework TypeScript entry or `.vitehub` glob.
-
-TypeScript replaces inherited arrays. If you set your own `rootDirs` or `files`, keep the generated Source types in `include`:
-
-```json
-{
-  "extends": ["@vite-hub/source/tsconfig"],
-  "include": ["src", ".vitehub/types/source/**/*.d.ts"]
-}
-```
 
 ## Generated and internal paths
 

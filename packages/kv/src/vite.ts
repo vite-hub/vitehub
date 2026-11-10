@@ -16,7 +16,6 @@ import {
   isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
@@ -422,7 +421,7 @@ export function hubKv(options?: KVOptions, input: Pick<KVResolutionInput, "hosti
           await providerOutputGenerations.reset(this, providerOutput, error)
           return
         }
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
 
         const rootDir = resolved.root
         const clientOutDir = resolved.build.outDir
@@ -483,7 +482,7 @@ export function hubKv(options?: KVOptions, input: Pick<KVResolutionInput, "hosti
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },

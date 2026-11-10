@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { formatter as poFormatter } from "@lingui/format-po"
 
 import { inspectI18n } from "./inspect.ts"
+import { findPreviousTranslations } from "./lineage.ts"
 import { recordsRoot } from "./lingui.ts"
 import { importTranslation, isVisible, removeRecord } from "./records.ts"
 
@@ -45,14 +46,16 @@ function formatStatus(status: I18nStatus): string {
     const percent = locale.messages === 0 ? 100 : Math.round(locale.translated / locale.messages * 100)
     const role = locale.source
       ? "source"
-      : `${percent}% translated, ${locale.missing} missing${locale.unused ? `, ${locale.unused} unused` : ""}  ${locale.folder}`
+      : `${percent}% translated, ${locale.missing} missing${locale.changed ? ` (${locale.changed} changed)` : ""}${locale.unused ? `, ${locale.unused} unused` : ""}  ${locale.folder}`
     return `${locale.locale.padEnd(8)} ${String(locale.messages).padStart(5)} messages  ${role}`
   })
   const problems = status.locales.flatMap(locale => locale.problems.map(problem => `  ${problem.file}: ${problem.problem}`))
   const unused = status.locales.some(locale => locale.unused > 0)
+  const changed = status.locales.find(locale => locale.changed > 0)
   return [
     ...rows,
     ...(problems.length ? ["", "Records that ViteHub skips:", ...problems] : []),
+    ...(changed ? ["", `A changed message keeps its old translation as a draft in \`vitehub i18n export ${changed.locale}\`. Review it, then import the file.`] : []),
     ...(unused ? ["", "Delete unused records with `vitehub i18n prune`."] : []),
     "",
   ].join("\n")
@@ -121,13 +124,22 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             if (!locale) return usage(context, `${usages.export}\nThe locale must be one of: ${config.locales.filter(entry => entry !== config.sourceLocale).join(", ")}.`, 1)
             const status = await inspectI18n(config)
             const records = status.records[locale] ?? {}
+            // A message whose source changed a little gets its old translation, marked fuzzy as gettext does, so a
+            // translator edits it instead of starting again. `import` skips fuzzy entries.
+            const previous = findPreviousTranslations(status.messages, records)
             const catalog: CatalogType = {}
             for (const [id, message] of Object.entries(status.messages)) {
+              const carried = previous.get(id)
               catalog[id] = {
                 message: message.message,
                 ...(message.context ? { context: message.context } : {}),
-                translation: records[id] && isVisible(records[id]) ? records[id].text : "",
-                comments: [...message.comments ?? [], `${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`],
+                translation: records[id] && isVisible(records[id]) ? records[id].text : carried?.record.text ?? "",
+                comments: [
+                  ...message.comments ?? [],
+                  `${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`,
+                  ...(carried ? [`Previous source: ${carried.record.source}`] : []),
+                ],
+                ...(carried ? { extra: { flags: ["fuzzy"] } } : {}),
                 origin: message.origins.map((origin) => {
                   const index = origin.lastIndexOf(":")
                   return index === -1 ? [origin] : [origin.slice(0, index), Number(origin.slice(index + 1))]
@@ -162,9 +174,15 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             const at = new Date().toISOString()
             let saved = 0
             let unchanged = 0
+            let fuzzy = 0
             const refused: { message: string, problem: string }[] = []
             for (const entry of Object.values(catalog)) {
               if (!entry.message || !entry.translation) continue
+              const flags = (entry.extra as { flags?: unknown } | undefined)?.flags
+              if (Array.isArray(flags) && flags.includes("fuzzy")) {
+                fuzzy++
+                continue
+              }
               const expected = importBaseline(entry.comments)
               if (expected === undefined) {
                 refused.push({ message: entry.message, problem: "The PO export baseline is invalid. Export the locale again before editing it." })
@@ -176,15 +194,16 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
               else refused.push({ message: entry.message, problem: result.message })
             }
             const lines = refused.map(entry => `  ${JSON.stringify(entry.message)}: ${entry.problem}`)
+            const skipped = fuzzy ? ` Skipped ${fuzzy} fuzzy translations: remove the fuzzy flag after you review them.` : ""
             context.stdout.write(flags.json
-              ? `${JSON.stringify({ locale, saved, unchanged, refused })}\n`
-              : `Saved ${saved} translations to locales/${locale}. ${unchanged} were already saved.\n${refused.length ? `Refused ${refused.length}:\n${lines.join("\n")}\n` : ""}`)
+              ? `${JSON.stringify({ locale, saved, unchanged, fuzzy, refused })}\n`
+              : `Saved ${saved} translations to locales/${locale}. ${unchanged} were already saved.${skipped}\n${refused.length ? `Refused ${refused.length}:\n${lines.join("\n")}\n` : ""}`)
             return refused.length ? 1 : 0
           },
         },
         {
           name: "prune",
-          description: "Delete the records of messages that the code no longer has. Lists them unless --yes.",
+          description: "Delete the records of messages that the code no longer has. Lists them unless --yes. Export changed messages first: prune deletes their old translations.",
           usage: usages.prune,
           run: async (args, context) => {
             const flags = parseFlags(args)
