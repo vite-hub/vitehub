@@ -58,7 +58,6 @@ const runtimeEntries = [
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
   // Generated code imports these modules by path. They are not package exports.
-  "src/internal/agent-invocations.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/task/operations.ts",
@@ -142,25 +141,16 @@ const runtimeEntries = [
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sign-in.ts",
   "src/console/runtime/server/sections.get.ts",
+  "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
 ];
 
-const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 // The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
 const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
-
-function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
-  const matches = readdirSync(consoleAssetRoot)
-    .filter(file => file.startsWith(prefix) && file.endsWith(extension));
-  if (matches.length !== 1) {
-    throw new TypeError(`Expected one hashed Console ${prefix}*${extension} asset, found ${matches.length}.`);
-  }
-  return matches[0]!;
-}
 
 export default defineConfig({
   pack: [
@@ -171,7 +161,6 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
-        { from: ".vitehub/console", to: "dist/console/runtime/public" },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -450,25 +439,6 @@ export default defineConfig({
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
       plugins: [
         {
-          name: "vite-hub-console-assets",
-          generateBundle(_options, bundle) {
-            const page = Object.values(bundle).find(output =>
-              output.type === "chunk"
-              && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
-            );
-            if (!page || page.type !== "chunk") {
-              throw new TypeError("Expected the standalone Console page in the package bundle.");
-            }
-            page.code = page.code
-              .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset("console-", ".css"))
-              .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset("console-", ".js"));
-            const tool = consoleAsset("page-tool-", ".js");
-            for (const output of Object.values(bundle)) {
-              if (output.type === "chunk") output.code = output.code.replaceAll("__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__", tool);
-            }
-          },
-        },
-        {
           // Emit the skills and the well-known index that `npx skills add <app>/_vitehub` reads. The pack task owns dist,
           // so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
           name: "vite-hub-console-skills",
@@ -591,6 +561,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/sign-in"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
+          delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           delete exports["./console/auth-client"];
@@ -613,6 +584,7 @@ export default defineConfig({
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
             "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
+            "./console/setup": "./dist/console/runtime/server/setup.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",

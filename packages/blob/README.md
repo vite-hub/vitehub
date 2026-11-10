@@ -12,7 +12,7 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob h3
+pnpm add @vite-hub/blob h3 valibot
 pnpm add -D vite
 ```
 
@@ -23,10 +23,11 @@ Add the SDK required by the driver you configure.
 ```ts
 // server/api/files.post.ts
 import { blob } from "@vite-hub/blob"
-import { defineEventHandler, readBody } from "h3"
+import { defineEventHandler, readValidatedBody } from "h3"
+import * as v from "valibot"
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, body => v.parse(v.object({ path: v.string(), text: v.string() }), body))
 
   const [writeError] = await blob.put(body.path, body.text, { contentType: "text/plain" })
   if (writeError) throw writeError
@@ -103,7 +104,7 @@ For files shared by public link, add `serve.anonymous: true`. Then signed-out re
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
 ```ts
-import { detectContentType } from "@vite-hub/blob/content-type"
+import { detectContentType } from "@vite-hub/blob"
 
 const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
 if (detected !== file.type) throw new Error("File content does not match its declared type")

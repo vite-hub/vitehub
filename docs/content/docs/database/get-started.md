@@ -92,8 +92,8 @@ export default defineDatabase({
 The Definition only describes the table. To create the table in the database, make a migration and apply it:
 
 ```bash [commands/generate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 - `generate` writes the SQL for your tables to `server/databases/migrations/`.
@@ -184,7 +184,7 @@ The response has your note:
 
 Each POST adds a row with a new ID, and GET returns all rows. Restart the server and send the GET again: the note is still there.
 
-If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub db migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
+If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub database migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
 ::
 

@@ -1,5 +1,5 @@
 import { toAgentPublicError } from "./agent-error.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentInspectionMetadata, AgentRunMetadata } from "./types.ts"
@@ -40,7 +40,7 @@ export type AgentInvocationStreamEvent =
 
 function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEvent {
   const event: unknown = JSON.parse(line)
-  if (!isRuntimeRecord(event) || !hasRuntimeType(event.type, "string")) {
+  if (!isRuntimeRecord(event) || typeof event.type !== "string") {
     throw agentDiagnostics.AGENT_R0607({ message: "Invalid Agent Invocation Stream event." })
   }
   // SAFETY: The stream endpoint owns the event payloads; the reader validates their shared discriminated-union boundary.

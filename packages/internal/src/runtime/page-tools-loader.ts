@@ -225,10 +225,11 @@ function watchPageAsk(change: () => void, signal: AbortSignal): void {
 
 /**
  * Draws the small ViteHub mark that stays where the pill was while the tools are off. Its button turns them on again.
- * The focus moves to it after a key press on the exit button, which is gone. `from`: the height of the hexagon that the
- * pill folded to, which the mark shrinks from.
+ * The focus moves to it after a key press on the exit button, which is gone. `stopped`: removes the mark when it
+ * aborts. `from`: the height of the hexagon that the pill folded to, which the mark shrinks from.
  */
-function mountOffMark(turnOn: () => void, focus: boolean, from?: number): void {
+function mountOffMark(stopped: AbortSignal, turnOn: () => void, focus: boolean, from?: number): void {
+  if (stopped.aborted) return
   const mark = document.createElement("vitehub-tools-off")
   mark.setAttribute("off", "")
   mark.setAttribute("collapsed", "")
@@ -243,6 +244,10 @@ function mountOffMark(turnOn: () => void, focus: boolean, from?: number): void {
   }
   place()
   const watching = new AbortController()
+  stopped.addEventListener("abort", () => {
+    watching.abort()
+    mark.remove()
+  }, { once: true, signal: watching.signal })
   watchPageAsk(place, watching.signal)
   const shadow = mark.attachShadow({ mode: "open" })
   const style = document.createElement("style")
@@ -301,11 +306,25 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   return await startViteHubPageTools(options, false)
 }
 
+/** Aborts when `stopViteHubPageTools()` runs. Each load keeps the signal that it started with. */
+let running = new AbortController()
+
+/**
+ * Stops the pill, the tools, and the off mark of each load on this page, and removes them. Unlike the exit button, it
+ * keeps the browser's choices. A page keeps its tools while it lives, so tests use it: call it before the test window
+ * closes, so that no watcher of the page runs after the window is gone.
+ */
+export function stopViteHubPageTools(): void {
+  running.abort()
+  running = new AbortController()
+}
+
 /** `turnedOn`: the person pressed the off mark, so the pill opens even on a page that asks for the mark. */
 async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turnedOn: boolean): Promise<ViteHubPageToolInfo[]> {
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
   const query = new URLSearchParams(location.search)
   if (!viteHubPageToolsWanted(location.search, document.cookie)) return []
+  const { signal: stopped } = running
   docked = storedViteHubPageDock(dockKey) !== undefined
   crowded = pageControlAtPillPlace()
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
@@ -321,12 +340,12 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     return []
   }
   // One pill per page: a second loader on the same page does nothing.
-  if (session.tools.length === 0 || document.querySelector("vitehub-pill, vitehub-tools-off")) return []
+  if (stopped.aborted || session.tools.length === 0 || document.querySelector("vitehub-pill, vitehub-tools-off")) return []
   const linkedTool = session.tools.find(tool => tool.param && query.has(tool.param))
   // Explicit page-tool links turn the tools on again. Otherwise, tools that were turned off show only their small mark.
   if (query.has(viteHubPageToolsQuery) || linkedTool) rememberOff(false)
   else if (storedOff()) {
-    mountOffMark(() => { rememberOff(false); void startViteHubPageTools(options, true) }, false)
+    mountOffMark(stopped, () => { rememberOff(false); void startViteHubPageTools(options, true) }, false)
     return []
   }
 
@@ -335,6 +354,10 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
+  stopped.addEventListener("abort", () => {
+    for (const controller of controllers) controller.abort()
+    pillController.abort()
+  }, { once: true, signal: pillController.signal })
   const exitChecks = new Set<() => boolean>()
   let closing = false
   // `keyboard`: the exit button was pressed with a key, so the small mark takes the focus that the button had.
@@ -355,7 +378,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     for (const controller of controllers) controller.abort()
     void closed.then(() => {
       pillController.abort()
-      mountOffMark(() => {
+      mountOffMark(stopped, () => {
         rememberOff(false)
         for (const tool of opened) remember(tool.id, true)
         void startViteHubPageTools(options, true)

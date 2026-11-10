@@ -46,11 +46,6 @@ export default defineConfig({
         cache: false,
         command: "vp run --filter vitehub-docs dev",
       },
-      "examples:verify": {
-        cache: false,
-        command: "node test/package-examples.mjs",
-        dependsOn: ["build"],
-      },
       "e2e:local": {
         cache: false,
         command: "node test/local/local.mjs",
@@ -100,8 +95,8 @@ export default defineConfig({
       },
       "playground:vite:provision": {
         cache: false,
-        command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
-        dependsOn: ["@vite-hub/cli#build"],
+        command: "cd playground/vite && node ../../packages/vite-hub/dist/bin.js provision run",
+        dependsOn: ["vite-hub#build"],
       },
       preflight: {
         cache: false,

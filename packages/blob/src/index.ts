@@ -1,3 +1,4 @@
+export { detectContentType } from "./content-type.ts"
 export { ensureBlob } from "./ensure.ts"
 export { blob } from "./runtime/storage.ts"
 export { file, image } from "./reference.ts"
