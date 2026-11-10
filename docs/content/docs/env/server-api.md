@@ -13,7 +13,7 @@ icon: i-lucide-code-2
 | `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
-| `defineEnvProvider` from `vite-hub/env/provider` | Define a read-only provider for outside Env storage. |
+| `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |
 | `loadServerEnv` from `#vitehub/env/server` | Load one frozen Server Env snapshot, with provider values. |
 | `describeServerEnv` from `#vitehub/env/server` | List declaration metadata. Reads no values and calls no provider. |
 | `inspectServerEnv` from `#vitehub/env/server` | Report the status of each value, never the value. |
@@ -21,6 +21,7 @@ icon: i-lucide-code-2
 | `usePublicEnv` from `#vitehub/env/public` | Read Public Env in browser code. |
 | `useServerEnv` from `#vitehub/env/server` | Read Server Env in server code. |
 | `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
+| `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
 | `resolveServerEnv` from `vite-hub/env` | Resolve a Server Env registry yourself. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
@@ -108,23 +109,21 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
     nitro(),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::
@@ -143,22 +142,20 @@ export default defineConfig({
         providers: {
           credentials: './server/env/credentials.ts',
         },
+        server: {
+          credentialsGatewayKey: env({ secret: true }),
+          codexAuthJson: env({
+            secret: true,
+            source: env.provider('credentials', 'codex/auth.json'),
+          }),
+          githubToken: env({
+            secret: true,
+            source: env.provider('credentials', 'github/token'),
+          }),
+        },
       },
     }),
   ],
-  env: {
-    server: {
-      credentialsGatewayKey: env({ secret: true }),
-      codexAuthJson: env({
-        secret: true,
-        source: env.provider('credentials', 'codex/auth.json'),
-      }),
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
-    },
-  },
 })
 ```
 :::
@@ -167,8 +164,8 @@ export default defineConfig({
 The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `#vitehub/env/server`.
 
 ```ts [server/env/credentials.ts]
-import { defineEnvProvider } from 'vite-hub/env/provider'
-import type { SecretEnv } from 'vite-hub/env/secret'
+import { defineEnvProvider } from 'vite-hub/env'
+import type { SecretEnv } from 'vite-hub/env'
 
 export default defineEnvProvider<{
   credentialsGatewayKey: SecretEnv<string>

@@ -261,17 +261,12 @@ const applicationFeatures: SupportMatrixGroup = {
       "Requires Nitro 3 with request async context, or Nuxt 5.",
       "Nitro 3",
     )),
-    featureRow("logs", "Log sources and the development buffer", cell(
-      "package",
-      "Logs read the log source that the app configures for the deployment host.",
-      "Host source",
-    )),
     featureRow("mcp", "The app's own MCP server", cell(
       "package",
       "The MCP route runs in the Nitro output of the selected preset.",
       "Nitro route",
     )),
-    featureRow("observability", "Agent telemetry and request logs", cell(
+    featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
       "package",
       "Evlog runs in the Nitro output of the selected preset.",
       "Evlog",

@@ -57,9 +57,9 @@ const serverOnlyAliases = new Set(["#vitehub/env/server", "#vitehub/auth/server"
  */
 const serverOnlyModules = new Set([
   "agent", "agent/capabilities", "agent/channels", "agent/mcp",
-  "blob", "browser", "browser/actions", "channels", "comments", "content",
-  "database/drizzle", "decisions", "forms", "forms/database", "forms/runtime",
-  "env", "env/auth", "env/bridge", "env/database", "env/http", "env/provider", "env/seal", "env/secret",
+  "blob", "browser", "channels", "comments", "content",
+  "database/drizzle", "decisions", "forms", "forms/database", "forms/operations", "forms/runtime",
+  "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
   "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",

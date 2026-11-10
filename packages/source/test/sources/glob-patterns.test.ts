@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
-import { glob } from "../../src/glob.ts"
+import { glob } from "../../src/index.ts"
 
 const roots: string[] = []
 afterEach(async () => {

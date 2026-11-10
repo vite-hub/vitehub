@@ -1896,6 +1896,16 @@
     position: absolute;
   }
 
+  /* The area that a drag in comment mode draws. */
+  [data-slot="comment-layer-area"] {
+    background: color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
+    border: 1.5px solid var(--vh-highlighted);
+    border-radius: 3px;
+    box-sizing: border-box;
+    pointer-events: none;
+    position: absolute;
+  }
+
   [data-slot="comment-layer-item"] {
     pointer-events: none;
     position: absolute;
@@ -1978,9 +1988,10 @@
     width: 22.5rem;
   }
 
+  /* `--vh-comment-x` is the x of the spot on the screen. On a narrow screen the card moves so that it stays on screen. */
   [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
     left: auto;
-    right: 0.5rem;
+    right: clamp(calc(var(--vh-comment-x, 0px) + 0.5rem - 100vw), 0.5rem, calc(var(--vh-comment-x, 100vw) - min(22.5rem, 100vw - 1rem) - 0.5rem));
   }
 
   [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
@@ -2093,6 +2104,17 @@
     color: var(--vh-error);
     font-size: 0.75rem;
     margin: 0.375rem 0 0;
+  }
+
+  /* "Press Esc again to discard." after an Esc in a box with text. It takes no room while it is empty. */
+  [data-slot="comment-composer-status"] {
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    margin: 0;
+  }
+
+  [data-slot="comment-composer-status"]:not(:empty) {
+    padding: 0.25rem 0.625rem 0.125rem;
   }
 
   [data-slot="comment-thread"] {

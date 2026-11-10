@@ -12,7 +12,7 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob h3
+pnpm add @vite-hub/blob h3 valibot
 pnpm add -D vite
 ```
 
@@ -23,10 +23,11 @@ Add the SDK required by the driver you configure.
 ```ts
 // server/api/files.post.ts
 import { blob } from "@vite-hub/blob"
-import { defineEventHandler, readBody } from "h3"
+import { defineEventHandler, readValidatedBody } from "h3"
+import * as v from "valibot"
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, body => v.parse(v.object({ path: v.string(), text: v.string() }), body))
 
   const [writeError] = await blob.put(body.path, body.text, { contentType: "text/plain" })
   if (writeError) throw writeError
@@ -44,11 +45,10 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     base: ".vitehub/data/blob",
-  },
-  plugins: [hubBlob(), nitro()],
+  }), nitro()],
 })
 ```
 
@@ -85,8 +85,7 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: { remote: true },
-  plugins: [hubBlob(), nitro()],
+  plugins: [hubBlob({ remote: true }), nitro()],
 })
 ```
 
@@ -105,7 +104,7 @@ For files shared by public link, add `serve.anonymous: true`. Then signed-out re
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
 ```ts
-import { detectContentType } from "@vite-hub/blob/content-type"
+import { detectContentType } from "@vite-hub/blob"
 
 const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
 if (detected !== file.type) throw new Error("File content does not match its declared type")
@@ -117,7 +116,7 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "fs",
     serve: {
       route: "/assets",
@@ -126,8 +125,7 @@ export default defineConfig({
         "X-Content-Type-Options": "nosniff",
       },
     },
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -257,14 +255,13 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "s3",
     bucket: "app-assets",
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION,
     publicBaseUrl: "https://assets.example.com",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -284,10 +281,9 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: "minio",
-  },
-  plugins: [hubBlob()],
+  })],
 })
 ```
 
@@ -319,6 +315,6 @@ blob: {
 
 `hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `del <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
 
-Each command runs a `blob.*` operation of the app through the Console RPC (`@vite-hub/blob/operations`), on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
+Each command runs a `blob.*` operation of the app through the Console RPC, on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

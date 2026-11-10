@@ -86,6 +86,30 @@ Definition.
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: true }`, behind the Console sign-in. |
 
+## Env and Nuxt runtime config
+
+Nuxt 5 can validate `runtimeConfig` itself. Put a Standard Schema as a
+`runtimeConfig` value, and Nuxt applies `NUXT_*` variables, coerces them, and
+checks them when the server starts. `useRuntimeConfig()` gets the types of the
+schemas. Nuxt converts each schema to JSON Schema, so it checks types,
+required keys, enums, objects, and arrays, but not formats, ranges, patterns,
+refinements, or transforms.
+
+Env does not read or write `runtimeConfig`. The two work side by side in one
+application, so pick per value:
+
+| You need | Use |
+| --- | --- |
+| A value that `useRuntimeConfig()` and other Nuxt modules read | Nuxt `runtimeConfig` |
+| A secret that stays wrapped until code unseals it | `env.server` with `secret: true` |
+| A browser value that is fixed during the build | `env.public` |
+| A URL, range, pattern, refinement, or transform check on a server value | `env.server` with [`env.schemaFrom()`](/docs/env/configure#validate-server-env-with-your-own-schema) |
+| Values from a secret manager | `env.server` with [`env.provider()`](/docs/env/server-api) |
+
+Nuxt reads `runtimeConfig.public` again when the server starts. Env Public
+values do not change after the build. Env checks Server Env when server code
+reads it, not when the server starts.
+
 ## Inspect the output
 
 Generated Agent files are in Nuxt's build directory. Other `.vitehub` files
@@ -93,7 +117,7 @@ and the production output use the same paths as a Vite app.
 
 ```bash [Terminal]
 find .nuxt/vitehub -maxdepth 4 -type f | sort
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 ## Next steps
