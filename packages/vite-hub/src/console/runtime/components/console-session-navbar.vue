@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { CopyButton } from "@vite-hub/ui";
+import { computed } from "vue";
 
 const props = defineProps<{
   cost?: string;
@@ -26,33 +27,13 @@ const externalTarget = computed(() => {
   return { icon: "i-lucide-external-link", label: "Open related page" };
 });
 
+const sessionLink = () => window.location.href;
+
 defineEmits<{
   openSessions: [];
   refresh: [];
   toggleDetails: [];
 }>();
-
-const linkCopy = ref<"copied" | "failed">();
-let linkCopyTimer: ReturnType<typeof setTimeout> | undefined;
-const linkCopyLabel = computed(() =>
-  linkCopy.value === "copied" ? "Link copied" : linkCopy.value === "failed" ? "Could not copy link" : "Copy session link",
-);
-
-async function copySessionLink(): Promise<void> {
-  try {
-    if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(window.location.href);
-    linkCopy.value = "copied";
-  } catch {
-    linkCopy.value = "failed";
-  }
-  if (linkCopyTimer) clearTimeout(linkCopyTimer);
-  linkCopyTimer = setTimeout(() => (linkCopy.value = undefined), 2_000);
-}
-
-onBeforeUnmount(() => {
-  if (linkCopyTimer) clearTimeout(linkCopyTimer);
-});
 </script>
 
 <template>
@@ -79,7 +60,6 @@ onBeforeUnmount(() => {
           data-slot="mobile-session-navigation"
           class="md:hidden"
           icon="i-lucide-menu"
-          color="neutral"
           variant="ghost"
           size="xs"
           aria-label="Open sessions"
@@ -88,23 +68,14 @@ onBeforeUnmount(() => {
       </UTooltip>
     </template>
     <template #right>
-      <span class="sr-only" role="status" aria-live="polite">{{ linkCopy ? linkCopyLabel : "" }}</span>
-      <UTooltip v-if="hasSelection" :text="linkCopyLabel">
-        <UButton
-          :icon="linkCopy === 'copied' ? 'i-lucide-check' : 'i-lucide-link'"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="linkCopyLabel"
-          @click="copySessionLink"
-        />
+      <UTooltip v-if="hasSelection" text="Copy session link">
+        <CopyButton :value="sessionLink" size="xs" aria-label="Copy session link" />
       </UTooltip>
       <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
         <UButton
           :to="externalUrl"
           target="_blank"
           :icon="externalTarget.icon"
-          color="neutral"
           variant="ghost"
           size="xs"
           :aria-label="externalTarget.label"
@@ -114,7 +85,6 @@ onBeforeUnmount(() => {
       <UTooltip v-if="refreshable" text="Refresh session">
         <UButton
           icon="i-lucide-refresh-cw"
-          color="neutral"
           variant="ghost"
           size="xs"
           :loading="loading"
@@ -126,7 +96,6 @@ onBeforeUnmount(() => {
         <UButton
           data-slot="session-details-toggle"
           icon="i-lucide-panel-right"
-          color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
           size="xs"
           :disabled="!hasSelection"
