@@ -1,4 +1,4 @@
-import type { SecretEnv } from "@vite-hub/env/secret";
+import type { SecretEnv } from "@vite-hub/env";
 import { usePublicEnv } from "#vitehub/env/public";
 import { useServerEnv } from "#vitehub/env/server";
 

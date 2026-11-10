@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
@@ -81,7 +82,7 @@ export function viteHubTaskPlugin(): Plugin & { vitehub: ViteHubInspectionPlugin
     vitehub: {
       // The app imports the operations through `vite-hub`. Without tasks there is nothing to list or run.
       operations: () => active
-        ? [{ export: "taskOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).taskOperations, module: "vite-hub/_internal/task/operations" }]
+        ? [{ export: "taskOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).taskOperations, module: ownModule(import.meta.url, "task/operations") }]
         : [],
       inspect: () => ({
         definitions: [{

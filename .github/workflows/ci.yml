@@ -224,8 +224,9 @@ jobs:
   # times with no Vitest output. 30 minutes is about 2.5 times the slowest healthy shard.
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
-  # about 4 minutes and set the floor. Presets, Auth, and Schedule run in the
-  # shorter shards, so "other packages" is not the slowest job. The last
+  # about 4 minutes and set the floor. Presets, Auth, Schedule, and the docs
+  # package's Nuxt builds run in the shorter shards, so "other packages" is
+  # not the slowest job. The last
   # shard excludes the named packages, so a new package always runs
   # somewhere. A pull request tests only the packages it changes and their
   # dependents. A shard without one passes after checkout and does not
@@ -251,12 +252,12 @@ jobs:
             args: --packages vite-hub
           - name: workspace and presets
             args: --packages @vite-hub/workspace,@vite-hub/presets
-          - name: content and workflow
-            args: --packages @vite-hub/content,@vite-hub/workflow
+          - name: content, workflow, and docs
+            args: --packages @vite-hub/content,@vite-hub/workflow,@vite-hub/docs
           - name: storage, delivery, and auth
             args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
           - name: other packages
-            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/docs,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -355,10 +356,14 @@ jobs:
 
       - name: Require Node.js 22.18
         run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
+      # Install-time builds ran on Node 24. Rebuild once on Node 22.18 before
+      # allowing the six targets to reuse each other's dependency builds.
+      - name: Clear install-time build cache
+        run: vp cache clean
       - name: Build tested packages
         run: |
           for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
-            vp run -t "$task"
+            vp run --cache -t "$task"
           done
       - run: vp test
         working-directory: packages/rate-limit
@@ -498,8 +503,9 @@ jobs:
         with:
           prepare-docs: "false"
 
-      # The Console client imports the built packages, such as vite-hub/console/sections.
-      - run: vp run -t vite-hub#build
+      # The Console client imports built packages, such as vite-hub/console/sections.
+      # Setup and this build both use Node 24, so reuse the docs postinstall builds.
+      - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vite-hub build:console-hosted
       - name: Identify hosted Console build
         run: |

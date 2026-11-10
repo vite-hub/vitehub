@@ -4,8 +4,12 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import page from "../src/console/runtime/server/page.get.ts"
+import { installConsoleClient } from "../src/console/runtime/server/client-assets.ts"
 import session from "../src/console/runtime/server/page-session.ts"
 import { requestEvent } from "./console-event.ts"
+
+// Generated Console output installs the entry names of @vite-hub/console-client.
+installConsoleClient({ pageTool: "page-tool-test.js", script: "console-test.js", style: "console-test.css" })
 
 const event = (path: string) => (requestEvent(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } })))
 afterEach(() => {
@@ -67,16 +71,19 @@ describe("embedded Console access", () => {
     expect(authorize).not.toHaveBeenCalled()
   })
 
-  it("does not offer Content to a Console user whose sections exclude it", async () => {
-    installConsoleSections("/embedded-test", ["content", "kv"])
-    const app = { fetch: (request: Request) => session(requestEvent(request)) }
-    installConsolePageTool(app)
-    installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })
-    expect(await (await app.fetch(event("/_vitehub/page/session")["~standard"].req)).json()).toMatchObject({ tools: [{ id: "console" }] })
-    installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["content"] }) })
-    const { tools } = await (await app.fetch(event("/_vitehub/page/session")["~standard"].req)).json() as ViteHubPageSession
-    expect(tools).toMatchObject([{ id: "console", lazy: true }, { id: "content" }])
-    expect(tools[1]).not.toHaveProperty("lazy")
+  it("loads the Console segment with the page only when the app has Content, and offers no separate Content tool", async () => {
+    const tools = async (sections: Parameters<typeof installConsoleSections>[1]) => {
+      installConsoleSections("/embedded-test", sections)
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
+      const app = { fetch: (request: Request) => session(requestEvent(request)) }
+      installConsolePageTool(app)
+      installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["content", "kv"] }) })
+      return (await (await app.fetch(event("/_vitehub/page/session")["~standard"].req)).json() as ViteHubPageSession).tools
+    }
+    const withContent = await tools(["content", "kv"])
+    expect(withContent).toMatchObject([{ id: "console" }])
+    expect(withContent[0]).not.toHaveProperty("lazy")
+    expect(await tools(["kv"])).toMatchObject([{ id: "console", lazy: true }])
   })
 
   it("keeps read-only Content in Console without replacing the writable Comments inline editor", async () => {

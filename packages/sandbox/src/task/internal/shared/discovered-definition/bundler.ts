@@ -1,17 +1,15 @@
-import { builtinModules } from 'node:module'
+import { createRequire, isBuiltin } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { findDynamicImports } from 'mlly'
-import { dirname, relative, resolve as resolvePath } from 'pathe'
-import type { Loader, Plugin } from 'esbuild'
+import type { Rolldown } from 'vite'
 import { sandboxTaskErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export interface DiscoveredDefinitionBundleOptions {
   alias?: Record<string, string>
   filename: string
   source: string
-  external?: string[]
-  loader?: Loader
   packages?: 'bundle' | 'external'
-  plugins?: Plugin[]
+  plugins?: Rolldown.Plugin[]
 }
 
 export interface DiscoveredDefinitionModuleGraph {
@@ -21,26 +19,28 @@ export interface DiscoveredDefinitionModuleGraph {
   modules: Record<string, string>
 }
 
-const builtinModuleSet = new Set([
-  ...builtinModules,
-  ...builtinModules.map(name => `node:${name}`),
-])
-
-function resolveDefinitionLoader(options: DiscoveredDefinitionBundleOptions) {
-  let loader = options.loader
-  if (!loader) {
-    const f = options.filename
-    if (f.endsWith('.tsx')) loader = 'tsx'
-    else if (f.endsWith('.jsx')) loader = 'jsx'
-    else if (f.endsWith('.js') || f.endsWith('.mjs') || f.endsWith('.cjs')) loader = 'js'
-    else loader = 'ts'
-  }
-  return loader
+function isJsxDefinition(filename: string) {
+  return filename.endsWith('.tsx') || filename.endsWith('.jsx')
 }
 
-function isJsxDefinitionLoader(options: DiscoveredDefinitionBundleOptions) {
-  const loader = resolveDefinitionLoader(options)
-  return loader === 'tsx' || loader === 'jsx'
+function isBareSpecifier(id: string) {
+  return !/^(?:\.{1,2}(?:\/|$)|\/|[A-Za-z]:[\\/]|\0)/.test(id)
+}
+
+/**
+ * Vite 8 bundles with Rolldown, so the app already has it. Load the copy next to `vite`, or `vite/rolldown` with
+ * Vite+, instead of installing a second bundler.
+ */
+async function importRolldown(): Promise<typeof Rolldown> {
+  let entry: string
+  try {
+    entry = createRequire(import.meta.resolve('vite')).resolve('rolldown')
+  }
+  catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'MODULE_NOT_FOUND') throw error
+    entry = createRequire(import.meta.url).resolve('vite/rolldown')
+  }
+  return await import(pathToFileURL(entry).href)
 }
 
 function usesRuntimeModuleResolution(contents: string) {
@@ -52,46 +52,56 @@ function usesRuntimeModuleResolution(contents: string) {
 export async function bundleDiscoveredDefinitionModuleGraph(
   options: DiscoveredDefinitionBundleOptions,
 ): Promise<DiscoveredDefinitionModuleGraph> {
-  const outdir = resolvePath(dirname(options.filename), '.vitehub-discovered-definition')
-  const { build } = await import('esbuild')
-  const result = await build({
-    alias: options.alias,
-    stdin: {
-      contents: options.source,
-      loader: resolveDefinitionLoader(options),
-      resolveDir: dirname(options.filename),
-      sourcefile: options.filename,
-    },
-    bundle: true,
-    splitting: true,
-    entryNames: 'definition',
-    chunkNames: 'chunks/[name]-[hash]',
-    outdir,
-    write: false,
-    format: 'esm',
+  const { rolldown } = await importRolldown()
+  const aliases = Object.keys(options.alias || {})
+  const bundle = await rolldown({
+    input: { definition: options.filename },
     platform: 'node',
-    target: 'es2022',
-    metafile: true,
     logLevel: 'silent',
-    jsx: isJsxDefinitionLoader(options) ? 'automatic' : undefined,
-    jsxImportSource: isJsxDefinitionLoader(options) ? 'react' : undefined,
-    packages: options.packages === 'external' ? 'external' : undefined,
-    external: [...builtinModuleSet, ...(options.external || [])],
-    plugins: options.plugins,
+    resolve: { alias: options.alias },
+    transform: {
+      target: 'es2022',
+      jsx: isJsxDefinition(options.filename) ? { runtime: 'automatic', importSource: 'react' } : undefined,
+    },
+    plugins: [
+      ...(options.plugins || []),
+      {
+        name: 'vitehub-sandbox-task-definition-source',
+        resolveId(id) {
+          if (id === options.filename) return id
+          if (options.packages === 'external' && isBareSpecifier(id) && !isBuiltin(id)
+            && !aliases.some(alias => id === alias || id.startsWith(`${alias}/`))) {
+            return { id, external: true }
+          }
+        },
+        load(id) {
+          if (id === options.filename) return options.source
+        },
+      },
+    ],
   })
+  let output: Rolldown.RolldownOutput['output']
+  try {
+    output = (await bundle.generate({
+      format: 'esm',
+      entryFileNames: '[name].js',
+      chunkFileNames: 'chunks/[name]-[hash].js',
+    })).output
+  }
+  finally {
+    await bundle.close()
+  }
 
-  const modules = Object.fromEntries((result.outputFiles || []).map((outputFile) => {
-    return [relative(outdir, outputFile.path), outputFile.text]
-  }))
+  const chunks = output.filter(file => file.type === 'chunk')
+  const modules = Object.fromEntries(chunks.map(chunk => [chunk.fileName, chunk.code]))
 
   if (!modules['definition.js']) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0048({ message: `[vitehub] Failed to bundle discovered definition graph "${options.filename}".` })
   }
 
-  const externalImports = [...new Set(Object.values(result.metafile.outputs)
-    .flatMap(output => output.imports)
-    .filter(imported => imported.external)
-    .map(imported => imported.path))].sort()
+  const externalImports = [...new Set(chunks
+    .flatMap(chunk => [...chunk.imports, ...chunk.dynamicImports])
+    .filter(imported => !Object.hasOwn(modules, imported)))].sort()
   const hasRuntimeModuleResolution = Object.values(modules).some(usesRuntimeModuleResolution)
 
   return {
