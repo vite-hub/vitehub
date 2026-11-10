@@ -3,7 +3,7 @@ description: "Fix QUEUE_DEFINITION_NOT_FOUND in ViteHub. The queue name has no d
 seo.title: "QUEUE_DEFINITION_NOT_FOUND: unknown Queue name"
 ---
 
-`runQueue()`, `getQueue()`, or `dynamicQueue` throws `QUEUE_DEFINITION_NOT_FOUND` when the runtime has no Queue Definition with the name that you passed. `error.why` shows the name only when it is a safe identifier.
+`sendQueue()`, `useQueue()`, or `dynamicQueue` throws `QUEUE_DEFINITION_NOT_FOUND` when the runtime has no Queue Definition with the name that you passed. `error.why` shows the name only when it is a safe identifier.
 
 ## Why it happens
 
@@ -19,11 +19,11 @@ The generated server output loads a registry of the discovered Queue Definitions
 ## Fix it
 
 ```diff [server/api/signup.post.ts]
- import { runQueue } from 'vite-hub/queue'
+ import { sendQueue } from 'vite-hub/queue'
 
  export default defineEventHandler(async () => {
--  const [error] = await runQueue('welcome', { email: 'ava@example.com' })
-+  const [error] = await runQueue('welcome-email', { email: 'ava@example.com' })
+-  const [error] = await sendQueue('welcome', { email: 'ava@example.com' })
++  const [error] = await sendQueue('welcome-email', { email: 'ava@example.com' })
    if (error) throw error
  })
 ```

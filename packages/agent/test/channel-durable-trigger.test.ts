@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent, resolveAgentTriggerInvocation } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -30,7 +30,7 @@ function agentWith(
     : defineChannelTrigger({ invoke: context => seen(context.channelState) })
   const agent = defineAgent({
     channels: {
-      tickets: defineChannel("tickets", {
+      tickets: channelAdapter("tickets", {
         messages: false,
         triggers: { opened },
         webhooks,

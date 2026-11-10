@@ -119,7 +119,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/output",
   "@vite-hub/agent/observability/host",
   "@vite-hub/agent/observability/posthog",
-  "@vite-hub/agent/server/github",
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
@@ -134,6 +133,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
+  "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/ui/browser-support-notice",
   "@vite-hub/ui/connect-panel",
@@ -172,6 +172,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/default-database",
   "@vite-hub/database/runtime/default-database-postgresql",
   "@vite-hub/database/runtime/hosted",
+  "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/migrate-on-start",
   "@vite-hub/database/runtime/postgres",
   "@vite-hub/database/runtime/request-stats",
@@ -330,7 +331,7 @@ describe("framework package contract", () => {
 
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
-      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+      .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);

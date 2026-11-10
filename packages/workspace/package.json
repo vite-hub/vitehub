@@ -141,6 +141,11 @@
       "import": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
     },
+    "./internal/runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
+    },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
@@ -172,7 +177,6 @@
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
-    "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
     "minimatch": "catalog:workspace",
@@ -194,6 +198,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
+    "h3": "catalog:unjs",
     "ocache": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

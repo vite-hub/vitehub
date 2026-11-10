@@ -40,12 +40,15 @@ export function coerceFormFields(schema: StandardSchemaV1, fields: Record<string
       else if (value === "on") fields[key] = true
     }
     else if (node.type === "number" && typeof value === "string") {
-      fields[key] = value === "" ? undefined : Number(value)
+      // Omit empty controls so optional schema output stays JSON data.
+      if (value === "") delete fields[key]
+      else fields[key] = Number(value)
     }
     else if ((node.type === "picklist" || node.type === "enum") && typeof value === "string") {
       const option = node.options?.find(option => (typeof option === "string" || typeof option === "number") && String(option) === value)
-      // An empty optional select is undefined. Keep invalid choices for the schema to reject.
-      fields[key] = option ?? (value === "" ? undefined : value)
+      // Omit an empty placeholder. Keep valid empty choices and invalid values for validation.
+      if (option === undefined && value === "") delete fields[key]
+      else fields[key] = option ?? value
     }
   }
 }
