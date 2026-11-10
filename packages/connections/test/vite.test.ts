@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
+import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -245,6 +245,20 @@ describe("hubConnections", () => {
       "/_vitehub/connections/connect/**",
       "/_vitehub/connections/callback",
     ]);
+  });
+
+  it("generates management output during Nuxt prepare without a production actor", async () => {
+    const root = await createTempProject();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true, [VITEHUB_PREPARE]: true };
+    await (hubConnections({ management: true }).config as unknown as ConfigHook)(config, {
+      command: "build",
+      mode: "production",
+    });
+    const handlers = (config.nitro as { handlers: Array<{ handler: string }> }).handlers;
+    expect(handlers).toHaveLength(3);
+    await expect(readFile(handlers[0]!.handler, "utf8")).resolves.toContain(
+      'createConnectionsHandler({ actor: "development", basePath: "/_vitehub/connections" })',
+    );
   });
 
   it("requires authenticated management configuration in production", async () => {
