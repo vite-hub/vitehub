@@ -47,6 +47,7 @@ function parseArguments(argv) {
 
   const options = {
     affectedBase: undefined,
+    cache: false,
     excludedNames: [],
     list: false,
     maxParallel: DEFAULT_MAX_PARALLEL,
@@ -60,6 +61,10 @@ function parseArguments(argv) {
     const flag = rest[index]
     if (flag === "--list") {
       options.list = true
+      continue
+    }
+    if (flag === "--cache") {
+      options.cache = true
       continue
     }
     const value = rest[++index]
@@ -229,6 +234,11 @@ function executePackage(pkg, phase, options) {
       return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "--shell-mode", "exec", testScript], options.workspaceRoot, options.signal)
     }
   }
+  if (phase === "build" && options.cache) {
+    // --cache: the Vite+ task cache replays a build whose inputs did not
+    // change. CI restores that cache in every job.
+    return spawnCommand("corepack", ["pnpm", "exec", "vp", "run", "--cache", "--filter", pkg.name, "build"], options.workspaceRoot, options.signal)
+  }
   return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "run", phase], options.workspaceRoot, options.signal)
 }
 
@@ -378,6 +388,7 @@ export async function runPackageTask(options) {
   const execute = options.execute ?? ((pkg, phase, executionOptions) => executePackage(pkg, phase, {
     ...executionOptions,
     buildResults,
+    cache: options.cache,
     workspaceRoot,
   }))
   let buildResults
