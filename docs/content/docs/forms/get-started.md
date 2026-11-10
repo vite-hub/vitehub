@@ -56,10 +56,10 @@ vitehub db migrate
 ::tutorial-step{title="Send a message"}
 ## Send a message
 
-Start the dev server with `pnpm vite dev`, then send a message:
+Start the dev server with `pnpm dev`, as in [Installation](/docs/getting-started/installation), then send a message from a second terminal:
 
 ```bash [commands/send]
-curl -X POST http://localhost:5173/api/_vitehub/forms/contact \
+curl -X POST http://localhost:3000/api/_vitehub/forms/contact \
   -H 'content-type: application/json' \
   -d '{"email":"ada@example.com","message":"I want to build a shop."}'
 ```
