@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation } from "../src/operations.ts"
+import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation, table } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
 
@@ -295,4 +295,10 @@ it("rejects an operation that claims a setup command name", () => {
     })
     expect(() => createOperationRegistry([{ operations: [operation] }])).toThrowError(/reserved/)
   }
+})
+
+describe("table", () => {
+  it("pads every column but the last", () => {
+    expect(table([["NAME", "STATUS"], ["queue-a", "ok "], ["b", "failed"]])).toBe("NAME     STATUS\nqueue-a  ok \nb        failed")
+  })
 })

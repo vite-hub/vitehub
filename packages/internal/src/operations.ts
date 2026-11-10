@@ -730,3 +730,9 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
   return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
 }
+
+/** Align rows of text cells in columns for CLI output. The last column is not padded. */
+export function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
+}
