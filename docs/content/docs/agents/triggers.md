@@ -313,6 +313,8 @@ With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` 
 
 ### Run a task later from server code
 
+`enqueueChannelTask()` skips the trigger's `invoke`. To run `invoke` too, with its delivery ID, `serialize`, `debounce`, and Channel State, use [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code) from `vite-hub/channels`, for example to reconcile a webhook that a provider lost.
+
 `enqueueChannelTask()` runs a declared task at `notBefore` or after `delayMs` through the Channel's webhook queue. `prepare`, `failed`, retries, restart replay, and the delivery record work as for a queued webhook delivery. `input` is what `invoke` would return for the task.
 
 Call it from server code in the same persistent Node server as the Agent webhook host, such as an Agent hook, an in-process Schedule, or an API route. On persistent Nitro hosts, enqueue and cancel start the queue when needed, even before its startup timer fires.
