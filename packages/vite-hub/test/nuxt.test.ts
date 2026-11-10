@@ -5202,6 +5202,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
   it("exposes Nuxt module metadata for vitehub configuration", async () => {
     await expect(viteHubNuxtModule.getMeta()).resolves.toEqual({
+      compatibility: { server: "nitro3" },
       configKey: "vitehub",
       name: "vite-hub/nuxt",
     })

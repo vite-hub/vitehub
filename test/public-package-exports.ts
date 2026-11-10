@@ -89,6 +89,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./drivers/uploadthing",
     "./drivers/vercel",
     "./ensure",
+    "./internal/vercel-blob",
     "./media",
     "./reference",
     "./runtime/state",
