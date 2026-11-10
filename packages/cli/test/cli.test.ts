@@ -165,7 +165,7 @@ export default ({ mode }) => ({
     expect(loadConfig).not.toHaveBeenCalled()
   })
 
-  it("prints the installed manifest version through the built binary outside a project", async () => {
+  it("prints the installed manifest version through the built entrypoint outside a project", async () => {
     const rootDir = await createTempDir()
     const packageDir = join(rootDir, "package")
     await mkdir(packageDir, { recursive: true })
@@ -173,7 +173,10 @@ export default ({ mode }) => ({
     await writeFile(join(packageDir, "package.json"), JSON.stringify({ type: "module", version: "0.0.0-preview.1174" }))
     await symlink(resolve(import.meta.dirname, "../node_modules"), join(packageDir, "node_modules"), "dir")
 
-    const { stderr, stdout } = await execFileAsync(process.execPath, [join(packageDir, "dist/index.js"), "--version"], {
+    // The vite-hub bin calls runViteHubCliEntrypoint() the same way.
+    const entry = join(packageDir, "bin.mjs")
+    await writeFile(entry, `import { runViteHubCliEntrypoint } from "./dist/index.js"\nrunViteHubCliEntrypoint()\n`)
+    const { stderr, stdout } = await execFileAsync(process.execPath, [entry, "--version"], {
       cwd: rootDir,
     })
 
@@ -584,7 +587,20 @@ export default ({ mode }) => ({
     expect(help).toContain("  remove       Turn off features")
     expect(help).toContain("  catalog      List every ViteHub feature")
     expect(help).toContain("  status       Show the host")
+    expect(help).toContain("  drain        Drain a running Node server")
     expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
+  })
+
+  it("runs `vitehub drain` without loading the project", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
+
+    expect(await runViteHubCli({ args: ["drain", "--help"], cwd: "/app", loadConfig, stderr, stdout })).toBe(0)
+    expect(stdout.output()).toBe("Usage: vitehub drain MAINPID [STATUS_URL]\n")
+    expect(await runViteHubCli({ args: ["drain", "nope"], cwd: "/app", loadConfig, stderr, stdout })).toBe(2)
+    expect(stderr.output()).toBe("usage: vitehub drain MAINPID [STATUS_URL]\n")
+    expect(loadConfig).not.toHaveBeenCalled()
   })
 
   it("knows the name of every setup command before it imports them", () => {

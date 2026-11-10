@@ -10,7 +10,7 @@ describe("docsAppConfigUi", () => {
     const ui = docsAppConfigUi(docsUi("Docs"), nuxtUiDefaults, [undefined])
 
     expect(ui.colors).toEqual({ primary: "neutral", secondary: "blue", neutral: "neutral", warning: "amber" })
-    expect(ui.icons).toMatchObject({ light: "i-ph-sun-light", copy: "i-lucide-copy" })
+    expect(ui.icons).toMatchObject({ light: "i-lucide-sun", copy: "i-lucide-copy" })
   })
 
   it("lets the app's Nuxt config win over the design", () => {

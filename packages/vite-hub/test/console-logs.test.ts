@@ -6,7 +6,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import type { LogPage, LogSource } from "../src/logs/source.ts";
 import { consoleEvent } from "./console-event.ts";
-import { requestEvent } from "./console-event.ts";
+import { routeRequest } from "./console-event.ts";
 
 const request = (query = "") => consoleEvent({ url: `http://localhost/_vitehub/api/logs${query}` });
 afterEach(() => installConsoleAccess({ mode: "open" }));
@@ -16,7 +16,7 @@ describe("Console Logs", () => {
     const query = vi.spyOn(buffer.source, "query");
     installLogSource("/logs-tests", buffer.source);
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv"] }) });
-    const response = await logsRoute(request());
+    const response = await logsRoute.fetch(routeRequest(request()));
     expect(response).toBeInstanceOf(Response);
     expect(response instanceof Response && response.status).toBe(403);
     expect(query).not.toHaveBeenCalled();
@@ -118,7 +118,7 @@ describe("Console Logs", () => {
           body: JSON.stringify({ operation: "logs.list", input: {} }),
           signal: controller.signal,
         });
-    const reading = transport === "HTTP" ? logsRoute(requestEvent(req)) : handleConsoleRpcRequest(req);
+    const reading = transport === "HTTP" ? logsRoute.fetch(req) : handleConsoleRpcRequest(req);
     try {
       const signal = await started;
       expect(signal?.aborted).toBe(false);

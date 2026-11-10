@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `runSchedule` from `@vite-hub/schedule/runtime` | Run a Definition that sets `manual: true` now. |
 | `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
-| `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
+| `setScheduleRunStore` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
 | `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process` | Run Static Schedule Definitions on their cron inside a long-running process. |
 | `createScheduleKVStorage` from `@vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
 | `installStartedSchedules`, `runStartedSchedules`, `createKVStartedScheduleStore`, `createMemoryStartedScheduleStore` from `@vite-hub/schedule/runtime` | Wire the store and the tick of started Schedules yourself. The generated Nitro plugin does it for you. |
