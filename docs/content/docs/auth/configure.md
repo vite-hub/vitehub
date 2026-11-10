@@ -486,6 +486,55 @@ export default defineAuth({
 
 To keep Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-database), or return a real Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`. This metadata does not replace the adapter.
 
+## Protect Nuxt pages
+
+In a Nuxt app, the page guard sends each visitor to a page that they may open. It runs when the server renders a page and on each navigation in the browser. List the pages that it guards in `vitehub.auth.routes`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: {
+      routes: {
+        '/dashboard/**': 'user',
+        '/dashboard/pricing': false,
+        '/login': 'guest',
+      },
+    },
+  },
+})
+```
+
+- `'user'` sends a visitor without a session to `/login?redirect=<the page>`. A direct load and a navigation in the browser go to the same page.
+- `'guest'` sends a signed-in user to `/`. Use it for the login and sign-up pages.
+- `false` removes the guard of a wider pattern. Here, `/dashboard/pricing` is public.
+- A key is a Nuxt route rule pattern. `/**` matches the path and every path below it. When patterns overlap, the most specific pattern wins.
+
+ViteHub adds the guard to the `appMiddleware` route rule of each pattern and keeps the other rules of the pattern. A wrong key or value stops the build with `AUTH_B0003`.
+
+To guard a page from its own file, use `definePageMeta({ auth })`. It takes `'user'`, `'guest'`, `false`, or `{ only, redirectTo }`. Page meta wins over `routes`, so `definePageMeta({ auth: false })` makes one page public inside a `'user'` pattern.
+
+`redirects.login` (default `/login`) and `redirects.guest` (default `/`) set where the guard sends visitors:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: {
+      redirects: { login: '/sign-in', guest: '/dashboard' },
+      routes: { '/dashboard/**': 'user', '/sign-in': 'guest' },
+    },
+  },
+})
+```
+
+> [!NOTE]
+> A wide pattern such as `'/**': 'user'` also covers the login page. The guard never sends a visitor to the page they are on, so a signed-out visitor can still open the login page. Set the login page to `'guest'` so that a signed-in user leaves it.
+
+The page guard decides which page the browser shows. It does not protect data, because a request straight to an API route skips it. Guard API routes with `access.routes` in `server/auth.ts`, for example `'/api/dashboard/**'`. Do not put page paths in `access.routes`. A direct load of the page then gets `401`, or starts the `access.signIn` provider sign-in, while a navigation in the browser goes to the login page.
+
+Do not cache a guarded page with a route rule such as `swr`, `isr`, or `prerender`. The cached page is rendered for one visitor and served to all visitors.
+
 ## Vite Integration options
 
 `hubAuth(false)` turns the Auth integration off. Vite does not read a top-level `auth` key.

@@ -13,7 +13,7 @@ type NuxtApp = {
   runWithContext<T>(run: () => T): T
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
+type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
 type EventLike = { node?: { res?: { appendHeader?: (name: string, value: string) => void } }, res?: { headers?: Headers } }
 
@@ -100,14 +100,16 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
-    addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
-      const meta = to.meta.auth
+    const guard = (to: RouteLike, meta: AuthPageMeta | undefined) => {
       if (meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
       const decide = (loggedIn: boolean) => {
-        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+        const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
+        // A redirect to the page itself would loop: the guard of that page sends the visitor away again. A wide
+        // `vitehub.auth.routes` pattern, such as `'/**': 'user'`, also covers the login page.
+        if (!target || target.split(/[?#]/)[0] === to.path) return
+        return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
       }
       // Decide synchronously on the server to keep Nuxt's request context. Browser navigations read the current
       // session directly, without installing a composable's watchers outside a component scope.
@@ -118,7 +120,12 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       // In the browser, keep the Nuxt app for the navigation after Better Auth answers.
       const app = tryUseNuxtApp() as NuxtApp | undefined
       return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
-    }, { global: true })
+    }
+    addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth), { global: true })
+    // `vitehub.auth.routes` attaches these to pages with the `appMiddleware` route rule. `definePageMeta({ auth })` wins.
+    for (const mode of ["user", "guest"] as const) {
+      addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => to.meta.auth === undefined ? guard(to, mode) : undefined)
+    }
     return { provide: { vitehubAuthClient: client } }
   },
 })

@@ -66,6 +66,29 @@ describe("Auth Nuxt integration", () => {
     expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: auth === false ? false : { basePath: "/api/auth", redirects: auth.redirects } } })
   })
 
+  it("attaches the page guard to the pages of auth.routes through appMiddleware route rules", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", routeRules: { "/dashboard/**": { appMiddleware: "track" }, "/docs/**": { prerender: true } } as Record<string, Record<string, unknown>> } }
+
+    hubAuthNuxt({ env: false, auth: { routes: { "/dashboard/**": "user", "/dashboard/public": false, "/dashboard/welcome": "guest", "/login": "guest" } } }, nuxt)
+
+    expect(nuxt.options.routeRules).toEqual({
+      "/dashboard/**": { appMiddleware: { "track": true, "vitehub-auth-user": true, "vitehub-auth-guest": false } },
+      "/dashboard/public": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": false } },
+      "/dashboard/welcome": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": true } },
+      "/docs/**": { prerender: true },
+      "/login": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": true } },
+    })
+  })
+
+  it.each([
+    [{ "dashboard/**": "user" }, '"dashboard/**": "user"'],
+    [{ "/admin/**": "admin" }, '"/admin/**": "admin"'],
+  ] as const)("stops the build on an invalid auth.routes entry %j", (routes, entry) => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt" } }
+
+    expect(() => hubAuthNuxt({ env: false, auth: { routes: routes as never } }, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_B0003", message: expect.stringContaining(entry) }))
+  })
+
   it("disables the session bridge and guard through module Auth options", () => {
     const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", runtimeConfig: {} } }
 

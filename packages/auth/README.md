@@ -419,6 +419,16 @@ export default defineNuxtConfig({
 })
 ```
 
+To guard pages from the Nuxt config, map route patterns to `'user'`, `'guest'`, or `false` in `vitehub.auth.routes`. ViteHub adds the guard to the `appMiddleware` route rule of each pattern, so the server render and navigation in the browser send the visitor to the same page. The most specific pattern wins, `false` removes the guard of a wider pattern, and `definePageMeta({ auth })` of a page wins over all patterns.
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { auth: { routes: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } } },
+})
+```
+
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`.
 
 ## GitHub organization membership

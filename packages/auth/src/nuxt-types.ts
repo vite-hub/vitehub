@@ -18,3 +18,9 @@ export interface AuthRedirects {
   /** Where signed-in users go from `auth: 'guest'` pages. Default `/`. */
   guest?: string
 }
+
+/**
+ * Nuxt pages that the page guard protects, by route glob, such as `'/dashboard/**'`. `'user'` and `'guest'` work as in
+ * `definePageMeta({ auth })`. `false` removes the guard of a wider glob from the matching pages.
+ */
+export type AuthRoutes = Record<`/${string}`, AuthPageMode | false>
