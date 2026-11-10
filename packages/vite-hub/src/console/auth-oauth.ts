@@ -3,7 +3,7 @@ import { createAuthMiddleware } from "better-auth/api"
 import { jwt } from "better-auth/plugins"
 
 import { consoleAuthPath } from "./auth-path.ts"
-import { consoleMcpScopes } from "./runtime/server/bearer.ts"
+import { consoleMcpScopes, consoleResourceOf } from "./runtime/server/bearer.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 
@@ -46,6 +46,15 @@ export function consoleMcpNativeClients(): BetterAuthPlugin {
   }
 }
 
+/**
+ * The resources that the Auth issues access tokens for: the MCP endpoint, and the Console resource next to it,
+ * `<origin><base>/_vitehub`, which a hosted Console such as console.vitehub.dev signs in for.
+ */
+function withConsoleResource(mcpResource: string): string[] {
+  const console = consoleResourceOf(mcpResource)
+  return console ? [mcpResource, console] : [mcpResource]
+}
+
 /** Options of {@link consoleMcpOAuth}. */
 export interface ConsoleMcpOAuthOptions {
   /** The absolute URL of the MCP endpoint, the same as `console.mcp.resource`: `https://app.example.com/_vitehub/mcp`. */
@@ -77,10 +86,10 @@ export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlug
     oauthProvider({
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
-      clientRegistrationDefaultResources: [options.resource],
+      clientRegistrationDefaultResources: withConsoleResource(options.resource),
       consentPage: options.consentPage ?? loginPage,
       loginPage,
-      resources: [options.resource],
+      resources: withConsoleResource(options.resource),
       scopes: ["openid", "profile", "email", "offline_access", ...consoleMcpScopes],
     }),
     consoleMcpNativeClients(),
@@ -105,10 +114,10 @@ export function consoleOAuthPlugins(options: { defaults?: boolean, mountBaseURL:
           oauthProvider({
             allowDynamicClientRegistration: true,
             allowUnauthenticatedClientRegistration: true,
-            clientRegistrationDefaultResources: [resource],
+            clientRegistrationDefaultResources: withConsoleResource(resource),
             consentPage: page,
             loginPage: page,
-            resources: [resource],
+            resources: withConsoleResource(resource),
             scopes: ["openid", "profile", "email", "offline_access", ...consoleMcpScopes],
           }),
         ]),

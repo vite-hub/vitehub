@@ -3,10 +3,11 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
-import { consoleMountBase } from "../console-route.ts"
+import { consoleMountBase, consoleOAuthDataRoutes } from "../console-route.ts"
 import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { consoleMcpReadScope, consoleMcpWriteScope, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { consoleMcpReadScope, consoleMcpWriteScope, isMcpPath, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { isListedConsoleOrigin, withListedOriginHeaders } from "./cors.ts"
 import { checkConsoleToken } from "./console-token.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
@@ -153,27 +154,47 @@ function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRou
   throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
-function invalidConsoleBearer(state: ConsoleOAuthState): Response {
+/**
+ * The OAuth state whose metadata a challenge names: the MCP resource on the MCP endpoint, and the Console resource,
+ * `<origin><base>/_vitehub`, on the data routes.
+ */
+function challengeState(state: ConsoleOAuthState, mcp: boolean): ConsoleOAuthState | undefined {
+  if (mcp || !state.ready) return state
+  return state.console ? { ...state, metadataUrl: state.console.metadataUrl } : undefined
+}
+
+function invalidConsoleBearer(state: ConsoleOAuthState, mcp = true): Response {
   return markBearerRejection(Response.json({ ...consoleDiagnosticBody("CONSOLE_SIGN_IN_REQUIRED", "The access token is not valid for this endpoint, or has expired."), ok: false, status: 401 }, {
-    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(state, { description: "The access token is not valid.", error: "invalid_token" }), "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
+    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(challengeState(state, mcp), { description: "The access token is not valid.", error: "invalid_token" }), "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
     status: 401,
   }))
 }
 
-/** Authenticate MCP at the app Auth middleware; Auth still checks its own matching route policies. */
+/**
+ * Authenticate an OAuth access token at the app Auth middleware, before Auth checks its own matching route policies: on
+ * the MCP endpoint, and on the data routes when `console.origins` lists the `Origin` of the request. A request without
+ * a session or a token gets a challenge that names the protected resource metadata, so a client can start to sign in.
+ */
 export async function resolveConsoleAppAuthIdentity(request: Request, event: object, hasSession: boolean): Promise<ConsoleUser | Response | undefined> {
   const oauth = installedConsoleOAuth()
-  if (!oauth || new URL(request.url).pathname !== oauth.path) return undefined
+  if (!oauth) return undefined
+  const path = new URL(request.url).pathname
+  const mcp = path === oauth.path
+  const base = oauth.path.slice(0, -"/mcp".length)
+  if (!mcp && !(consoleOAuthDataRoutes.some(route => path === `${base}${route}`) && isListedConsoleOrigin(request.headers.get("origin")))) return undefined
   // SAFETY: The Auth middleware supplies the original host event (or Web Request), as the OAuth Auth factory expects.
   const hostEvent = event as ConsoleRequestEvent
   const bearer = await verifyConsoleBearer(request, hostEvent, oauth, isConsoleDevelopmentRuntime())
-  if (bearer) return bearer.ok ? bearer.user : invalidConsoleBearer(bearer.state)
+  // The app Auth middleware answers before the data route, so its rejection carries the CORS headers itself.
+  if (bearer) return bearer.ok ? bearer.user : withListedOriginHeaders(request, invalidConsoleBearer(bearer.state, mcp))
   if (hasSession) return undefined
   const state = await resolveConsoleOAuth(oauth, hostEvent, request, isConsoleDevelopmentRuntime())
-  return Response.json({ code: "CONSOLE_SIGN_IN_REQUIRED", message: "Sign in to use the MCP endpoint.", fix: "Sign in with your MCP client. It starts the OAuth flow from the resource metadata." }, {
-    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(state), "x-content-type-options": "nosniff" },
+  return withListedOriginHeaders(request, Response.json(mcp
+    ? { code: "CONSOLE_SIGN_IN_REQUIRED", message: "Sign in to use the MCP endpoint.", fix: "Sign in with your MCP client. It starts the OAuth flow from the resource metadata." }
+    : { code: "CONSOLE_SIGN_IN_REQUIRED", message: "Sign in to use this Console.", fix: "Sign in from the Console. It starts the OAuth flow from the resource metadata." }, {
+    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(challengeState(state, mcp)), "x-content-type-options": "nosniff" },
     status: 401,
-  })
+  }))
 }
 
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
@@ -200,7 +221,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
     // A token that fails is a rejection, not a fall back to the session: the client has to sign in again.
     if (bearer && !bearer.ok) {
-      return invalidConsoleBearer(bearer.state)
+      return invalidConsoleBearer(bearer.state, !policy.oauth || isMcpPath(policy.oauth, consoleRequest(event)))
     }
     if (bearer) {
       // A valid access token is the sign-in. `authorize` still decides the sections, and the scopes limit the tools.
@@ -281,6 +302,11 @@ export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSecti
 export function consoleAccessWrites(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
   return operationAccessAllows(access, section, { kind: "write" })
+}
+
+/** Whether the access may read or write by its OAuth scopes. A session or a Console token has no scope limit. */
+export function consoleAccessHasScope(access: ConsoleAccess, kind: "read" | "write"): boolean {
+  return !access.scopes || access.scopes.includes(kind === "read" ? consoleMcpReadScope : consoleMcpWriteScope)
 }
 
 /** The OAuth scope that an operation call needs: `vitehub:read` to read, `vitehub:write` to change state. */
@@ -440,6 +466,9 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
       if (declared.write === true && !consoleAccessWrites(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      // The section routes that take an access token change state, so the token needs the write scope. The RPC and
+      // MCP routes cover every section and check the scope of each operation.
+      if (!consoleAccessHasScope(access, "write")) return rejection(403, "CONSOLE_ACCESS_DENIED", "The access token lacks the vitehub:write scope.")
     }
     // A bound RPC grant may defer its user until a legacy handler asks for it.
     if (declared.user === true && !access.user) {
