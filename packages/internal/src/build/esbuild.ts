@@ -84,6 +84,12 @@ function collectPackageExportCandidates(packageName: string, exportsValue: unkno
   return candidates
 }
 
+interface ResolvedBareAliasPaths {
+  canonical: string
+  normalized: string
+  publicSpecifier?: string
+}
+
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
@@ -111,7 +117,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
-      const resolvedBareAliasPaths = new Map<string, Promise<{ canonical: string, normalized: string, publicSpecifier?: string } | undefined>>()
+      const resolvedBareAliasPaths = new Map<string, Promise<ResolvedBareAliasPaths | undefined>>()
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
         const resolveWithContext = (specifier: string) => build.resolve(specifier, {
@@ -147,6 +153,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             : canonicalSpecifier === canonicalAlias)
         }
         if (!match && isAbsolute(args.path)) {
+          // Start every alias resolution at once. Awaiting them one by one costs one esbuild round trip per alias.
+          const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
             const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
@@ -227,6 +235,11 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
               })()
               if (!args.pluginData) resolvedBareAliasPaths.set(cacheKey, resolution)
             }
+            candidates.push({ alias, resolution })
+          }
+          // The loop below stops at the first match, so settle every resolution before it reads them in order.
+          await Promise.allSettled(candidates.map(candidate => candidate.resolution))
+          for (const { alias, resolution } of candidates) {
             const paths = await resolution
             if (!paths) continue
             if (paths.publicSpecifier) {
@@ -360,7 +373,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
     setup(build) {
       build.onResolve({ filter: /^@vite-hub\/markdown-template$/, namespace: viteMarkdownTemplateNamespace }, async (args) => {
         if (!frameworkRuntime) return { path: fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier)) }
-        return build.resolve("vite-hub/_internal/markdown-template", {
+        return build.resolve("vite-hub/markdown-template", {
           importer: args.importer,
           kind: args.kind,
           resolveDir: args.resolveDir,

@@ -56,6 +56,7 @@ export default defineConfig({
       "src/build/bundle-options.ts",
       "src/build/esbuild.ts",
       "src/build/included-nitro.ts",
+      "src/build/included-nitro-registry.ts",
       "src/build/mode.ts",
       "src/build/nitro-cache-bypass.ts",
       "src/build/page-tools.ts",
