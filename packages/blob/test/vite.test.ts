@@ -12,7 +12,8 @@ import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import type { UserConfig } from "vite"
+import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -193,10 +194,10 @@ describe("hubBlob", () => {
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
     await configResolved({
-      blob: {
+      [VITEHUB_FEATURES]: { blob: {
         base: ".top-level/blob",
         driver: "fs",
-      },
+      } },
       build: { outDir: "dist" },
       root: process.cwd(),
     } as never)
@@ -213,10 +214,13 @@ describe("hubBlob", () => {
 
   it("exposes resolved config through a stable ViteHub import path", async () => {
     const plugin = hubBlob({ driver: "fs", base: ".virtual/blob" })
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
-    const resolvedId = await resolveId(BLOB_VIRTUAL_CONFIG_ID)
-    const code = await load(resolvedId!)
+    const resolveId = plugin.resolveId as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const load = plugin.load as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const resolvedId = resolveId.handler(BLOB_VIRTUAL_CONFIG_ID)
+    const code = load.handler(resolvedId!)
+
+    expect([BLOB_VIRTUAL_CONFIG_ID, "#vitehub/blob/config.ts", "@vite-hub/blob"].map(id => resolveId.filter.id.test(id))).toEqual([true, false, false])
+    expect([resolvedId!, BLOB_VIRTUAL_CONFIG_ID].map(id => load.filter.id.test(id))).toEqual([true, false])
 
     expect(code).toContain("export const blob =")
     expect(code).toContain(".virtual/blob")
@@ -629,13 +633,13 @@ describe("hubBlob", () => {
     }])
 
     const resolved = {
-      blob: {
+      [VITEHUB_FEATURES]: { blob: {
         stores: {
           default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
           assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
           assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
         },
-      },
+      } },
       build: { outDir: "dist" },
       nitro: {
         ...(userConfig as { nitro?: object }).nitro,
@@ -719,9 +723,11 @@ describe("hubBlob", () => {
       await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
       const middleware = join(root, ".vitehub/nitro/blob/middleware.ts")
       const nitroEntry = fileURLToPath(import.meta.resolve("nitro"))
+      // The generated middleware imports the Blob runtime state by file path.
+      const runtimeState = join(import.meta.dirname, "../dist/runtime/state.js")
       const result = await bundle({
         stdin: {
-          contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from '@vite-hub/blob/runtime/state'`,
+          contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from ${JSON.stringify(runtimeState)}`,
           resolveDir: root,
         },
         alias: { nitro: nitroEntry, h3: fileURLToPath(import.meta.resolve("h3")) },
@@ -733,7 +739,8 @@ describe("hubBlob", () => {
         plugins: [{
           name: "cloudflare-middleware-boundaries",
           setup(build) {
-            build.onResolve({ filter: /^(cloudflare:workers|@vite-hub\/blob\/runtime\/state)$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
+            build.onResolve({ filter: /^cloudflare:workers$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
+            build.onResolve({ filter: /runtime[\\/]state\.js$/ }, args => args.path === runtimeState ? { path: "runtime-state", namespace: "middleware-test" } : undefined)
             build.onLoad({ filter: /.*/, namespace: "middleware-test" }, args => ({
               resolveDir: root,
               contents: args.path === "cloudflare:workers"
@@ -1462,12 +1469,12 @@ describe("hubBlob", () => {
     })
   })
 
-  it("uses a configured package base in physical Nitro imports", async () => {
+  it("imports the public root through the package base and its runtime state by file path", async () => {
     const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
       serve: true,
-    }, { importBase: "vite-hub/_internal/blob" })
+    }, { importBase: "vite-hub/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
     await configResolved({
@@ -1478,9 +1485,10 @@ describe("hubBlob", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
-    expect(nitroPlugin).toContain("from 'vite-hub/_internal/blob/runtime/state'")
-    expect(middleware).toContain("from 'vite-hub/_internal/blob/runtime/state'")
-    expect(handler).toContain("from 'vite-hub/_internal/blob'")
+    const runtimeState = JSON.stringify(join(import.meta.dirname, "../dist/runtime/state.js"))
+    expect(nitroPlugin).toContain(`from ${runtimeState}`)
+    expect(middleware).toContain(`from ${runtimeState}`)
+    expect(handler).toContain("from 'vite-hub/blob'")
     expect(`${nitroPlugin}\n${middleware}\n${handler}`).not.toContain("@vite-hub/blob")
   })
 })
@@ -1514,7 +1522,7 @@ describe("hubBlob in vite dev", () => {
     ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, true],
     ["cloudflare", { driver: "cloudflare-r2" }, false],
     ["cloudflare", { driver: "cloudflare-r2" }, true],
-  ] as const)("keeps the %s preset (%o, remote=%s) when application config replaces Blob options", async (preset, options, remote) => {
+  ] as const)("keeps the %s preset (%o, remote=%s) when ViteHub replaces Blob options", async (preset, options, remote) => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
     vi.stubEnv("BLOB_STORE_ID", "")
     try {
@@ -1525,7 +1533,8 @@ describe("hubBlob in vite dev", () => {
         configFile: false,
         logLevel: "silent",
         plugins: [
-          { name: "app-blob-config", config: () => ({ blob: { remote }, vitehub: { preset } }) },
+          // SAFETY: These private keys carry what the `vitehub()` deployment hook resolves for the owner plugin.
+          { name: "app-blob-config", config: () => ({ [VITEHUB_FEATURES]: { blob: { remote } }, [VITEHUB_DEPLOYMENT_PRESET]: preset }) as UserConfig },
           plugin,
         ],
         root,

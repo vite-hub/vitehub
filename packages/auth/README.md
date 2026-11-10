@@ -119,8 +119,7 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv(), hubAuth()],
-  env: {
+  plugins: [hubEnv({
     server: {
       auth: {
         github: {
@@ -130,7 +129,7 @@ export default defineConfig({
         secret: env({ secret: true, source: env.source("BETTER_AUTH_SECRET") }),
       },
     },
-  },
+  }), hubAuth()],
 });
 ```
 

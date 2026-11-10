@@ -214,12 +214,12 @@ describe("hubAuth", () => {
     expect(diagnostics).toEqual([])
   })
 
-  it("lets top-level config disable the auth plugin", async () => {
+  it("disables the auth plugin with false", async () => {
     const root = await createTempProject()
     await writeAuth(root)
 
-    const plugin = hubAuth()
-    await (plugin.configResolved as (config: { auth: false; root: string }) => Promise<void>)({ auth: false, root })
+    const plugin = hubAuth(false)
+    await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 
     expect(plugin.api.getConfig()).toBeUndefined()
     expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
