@@ -181,7 +181,7 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.getSession).toHaveBeenCalledTimes(1)
   })
 
-  it("opens the login page of its own redirect without a second read", async () => {
+  it("reads the session again for the login page of a redirect", async () => {
     mocks.getSession.mockResolvedValue({ data: null })
     await setupBrowser()
     const from = { ...userPage }
@@ -189,19 +189,24 @@ describe("Nuxt session and page guard", () => {
     expect(await mocks.middleware?.(from)).toEqual({ path: "/login", query: { redirect: "/private" } })
     expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: from })).toBeUndefined()
 
-    expect(mocks.getSession).toHaveBeenCalledTimes(1)
+    expect(mocks.getSession).toHaveBeenCalledTimes(2)
   })
 
-  it("uses the answer of a redirect only for that redirect", async () => {
-    mocks.getSession.mockResolvedValue({ data: null })
+  it("ignores a late answer of a navigation that a newer navigation replaced", async () => {
+    let answer: (value: unknown) => void = () => {}
+    mocks.getSession.mockReturnValueOnce(new Promise((resolve) => { answer = resolve }))
     await setupBrowser()
     const from = { ...userPage }
-    await mocks.middleware?.(from)
+    const late = mocks.middleware?.(from)
 
-    // A new navigation, also after a redirect that did not complete, reads the session.
-    expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: { ...userPage } })).toBeUndefined()
-    expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: from })).toBeUndefined()
+    // The visitor signs in and opens another user page before the first read answers.
+    expect(await mocks.middleware?.({ path: "/account", fullPath: "/account", meta: { auth: "user" } })).toBeUndefined()
+    answer({ data: null })
 
+    expect(await late).toBeUndefined()
+    expect(mocks.navigateTo).not.toHaveBeenCalled()
+    // A login page opened from the old navigation reads the session and sends the visitor away.
+    expect(await mocks.middleware?.({ ...guestPage, redirectedFrom: from })).toBe("/")
     expect(mocks.getSession).toHaveBeenCalledTimes(3)
   })
 

@@ -14,7 +14,7 @@ type NuxtApp = {
   isHydrating?: boolean
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { path: string, fullPath: string, redirectedFrom?: object, meta: { auth?: AuthPageMeta } }
+type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
 type EventLike = { node?: { res?: { appendHeader?: (name: string, value: string) => void } }, res?: { headers?: Headers } }
 
@@ -103,13 +103,11 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
 
     // The server's answer for this page, while the browser hydrates it. `undefined` is unknown.
     const hydrated: boolean | undefined = stale || seed.value === undefined ? undefined : Boolean(seed.value)
-    // The answer that made the guard redirect, for the redirect only. Vue Router gives each redirect of a navigation
-    // the same `redirectedFrom` object, so a later navigation never matches it.
-    let redirected: { loggedIn: boolean, from: object } | undefined
+    // Counts navigations, so a read can tell that a newer navigation started while Better Auth answered.
+    let navigations = 0
 
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
-      const kept = redirected
-      redirected = undefined
+      const navigation = ++navigations
       const meta = to.meta.auth
       if (meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
@@ -118,21 +116,24 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
         // A redirect to the page itself would loop: the guard of that page sends the visitor away again.
         if (!target || target.split(/[?#]/)[0] === to.path) return
-        redirected = { loggedIn, from: to.redirectedFrom ?? to }
         return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
       }
       // Decide synchronously on the server to keep Nuxt's request context.
       if (!("window" in globalThis)) return decide(Boolean(seed.value))
-      // Use an answer only in the navigation that got it: the hydration of the page that the server read, or the
-      // redirect that the answer caused. Every other navigation reads the session, so Better Auth extends an active
-      // session and the guard sees a sign-in or a sign-out that page scripts cannot see in `document.cookie`.
+      // While the browser hydrates a page that the server rendered for the visitor, use the session that the server
+      // read. Every other navigation reads the session, so Better Auth extends an active session and the guard sees
+      // a sign-in or a sign-out that page scripts cannot see in `document.cookie`.
       if (nuxtApp.isHydrating && hydrated !== undefined) return decide(hydrated)
-      if (kept && to.redirectedFrom === kept.from) return decide(kept.loggedIn)
       // Read the session directly, without a composable's watchers.
       const loggedIn = client.getSession().then(result => Boolean(result.data?.session && result.data?.user))
       // In the browser, keep the Nuxt app for the navigation after Better Auth answers.
       const app = tryUseNuxtApp() as NuxtApp | undefined
-      return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
+      return loggedIn.then((value) => {
+        // Only the latest navigation decides. Vue Router cancels a navigation that a newer one replaced, but it still
+        // follows a redirect that the old navigation returns, so an old answer could open a page that is now wrong.
+        if (navigation !== navigations) return
+        return app ? app.runWithContext(() => decide(value)) : decide(value)
+      })
     }, { global: true })
     return { provide: { vitehubAuthClient: client } }
   },

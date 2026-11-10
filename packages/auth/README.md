@@ -419,7 +419,7 @@ export default defineNuxtConfig({
 })
 ```
 
-On client navigation, the guard reads the session, so Better Auth can extend an active session and the guard sees each sign-in and sign-out. It does not read the session again in the same navigation: when the browser hydrates a page that the server rendered for the visitor, it uses the session that the server read, and when it redirects, the redirected page uses the same answer. The guard never redirects a page to itself.
+On client navigation, the guard reads the session, so Better Auth can extend an active session and the guard sees each sign-in and sign-out. When the browser hydrates a page that the server rendered for the visitor, the guard uses the session that the server read. Only the latest navigation decides: when a newer navigation starts before the session read answers, the guard ignores the answer. The guard never redirects a page to itself.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`.
 
