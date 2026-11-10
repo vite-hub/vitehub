@@ -7,6 +7,7 @@ import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff"
 import { findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { callOperation } from "@vite-hub/internal/operations"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
@@ -307,10 +308,6 @@ function requestBody(parsed: ParsedContentArgs): ContentDevRequestOptions {
   if (parsed.status !== undefined) body.status = parsed.status
   if (parsed.site !== undefined) body.site = parsed.site
   return body
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 function writeFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure): number {

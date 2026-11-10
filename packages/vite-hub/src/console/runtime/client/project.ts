@@ -106,10 +106,4 @@ export function isRemoteProject(): boolean {
   return active.origin !== "" && active.origin !== pageOrigin
 }
 
-/**
- * The URL of a page of the Console that the app serves, such as `/kv` → `https://app.example.com/portal/_vitehub/kv`.
- * Features that need the app origin link there.
- */
-export function projectConsoleUrl(path = "/"): string {
-  return projectUrl(`/_vitehub${path}`)
-}
+

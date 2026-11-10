@@ -39,8 +39,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
   ["@vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
-  ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
-  ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/comments/vite", { "vite": "both" }],
   ["@vite-hub/cms/access", { "@vite-hub/comments": "declaration", "better-auth": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
@@ -73,7 +71,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
-  ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
+  ["@vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
@@ -103,7 +101,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
-  ["vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "both" }],
+  ["vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/agent/vite", { "vite": "both" }],
   ["@vite-hub/auth/vite", { "vite": "both" }],
   ["@vite-hub/blob/vite", { "vite": "declaration" }],
@@ -132,7 +130,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

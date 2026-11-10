@@ -14,7 +14,7 @@ catalog:
   "@types/proper-lockfile": 4.1.4
   forges: 0.3.1
   proper-lockfile: 4.1.2
-  comark-chat: 0.7.1
+  comark-chat: 0.10.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
@@ -39,6 +39,7 @@ catalogs:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
     "@better-auth/oauth-provider": ^1.7.15
+    "@better-auth/passkey": 1.7.15
     "@noble/hashes": ^2.2.0
     better-auth: ^1.7.15
     jose: ^6.2.12
@@ -61,8 +62,6 @@ catalogs:
     drizzle-kit: ^0.31.11
     drizzle-orm: ^0.45.3
     postgres: ^3.4.9
-  effect:
-    effect: 4.0.0-rc.112
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
@@ -81,15 +80,15 @@ catalogs:
     "@lingui/message-utils": 6.12.0
     "@lingui/vue": 6.12.0
   markdown:
-    "@comark/html": 0.8.1
+    "@comark/html": 0.9.0
     "@types/mdast": ^4.0.4
-    comark: 0.8.1
+    comark: 0.9.0
   # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
   markdown-ui:
-    "@comark/html": 0.8.1
-    comark: 0.8.1
-    comark-content: 0.4.3
-    comark-ui: ^0.9.1
+    "@comark/html": 0.9.0
+    comark: 0.9.0
+    comark-content: 0.5.1
+    comark-ui: ^0.10.0
   # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
   # A caret on an RC matches only that RC until Nitro 3 is stable, so each supported RC is listed.
   nitro-compat:
@@ -257,6 +256,6 @@ packageExtensions:
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
-  nuxt-agent-discovery@0.8.1: patches/nuxt-agent-discovery@0.8.1.patch
+  nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch

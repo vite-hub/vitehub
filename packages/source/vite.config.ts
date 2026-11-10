@@ -43,7 +43,6 @@ try {
       alwaysBundle: [
         /^@vite-hub\/internal/,
         "fdir",
-        "ocache",
         "picomatch",
         "tinyglobby",
       ],
