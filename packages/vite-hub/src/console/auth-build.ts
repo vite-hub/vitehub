@@ -144,7 +144,7 @@ export function consoleAuthMiddlewareFile(root: string): string {
 async function writeCloudflareAccessMiddleware(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL: string): Promise<CloudflareAccessConsoleAuthHandlers> {
   const middleware = consoleAuthMiddlewareFile(root)
   await writeFileIfChanged(middleware, [
-    'import { resolveServerEnv } from "vite-hub/env/server"',
+    'import { resolveServerEnv } from "vite-hub/env"',
     'import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access"',
     `const settings = JSON.parse(${JSON.stringify(JSON.stringify(config.settings))})`,
     "export default function viteHubConsoleAuthMiddleware(event) {",
@@ -221,20 +221,22 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "export function prepare(event) { return prepareConsoleAuth(input, definition, toAuthRequest(event), event) }",
       "",
     ].join("\n")),
+    // Fetchable routes (https://fetchable.org). In a ViteHub app, the Request carries the Standard Context of the request.
     writeFileIfChanged(route, [
       'import { handleAuthRequest } from "#vitehub/auth/server"',
       'import { definition, prepare } from "./auth-definition.mjs"',
-      "export default async function viteHubConsoleAuthRoute(event) {",
-      "  await prepare(event)",
-      "  return handleAuthRequest(definition, event, undefined, event)",
+      "export default {",
+      "  async fetch(request) {",
+      "    await prepare(request)",
+      "    return handleAuthRequest(definition, request, undefined, request)",
+      "  },",
       "}",
       "",
     ].join("\n")),
     writeFileIfChanged(signIn, [
-      'import { toAuthRequest } from "#vitehub/auth/server"',
       'import { consoleAuthSignInPage } from "vite-hub/console/auth"',
       'import { signInProvider } from "./auth-definition.mjs"',
-      `export default function viteHubConsoleSignIn(event) { return consoleAuthSignInPage(signInProvider, toAuthRequest(event), ${JSON.stringify(mountBaseURL)}) }`,
+      `export default { fetch: request => consoleAuthSignInPage(signInProvider, request, ${JSON.stringify(mountBaseURL)}) }`,
       "",
     ].join("\n")),
     writeFileIfChanged(middleware, [
@@ -284,8 +286,10 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
     ].join("\n")),
     writeFileIfChanged(client, [
       `const script = ${JSON.stringify(clientScript)}`,
-      "export default function viteHubConsoleAuthClient() {",
-      '  return new Response(script, { headers: { "cache-control": "no-store", "content-type": "text/javascript; charset=utf-8", "x-content-type-options": "nosniff" } })',
+      "export default {",
+      "  fetch() {",
+      '    return new Response(script, { headers: { "cache-control": "no-store", "content-type": "text/javascript; charset=utf-8", "x-content-type-options": "nosniff" } })',
+      "  },",
       "}",
       "",
     ].join("\n")),
@@ -302,8 +306,9 @@ export async function writeConsoleConnectionsActor(root: string, sessionActorMod
   await writeFileIfChanged(file, [
     'import { consoleConnectionsActor } from "vite-hub/console/sections"',
     ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
-    "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
+    // The Request carries the Standard Context of the event, so the Console access policy reads it like an event.
+    "export default function viteHubConsoleConnectionsActor(request) {",
+    `  return consoleConnectionsActor(request${sessionActorModule ? ', async () => { const user = await readConsoleUser(request); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))

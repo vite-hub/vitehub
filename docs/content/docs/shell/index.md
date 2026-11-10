@@ -71,13 +71,13 @@ icon: i-lucide-terminal
   ```
 
   ```ts [server/api/check.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { analyzeShellCommand } from 'vite-hub/shell'
 
   // Read what a command does before you run it
   export default defineEventHandler(async (event) => {
-    type Body = { command: string }
-    const body = await readBody<Body>(event)
+    const body = await readValidatedBody(event, body => v.parse(v.object({ command: v.string() }), body))
     const facts = await analyzeShellCommand(body.command)
 
     // For example: { commands: ['rg'], ... }
@@ -92,11 +92,11 @@ icon: i-lucide-terminal
 
 ::product-features
   :::product-feature-item{title="Choose the allowed commands" icon="i-lucide-list-checks" to="/docs/shell/configure#providers"}
-  List the commands a shell can run. Network access stays off unless you turn it on.
+  List the commands a shell can run. Network access is off unless you turn it on.
   :::
 
   :::product-feature-item{title="Work on your files" icon="i-lucide-folder-open" to="/docs/shell/server-api#workspace-filesystem"}
-  Commands see the files of a [Workspace](/docs/workspace) under `/workspace`. You choose read-only or write access.
+  Commands see [Workspace](/docs/workspace) files under `/workspace`, read-only or writable.
   :::
 
   :::product-feature-item{title="Clear results" icon="i-lucide-terminal" to="/docs/shell/server-api#shell-observation-shape"}
@@ -108,7 +108,7 @@ icon: i-lucide-terminal
   :::
 
   :::product-feature-item{title="Check a command first" icon="i-lucide-search" to="/docs/shell/server-api#analyze-commands"}
-  `analyzeShellCommand()` lists the programs, pipes, and redirects in a command. You decide what to allow.
+  `analyzeShellCommand()` lists the programs, pipes, and redirects in a command, so you decide what to allow.
   :::
 
   :::product-feature-item{title="Stop slow commands" icon="i-lucide-timer" to="/docs/shell/configure#session-and-exec-options"}

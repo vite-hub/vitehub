@@ -7,7 +7,8 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       neverBundle: ["vite"],
-      alwaysBundle: [/^@vite-hub\/internal/],
+      // Keep offline reports usable without Vue or the other router runtime peers.
+      alwaysBundle: [/^@vite-hub\/internal/, "vue-router"],
       onlyBundle: false,
     },
     entry: ["src/index.ts", "src/cli.ts", "src/vite.ts"],
@@ -19,6 +20,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 })

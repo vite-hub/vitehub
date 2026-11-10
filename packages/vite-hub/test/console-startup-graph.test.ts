@@ -50,37 +50,61 @@ describe("Console server startup graph", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
       const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin(
+      await writeConsoleNitroPlugin({
         file,
-        root,
-        ["agents", "databases", "env", "kv", "mcp-client"],
-        [],
-        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "@vite-hub/kv/console", plugin: "@vite-hub/kv/vite" }] },
-        [],
-        undefined,
-        undefined,
-        false,
-        () => true,
-        false,
-        { mode: "open" },
-        { blob: "vite-hub/_internal/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/_internal/kv" },
-      )
+        projectRoot: root,
+        sections: ["agents", "databases", "env", "kv", "mcp-client"],
+        catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
+        blobStores: [],
+        access: { mode: "open" },
+        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
+      })
       const generated = await readFile(file, "utf8")
-      expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/_internal/agent/runtime/workflow", "vite-hub/console/sections", "vite-hub/console/server"])
-      for (const module of ["vite-hub/console/operations", "vite-hub/_internal/kv/console", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/_internal/kv"]) {
+      expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/console/setup"])
+      for (const module of ["vite-hub/console/server", "vite-hub/console/operations", "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 
       const { files, packages } = startupGraph(generated)
-      expect(files).toContain(join(agentSource, "invocations/default.ts"))
       const loaded = [...files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
-      expect(loaded).toContain("src/console/runtime/server/invocations.ts")
-      for (const lazy of ["operation-contributions.ts", "operations.ts", "usage-index.ts", "invocations-database.ts", "mcp.ts", "mcp-client-operations.ts", "rpc.ts"]) {
+      // Agent Definitions and the Console's Agent install load with the Console runtime. `vite-hub/agent` resolves the
+      // app-wide journal of an Agent that runs before the first Console request.
+      expect(files).not.toContain(join(agentSource, "invocations/default.ts"))
+      for (const lazy of ["agents.ts", "invocations.ts", "operation-contributions.ts", "operations.ts", "usage-index.ts", "invocations-database.ts", "mcp.ts", "mcp-client-operations.ts", "rpc.ts"]) {
         expect(loaded).not.toContain(`src/console/runtime/server/${lazy}`)
       }
       for (const lazy of ["d1.ts", "sqlite.ts"]) expect(files).not.toContain(join(agentSource, "invocations", lazy))
       for (const lazy of ["@vite-hub/agent/invocations/d1", "@libsql/client", "drizzle-orm"]) expect(packages).not.toContain(lazy)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("loads the Console access and sign-in pages on the first Console request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
+    try {
+      const file = join(root, "plugin.mjs")
+      await writeConsoleNitroPlugin({
+        file,
+        projectRoot: root,
+        sections: ["kv"],
+        catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
+        blobStores: [],
+        pageTools: true,
+        access: { mode: "local" },
+        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
+      })
+      const generated = await readFile(file, "utf8")
+      expect(staticSpecifiers(generated)).toEqual(["vite-hub/console/setup"])
+      expect(generated).toContain("installConsoleClient(")
+      const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
+      expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
+      expect(loaded).toContain("src/console/runtime/server/client-assets.ts")
+      for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
+        expect(loaded).not.toContain(lazy)
+      }
     }
     finally {
       await rm(root, { force: true, recursive: true })

@@ -1,6 +1,5 @@
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { fillInstructionSlot } from "./instruction-composition.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentAdapterInstructions, AgentAdapterMetadataContext, AgentInstructionsContent, AgentRuntimeConfig } from "./types.ts"
 
 async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
@@ -9,8 +8,8 @@ async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name ex
   preserveWhitespace = false,
 ): Promise<string> {
   const inputParts = Array.isArray(input) ? input : [input]
-  const resolved = await Promise.all(inputParts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
-  const parts = resolved.flatMap(part => Array.isArray(part) ? part : [part]).filter((part): part is string => hasRuntimeType(part, "string"))
+  const resolved = await Promise.all(inputParts.map(part => typeof part === "function" ? part(context) : part))
+  const parts = resolved.flatMap(part => Array.isArray(part) ? part : [part]).filter((part): part is string => typeof part === "string")
   return preserveWhitespace ? parts.join("\n\n") : parts.map(part => part.trim()).filter(Boolean).join("\n\n")
 }
 
@@ -19,7 +18,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
 ): Promise<string> {
-  if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
+  if (input && typeof input === "object" && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) {
       // SAFETY: mode discriminant identifies replacement instructions.
       const replacement = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { mode: "replace" }>
@@ -38,7 +37,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
 export function agentInstructionSources<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
 ) {
-  if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
+  if (input && typeof input === "object" && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) {
       // SAFETY: the mode discriminant identifies the replacement instruction form.
       const replacement = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { mode: "replace" }>

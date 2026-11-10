@@ -27,6 +27,29 @@ pnpm add -D vite
 
 Add `vitehub()` to `vite.config.ts`. Keep the other plugins of your app. You do not need a `source` option, because your route imports the Source file itself.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node' },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -35,6 +58,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node' })],
 })
 ```
+::::
+:::
 
 ::
 
@@ -44,7 +69,7 @@ export default defineConfig({
 Create `server/sources/docs.ts`. A glob Source reads the files in a folder that match a pattern.
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```

@@ -25,25 +25,81 @@ pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Then update `vite.config.ts`. Keep the other options of your app:
+Then update the ViteHub options in your app config. Keep the other options of your app:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    console: { auth: false },
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    console: { auth: false },
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true })],
-  env: {
-    server: {
-      google: {
-        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    preset: 'node',
+    console: { auth: false },
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
+::::
+:::
 
 - `connections: true` turns on Connections.
 - `console: { auth: false }` turns on the [Console](/docs/development/console), the admin page of your app, without a sign-in. Use this only on your computer.

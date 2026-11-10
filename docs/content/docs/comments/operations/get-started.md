@@ -23,8 +23,31 @@ pnpm add @vite-hub/comments @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Add the Console to `vitehub()` in `vite.config.ts`:
+Add the Console to the ViteHub options of your app:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', console: { auth: false } },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -33,6 +56,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', console: { auth: false } })],
 })
 ```
+::::
+:::
 
 - You do not turn on the Database yourself. When `server/comments.ts` exists, `vitehub()` turns it on and adds a default Database.
 - `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, set up [Console sign-in](/docs/development/console).
@@ -62,8 +87,8 @@ Here, every signed-in user reads and writes. Only an admin deletes the comments 
 Create the tables that hold the threads:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ## Read a thread

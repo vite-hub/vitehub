@@ -13,7 +13,7 @@ import * as loader from "../src/loader.ts"
 import { custom, fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { discoverViteWorkspaceDefinitions, hubWorkspace } from "../src/vite.ts"
 import type { DiscoveredWorkspaceDefinition } from "../src/vite.ts"
-import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
+import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
@@ -298,15 +298,15 @@ describe("workspace types", () => {
     await runtimeWorkspace.sync()
     expectTypeOf(await runtimeWorkspace.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     expectTypeOf(await runtimeWorkspace.sync({ details: "paths", snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
-    const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
-    const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
-    const lazyGithubWorkspaceOptions: WorkspaceModuleOptions = { store: { provider: "github", repository: () => "acme/app", token: () => "token" } }
+    const workspaceOptions: WorkspaceOptions = { assets: ["typed"], store: { provider: "memory" } }
+    const githubWorkspaceOptions: WorkspaceOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
+    const lazyGithubWorkspaceOptions: WorkspaceOptions = { store: { provider: "github", repository: () => "acme/app", token: () => "token" } }
     // @ts-expect-error Workspace Sources configure generated assets through assets.
-    const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
-    expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
-    expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
-    expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
-    expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
+    const removedOptions: WorkspaceOptions = { syncOnBuild: true }
+    expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceOptions>()
+    expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceOptions>()
+    expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceOptions>()
+    expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceOptions>()
     // SAFETY: This type-only fixture is never evaluated and exists to exercise the session surface.
     const session: Awaited<ReturnType<typeof writable.startSession>> = undefined!
     // @ts-expect-error runtime selection belongs to Sandbox, not Workspace session options

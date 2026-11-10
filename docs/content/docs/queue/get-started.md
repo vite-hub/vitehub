@@ -22,6 +22,30 @@ In this tutorial, you send a welcome job from an API route, and the handler writ
 
 In `vite.config.ts`, change the `vitehub()` options to use Cloudflare and turn on Queue. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', queue: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -31,6 +55,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'cloudflare', queue: true })],
 })
 ```
+::::
+:::
 
 - `preset: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
 - `queue: true` turns on Queue.
@@ -73,7 +99,7 @@ Create `server/api/welcome.post.ts`. It answers `POST /api/welcome`:
 
 ```ts [server/api/welcome.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
@@ -81,14 +107,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
   }
 
-  const [error, result] = await runQueue('welcome-email', { email: body.email.trim() })
+  const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() })
   if (error) throw error
   return result
 })
 ```
 
-- `runQueue('welcome-email', ...)` adds a job to the `welcome-email` queue. The second argument is the payload.
-- `runQueue()` returns `[error, result]`. Check `error` before you use `result`. A setup error, such as a missing Cloudflare binding, throws. See [Queue limits and errors](/docs/queue/limits-and-errors).
+- `sendQueue('welcome-email', ...)` adds a job to the `welcome-email` queue. The second argument is the payload.
+- `sendQueue()` returns `[error, result]`. Check `error` before you use `result`. A setup error, such as a missing Cloudflare binding, throws. See [Queue limits and errors](/docs/queue/limits-and-errors).
 
 ::
 
@@ -132,7 +158,7 @@ Build the app, and see what ViteHub found and wrote:
 ```bash [commands/inspect]
 pnpm build
 pnpm vitehub inspect definitions --kind queue
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 - The list of definitions shows `welcome-email`.
