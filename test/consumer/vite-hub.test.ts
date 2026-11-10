@@ -1122,7 +1122,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(existsSync(resolve(artifactDir, migrationsDir!))).toBe(true)
       const migrations = await run("vp", [
         "dlx",
-        "wrangler@4.112.0",
+        "wrangler@4.147.0",
         "d1",
         "migrations",
         "list",
