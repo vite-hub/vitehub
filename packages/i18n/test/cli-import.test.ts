@@ -2,13 +2,15 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { createRecord } from "@diglot/core"
+import { writeRecord } from "@diglot/store"
 import { formatter as poFormatter } from "@lingui/format-po"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { createI18nCliContributor } from "../src/cli.ts"
 import { createLinguiConfig } from "../src/lingui.ts"
 import { resolveI18nLocaleConfig } from "../src/locales.ts"
-import { messageId, readRecords, saveTranslation } from "../src/records.ts"
+import { messageId, messageSegment, readRecords, saveTranslation } from "../src/records.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
@@ -110,6 +112,43 @@ it("lets a PO file without a baseline add translations but refuses to overwrite 
   await writeFile(join(root, "es.po"), po.replace("Guardar", "Salvar"))
   expect((await cli("import", "es", "es.po")).code).toBe(1)
   expect((await readRecords(join(root, "locales"), "es")).records[messageId("Save")]!.text).toBe("Guardar")
+})
+
+it.each(["missing", "rejected", "invalid"])("keeps the target baseline when reviewing a fuzzy draft for a %s record", async (state) => {
+  const message = "Search all agents"
+  await writeFile(join(root, "label.ts"), `import { t } from "@vite-hub/i18n"; export const label = t({ message: "${message}", comment: "Search across all agents" })`)
+  const records = join(root, "locales")
+  await saveTranslation(records, "es", { message: "Search agents" }, "Buscar agentes", { by: "ana", expected: null })
+  const baseline = state === "missing" ? null : state === "invalid" ? "Buscar {name}" : "Buscar todos los agentes"
+  if (baseline !== null) {
+    await writeRecord(records, "es", createRecord({
+      segment: messageSegment(message),
+      text: baseline,
+      origin: "human",
+      ...(state === "rejected" ? { review: "rejected", rejectedBy: { by: "ana", at: "2026-11-07T10:00:00.000Z" } } : {}),
+    }))
+  }
+  await cli("export", "es", "--output", "es.po")
+  const options = { locale: "es", sourceLocale: "en", filename: join(root, "es.po") }
+  const formatter = poFormatter()
+  const catalog = await formatter.parse(await readFile(options.filename, "utf8"), options)
+  const entry = Object.values(catalog)[0]!
+  expect(entry.translation).toBe("Buscar agentes")
+  expect(entry.comments).toEqual(["Search across all agents", `vitehub-i18n-expected: ${JSON.stringify(baseline)}`, "Previous source: Search agents"])
+  expect(JSON.parse((await cli("import", "es", "es.po", "--json")).stdout)).toMatchObject({ saved: 0, fuzzy: 1, refused: [] })
+  expect((await readRecords(records, "es")).records[messageId(message)]?.text ?? null).toBe(baseline)
+
+  entry.translation = "Buscar todos nuestros agentes"
+  entry.extra = { flags: [] }
+  await writeFile(options.filename, await formatter.serialize(catalog, { ...options, existing: undefined }))
+  expect(JSON.parse((await cli("import", "es", "es.po", "--json")).stdout)).toMatchObject({ saved: 1, fuzzy: 0, refused: [] })
+  expect((await readRecords(records, "es")).records[messageId(message)]!.text).toBe(entry.translation)
+
+  await saveTranslation(records, "es", { message }, "Buscar cada agente", { by: "luis", expected: entry.translation })
+  const stale = await cli("import", "es", "es.po", "--json")
+  expect(stale.code).toBe(1)
+  expect(JSON.parse(stale.stdout)).toMatchObject({ saved: 0, refused: [{ message, problem: expect.stringContaining("changed") }] })
+  expect((await readRecords(records, "es")).records[messageId(message)]!.text).toBe("Buscar cada agente")
 })
 
 it("checks unchanged entries against the locked record after import starts", async () => {

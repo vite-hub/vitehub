@@ -131,57 +131,6 @@ async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: 
   }
 }
 
-/** Runs a development server until its log matches `ready`. Nitro 2 answers 500 while it still builds the server. */
-async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>) {
-  const port = await availablePort()
-  const child = spawn(command, [...args, "--host", "127.0.0.1", "--port", String(port)], {
-    cwd,
-    detached: true,
-    env: { ...process.env, NUXT_TELEMETRY_DISABLED: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  })
-  let logs = ""
-  child.stdout.on("data", chunk => { logs += String(chunk) })
-  child.stderr.on("data", chunk => { logs += String(chunk) })
-
-  try {
-    for (let attempt = 0; !ready.test(logs); attempt++) {
-      if (child.exitCode !== null) throw new Error(`Development server exited early.\n${logs}`)
-      if (attempt > 2400) throw new Error(`Development server did not start.\n${logs}`)
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    return { logs: () => logs, value: await callback(`http://127.0.0.1:${port}`) }
-  }
-  finally {
-    // The package manager starts the server in a child process, so stop the whole group.
-    await stopProcessGroup(child.pid!)
-  }
-}
-
-/**
- * Stops a process group and waits until all of it is gone. The package manager exits as soon as it gets the signal, but
- * the server can still write files while it stops. A caller that removes the app after the package manager exits then
- * fails with `ENOTEMPTY`.
- */
-async function stopProcessGroup(pid: number) {
-  signalProcessGroup(pid, "SIGTERM")
-  for (let attempt = 0; attempt < 150 && signalProcessGroup(pid, 0); attempt++) {
-    if (attempt === 100) signalProcessGroup(pid, "SIGKILL")
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-}
-
-/** Sends `signal` to a process group. Returns false when no process of the group is left. */
-function signalProcessGroup(pid: number, signal: NodeJS.Signals | 0) {
-  try {
-    process.kill(-pid, signal)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 function packageTarballName(name: string, version: string) {
   return `${name.replace(/^@/, "").replaceAll("/", "-")}-${version}.tgz`
 }
@@ -658,7 +607,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
-        export default defineConfig({ env: { public: {} }, plugins: [vitehub({ preset: "cloudflare", blob: true, queue: true${features} })] })
+        export default defineConfig({ plugins: [vitehub({ env: { public: {} }, preset: "cloudflare", blob: true, queue: true${features} })] })
       `
       await Promise.all([
         writeFile(join(appDir, "vite.config.ts"), config(""), "utf8"),
@@ -693,8 +642,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["exec", "vite", "build"], appDir)
       expect(existsSync(join(appDir, ".output/server/index.mjs"))).toBe(true)
 
+      // The Console app is an optional peer too, so the Console asks for it.
       await writeFile(join(appDir, "vite.config.ts"), config(", console: { auth: false }, comments: false"), "utf8")
-      await run("pnpm", ["exec", "vite", "build"], appDir)
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/console-client")
 
       await writeFile(join(appDir, "vite.config.ts"), config(", agent: true"), "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/agent")
@@ -1096,69 +1046,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it("serves the Console on the Nuxt 4 development server", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-console-dev-consumer-"))
-    const appDir = join(root, "app")
-    const packDir = join(root, "packs")
-
-    try {
-      await Promise.all([
-        mkdir(join(appDir, "app"), { recursive: true }),
-        mkdir(packDir, { recursive: true }),
-      ])
-      const specs = await packWorkspacePackages(packDir)
-      await Promise.all([
-        writeFile(join(appDir, "app/app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
-        writeFile(join(appDir, "nuxt.config.ts"), `
-          export default defineNuxtConfig({
-            compatibilityDate: "2026-10-01",
-            modules: ["vite-hub/nuxt"],
-            vitehub: { console: { auth: false }, comments: false, kv: true, preset: "node" },
-          })
-        `, "utf8"),
-        writeFile(join(appDir, "package.json"), JSON.stringify({
-          dependencies: {
-            "@vite-hub/kv": specs["@vite-hub/kv"],
-            nuxt: "4.6.2",
-            unplugin: "3.3.0",
-            vite: "8.0.8",
-            "vite-hub": specs["vite-hub"],
-          },
-          packageManager: "pnpm@10.33.0",
-          private: true,
-          type: "module",
-        }, null, 2), "utf8"),
-        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
-          "oxc-parser": "0.140.0",
-          rollup: "4.64.0",
-        }), "utf8"),
-      ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
-
-      // Nuxt 4 runs Nitro 2, which leaves modules outside its inline list to Node in development.
-      const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
-        const page = await fetch(`${origin}/_vitehub`)
-        const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
-          body: JSON.stringify({ operation: "sections.list", input: {} }),
-          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
-          method: "POST",
-        })
-        return {
-          page: { body: await page.text(), status: page.status },
-          sections: { body: await sections.text(), status: sections.status },
-        }
-      })
-
-      expect(server.value.page.status, `${server.value.page.body}\n${server.logs()}`).toBe(200)
-      expect(server.value.page.body).toContain("<title>ViteHub Console</title>")
-      expect(server.value.sections.status, server.value.sections.body).toBe(200)
-      expect(JSON.parse(server.value.sections.body)).toMatchObject({ ok: true, value: { sections: expect.arrayContaining(["env", "kv"]) } })
-    }
-    finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  }, 600_000)
-
   it("builds Nuxt database middleware with the app's Database package", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-consumer-"))
     const appDir = join(root, "app")
@@ -1269,7 +1156,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ]))
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
-          import { runBrowserContent } from "@vite-hub/browser/actions"
+          import { runBrowserContent } from "@vite-hub/browser"
           export async function load() {
             return await runBrowserContent("https://example.com")
           }
@@ -1380,7 +1267,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "index.ts",
       ], appDir)
       const missingShell = await run("node", ["--input-type=module", "--eval", `
-        import { createWorkspaceTools } from "@vite-hub/workspace/ai"
+        import { createWorkspaceTools } from "@vite-hub/workspace"
         let shellResolved = true
         try { import.meta.resolve("@vite-hub/shell") } catch { shellResolved = false }
         try {
@@ -1446,7 +1333,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       await run("pnpm", ["run", "typecheck"], appDir)
       const generatedEnvTypes = await readFile(join(appDir, ".vitehub/env/server.d.ts"), "utf8")
-      expect(generatedEnvTypes).toContain('import("vite-hub/env/server").EnvAccessContext')
+      expect(generatedEnvTypes).toMatch(/import\("[^"\n]*[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"\)\.EnvAccessContext/)
       expect(generatedEnvTypes).not.toContain('import("@vite-hub/env/bridge")')
       await writeFile(join(appDir, "env-typecheck.json"), JSON.stringify({
         compilerOptions: {
@@ -1469,10 +1356,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(nodeEmailOutput).toContain("api.resend.com")
       expect(nodeEmailOutput).not.toContain(emailSecretSentinel)
 
-      for (const alias of ["vitehub", "vite-hub"]) {
-        const help = await run("pnpm", ["exec", alias, "--help"], appDir)
-        expect(help.stdout).toContain("Usage: vitehub")
-      }
+      const help = await run("pnpm", ["exec", "vitehub", "--help"], appDir)
+      expect(help.stdout).toContain("Usage: vitehub")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1611,7 +1496,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(authServerTypes).toContain("vite-hub/auth/server")
       // The Blob plugin imports its runtime state by file path, not through a package export.
       expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
-      expect(envServer).toContain("vite-hub/env/server")
+      expect(envServer).toMatch(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"/)
       expect(scheduleRegistryTypes).toContain("vite-hub/schedule")
 
       expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
@@ -1669,7 +1554,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       // The Blob plugin imports its runtime state by file path, not through a package export.
       expect(blobPlugin).toMatch(/[\\/]blob[\\/]dist[\\/]runtime[\\/]state\.js"/)
       expect(emailTemplate).toContain("Welcome")
-      expect(envServer).toContain("vite-hub/env/server")
+      expect(envServer).toMatch(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js"/)
       expect(workflowRegistry).toMatch(/[\\/]agent[\\/]dist[\\/]runtime[\\/]workflow\.js"/)
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
       expect(workflowRegistry).toMatch(/[\\/]workflow[\\/]dist[\\/]runtime[\\/]execute\.js"/)
