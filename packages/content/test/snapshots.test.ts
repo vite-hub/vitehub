@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { afterEach, describe, expect, it } from "vitest"
+import { gzipSync } from "node:zlib"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineSource } from "@vite-hub/source"
-import { files } from "@vite-hub/source/files"
+import { defineSource, files } from "@vite-hub/source"
 import type { ContentFile, ContentPlugin } from "comark-content"
 
 import { buildContentSnapshots, defineContent, registerContentSnapshots } from "../src/index.ts"
@@ -38,9 +38,11 @@ async function snapshotOf(entries: Record<string, string>) {
   return snapshots.docs!
 }
 
+const gzip = (text: string) => gzipSync(text).toString("base64")
+
 /** The snapshot as the bundle serves it, counting the shards that load. */
 function served(built: BuiltContentSnapshot, loaded: number[] = []): () => Promise<ContentSnapshot> {
-  return async () => ({ index: built.index, shards: built.shards.map((shard, number) => async () => (loaded.push(number), shard)) })
+  return async () => ({ index: gzip(built.index), shards: built.shards.map((shard, number) => async () => (loaded.push(number), gzip(shard))) })
 }
 
 afterEach(() => {
@@ -80,10 +82,29 @@ describe("Content snapshots", () => {
     expect((await content.list("docs")).map(item => item.data.title)).toEqual(["a", "b", "c"])
     expect(await content.navigation()).toHaveLength(3)
     expect(loaded).toEqual([])
+    // Hosts without node:zlib, such as Workers without nodejs_compat, inflate with DecompressionStream.
+    const getBuiltinModule = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined)
     expect((await content.get("/b"))?.data.title).toBe("b")
+    expect(getBuiltinModule).toHaveBeenCalledWith("node:zlib")
+    vi.restoreAllMocks()
     expect(loaded).toEqual([1])
     await content.handler(new Request("http://localhost/api/content/snapshot/docs.json"))
     expect(loaded.sort()).toEqual([0, 1, 2])
+  })
+
+  it("reads no file of the Source until refresh()", async () => {
+    const snapshot = await snapshotOf(docs)
+    const reads: string[] = []
+    const lazy = Object.fromEntries(Object.entries(docs).map(([key, text]) => [key, async () => (reads.push(key), text)]))
+    registerContentSnapshots({ docs: served(snapshot) })
+    const content = defineContent({ sources: { docs: files(lazy) } })
+
+    expect((await content.list("docs")).map(item => item.path)).toEqual(["/guide", "/guide/install"])
+    expect((await content.get("/guide/install"))?.data.title).toBe("Install")
+    await content.handler(new Request("http://localhost/api/content/snapshot/docs.json"))
+    expect(reads).toEqual([])
+    await content.cache.refresh("docs")
+    expect(reads.sort()).toEqual(Object.keys(docs))
   })
 
   it("keeps the Source as the authority for refresh()", async () => {
@@ -181,7 +202,7 @@ describe("Content snapshot build", () => {
   const importBase = join(import.meta.dirname, "../src/index.ts")
   const contentModule = [
     `import { defineContent } from ${JSON.stringify(importBase)}`,
-    "import { files } from \"@vite-hub/source/files\"",
+    "import { files } from \"@vite-hub/source\"",
     "",
     `export const content = defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
     "",
@@ -206,7 +227,8 @@ describe("Content snapshot build", () => {
     })
 
     const output = await readdir(join(project, "dist"), { recursive: true })
-    expect(output.filter(file => file.endsWith(".js") || file.endsWith(".mjs"))).toEqual(["entry.mjs", expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
+    expect(output).toContain("entry.mjs")
+    expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
 
     const { content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
     const live = defineContent({ sources: { docs: files(docs) } })

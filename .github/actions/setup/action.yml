@@ -5,7 +5,7 @@ inputs:
     description: Node.js version to install
     default: "24"
   prepare-docs:
-    description: Build the packages the docs import and generate their .nuxt types during install. Jobs that never touch the docs set "false".
+    description: Build the packages the docs import and generate their .nuxt types after install. Jobs that never touch the docs set "false".
     default: "true"
 runs:
   using: composite
@@ -27,8 +27,21 @@ runs:
         key: vp-task-cache-${{ runner.os }}-${{ github.sha }}
         restore-keys: vp-task-cache-${{ runner.os }}-
 
+    # The docs postinstall runs cached builds, so it waits until the next step
+    # has made the pnpm install state stable.
     - name: Install dependencies
       shell: bash
       env:
-        VITEHUB_SKIP_DOCS_PREPARE: ${{ inputs.prepare-docs == 'false' && '1' || '' }}
+        VITEHUB_SKIP_DOCS_PREPARE: "1"
       run: vp install --frozen-lockfile
+
+    # Without this, every package build misses the restored task cache with
+    # "'node_modules/.modules.yaml' modified". See the script for why.
+    - name: Make the pnpm install state stable for the task cache
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/stable-pnpm-modules.mjs"
+
+    - name: Prepare the docs
+      if: inputs.prepare-docs != 'false'
+      shell: bash
+      run: vp run --filter vitehub-docs postinstall

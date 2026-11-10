@@ -63,11 +63,11 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database` | `boolean` or `DBModulePublicOptions` | disabled | `true` or an object turns on Database in `vitehub()`. `false` leaves it off. |
+| `database` | `boolean` or `DatabaseOptions` | disabled | `true` or an object turns on Database in `vitehub()`. `false` leaves it off. |
 | `database.projectRoot` | `string` | effective application root | Root for finding Definitions, generated files, and provisioning. Relative paths start from the Vite root, or from the Nuxt `rootDir` in Nuxt. |
-| `database.cli.export` | `false` | enabled | Turns off `db export`. |
-| `database.cli.generate` | `false` | enabled | Turns off `db generate`. |
-| `database.cli.migrate` | `false` | enabled | Turns off `db migrate`. |
+| `database.cli.export` | `false` | enabled | Turns off `database export`. |
+| `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
+| `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `d1` selects Cloudflare D1 output for all databases. |
 | `database.binding` | `string` | `DB` | D1 binding of the default database. Named databases get their own binding names. |
@@ -78,7 +78,7 @@ export default defineConfig({
 | `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | `false` | Applies pending migrations of local SQLite databases when a Node server build starts. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
-With `vitehub()`, a Definition file alone does not turn Database on. Without the `database` option, importing `vite-hub/database/drizzle` fails the build or `vite dev` with `VITE_HUB_B0013`, and `vitehub db generate` and `migrate` exit with an error. Set `database`, or add `hubDb()` yourself.
+With `vitehub()`, a Definition file alone does not turn Database on. Without the `database` option, importing `vite-hub/database/drizzle` fails the build or `vite dev` with `VITE_HUB_B0013`, and `vitehub database generate` and `migrate` exit with an error. Set `database`, or add `hubDb()` yourself.
 
 ## Define a database
 
@@ -108,24 +108,24 @@ export default defineDatabase({
 })
 ```
 
-`schema` can be an object literal, an imported object, a namespace import such as `import * as schema from './schema'`, or a spread of several schemas. ViteHub loads the Definition and exports every Drizzle table and view in it, so `vitehub db generate` writes migrations for all of them. A schema key cannot be `schema` or `default`, because the generated module uses those export names.
+`schema` can be an object literal, an imported object, a namespace import such as `import * as schema from './schema'`, or a spread of several schemas. ViteHub loads the Definition and exports every Drizzle table and view in it, so `vitehub database generate` writes migrations for all of them. A schema key cannot be `schema` or `default`, because the generated module uses those export names.
 
-ViteHub loads the Definition with your Vite or Nuxt string aliases. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub db generate` fails instead, so a migration never drops a table silently.
+ViteHub loads the Definition with your Vite or Nuxt string aliases. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub database generate` fails instead, so a migration never drops a table silently.
 
 ## Apply migrations
 
-A migration is a SQL file that changes your tables. `vitehub db generate` writes one next to the Definition. `vitehub db migrate` first reads each database's migrations table and checks the SQL of each pending migration, then applies them with Drizzle Kit.
+A migration is a SQL file that changes your tables. `vitehub database generate` writes one next to the Definition. `vitehub database migrate` first reads each database's migrations table and checks the SQL of each pending migration, then applies them with Drizzle Kit.
 
 Both commands run from the Database project root, even when Nuxt uses `app/` as its Vite root. The CLI finds Drizzle Kit in your dependencies or in `vite-hub`.
 
 Connection URLs and tokens can be string literals or runtime env declarations, also through module-level variables. Kit reads env values when it runs, and uses the Turso dialect for remote or authenticated libSQL. The check uses the same connection. Local migration creates the database folder after the check. Generation and `--dry-run` never create the database file.
 
 ```bash [commands/migrate]
-pnpm vitehub db migrate --dry-run
-pnpm vitehub db migrate
+pnpm vitehub database migrate --dry-run
+pnpm vitehub database migrate
 ```
 
-`--dry-run` prints each pending migration with its SQL and changes nothing. `vitehub db migrate` refuses migrations that lose data and names the statements with `DATABASE_MIGRATION_DATA_LOSS`. These statements lose data:
+`--dry-run` prints each pending migration with its SQL and changes nothing. `vitehub database migrate` refuses migrations that lose data and names the statements with `DATABASE_MIGRATION_DATA_LOSS`. These statements lose data:
 
 - `DROP TABLE` and `DROP SCHEMA`
 - a column drop with `ALTER TABLE`
@@ -142,7 +142,7 @@ With `--dry-run`, a migration that loses data makes the command exit with code 1
     ! Data loss: drops column "body" from "notes".
 ```
 
-To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`. The flag also skips the check, for example when ViteHub cannot read the migrations table.
+To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`. The flag also skips the check, for example when ViteHub cannot read the migrations table.
 
 The check reads the database that Drizzle Kit migrates:
 
@@ -153,13 +153,13 @@ The check reads the database that Drizzle Kit migrates:
 | D1 HTTP (`cloudflare.http`) | Reads Wrangler's migrations table. `true` calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. An object uses its `url` and `authToken`. Missing credentials fail with `DATABASE_MIGRATION_CHECK_FAILED`. |
 | Postgres | Connects with `connection.url` or the PG* variables. It needs the `postgres` package in the app. |
 
-A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehub db migrate`, so this check does not run.
+A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehub database migrate`, so this check does not run.
 
-For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied `.sql` file, so Wrangler and ViteHub can take turns. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
+For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied `.sql` file, so Wrangler and ViteHub can take turns. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
 
 ## Migrate when the server starts
 
-A self-hosted Node server, for example in Docker, often has only `.output`, with no sources or CLI for `vitehub db migrate`. Set `migrateOnStart` to apply pending migrations when the server starts:
+A self-hosted Node server, for example in Docker, often has only `.output`, with no sources or CLI for `vitehub database migrate`. Set `migrateOnStart` to apply pending migrations when the server starts:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -195,30 +195,30 @@ export default defineConfig({
 :::
 ::
 
-The build copies each migrations folder into a Nitro plugin. At startup, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies pending migrations before the first request, in one transaction per database, and logs each one. It writes the same rows as `vitehub db migrate`, so either can migrate next.
+The build copies each migrations folder into a Nitro plugin. At startup, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies pending migrations before the first request, in one transaction per database, and logs each one. It writes the same rows as `vitehub database migrate`, so either can migrate next.
 
 Definitions that share a SQLite file share one transaction. Their migrations run in journal timestamp order, and matching timestamp and hash pairs run once. If a shared journal has a migration at or below the latest applied timestamp with no matching timestamp and hash in the table, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change. Use compatible histories or separate SQLite files. `allowDataLoss` does not skip this check.
 
-A migration that loses data, by the `vitehub db migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
+A migration that loses data, by the `vitehub database migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
 
-`migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. Another host, Postgres, D1 over HTTP, or a URL that turns out to be remote libSQL fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Migrate those, and development databases, with `vitehub db migrate`.
+`migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. Another host, Postgres, D1 over HTTP, or a URL that turns out to be remote libSQL fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Migrate those, and development databases, with `vitehub database migrate`.
 
 > [!WARNING]
 > Run one server process per database file. Two processes that start together can both find a migration pending, and the second fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
 
 ## Export a database
 
-`vitehub db export` writes a SQL dump of each database. Like `vitehub db migrate`, it reads the config and does not build the app.
+`vitehub database export` writes a SQL dump of each database. Like `vitehub database migrate`, it reads the config and does not build the app.
 
 ```bash [commands/export]
-pnpm vitehub db export                                   # the local SQLite file
-pnpm vitehub db export --remote --stage production       # the deployed database
-pnpm vitehub db export --remote --database analytics --output backups/analytics.sql
+pnpm vitehub database export                                   # the local SQLite file
+pnpm vitehub database export --remote --stage production       # the deployed database
+pnpm vitehub database export --remote --database analytics --output backups/analytics.sql
 ```
 
 Without `--output`, each database goes to `.vitehub/exports/database/<name>-<local|remote>-<time>.sql` in the Database project root. `--output` writes one file, so it needs `--database` when the app has several. The command never replaces a file. `--stage <name>` loads the Vite env files of that mode. Variables of the current process win.
 
-Without `--remote`, the command reads only the local SQLite file that `vitehub db migrate` uses. Any other database needs `--remote`, so you never export production by accident:
+Without `--remote`, the command reads only the local SQLite file that `vitehub database migrate` uses. Any other database needs `--remote`, so you never export production by accident:
 
 | Database | Export |
 | --- | --- |
@@ -238,7 +238,7 @@ Object-form D1 proxies cannot keep one read transaction across requests. So tabl
 
 In Nuxt, ViteHub also finds Definitions in the server folder of each layer.
 Definitions with the same name join into one database with all their tables.
-`vitehub db generate` writes one set of migrations for it.
+`vitehub database generate` writes one set of migrations for it.
 
 ```ts [layers/blog/server/databases/config.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -326,7 +326,7 @@ Database reads contributions after every module has run setup, so module order d
 
 Contributed tables go everywhere the Definition schema goes:
 
-- The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
+- The generated Drizzle schema exports each contributed table, so `vitehub database generate` writes their migrations.
 - `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field, with the plugin.
 
@@ -373,7 +373,7 @@ A project cannot mix a default database with named ones, so this fits an app who
 | `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })`, with the same `name`. |
 | `reason` | `string` | Optional. Why the package adds the Database. `vitehub inspect` shows it. |
 
-A contributed database works like one in `server/databases/`: `vitehub db generate`, `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection shows `Contributed by`, `Reason`, and `Migrations`. Its migrations go where an app Definition with the same name keeps them (`server/databases/migrations/` for `default`, else `server/databases/<name>/migrations/`), so adding that Definition later keeps the history.
+A contributed database works like one in `server/databases/`: `vitehub database generate`, `database migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection shows `Contributed by`, `Reason`, and `Migrations`. Its migrations go where an app Definition with the same name keeps them (`server/databases/migrations/` for `default`, else `server/databases/<name>/migrations/`), so adding that Definition later keeps the history.
 
 The factory context also has `rootDir`, the root where Definitions are found, and `plugins`, the flat list of Vite plugins.
 
@@ -385,7 +385,7 @@ The factory context also has `rootDir`, the root where Definitions are found, an
 | `DATABASE_INVALID_CONTRIBUTION_TARGET` | The target database does not exist, is ambiguous, or has another dialect, or contributions to the implicit default database need different dialects. |
 | `DATABASE_INVALID_CONTRIBUTION` | The contribution shape or schema export is invalid, or a contributed Definition module does not exist. |
 | `DATABASE_DUPLICATE_DEFINITION` | Two plugins contribute different Definitions with one name, or the app already defines that database. |
-| `DATABASE_SCHEMA_LOAD_FAILED` | The contributed module cannot load. `vitehub db generate` fails; dev and builds print a warning. |
+| `DATABASE_SCHEMA_LOAD_FAILED` | The contributed module cannot load. `vitehub database generate` fails; dev and builds print a warning. |
 
 For other build steps, `collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables, uses }`. `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution or use.
 
@@ -434,9 +434,9 @@ Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not
 | `cloudflare.http` | `true \| { url?, authToken? }` | No | D1 over authenticated HTTP, locally and hosted. `true` uses Cloudflare's API. An object selects a compatible proxy. In `vite dev`, it also makes the Database remote, like `remote: true`. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
-| `cloudflare.migrationsTable` | `string` | No | D1 migrations table that Wrangler and `vitehub db migrate` use. Default: `d1_migrations`. |
+| `cloudflare.migrationsTable` | `string` | No | D1 migrations table that Wrangler and `vitehub database migrate` use. Default: `d1_migrations`. |
 | `cloudflare.readReplication` | `boolean` | No | Reads from D1 read replicas. Inherits `database.readReplication`. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
-| `drizzle.casing` | `DrizzleCasing` | No | `snake_case` or `camelCase`. Applies to queries and to migrations from `vitehub db generate`. |
+| `drizzle.casing` | `DrizzleCasing` | No | `snake_case` or `camelCase`. Applies to queries and to migrations from `vitehub database generate`. |
 
 A Definition uses the top-level `database` D1 resource when it sets neither `cloudflare.databaseId` nor `cloudflare.databaseName`. Setting either selects its own resource, so it takes no database ID, name, or preview ID from the top level. Other D1 settings still use their defaults. HTTP proxy URLs and tokens are inherited one field at a time, and both must be set in the end for HTTP access.
 
@@ -477,7 +477,7 @@ export default defineDatabase({
 
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
-| `connection.url` | `DatabaseConfigValue` | No | Postgres URL for Node, Vercel, local development, and `vitehub db migrate`. |
+| `connection.url` | `DatabaseConfigValue` | No | Postgres URL for Node, Vercel, local development, and `vitehub database migrate`. |
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. |

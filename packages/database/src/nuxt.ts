@@ -5,7 +5,7 @@ import { dirname, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -22,7 +22,7 @@ import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContrib
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
-import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -31,7 +31,7 @@ import { isAbsolute } from "pathe"
 
 import type { CollectedDatabaseContribution, CollectedDatabaseContributions } from "./contributions.ts"
 import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
-import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DatabaseNuxtIntegrationOptions, DatabaseOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -104,7 +104,7 @@ interface ResolvedDatabaseNuxtD1Options {
   contentDatabase: { bindingName: string, type: "d1" } | { filename: string, type: "sqlite" }
   d1Database?: ReturnType<typeof resolveCloudflareD1Binding>["d1Database"]
   unresolved?: ReturnType<typeof resolveCloudflareD1Binding>["unresolved"]
-  viteOptions: DBModulePublicOptions
+  viteOptions: DatabaseOptions
 }
 
 export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNuxtModule {
@@ -160,8 +160,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       : effectiveOptions
     const viteOptions = resolveDatabaseViteOptions({ ...runtimeOptions, projectRoot: root }, serverDirs)
     if (viteOptions) {
-      const configuredDatabase = isRecord(viteConfig.database) ? viteConfig.database : undefined
-      viteConfig.database = { ...configuredDatabase, ...viteOptions }
+      const configuredDatabase = getResolvedFeatureOptions<Record<string, unknown>>(viteConfig, "database")
+      setResolvedFeatureOptions(viteConfig, "database", { ...configuredDatabase, ...viteOptions })
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
     const hook = (nuxt as NuxtLike).hook
@@ -300,7 +300,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           const d1Only = runtime && usesD1HttpOnly(runtime)
           // A separate Nuxt Content D1 resource does not make Node's local Databases hosted.
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1Only || (provider && d1) ? "cloudflare" : provider
-          if (d1Only) {
+          // A hosted Definition runtime without a remote libSQL URL reaches D1 only, so the build ships no libSQL client.
+          if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") && !usesRemoteLibsql(runtime)) {
             const alias = ensureRecord(config, "alias")
             alias["#vitehub/database/definition-runtime"] ??= resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/d1")
           }
@@ -596,8 +597,8 @@ function resolveDatabaseNuxtOptions(
   } as ResolvedDatabaseNuxtIntegrationOptions
 }
 
-function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DBModulePublicOptions | undefined {
-  const viteOptions: Exclude<DBModulePublicOptions, false> & NuxtDatabaseViteOptions = { nuxtHostResource: true }
+function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DatabaseOptions | undefined {
+  const viteOptions: Exclude<DatabaseOptions, false> & NuxtDatabaseViteOptions = { nuxtHostResource: true }
   if (options.projectRoot) {
     viteOptions.projectRoot = options.projectRoot
   }

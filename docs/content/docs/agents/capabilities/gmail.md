@@ -52,15 +52,18 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', connections: true }), nitro()],
-  env: {
-    server: {
-      google: {
-        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -72,15 +75,18 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', connections: true })],
-  env: {
-    server: {
-      google: {
-        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    preset: 'node',
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
