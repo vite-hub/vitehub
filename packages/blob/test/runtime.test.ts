@@ -1482,7 +1482,7 @@ describe("ensureBlob", () => {
     expect(() => ensureBlob(svg, { types: ["image"] })).toThrow("File type is invalid, must be: image")
     expect(() => ensureBlob(svg, { types: ["image/svg+xml"] })).not.toThrow()
     expect(() => ensureBlob(new Blob(["content"], { type: "image/png" }), { types: ["image"] })).not.toThrow()
-    for (const type of ["image/png,image/svg+xml", "image/png, text/html"]) {
+    for (const type of ["image/png,image/svg+xml", "image/png, text/html", "image/png,multipart/mixed;boundary=b"]) {
       expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["image"] })).toThrow("File type is invalid, must be: image")
     }
     for (const type of ["text/html", "text/html;charset=utf-8", "text/xml", "text/html extra"]) {
