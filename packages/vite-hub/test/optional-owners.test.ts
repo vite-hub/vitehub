@@ -105,6 +105,14 @@ it("reads the installed version, also of a package that does not export its mani
   expect(installedPackageVersion("@vite-hub/not-a-package")).toBeUndefined()
 })
 
+it("reads the root manifest when a wildcard export maps package.json to a nested file", () => {
+  // The MCP SDK exports `./*` to `./dist/esm/*`, so `@modelcontextprotocol/sdk/package.json` is `{"type":"module"}`.
+  const sdk: unknown = JSON.parse(readFileSync(new URL("../node_modules/@modelcontextprotocol/sdk/package.json", import.meta.url), "utf8"))
+  const nested: unknown = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve("@modelcontextprotocol/sdk/package.json")), "utf8"))
+  expect(nested).not.toHaveProperty("version")
+  expect(installedPackageVersion("@modelcontextprotocol/sdk")).toBe((sdk as { version: string }).version)
+})
+
 it("does not warn in a source checkout, where the peer ranges are workspace and catalog ranges", () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   try {
@@ -148,6 +156,19 @@ describe("assertFeaturePackages version warning", () => {
         `[vitehub] @vite-hub/kv ${kv} is installed, but vite-hub 9.9.9 supports @vite-hub/kv@9.9.9.`,
         `[vitehub] @vite-hub/database ${installedPackageVersion("@vite-hub/database")} is installed, but vite-hub 9.9.9 supports @vite-hub/database@9.9.9.`,
       ])
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("warns for a package whose exported package.json is a nested file", async () => {
+    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@modelcontextprotocol/sdk": "^99.0.0" }, version: "9.9.9" }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      assertFeaturePackages(["console mcp-client"])
+      expect(warn).toHaveBeenCalledOnce()
+      expect(String(warn.mock.calls[0]![0])).toContain(`@modelcontextprotocol/sdk ${installedPackageVersion("@modelcontextprotocol/sdk")} is installed, but vite-hub 9.9.9 supports @modelcontextprotocol/sdk@^99.0.0.`)
     }
     finally {
       warn.mockRestore()

@@ -170,8 +170,8 @@ export function assertFeaturePackages(features: readonly OptionalFeature[]): voi
 }
 
 /**
- * The `version` of the installed `packageName`, as `vite-hub` resolves it. It reads one `package.json`. It is
- * `undefined` when the package is missing or its manifest has no version.
+ * The `version` of the installed `packageName`, as `vite-hub` resolves it, from the manifest that names the package. It
+ * is `undefined` when the package is missing or its manifest has no version.
  */
 export function installedPackageVersion(packageName: string): string | undefined {
   let manifest: unknown
@@ -186,24 +186,24 @@ export function installedPackageVersion(packageName: string): string | undefined
 }
 
 function readInstalledManifest(packageName: string): unknown {
-  try {
-    return JSON.parse(readFileSync(fileURLToPath(import.meta.resolve(`${packageName}/package.json`)), "utf8"))
+  // A wildcard export can map `package.json` to a nested file, such as `{"type":"module"}` in the MCP SDK, and some
+  // packages, such as drizzle-orm, do not export their manifest. Start at the file that resolves, and use the first
+  // manifest above it that names the package.
+  let file: string | undefined
+  for (const specifier of [`${packageName}/package.json`, packageName]) {
+    try {
+      file = fileURLToPath(import.meta.resolve(specifier))
+      break
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return undefined
+    }
   }
-  catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return undefined
-  }
-  // Some packages, such as drizzle-orm, do not export their manifest. Find it in a folder above the package entry.
-  let entry: string
-  try {
-    entry = fileURLToPath(import.meta.resolve(packageName))
-  }
-  catch {
-    return undefined
-  }
-  for (let directory = dirname(entry); dirname(directory) !== directory; directory = dirname(directory)) {
-    const file = join(directory, "package.json")
-    if (!existsSync(file)) continue
-    const manifest: unknown = JSON.parse(readFileSync(file, "utf8"))
+  if (file === undefined) return undefined
+  for (let directory = dirname(file); dirname(directory) !== directory; directory = dirname(directory)) {
+    const manifestFile = join(directory, "package.json")
+    if (!existsSync(manifestFile)) continue
+    const manifest: unknown = JSON.parse(readFileSync(manifestFile, "utf8"))
     if (isPlainObject(manifest) && manifest.name === packageName) return manifest
   }
 }
