@@ -56,9 +56,9 @@ Generate a new Postgres migration history. Do not apply SQLite migrations to
 Postgres.
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate --dry-run
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate --dry-run
+pnpm vitehub database migrate
 ```
 
 The notes POST and GET routes from

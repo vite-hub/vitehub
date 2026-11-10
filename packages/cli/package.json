@@ -21,9 +21,6 @@
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/cli"
   },
-  "bin": {
-    "vitehub": "./dist/index.js"
-  },
   "files": [
     "dist",
     "package.json"

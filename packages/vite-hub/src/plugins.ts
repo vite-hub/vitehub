@@ -48,7 +48,7 @@ import { observabilityVitePlugin, type ObservabilityOptions } from "./observabil
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
-import type { AgentInvocationsDefault } from "./internal/agent-invocations.ts"
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 import type { AuthOptions } from "@vite-hub/auth"
 import type { BlobOptions } from "@vite-hub/blob"
 import type { BrowserOptions } from "@vite-hub/browser/vite"
@@ -78,7 +78,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
-export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "./internal/agent-invocations.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
 export type { BlobOptions } from "@vite-hub/blob"
 export type { BrowserOptions } from "@vite-hub/browser/vite"
@@ -126,6 +126,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
+  // Static Console files that Nitro serves. Generated server code never imports them.
+  "@vite-hub/console-client": false,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
@@ -242,6 +244,7 @@ function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImport
 
 // One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
+const envServerRuntimeImport = fileURLToPath(import.meta.resolve("@vite-hub/env/internal/server"))
 
 function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
   return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
@@ -258,6 +261,15 @@ const frameworkProviderImportAliases = Object.fromEntries(
 // Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
 // specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
 const frameworkAssetImportAliases = Object.fromEntries(frameworkExportAliases(importTarget => !importTarget.endsWith(".js")))
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[$()*+.?[\\\]^{|}]/g, "\\$&")
+}
+
+// The dependency resolver answers bare specifiers, such as `vite-hub/kv`, `#vitehub/env/server` and `nitro/app`, and the
+// `vite-hub` files that framework aliases point to. It never answers a relative import or a virtual module.
+const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLToPath(frameworkPackageRoot))}`)]
+const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
 // root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
@@ -344,27 +356,30 @@ function frameworkDependencyResolver(
       }
       configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions)
     },
-    resolveId(id, importer, resolveOptions) {
-      if (!blobEnabled && id === "@vite-hub/blob") {
-        throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
-      }
-      for (const specifier in providerImportAliases) {
-        const frameworkFacade = frameworkProviderImportAliases[specifier]
-        if (!frameworkFacade) continue
-        const providerFacade = providerImportAliases[specifier]
-        if (id === frameworkFacade || providerImportAliases[id] === providerFacade) return providerFacade
-      }
-      if (!isGeneratedImporter(importer)) return
-      const nitroFallbackImporter = getNitroFallbackImporter(id)
-      if (nitroFallbackImporter) {
-        // Only this branch is asynchronous, so the other imports keep resolving, and throwing, synchronously.
-        const options = { ...resolveOptions, skipSelf: true }
-        return this.resolve(id, importer, options).then(resolved => resolved ?? this.resolve(id, nitroFallbackImporter, options))
-      }
-      const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
-      const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
-      if (!isFrameworkPackageImport && !isOwnerPackageImport) return
-      return fileURLToPath(import.meta.resolve(id))
+    resolveId: {
+      filter: { id: frameworkDependencyIds },
+      handler(id, importer, resolveOptions) {
+        if (!blobEnabled && id === "@vite-hub/blob") {
+          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
+        }
+        for (const specifier in providerImportAliases) {
+          const frameworkFacade = frameworkProviderImportAliases[specifier]
+          if (!frameworkFacade) continue
+          const providerFacade = providerImportAliases[specifier]
+          if (id === frameworkFacade || providerImportAliases[id] === providerFacade) return providerFacade
+        }
+        if (!isGeneratedImporter(importer)) return
+        const nitroFallbackImporter = getNitroFallbackImporter(id)
+        if (nitroFallbackImporter) {
+          // Only this branch is asynchronous, so the other imports keep resolving, and throwing, synchronously.
+          const options = { ...resolveOptions, skipSelf: true }
+          return this.resolve(id, importer, options).then(resolved => resolved ?? this.resolve(id, nitroFallbackImporter, options))
+        }
+        const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
+        const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
+        if (!isFrameworkPackageImport && !isOwnerPackageImport) return
+        return fileURLToPath(import.meta.resolve(id))
+      },
     },
   }
 }
@@ -794,11 +809,14 @@ function deploymentPlugins(
           await installModules(nitro, (nitro.options.modules ?? []).filter(module => !existingModules.has(module)))
         },
       },
-      resolveId(source) {
-        if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
-          assertHostService(plan, "blob")
-          throw viteHubErrorDiagnostics.VITE_HUB_R0079({ message: "[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + "." })
-        }
+      resolveId: {
+        filter: { id: blobImports },
+        handler(source) {
+          if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
+            assertHostService(plan, "blob")
+            throw viteHubErrorDiagnostics.VITE_HUB_R0079({ message: "[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + "." })
+          }
+        },
       },
       config: {
         // Resolve identity after ordinary plugins configure the application root.
@@ -1221,8 +1239,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         // Declared here so the Console Env page shows it, and the observability plugin reads it at startup.
         ...(observabilityOptions.posthog ? { server: { ...options.env ? options.env.server : undefined, observability: { posthog: { apiKey: observabilityOptions.posthog.apiKey } } } } : {}),
         runtimeImports: {
-          secret: "vite-hub/env/secret",
-          server: "vite-hub/env/server",
+          secret: "vite-hub/env",
+          server: envServerRuntimeImport,
           ...options.env?.runtimeImports,
         },
       })
@@ -1283,6 +1301,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
+    i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email/server" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1412,7 +1431,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: envServerRuntimeImport,
       workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
     } as EmailOptions))
   }
@@ -1565,6 +1584,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
+    disabledTypeFiles: workflowEnabled ? [] : ["workflow.d.ts"],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. These plugins run its config hooks after ViteHub's, whether `vitehub()` includes Nitro

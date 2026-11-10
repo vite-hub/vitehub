@@ -8,7 +8,7 @@ export { consoleConnectionsActor, consoleRealtimeAccess, resolveConsoleAppAuthId
 export { verifyConsoleJwt } from "./bearer-jwt.ts"
 export { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../../auth-pages.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
-export { installConsoleAccess, installConsoleBuild, installConsoleDevelopment, installConsoleOrigins, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "./setup.ts"
+export { installConsoleAccess, installConsoleBuild, installConsoleClient, installConsoleDevelopment, installConsoleOrigins, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "./setup.ts"
 
 export function getConsoleBuild(): string | undefined {
   return resolveConsoleBuild()

@@ -50,21 +50,15 @@ describe("Console server startup graph", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
       const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin(
+      await writeConsoleNitroPlugin({
         file,
-        root,
-        ["agents", "databases", "env", "kv", "mcp-client"],
-        [],
-        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
-        [],
-        undefined,
-        undefined,
-        false,
-        () => true,
-        false,
-        { mode: "open" },
-        { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
-      )
+        projectRoot: root,
+        sections: ["agents", "databases", "env", "kv", "mcp-client"],
+        catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
+        blobStores: [],
+        access: { mode: "open" },
+        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
+      })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/console/setup"])
       for (const module of ["vite-hub/console/server", "vite-hub/console/operations", "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
@@ -92,25 +86,22 @@ describe("Console server startup graph", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
       const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin(
+      await writeConsoleNitroPlugin({
         file,
-        root,
-        ["kv"],
-        [],
-        { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
-        [],
-        undefined,
-        undefined,
-        false,
-        () => true,
-        false,
-        { mode: "local" },
-        { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
-      )
+        projectRoot: root,
+        sections: ["kv"],
+        catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
+        blobStores: [],
+        pageTools: true,
+        access: { mode: "local" },
+        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
+      })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual(["vite-hub/console/setup"])
+      expect(generated).toContain("installConsoleClient(")
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
+      expect(loaded).toContain("src/console/runtime/server/client-assets.ts")
       for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
         expect(loaded).not.toContain(lazy)
       }
