@@ -211,6 +211,23 @@ export function readStaticScheduleTimeZone(file: string): string | null | undefi
   return property.value ? staticString(property.value) ?? null : null
 }
 
+/**
+ * Reads the `cron` and `timeZone` of a `defineSchedule()` call. Returns `undefined` when either is not a static string,
+ * so the Process Runtime loads that Schedule at startup to read them.
+ */
+export function readStaticScheduleTiming(file: string): { cron: string, timeZone?: string } | undefined {
+  if (!existsSync(file)) return undefined
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  if (!definition) return undefined
+  const cron = staticString(definition.call.arguments.length > 1
+    ? argumentExpression(definition.call.arguments[0])
+    : definition.options && findProperty(definition.options, "cron")?.value)
+  const timeZone = definition.options && findProperty(definition.options, "timeZone")
+  if (!cron || (timeZone && !(timeZone.value && staticString(timeZone.value)))) return undefined
+  const zone = timeZone?.value && staticString(timeZone.value)
+  return zone ? { cron, timeZone: zone } : { cron }
+}
+
 /** UTC cron per Schedule name that the host runs in place of each Schedule's cron in a time zone. */
 export type ScheduleTimeZoneCrons = Readonly<Record<string, string>>
 

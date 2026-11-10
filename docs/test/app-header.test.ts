@@ -30,7 +30,7 @@ describe("docs header", () => {
     expect(header).toContain('v-for="link in docsMobileLinks"');
     expect(header).toContain("mobileLinks.filter(link => !isDocsPath(link.to, base))");
     expect(header).toContain('v-if="!isDocsRoute"');
-    expect(header).toContain("...(start?.links ?? []).filter(link => link.to !== base)");
+    expect(header).toContain("...(start?.links ?? []).filter(link => link.to !== base && normalizeDocsPath(link.to) !== docsHome)");
     expect(config.docs?.start?.links?.map(link => [link.label, link.to])).toEqual([
       ["All docs", "/docs"],
       ["Learn", "/learn"],

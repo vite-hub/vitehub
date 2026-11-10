@@ -1,12 +1,16 @@
 import { computed, type ComputedRef } from "vue"
-import { useRoute, useRuntimeConfig } from "#imports"
+import { useError, useRoute, useRuntimeConfig } from "#imports"
+import { useTutorialNavigation } from "./tutorial"
 import manifest from "#docs/manifest"
 import { docsSectionForPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
 
-import type { DocsManifest, DocsPage, DocsPublicConfig, DocsSection } from "@vite-hub/docs"
+import type { DocsAppPage, DocsManifest, DocsPublicConfig, DocsSection } from "@vite-hub/docs"
 
-/** Sections and pages of the site, computed from the content folder at build time. */
-export function useDocsManifest(): DocsManifest {
+/**
+ * Sections and pages of the site, computed from the content folder at build time. Each page has its `DocsAppPage`
+ * fields: navigation, title, description, and layout. The page route returns the rest, such as `seo` and `credits`.
+ */
+export function useDocsManifest(): DocsManifest<DocsAppPage> {
   return manifest
 }
 
@@ -23,13 +27,13 @@ export function isDocsStartLink(config: DocsPublicConfig, path: string): boolean
 }
 
 /** The docs page of the current route, or `null` on other pages. */
-export function useDocsPage(): ComputedRef<{ page: DocsPage, section: DocsSection | null } | null> {
+export function useDocsPage(): ComputedRef<{ page: DocsAppPage, section: DocsSection<DocsAppPage> | null } | null> {
   const route = useRoute()
   return computed(() => findDocsPage(manifest, route.path))
 }
 
 /** The section of the current route. A start link page resolves to the start section. */
-export function useDocsSection(): ComputedRef<DocsSection | null> {
+export function useDocsSection(): ComputedRef<DocsSection<DocsAppPage> | null> {
   const route = useRoute()
   const config = useDocsConfig()
   return computed(() => {
@@ -47,4 +51,20 @@ export function useDocsSection(): ComputedRef<DocsSection | null> {
 export function useDocsShell(): ComputedRef<boolean> {
   const route = useRoute()
   return computed(() => route.meta.layout === "docs")
+}
+
+/**
+ * Whether the docs page shows its sidebar column. On wide screens that column then carries the brand, search, and the
+ * site links, and the site header hides. A page with `sidebar: false`, or a code panel tutorial whose reader closed the
+ * navigation, keeps the header.
+ */
+export function useDocsSidebarShown(): ComputedRef<boolean> {
+  const shell = useDocsShell()
+  const found = useDocsPage()
+  const tutorialNavigation = useTutorialNavigation()
+  return computed(() => {
+    if (!shell.value || useError().value) return false
+    const page = found.value?.page
+    return page?.sidebar !== false && (page?.codePanel !== true || tutorialNavigation.value)
+  })
 }
