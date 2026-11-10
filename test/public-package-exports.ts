@@ -57,6 +57,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
+  ["@vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["@vite-hub/ui/markdown-editor", {
     "@nuxt/ui": "both",
     "@tiptap/core": "both",
@@ -87,6 +88,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
   ["vite-hub/source/drizzle", { "drizzle-orm": "both" }],
+  ["vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/console/ui", {

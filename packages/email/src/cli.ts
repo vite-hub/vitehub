@@ -4,8 +4,9 @@ import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
+import { isRecord } from "@vite-hub/internal/object"
 import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { previewEmailTemplate } from "./preview.ts"
@@ -139,11 +140,6 @@ function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): Parse
   return parsed
 }
 
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
-
 function deliveryLabel(delivery: EmailOutboxDelivery): string {
   switch (delivery.status) {
     case "pending":
@@ -201,10 +197,6 @@ function formatMessage(message: EmailOutboxMessage): string {
     message.text ?? "(no text body)",
     "",
   ].join("\n")
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !Array.isArray(value) && v.is(v.record(v.string(), v.unknown()), value)
 }
 
 const deliverySchema = v.variant("status", [

@@ -27,7 +27,7 @@ function sourceFile(specifier: string, importer?: string): string | undefined {
   if (specifier.startsWith(".") && importer) return resolve(dirname(importer), specifier)
   if (specifier.startsWith(join(packageRoot, "dist/"))) return join(packageRoot, "src", relative(join(packageRoot, "dist"), specifier).replace(/\.js$/, ".ts"))
   if (specifier.startsWith(join(packageRoot, "src/"))) return specifier
-  if (specifier === "@vite-hub/agent/invocations/default") return join(agentSource, "invocations/default.ts")
+  if (specifier === "@vite-hub/agent/invocations/default-core") return join(agentSource, "invocations/default-core.ts")
   if (specifier.startsWith("@vite-hub/internal/")) return join(internalSource, `${specifier.slice("@vite-hub/internal/".length)}.ts`)
   const target = specifier.startsWith("vite-hub/") ? packageExports[`./${specifier.slice("vite-hub/".length)}`]?.import : undefined
   return target ? join(packageRoot, target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")) : undefined
@@ -72,6 +72,7 @@ describe("Console server startup graph", () => {
       }
 
       const { files, packages } = startupGraph(generated)
+      expect(files).not.toContain(join(agentSource, "invocations/default-core.ts"))
       const loaded = [...files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
       // Agent Definitions and the Console's Agent install load with the Console runtime. `vite-hub/agent` resolves the

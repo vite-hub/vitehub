@@ -49,6 +49,7 @@ describe("public package export contracts", () => {
       expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
     }
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
     expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
@@ -83,6 +84,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/schedule/runtime/kv", "@vite-hub/kv"],
       ["@vite-hub/schedule/vite", "vite"],
       ["@vite-hub/source/client", "vue"],
+      ["@vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
       ["@vite-hub/ui/vite", "vite"],
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
@@ -93,6 +95,7 @@ describe("public package export contracts", () => {
       ["vite-hub/i18n/vue", "@vite-hub/i18n"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
+      ["vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
       ["vite-hub/ui", "vue"],
       ["vite-hub/ui/headless", "vue"],
       ["vite-hub/ui/vite", "vite"],
