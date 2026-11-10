@@ -77,7 +77,7 @@ describe("Nuxt production Node Database runtime", () => {
       const runtime = config.alias["@vite-hub/database/drizzle"]
       // Nuxt CLI clears buildDir after ready() and nitro:config, before compiling.
       await rm(join(root, ".nuxt"), { recursive: true, force: true })
-      await expect(readFile(runtime!, "utf8")).resolves.toContain("export function useDatabase")
+      await expect(readFile(runtime!, "utf8")).resolves.toContain("export const useDatabase = createUseDatabase(")
 
       const entry = join(root, "server.mjs")
       await writeFile(entry, [
