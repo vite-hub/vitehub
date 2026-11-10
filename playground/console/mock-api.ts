@@ -350,6 +350,7 @@ const connections = new Map([
   ["support-inbox", {
     actions: [{ highRisk: false, id: "gmail.users.threads.list", method: "GET", write: false }],
     credential: "oauth2",
+    docs: "Connect **support@example.com**, not your own inbox.\n\n1. Ask IT to add you as a delegate of the support inbox.\n2. Click **Connect** and choose the support account in Google.\n3. Approve read-only access. The Agent never sends from this inbox.",
     name: "support-inbox",
     provider: "google",
     scopes: { declared: ["https://www.googleapis.com/auth/gmail.readonly"], granted: [], missing: ["https://www.googleapis.com/auth/gmail.readonly"] },

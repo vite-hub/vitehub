@@ -44,7 +44,6 @@ try {
         /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "fdir",
-        "ocache",
         "picomatch",
         "tinyglobby",
       ],

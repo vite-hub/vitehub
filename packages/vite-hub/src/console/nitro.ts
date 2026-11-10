@@ -1,11 +1,7 @@
 import { join } from "node:path"
-import { addViteHubPageToolRoutes, viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
-import { resolveConsoleClient } from "./client.ts"
-
-import type { NitroModule } from "nitro/types"
 
 export function mountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
@@ -15,121 +11,29 @@ type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[
 // Nitro 3 resolves handler paths against rootDir unless they start with `#`, so a `virtual:` id would become a missing file.
 const configuredMcpDiscovery = "#vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
-type NitroPrerenderConfig = { baseURL?: string, prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
-
-/** Keep linked Console pages, which need a signed-in request, out of Nitro's prerender crawler. */
-export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: string): void {
-  const prerender = nitro.prerender ??= {}
-  const { mount } = viteHubPageToolsBase({ base, nitro })
-  // Nitro can match crawled links with its base intact or removed. Keep both forms excluded.
-  for (const prefix of [base, mount]) {
-    const consolePath = mountPath(prefix, "/_vitehub")
-    if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
-  }
-}
 
 /**
- * Serves the standalone Console: its HTML page at `/_vitehub/**`, its hashed script, style, and font assets at
- * `/_vitehub/assets`, and the ViteHub skill at `/_vitehub/.well-known/skills`. The page loads its own Vue app, Nuxt UI
- * theme, and styles, so a host app that renders around it, such as Nuxt, cannot change how the Console looks. Nitro
- * adds the application base to these routes.
+ * Serves the routes next to the Operations endpoint that are not data routes: the ViteHub skill at
+ * `/_vitehub/.well-known/skills`, and with `auth: "app"`, the built-in sign-in page at `/_vitehub/sign-in`, which is the
+ * login and consent page of MCP OAuth. Nitro adds the application base to these routes.
  */
-export function addConsolePageHandlers(
-  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], modules?: unknown, publicAssets?: NitroPublicAsset[] },
+export function addConsoleAppRoutes(
+  nitro: { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
-  signInPage?: string,
+  appSignIn = false,
 ): void {
-  const page = join(consoleRuntimeRoot, "server/page.get.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
-  const assets = resolveConsoleClient().dir
   const skills = join(consoleRuntimeRoot, "public/skills")
-  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
-  if (signInPage) {
-    // Run before primary app Auth can reject an HTML page visit, including after Nitro config replay.
-    for (const suffix of ["/_vitehub", "/_vitehub/**"]) {
-      handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, suffix) })
-    }
-  }
-  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, lazy: true, route: mountPath(base, suffix) })
+  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== signIn)
+  // Run before primary app Auth, which would reject the signed-out visit to its own sign-in page.
+  if (appSignIn) handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, "/_vitehub/sign-in") })
   nitro.handlers = handlers
-  ignoreConsolePrerender(nitro, base)
   nitro.publicAssets = [
-    // Every Console asset name contains a content hash.
-    { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
     // The ViteHub skill for `npx skills add <app>/_vitehub`. Static files need no Console sign-in.
     { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
-    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
+    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== skills),
   ]
-  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, viteHubBasePath(base))
-  addConsoleAssetManifestModule(nitro)
-}
-
-const consoleAssetManifestModuleName = "vite-hub/console-asset-manifest"
-const publicAssetsDataId = /^#nitro\/virtual\/public-assets-data$/
-const publicAssetsDataPrefix = "export default "
-
-/**
- * Remove the Console files from Nitro's public asset manifest on presets that do not serve static files, such as
- * Cloudflare. There, Nitro reads the manifest only to ask whether a URL is a public asset, and the `/_vitehub/` asset
- * bases already answer yes for every file below them. The Console client has about 600 files, whose entries add about
- * 165 KB to the server entry.
- */
-export function addConsoleAssetManifestModule(nitro: { modules?: unknown }): void {
-  const modules = Array.isArray(nitro.modules) ? nitro.modules : []
-  if (modules.some(module => Object(module) === module && Reflect.get(Object(module), "name") === consoleAssetManifestModuleName)) return
-  nitro.modules = [...modules, consoleAssetManifestModule]
-}
-
-const consoleAssetManifestModule: NitroModule = {
-  name: consoleAssetManifestModuleName,
-  setup(nitro) {
-    if (nitro.options.dev || nitro.options.serveStatic) return
-    const transform = {
-      filter: { id: publicAssetsDataId },
-      handler: (code: string) => pruneConsoleAssetManifest(code, consoleAssetBases(nitro.options.baseURL, nitro.options.publicAssets)),
-    }
-    nitro.hooks.hook("build:config", (_nitro, config) => {
-      if (config.rolldown) config.rolldown.plugins = [config.rolldown.plugins, { name: consoleAssetManifestModuleName, transform }]
-      else config.rollup.plugins = [config.rollup.plugins, { name: consoleAssetManifestModuleName, transform }]
-    })
-  },
-}
-
-/** The URL prefixes of the `/_vitehub/` asset folders that Nitro matches as a whole: the folders without fallthrough. */
-export function consoleAssetBases(baseURL: string, publicAssets: ReadonlyArray<{ baseURL?: string, fallthrough?: boolean }>): string[] {
-  return publicAssets.flatMap((asset) => {
-    if (asset.fallthrough || !asset.baseURL?.includes("/_vitehub/")) return []
-    return [`${baseURL.replace(/\/+$/, "")}/${asset.baseURL.replace(/^\/+|\/+$/g, "")}/`]
-  })
-}
-
-/** Nitro's manifest module without the files below `bases`. It returns `undefined` to keep a module it cannot read. */
-export function pruneConsoleAssetManifest(code: string, bases: readonly string[]): string | undefined {
-  if (!bases.length || !code.startsWith(publicAssetsDataPrefix)) return undefined
-  const assets: unknown = JSON.parse(code.slice(publicAssetsDataPrefix.length).trim().replace(/;$/, ""))
-  if (Object(assets) !== assets) return undefined
-  const kept = Object.entries(Object(assets)).filter(([id]) => !bases.some(base => id.startsWith(base)))
-  return `${publicAssetsDataPrefix}${JSON.stringify(Object.fromEntries(kept), null, 2)};`
-}
-
-/**
- * Serves the page tools session `GET <mount>/_vitehub/page/session` and the loader at `<mount>/_vitehub/page/assets`, so
- * the `console` page tool works in an app without Comments. When Comments added them first, they stay as they are.
- * `mount` is the route prefix from `viteHubPageToolsBase()`, or the Nuxt `app.baseURL` without its trailing slash,
- * like the other Console routes.
- */
-export function addConsolePageToolRoutes(
-  nitro: { handlers?: Array<{ handler: string; route?: string }>, publicAssets?: NitroPublicAsset[] },
-  consoleRuntimeRoot: string,
-  mount = "",
-): void {
-  const kit = createNitroServerKit(nitro)
-  addViteHubPageToolRoutes(kit, { handler: join(consoleRuntimeRoot, "server/page-session.js"), loader: join(consoleRuntimeRoot, "page"), mount })
-  // SAFETY: The kit keeps the caller's Nitro handler and public asset entries, and the page tools add entries of the same shape.
-  nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
-  // SAFETY: As above.
-  nitro.publicAssets = kit.config.publicAssets as NitroPublicAsset[]
 }
 
 export function addConsoleRpcHandler(

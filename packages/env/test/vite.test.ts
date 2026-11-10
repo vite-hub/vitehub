@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -19,7 +19,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { resolveServerEnv } from "../src/server.ts"
-import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
+import { createEnvImportAliases, createEnvTypes, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 import { VITEHUB_ENV_SERVER } from "@vite-hub/internal/build/vite"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
@@ -47,6 +47,34 @@ async function temporaryDirectory(prefix: string) {
 const execFileAsync = promisify(execFile)
 
 afterEach(() => vi.unstubAllEnvs())
+
+describe("createEnvTypes()", () => {
+  it("returns the declarations of .vitehub/types/env.d.ts without running Vite", () => {
+    const types = createEnvTypes({
+      public: { appName: env({ default: "Acme", mode: "build" }) },
+      server: { dryRun: env.boolean({ default: true }), github: { token: env({ secret: true, source: env.source("GITHUB_TOKEN") }) } },
+    })
+
+    expect(types).toContain("declare module \"#vitehub/env/server\"")
+    expect(types).toContain("\"appName\": string")
+    expect(types).toContain("\"dryRun\": boolean")
+    expect(types).toContain("\"token\": import(\"@vite-hub/env\").SecretEnv<string>")
+    expect(() => createEnvTypes({ server: "token" } as never)).toThrow()
+  })
+
+  it("resolves schema type imports from the standalone host's project root", () => {
+    const types = createEnvTypes({
+      server: { token: env({ secret: true, schema: env.schemaFrom("./server/schema.ts", "token") }) },
+    }, {
+      projectRoot: resolve("standalone-app"),
+      runtimeImports: { secret: "custom-env", server: "custom-env/server" },
+    })
+
+    expect(types).toContain('import("../../server/schema.js")["token"]')
+    expect(types).toContain('import("custom-env").SecretEnv<')
+    expect(types).toContain('import("custom-env/server").ViteHubContext')
+  })
+})
 
 describe("Vite plugin", () => {
   it("rejects cyclic nested define config without overflowing the stack", () => {
