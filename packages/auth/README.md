@@ -336,7 +336,9 @@ export const session = useUserSession();
 
 `session.signOut()` calls Better Auth's `signOut()` and sets `user` and `session` to `null` at once, in every component that reads the session. It does not wait for Better Auth to read the session again. `signOut({ redirectTo: "/" })` then opens that page: a plain Vue app loads it with `location.assign()`, and Nuxt opens it with `navigateTo()`. Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns Better Auth's result. When the sign-out fails, the session and the page stay. When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page.
 
-That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client, below the app base path. In Nuxt, the default client already uses the Auth Definition's `basePath`.
+That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path.
+
+In Nuxt, the default client also uses the Auth Definition's `basePath`. With `basePath: "/auth"` below `app.baseURL` `/app/`, `useUserSession()`, `useSession()`, and the page guard all call `/app/auth`. They share one Better Auth client. In the browser, the client uses the `app.baseURL` of the page, so a `NUXT_APP_BASE_URL` that a deployment sets at runtime also applies. On the server, Nuxt reads the session from the Nitro route, below the base path of the build.
 
 ```ts
 // server/auth.ts
@@ -347,6 +349,8 @@ export default defineAuth({
   basePath: "/auth",
 });
 ```
+
+Outside Nuxt, pass the same path to the Better Auth client, below the app base path:
 
 ```ts
 // lib/auth-client.ts
@@ -412,7 +416,7 @@ Nuxt uses the Auth Definition's base path for the shared browser client. In othe
 
 In Nuxt, the server reads the session once for each page request that has a Better Auth session cookie and sends it to the browser in the page payload, without the session token. `useUserSession()` and `useSession()` start from it, so a signed-in page renders signed in on the server and does not flash signed out while Better Auth loads. A request without a session cookie skips the lookup, so pages for signed-out visitors do not load Better Auth. A prerendered or cached page was rendered without the visitor's cookie, so its session counts as unknown.
 
-The server session lookup and page guard use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
+The server session lookup, the page guard, and the auto-imported composables use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
 
 `definePageMeta({ auth })` guards a page on the server and on client navigation:
 

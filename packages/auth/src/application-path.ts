@@ -5,19 +5,20 @@
 declare const __VITEHUB_AUTH_APP_BASE_URL__: string | undefined
 
 /** Return the application base path without a trailing slash, or an empty string at the root. */
-function authApplicationBasePath(): string {
-  const configured = typeof __VITEHUB_AUTH_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_AUTH_APP_BASE_URL__
+function authApplicationBasePath(appBaseURL: string | undefined): string {
+  const configured = appBaseURL ?? (typeof __VITEHUB_AUTH_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_AUTH_APP_BASE_URL__)
   const segments = configured.split("/").filter(Boolean)
   return segments.length ? `/${segments.join("/")}` : ""
 }
 
 /**
- * Prefix an application path, such as the Auth Base Path, with the application base path.
+ * Prefix an application path, such as the Auth Base Path, with the application base path: `appBaseURL` when given,
+ * such as Nuxt's runtime `app.baseURL`, else the base path of the build.
  * A path that already starts with the base path is returned unchanged, so a caller such as Console Auth
  * that mounts its own paths below the base path is not prefixed twice.
  */
-export function resolveAuthMountPath(path: string): string {
-  const base = authApplicationBasePath()
+export function resolveAuthMountPath(path: string, appBaseURL?: string): string {
+  const base = authApplicationBasePath(appBaseURL)
   if (!base || path === base || path.startsWith(`${base}/`)) return path
   return `${base}${path}`
 }

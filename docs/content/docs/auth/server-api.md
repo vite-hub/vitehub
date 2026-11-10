@@ -45,6 +45,8 @@ export const userSession = useUserSession()
 
 All components share one session state, so a list of 100 rows that call `useUserSession()` makes one Better Auth subscription. `await refresh()` reads the session again, updates every component, and returns the session, or `null` without one. Calls at the same time share one read. On the server, `refresh()` returns the session that the server read for the request. `ready` is `true` after the first read, and stays `true` while a later read runs. In Nuxt, the composables start with the session that the server read, and the browser reads it again only when it can change, such as when the tab shows again or another tab signs out.
 
+In Nuxt, `useUserSession()` and `useSession()` use the Definition's `basePath` below `app.baseURL`, such as `/app/auth` for `basePath: '/auth'` below `/app/`. In the browser, they follow a `NUXT_APP_BASE_URL` that you set at runtime.
+
 `signOut()` signs out with Better Auth and sets `user` and `session` to `null` at once, in every component. Pass `redirectTo` to open a page after the sign-out:
 
 ```vue [src/components/UserMenu.vue]
@@ -66,7 +68,7 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
 
-For a custom `basePath` or Better Auth client plugins, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`. A custom client must include it in `basePath`. In Nuxt, the default client also uses the Definition's `basePath`.
+For Better Auth client plugins, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. A custom client must include the app base path in `basePath`, such as `/app/auth`.
 
 Better Auth loads on the first Auth request, the first request an access route matches, or the first Console request with `console: { auth: "app" }`. A separate `console.auth` Definition still loads it at startup. Importing `vite-hub/auth/server` also loads it, so import it in routes, not in a Nitro plugin or global middleware. A cold start then does not compile it.
 

@@ -30,7 +30,7 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
-const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 const signedIn = { session: { id: "s" }, user: { id: "u", name: "Ada" } }
 
@@ -58,6 +58,7 @@ afterEach(() => {
   setSessionSeedResolver(undefined)
   setNuxtAppResolver(undefined)
   setSignOutHandler(undefined)
+  setDefaultAuthBasePath(undefined)
   betterAuth.created.length = 0
   betterAuth.calls.length = 0
   betterAuth.subscriptions = 0
@@ -83,6 +84,16 @@ describe("Vue Auth composables", () => {
     await client.signOut()
     expect(betterAuth.created).toEqual([{ basePath: "/auth" }])
     expect(betterAuth.calls).toEqual([["signIn.social", { provider: "github" }], ["signOut"]])
+  })
+
+  it("creates the default client with the path that the Nuxt module set, when it loads", async () => {
+    // A new module, so the default client of the other tests stays as it is.
+    vi.resetModules()
+    const vue = await import("../src/vue.ts")
+    // The Nuxt plugin sets the path after this entry loads: `defineAuth({ basePath: '/auth' })` below `app.baseURL` `/app/`.
+    vue.setDefaultAuthBasePath("/app/auth")
+    await vue.useUserSession().signOut()
+    expect(betterAuth.created).toEqual([{ basePath: "/app/auth" }])
   })
 
   it("is not a thenable, so awaiting it gives the client back", async () => {

@@ -57,6 +57,9 @@ async function readServerSession(basePath: string): Promise<unknown> {
   if (!hasSessionCookie(cookie)) return null
   try {
     const data: unknown = await useRequestFetch()(`${basePath}/get-session`, {
+      // Nitro serves Auth below the base path of the build. Nuxt's `$fetch` adds a runtime `app.baseURL`, such as one
+      // from `NUXT_APP_BASE_URL`, and then the request renders a page that reads the session again, without end.
+      baseURL: "/",
       onResponse: ({ response }: { response: ResponseLike }) => appendSetCookies(event, response),
     })
     if (typeof data !== "object" || data === null) return null
@@ -79,7 +82,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   enforce: "pre",
   async setup(nuxtApp: NuxtApp) {
     setNuxtAppResolver(() => tryUseNuxtApp() as NuxtApp | undefined)
-    const config = useRuntimeConfig().public?.vitehubAuth as false | { basePath?: string, redirects?: AuthRedirects } | undefined
+    const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | { basePath?: string, redirects?: AuthRedirects } } }
+    const config = runtimeConfig.public?.vitehubAuth
     const redirects = (config || undefined)?.redirects ?? {}
     /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
     const guardOf = (to: RouteLike) => {
@@ -104,8 +108,11 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }))
     }
     if (config === false) return
-    const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth")
-    // The guard uses the client of the auto-imported composables, so a read of the guard updates every component.
+    // The server reads the session in process, where Nitro serves Auth below the base path of the build. The browser
+    // calls Auth below the `app.baseURL` of the page, which `NUXT_APP_BASE_URL` can set at runtime.
+    const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth", "window" in globalThis ? runtimeConfig.app?.baseURL : undefined)
+    // The page guard and the auto-imported composables share the default client, so they call the same Auth path, and
+    // a read of the guard updates every component.
     setDefaultAuthBasePath(basePath)
     const seed = useState(stateKey, () => undefined) as { value: unknown }
     if (!("window" in globalThis) && seed.value === undefined) seed.value = await readServerSession(basePath)

@@ -14,7 +14,7 @@ type Middleware = (route: Route) => unknown
 type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { login: string, guest: string } } }
 
 const mocks = vi.hoisted(() => ({
-  config: {} as { public?: PublicConfig },
+  config: {} as { app?: { baseURL: string }, public?: PublicConfig },
   state: { value: undefined as unknown },
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
@@ -261,5 +261,54 @@ describe("signOut() in Nuxt", () => {
     await useUserSession(createAuthClient()).signOut()
 
     expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/join", query: { redirect: "/team" } })
+  })
+})
+
+/** The Nuxt plugin and the Vue entry in new modules, so the default client has not loaded Better Auth yet. */
+async function loadFreshModules() {
+  vi.resetModules()
+  const [{ default: freshPlugin }, vue] = await Promise.all([import("../src/runtime/vue-nuxt.ts") as Promise<{ default: typeof plugin }>, import("../src/vue.ts")])
+  return { plugin: freshPlugin, vue }
+}
+
+describe("Nuxt default client", () => {
+  it("calls the Definition's basePath below app.baseURL from the auto-imported composables, with the client of the page guard", async () => {
+    await configure("/auth", "/app/")
+    mocks.config.app = { baseURL: "/app/" }
+    vi.stubGlobal("window", {})
+    mocks.state.value = null
+    const fresh = await loadFreshModules()
+    await fresh.plugin.setup({ payload: mocks.payload })
+
+    fresh.vue.useUserSession()
+    // The server rendered the page signed out, so the composables wait. The page guard's read loads the client.
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(mocks.useSession).toHaveBeenCalledOnce()
+
+    // One Better Auth client serves the composables and the page guard.
+    expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/app/auth" }]])
+  })
+
+  it("calls Auth below a runtime app.baseURL in the browser, such as one that NUXT_APP_BASE_URL sets", async () => {
+    await configure("/auth", "/app/")
+    mocks.config.app = { baseURL: "/preview/" }
+    vi.stubGlobal("window", {})
+    const fresh = await loadFreshModules()
+    await fresh.plugin.setup({ payload: mocks.payload })
+
+    await fresh.vue.useAuthClient().getSession()
+
+    expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/preview/auth" }]])
+  })
+
+  it("reads the session on the server at the Nitro route, without the runtime app.baseURL that Nuxt's $fetch adds", async () => {
+    await configure("/auth", "/app/")
+    mocks.config.app = { baseURL: "/preview/" }
+    mocks.requestFetch.mockResolvedValue(session)
+    const fresh = await loadFreshModules()
+    await fresh.plugin.setup({ payload: mocks.payload })
+
+    // Nitro compiles its routes below the base path of the build. With `/preview/`, the read would render a page.
+    expect(mocks.requestFetch).toHaveBeenCalledWith("/app/auth/get-session", expect.objectContaining({ baseURL: "/" }))
   })
 })

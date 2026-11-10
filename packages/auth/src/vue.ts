@@ -26,6 +26,7 @@ const authClientKey: InjectionKey<VueAuthClient<any>> = Symbol("vitehub.auth.cli
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
 let sessionSeedResolver: (() => unknown) | undefined
 let signOutHandler: ((redirectTo: string | undefined) => unknown) | undefined
+let defaultBasePath: string | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
@@ -39,6 +40,15 @@ export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undef
  */
 export function setSignOutHandler(handler: ((redirectTo: string | undefined) => unknown) | undefined): void {
   signOutHandler = handler
+}
+
+/**
+ * Internal bridge installed by the Nuxt module: the path of Better Auth for the default `authClient`, such as
+ * `/app/auth` for `defineAuth({ basePath: '/auth' })` below Nuxt `app.baseURL` `/app/`. The client reads it when it
+ * loads Better Auth. Without it, the client uses `/api/auth` below the base path of the build.
+ */
+export function setDefaultAuthBasePath(path: string | undefined): void {
+  defaultBasePath = path
 }
 
 /**
@@ -62,13 +72,16 @@ const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, 
  * the tab shows again, the network comes back, another tab signs out or updates the user, or the session expires. Use
  * `loadAuthClient()` for anything else, such as `$store`.
  */
-export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
+export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => createLazyAuthClient(() => options)
+
+/** The client of `createAuthClient()`, with options that it reads when it loads Better Auth. */
+function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOptions: () => Option | undefined): VueAuthClient<Option> {
   let loaded: Promise<VueAuthClient<Option>> | undefined
   let betterAuth: VueAuthClient<Option> | undefined
   // Run when Better Auth loads, before the first call runs, such as the session store that follows this client.
   const onLoad = new Set<(client: VueAuthClient<Option>) => void>()
   const load = () => (loaded ??= import("better-auth/vue").then((module) => {
-    betterAuth = module.createAuthClient(options)
+    betterAuth = module.createAuthClient(resolveOptions())
     for (const run of onLoad) run(betterAuth)
     onLoad.clear()
     return betterAuth
@@ -109,7 +122,7 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
       get(_, key) {
         if (key === LOAD && !path.length) return load
         if (key === ON_LOAD && !path.length) return whenLoaded
-        if (key === OPTIONS && !path.length) return options
+        if (key === OPTIONS && !path.length) return resolveOptions()
         // Like Better Auth's own client: no symbols, and never a thenable.
         if (typeof key !== "string" || key === "then" || key === "catch" || key === "finally") return undefined
         if (!path.length && /^use[A-Z]/.test(key)) return (...args: unknown[]) => hook(key, args)
@@ -360,18 +373,11 @@ export async function loadAuthClient<Client extends VueAuthClient<any>>(client: 
   return load ? await load() : client
 }
 
-/** The options of the default client. The Nuxt module sets the Auth Definition's `basePath` before the client loads. */
-const defaultClientOptions = { basePath: resolveAuthMountPath("/api/auth") }
-
-export const authClient: VueAuthClient<{}> = createAuthClient(defaultClientOptions)
-
 /**
- * Internal bridge installed by the Nuxt module: the Auth Definition's `basePath`, below Nuxt `app.baseURL`, for the
- * default client. The page guard and the auto-imported composables then share one client and one session.
+ * The client of the auto-imported composables. In Nuxt, it uses the Auth Definition's `basePath` below the
+ * `app.baseURL` of the page, also when `NUXT_APP_BASE_URL` sets it at runtime.
  */
-export function setDefaultAuthBasePath(basePath: string): void {
-  defaultClientOptions.basePath = basePath
-}
+export const authClient: VueAuthClient<{}> = createLazyAuthClient(() => ({ basePath: defaultBasePath ?? resolveAuthMountPath("/api/auth") }))
 
 /** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
 export function provideAuthClient(client: VueAuthClient<any>): void {
