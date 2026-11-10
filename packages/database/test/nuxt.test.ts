@@ -160,6 +160,7 @@ describe("Database Nuxt integration", () => {
     expect(nitroConfig).toEqual({
       alias: {
         "#vitehub/database/definition-defaults": "/tmp/vitehub-db-nuxt/.vitehub/database/definition-defaults.mjs",
+        "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
         "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
       },
       cloudflare: {
@@ -1774,6 +1775,7 @@ describe("Database Nuxt integration", () => {
 
     expect(nitroConfig.alias).toEqual({
       "#vitehub/database/definition-defaults": join(rootDir, ".vitehub/database/definition-defaults.mjs"),
+      "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
       "@vite-hub/database/drizzle": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
     })
   })
@@ -2038,6 +2040,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({
         "#vitehub/database/definition-defaults": join(projectRoot, ".vitehub/database/definition-defaults.mjs"),
+        "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
         "@vite-hub/database/drizzle": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
       })
       expect(nitroConfig.modules).toHaveLength(3)
