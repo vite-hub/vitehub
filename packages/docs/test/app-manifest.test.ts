@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { createDocsManifest, docsAppManifestSource } from "../src/manifest.ts"
-import { docsManifestPages } from "../src/navigation.ts"
+import { docsHomePath, docsManifestPages, docsStartPage } from "../src/navigation.ts"
 
 import type { DocsAppPage, DocsManifest } from "../src/types.ts"
 
@@ -28,6 +28,17 @@ async function appManifest(files: Record<string, string>): Promise<{ full: DocsM
 }
 
 describe("docsAppManifestSource", () => {
+  it("opens the start page past a home landing using the app manifest", async () => {
+    const { app } = await appManifest({
+      "docs/index.md": "---\ntitle: Docs\nlayout: home\n---\n",
+      "docs/start/index.md": "---\ntitle: Start\n---\n",
+      "introduction.md": "---\ntitle: Introduction\n---\n",
+    })
+    const start = { section: "start", links: [{ to: "/introduction" }] }
+    expect(docsStartPage(app, start)).toBe("/introduction")
+    expect(docsHomePath(app, start)).toBe("/introduction")
+  })
+
   it("keeps the fields the app reads and leaves out the ones the page route returns", async () => {
     const { full, app } = await appManifest({
       "docs/index.md": "---\ntitle: Docs\ndescription: Every page.\n---\n",
