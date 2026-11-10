@@ -237,8 +237,10 @@ Parser options go in a module that `parser` names, since Comark plugins are func
 ```ts
 // docs.parser.ts
 import type { DocsParserOptions } from "@vite-hub/docs/server"
+import emoji from "comark/plugins/emoji"
 
 export default {
+  plugins: [emoji()],
   comarkUi: { chips: true },
   examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
 } satisfies DocsParserOptions

@@ -3,14 +3,11 @@ import { createAuthMiddleware } from "better-auth/api"
 import { jwt } from "better-auth/plugins"
 
 import { consoleAuthPath } from "./auth-path.ts"
+import { isRecord } from "@vite-hub/internal/object"
 import { consoleMcpScopes, consoleResourceOf } from "./runtime/server/bearer.ts"
 import { withListedOriginHeaders } from "./runtime/server/cors.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 /** A redirect that only a program on this machine can receive: a loopback address or a private-use scheme. */
 function isNativeRedirect(value: unknown): boolean {

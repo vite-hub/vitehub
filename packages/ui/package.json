@@ -319,6 +319,7 @@
     "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
+    "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vega-canvas": "^2.0.0",
     "vite": "catalog:vite",

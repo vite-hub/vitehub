@@ -190,7 +190,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       // The bundled `@pierre/diffs` imports these, and `neverBundle` keeps `vega-loader` external for the bundled Vega code.
       "@shikijs/langs",
       "@shikijs/themes",
-      "@pierre/theme",
       "vega-loader",
       // remove when the unused @vite-hub/agent devDependency of ui is fixed
       "@vite-hub/agent",
