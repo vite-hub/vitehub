@@ -268,11 +268,6 @@
       "import": "./dist/build/deno-runtime-packages.js",
       "default": "./dist/build/deno-runtime-packages.js"
     },
-    "./build/mode": {
-      "types": "./dist/build/mode.d.ts",
-      "import": "./dist/build/mode.js",
-      "default": "./dist/build/mode.js"
-    },
     "./build/page-tools": {
       "types": "./dist/build/page-tools.d.ts",
       "import": "./dist/build/page-tools.js",
