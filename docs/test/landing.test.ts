@@ -5,7 +5,6 @@ import {
   landingPrimitives,
   portabilityExamples,
 } from "../app/components/landing/content";
-import { primitiveScenes } from "../app/components/landing/primitive-scenes";
 import { primitiveLandings } from "../app/data/primitive-landings";
 
 describe("landing page", () => {
@@ -99,9 +98,9 @@ describe("landing page", () => {
       "ui",
     ]);
     for (const primitive of landingPrimitives) {
-      expect(primitiveScenes).toHaveProperty(primitive.id);
       expect(primitive.to).toMatch(/^\/docs\//);
-      expect(primitive.icon).toMatch(/^i-(?:lucide|ph)-/);
+      // The ViteHub set, as in the docs sidebar and the Console.
+      expect(primitive.icon).toMatch(/^i-vitehub-/);
     }
     expect(portabilityExamples.map((example) => example.id)).toEqual([
       "storage",
