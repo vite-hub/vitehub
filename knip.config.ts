@@ -301,7 +301,8 @@ const config: KnipConfiguration = {
       ignoreDependencies: [
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
         /^@iconify-json\//,
-        // Code blocks of the docs import it, and `scripts/check-snippets.mjs` typechecks them.
+        // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
+        "@better-auth/cimd",
         "@chat-adapter/slack",
         // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
         "@takumi-rs/core",
