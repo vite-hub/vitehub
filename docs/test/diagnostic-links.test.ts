@@ -18,9 +18,10 @@ it("links each diagnostic code to its own page", () => {
   expect(wrong).toEqual([])
 })
 
-it("reads a string docs base from every catalog except the Agent catalogs, which spread the shared options", () => {
+it("reads a string docs base from every catalog except the Agent catalogs, which read the shared options", () => {
   expect([...new Set(codes.filter(code => !code.docsBase).map(code => code.file))].sort()).toEqual([
     "packages/agent/src/agent-diagnostics.ts",
+    "packages/agent/src/invocation-diagnostics.ts",
     "packages/agent/src/message-diagnostics.ts",
   ])
 })

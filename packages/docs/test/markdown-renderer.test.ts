@@ -43,13 +43,15 @@ function block(name: string) {
 }
 
 describe("DocsMarkdown", () => {
-  it.each(["callout", "note", "tip", "github-callout", "tabs-item"])("loads an app's %s content component before the built-in block", async (tag) => {
+  it.each(["callout", "note", "tip", "github-callout", "tabs-item", "code-tree"])("loads an app's %s content component before the built-in block", async (tag) => {
     const load = vi.fn(async () => ({ default: block("app") }))
     const component = renderer({ [tag]: load })
     expect(load).not.toHaveBeenCalled()
 
     const document = { nodes: [[tag, { title: "App title" }, "App content"]], toc: [] }
-    const html = await renderToString(vue.createSSRApp(component, { document }))
+    const app = vue.createSSRApp(component, { document })
+    app.component("ProseCodeTree", block("nuxt-ui"))
+    const html = await renderToString(app)
 
     expect(load).toHaveBeenCalledOnce()
     expect(html).toContain('data-component="app"')
