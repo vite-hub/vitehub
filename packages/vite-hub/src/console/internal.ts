@@ -69,7 +69,7 @@ type ConsoleInvocationIdentitiesByRoot = {
 export type ConsoleAuthMode = true | "cloudflare-access"
 
 /**
- * What generated Console output installs: the sections, the project name, the build id, and the readers of each
+ * What generated Console output installs: the sections, the project name, and the readers of each
  * section. One server bundle serves one project, so the Console keeps one state and does not key it by project root.
  * The state lives on the global object, because a development server runs server code in more than one Vite module
  * runner, such as the `nitro` and `ssr` environments of a Nitro dev worker. Each runner loads its own copy of the
@@ -78,7 +78,6 @@ export type ConsoleAuthMode = true | "cloudflare-access"
 export interface ConsoleState {
   auth?: ConsoleAuthMode | false
   blob?: ConsoleBlobInspection
-  build?: string
   database?: ConsoleDatabaseInspection
   definitions?: ConsoleSectionCatalog
   /** Whether generated output was created for a development server. */
