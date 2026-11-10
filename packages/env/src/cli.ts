@@ -98,21 +98,35 @@ function isInspection(value: unknown): value is ServerEnvInspection {
  */
 async function createStageModuleLoader(vite: typeof import("vite"), config: import("vite").InlineConfig) {
   const nitro = createCliDiscoveryNitroCloser()
+  // SAFETY: Vite's WebSocket type has a private brand. The headless CLI has no socket clients.
+  const ws = {
+    ...vite.createServerHotChannel(),
+    clients: new Set(),
+    handleInvoke: async () => ({ error: { name: "TransportError", message: "WebSocket transport is disabled during Env inspection." } }),
+  } as unknown as import("vite").WebSocketServer
+  let environment: import("vite").DevEnvironment | undefined
+  const close = async () => {
+    try { await environment?.close() }
+    finally {
+      try { await ws.close() }
+      finally { await nitro.close() }
+    }
+  }
   try {
     const resolved = await vite.resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, "serve")
-    const environment = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false })
+    environment = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
     await environment.init()
+    if (!vite.isRunnableDevEnvironment(environment)) throw new Error("The SSR environment does not support runnable imports.")
+    const runnable = environment
     return {
-      close: async () => {
-        try { await environment.close() }
-        finally { await nitro.close() }
-      },
+      close,
       config: resolved,
-      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await environment.runner.import(url),
+      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await runnable.runner.import(url),
     }
   }
   catch (error) {
-    await nitro.close()
+    // Initialization may fail before the environment can close. Keep the original load error.
+    await close().catch(() => {})
     throw error
   }
 }
