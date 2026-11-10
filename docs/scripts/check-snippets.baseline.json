@@ -140,61 +140,6 @@
     "error": "TS18048 'fields' is possibly 'undefined'.\nTS18048 'fields' is possibly 'undefined'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#e3f6e4dc09d2",
-    "label": "server/api/issues.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
-    "label": "server/api/issues.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
-    "label": "server/api/crm.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
-    "label": "server/api/crm.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type '{ readonly token: SecretEnv<string>; }'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
-    "label": "server/auth.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(options: AuthDefinitionResolver<AuthResolvedDefinitionOptions>): AuthDefinition<AuthDefinitionResolver<AuthResolvedDefinitionOptions>>', gave the following error.\n    Object literal may only specify known properties, and 'baseURL' does not exist in type 'AuthDefinitionResolver<AuthResolvedDefinitionOptions>'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#9e3479e36459",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#a1f6494d54b7",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#b42814f33aee",
-    "label": "server/schemas.ts",
-    "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'.\n  Type 'BlobReferenceSchema' is missing the following properties from type 'OptionalSchema<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown>': type, reference, expects, wrapped, and 4 more."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#ad9a38fa659e",
-    "label": "server/plugins/warmup.ts",
-    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#317457c7fc34",
-    "label": "server/api/warmup.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
-    "label": "nuxt.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
-  },
-  {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS2304 Cannot find name 'db'."
