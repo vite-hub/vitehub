@@ -807,17 +807,18 @@ describe("loadViteHubPageTools", () => {
     page("/?vitehub")
     session({ tools: [{ ...comments, script: "/broken.js" }, consoleTool] })
     const { load, started } = modules()
-    await expect(loadViteHubPageTools({ load })).resolves.toEqual([consoleTool])
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([{ ...comments, script: "/broken.js" }, consoleTool])
     expect(started.map(context => context.tool.id)).toEqual(["console"])
-    expect(pill().segments).toEqual([["vitehub-tool", "console", false]])
+    expect(pill().segments).toEqual([["vitehub-tool", "comments", false], ["vitehub-tool", "console", false]])
+    expect(lazyControl().textContent).toBe("Retry Comments")
     expect(console.error).toHaveBeenCalledOnce()
   })
 
-  it("removes the pill when no tool starts", async () => {
+  it("keeps the pill with a retry button when no tool starts", async () => {
     page("/?vitehub")
     session({ tools: [{ ...comments, script: "/broken.js" }] })
-    await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([])
-    expect(document.querySelector("vitehub-pill")).toBeNull()
+    await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([{ ...comments, script: "/broken.js" }])
+    expect(lazyControl().textContent).toBe("Retry Comments")
   })
 
   it("does not mount or remember a window created after startup exits", async () => {
@@ -954,10 +955,8 @@ describe("lazy tools", () => {
     await loadViteHubPageTools({ load })
     expect(document.querySelector("vitehub-window")).toBeNull()
     expect(signals[0]!.aborted).toBe(true)
-    if (!lazy) {
-      expect(document.querySelector("vitehub-pill")).toBeNull()
-      return
-    }
+    // Eager and lazy tools both keep a retry button, so a failure during page load does not need a reload.
+    expect(lazyControl().textContent).toBe("Retry Console")
     lazyControl().click()
     await vi.waitFor(() => expect(document.querySelectorAll("vitehub-window")).toHaveLength(1))
     expect(signals[1]!.aborted).toBe(false)

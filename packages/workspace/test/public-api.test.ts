@@ -385,7 +385,7 @@ describe("workspace public API", () => {
 
   it("serves files from a Fetchable route below its base path", async () => {
     registerWorkspace("fetchable-files", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const workspace = useWorkspace("fetchable-files", { mode: "write" })
     await workspace.fs.writeFile("data/a.json", "{\"a\":1}")
@@ -430,7 +430,7 @@ describe("workspace public API", () => {
     { base: "/", baseURL: "/", pathname: "/" },
     { base: "/api/data", baseURL: "/app", pathname: "/app/api/data/" },
   ])("serves route $base under application base $baseURL", async ({ base, baseURL, pathname }) => {
-    registerWorkspace("application-base-files", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("application-base-files", defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace("application-base-files", { mode: "write" })
     await workspace.fs.writeFile("a.json", "{\"a\":1}")
     await workspace.fs.writeFile("api/data/my file.json", "{\"nested\":true}")

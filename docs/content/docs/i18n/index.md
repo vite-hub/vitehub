@@ -40,14 +40,16 @@ icon: i-ph-translate-light
   })
   ```
 
-  ```text [locales/es.po]
-  #: server/api/greeting.ts:9
-  msgid "Payment received"
-  msgstr "Pago recibido"
-
-  #: src/App.vue:9
-  msgid "Deploy your agent"
-  msgstr "Despliega tu agente"
+  ```json [locales/es/segments/52/5220fa743183ff60.json]
+  {
+    "hash": "5220fa743183ff60",
+    "source": "Deploy your agent",
+    "text": "Despliega tu agente",
+    "origin": "human",
+    "review": "edited",
+    "derived": "fresh",
+    "updatedAt": "2026-11-07T12:00:00.000Z"
+  }
   ```
   :::
 ::
@@ -62,11 +64,11 @@ icon: i-ph-translate-light
   :::
 
   :::product-feature-item{title="IDs in production, not text" icon="i-lucide-hash" to="/docs/i18n/configure#what-the-build-does"}
-  The build compiles each message to a short ID. Each locale is a separate chunk that loads when the page needs it.
+  The build compiles each message to a short ID and collects the source text. Each locale is a separate chunk that loads when the page needs it.
   :::
 
-  :::product-feature-item{title="One file for each locale" icon="i-lucide-file-text" to="/docs/i18n/configure#translate-the-messages"}
-  `vitehub i18n extract` writes `locales/<locale>.po`. `vitehub i18n status` shows what is missing.
+  :::product-feature-item{title="One file for each translation" icon="i-lucide-file-text" to="/docs/i18n/configure#translate-the-messages"}
+  `locales/` is a [Diglot](https://github.com/danielroe/diglot) translations folder with one record for each message. `vitehub i18n status` shows what is missing, and PO files go in and out.
   :::
 
   :::product-feature-item{title="Translate an app in one tutorial" icon="i-lucide-rocket" to="/docs/i18n/get-started"}
@@ -83,5 +85,5 @@ Use i18n to translate the text of a Vue app and its server routes. Do not add me
 
 In Vue templates, use ``{{ t`Text` }}`` and `<Trans>` with no import. In scripts and server code, import `t`, `plural`, `select`, `selectOrdinal`, and `msg` from `vite-hub/i18n`. Do not call `t` at the top level of a module. Use `msg` there, and call `translate()` where the code runs.
 
-Run `pnpm vitehub i18n extract` after you add or change messages, and before a production build. Check coverage with `pnpm vitehub i18n status --json`. i18n needs Nitro 3. Use Vite with Nitro 3, or Nuxt 5.
+Check coverage with `pnpm vitehub i18n status --json`. Each translation is a Diglot record in `locales/<locale>/segments/<hh>/<hash>.json`: edit its `text` field only, or use `pnpm vitehub i18n import <locale> <file.po>`. A translation must keep each `{0}` of its message. i18n needs Nitro 3. Use Vite with Nitro 3, or Nuxt 5.
 ::

@@ -80,7 +80,7 @@ export default defineConfig({
 ::::
 :::
 
-- `driver: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
+- `driver: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-driver) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
 
 Create `server/realtime/docs.ts`. The file name is the name of the room setup: `docs`.

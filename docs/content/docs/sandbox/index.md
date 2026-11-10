@@ -122,7 +122,7 @@ icon: i-lucide-terminal-square
   Set a timeout in `package.json`. A failed or timed-out run returns an error status.
   :::
 
-  :::product-feature-item{title="Vercel or Cloudflare" icon="i-lucide-cloud-cog" to="/docs/sandbox/hosts#providers"}
+  :::product-feature-item{title="Vercel or Cloudflare" icon="i-lucide-cloud-cog" to="/docs/sandbox/hosts#drivers"}
   Choose the driver in your config. The task code stays the same.
   :::
 

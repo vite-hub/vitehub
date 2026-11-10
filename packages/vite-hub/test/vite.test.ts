@@ -878,16 +878,15 @@ describe("vitehub", () => {
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/schedule",
+      importBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
-      runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
       agentImportBase: "vite-hub/_internal/agent",
       hosting: "node-server",
-      importBase: "vite-hub/_internal/workflow",
+      importBase: "vite-hub/workflow",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },

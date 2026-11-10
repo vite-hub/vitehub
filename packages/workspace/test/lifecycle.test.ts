@@ -45,7 +45,7 @@ describe("workspace lifecycle", () => {
 
     const store = createWorkspaceStore({
       name: "docs",
-      store: { provider: "github", repository: "acme/app", branch: "main", token: "token" },
+      store: { driver: "github", repository: "acme/app", branch: "main", token: "token" },
     })
 
     expect(store?.readFile).toEqual(expect.any(Function))

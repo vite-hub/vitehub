@@ -447,7 +447,8 @@ export interface ViteHubOptions {
   /**
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
    * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
-   * code. `vitehub i18n extract` collects the messages into `locales/<locale>.po`. Needs Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   * code. Translations are records in `locales/<locale>/`, and `vitehub i18n status` shows what is missing. Needs
+   * Nitro 3: Nuxt 5, or Vite with Nitro 3.
    */
   i18n?: I18nOptions
   /**
@@ -1491,9 +1492,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      importBase: `${generatedImportBase}/schedule`,
+      importBase: "vite-hub/schedule",
       providerImportAliases,
-      runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
   if (workflowEnabled) {
@@ -1502,7 +1502,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       {
       agentImportBase: `${generatedImportBase}/agent`,
       hosting: plan.nitroPreset,
-      importBase: `${generatedImportBase}/workflow`,
+      importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
@@ -1541,6 +1541,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     imports: {
       runtime: "vite-hub/forms/runtime",
+      operations: "vite-hub/forms/operations",
       database: "vite-hub/forms/database",
       databases: "vite-hub/database/drizzle",
       email: "vite-hub/email/server",
