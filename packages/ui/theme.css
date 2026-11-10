@@ -11,6 +11,8 @@
  * which token and component.
  */
 
+@import "./theme-focus-ring.css";
+
 /* Tailwind generates the classes that the Nuxt UI app config in theme.js uses. */
 @source "./theme.js";
 
@@ -228,8 +230,11 @@ a {
   outline: none;
 }
 
-/* A field whose frame is a wrapper, such as the prompt input of @vite-hub/ui, marks the wrapper with data-focus-frame. */
-:where([data-focus-frame]):has(:is(input, textarea):focus-visible) {
+/*
+ * A field whose frame is a wrapper, such as the prompt input of @vite-hub/ui, marks the wrapper with data-focus-frame. A
+ * plain field that draws its own border, such as the size fields of DeviceFrame, marks itself.
+ */
+:where([data-focus-frame]):is(:focus-visible, :has(:is(input, textarea):focus-visible)) {
   border-color: var(--vh-focus);
   box-shadow: 0 0 0 1px var(--vh-focus);
 }

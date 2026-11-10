@@ -14,6 +14,7 @@ const pages: Record<string, string> = {
   FileView: "code-view",
   FileDiff: "diff",
   FileTree: "file-tree",
+  DeviceFrame: "device-frame",
   Markdown: "markdown",
   MessageParts: "message-parts",
   MultiFileDiff: "diff",
