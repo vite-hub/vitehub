@@ -42,7 +42,10 @@ describe("Comments page tool", () => {
   it("checks the active page for subject-aware tool access", async () => {
     const app = {}
     install(app, { authorize: ({ subject }) => subject?.id === "/pricing" })
-    expect((await pageSession(app, "", "/pricing/")).body.tools).toHaveLength(1)
+    const { tools } = (await pageSession(app, "", "/pricing/")).body
+    expect(tools).toHaveLength(1)
+    // A reader gets the overlay at once, for the selection bar and the highlights.
+    expect(tools[0].lazy).toBeUndefined()
     expect((await pageSession(app, "", "/private")).body.tools).toEqual([])
   })
 
@@ -54,6 +57,8 @@ describe("Comments page tool", () => {
     defineCommentsPlugin(options)(app)
     const session = await pageSession(app, "")
     expect(session.body.tools).toHaveLength(1)
+    // Only the button loads at first: the overlay script waits until the person presses it.
+    expect(session.body.tools[0]).toMatchObject({ id: "comments", lazy: true })
     expect(session.cookie).toContain("vitehub-tools=1;")
     defineCommentsPlugin({ ...options, consoleSession: async () => false })(app)
     expect((await pageSession(app, "")).body.tools).toEqual([])
@@ -80,7 +85,7 @@ describe("Comments page tool", () => {
     install(app, { authorize: ({ user, action }) => action === "read" && user?.id === "ada" })
     expect(await pageSession(app, "person=ada")).toEqual({
       cookie: "vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax",
-      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", lazy: true, param: "comment" }] },
+      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", param: "comment" }] },
     })
     expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=0; Path=/; Max-Age=2592000; SameSite=Lax", body: { tools: [] } })
     // Without authorize, anonymous people may not read.
