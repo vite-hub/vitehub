@@ -62,22 +62,35 @@ function importPaths(dir: string): Record<string, string[]> {
 
 // `vp pack` entries and the per-mode server entries of an app live in `vite.config.ts` and the extra
 // `*.vite.config.ts` builds. The Knip vite-plus plugin reads only `run.tasks`, so take every source path that
-// these configs name, plus the extra configs: `vp build --config <file>` is not a script that Knip reads.
+// these configs name, including configured server hooks, plus the extra configs: `vp build --config <file>`
+// is not a script that Knip reads.
 function viteConfigEntries(dir: string): string[] {
   const configs = readdirSync(join(root, dir)).filter(name => name === "vite.config.ts" || name.endsWith(".vite.config.ts"));
   return configs.flatMap(name => [
     ...name === "vite.config.ts" ? [] : [name],
-    ...[...readText(join(dir, name)).matchAll(/["'`]((?:src|runtime)\/[^"'`\s${}]+\.(?:ts|mts|tsx|vue|js|mjs))["'`]/g)]
+    ...[...readText(join(dir, name)).matchAll(/["'`]((?:\.\/)?(?:src|runtime|server)\/[^"'`\s${}]+\.(?:ts|mts|tsx|vue|js|mjs))["'`]/g)]
       .flatMap(match => match[1]!.endsWith(".d.ts") ? [] : [match[1]!]),
   ]);
 }
 
-// A ViteHub app: the framework loads `server/` files by convention, and the `*.<kind>.ts` files that each
-// Server Primitive discovers (see the `*SuffixPattern` constants of each package's discovery).
+// Only convention-loaded Nitro handlers and ViteHub Definitions are roots. Ordinary server helpers must be
+// reached through an import (see docs/content/docs/reference/file-conventions.md).
 const viteHubAppEntries = [
-  "server/**/*.{ts,mts,js,mjs}",
+  "server/{api,routes,middleware,plugins,tasks}/**/*.{ts,mts,js,mjs}",
+  "server/modules/*.{ts,mts,js,mjs}",
+  "server/modules/*/index.{ts,mts,js,mjs}",
+  "server/{agents,browsers,channels,connections,queues,realtime,schedules,workflows,workspaces}/**/*.{ts,mts,js,mjs}",
+  "server/databases/**/config.{ts,mts,js,mjs}",
+  "server/sandbox-tasks/**/index.{ts,mts,js,mjs}",
+  "server/{auth,comments,content}.{ts,mts,js,mjs}",
+  "server.auth.{ts,mts,js,mjs}",
+  "src/database.ts",
   "src/**/*.{agent,browser,channel,connection,database,queue,sandbox-task,schedule,workflow,workspace}.{ts,mts,js,mjs}",
 ];
+
+function appEntries(dir: string): string[] {
+  return matching(dir, [...viteHubAppEntries, ...viteConfigEntries(dir)]);
+}
 
 const packageEntries = [
   // Vitest runs these through `typecheck.include`, which the Knip Vitest plugin does not read, or the package tsconfig checks them.
@@ -225,9 +238,12 @@ const config: KnipConfiguration = {
   exclude: ["optionalPeerDependencies"],
   // Test fixtures are sample apps and inputs. `playground/chatgpt` is not a pnpm workspace, so its dependencies are not installed.
   ignore: ["fixtures/**", "test/fixtures/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**"],
-  // CSS reaches packages through `@import` and `url()`, such as the Console fonts.
+  // CSS reaches local stylesheets and packages through `@import` and `url()`, such as the Console fonts.
   compilers: {
-    css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"'./][^"':]*)["']/g)].map(match => `import "${match[1]}";`).join("\n"),
+    css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"']+)["']/g)]
+      // URLs, public-root assets and fragment references are not module imports.
+      .filter(match => !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(match[1]!))
+      .map(match => `import ${JSON.stringify(match[1])};`).join("\n"),
   },
   // Runtime modules of Cloudflare Workers, such as `cloudflare:workers`. Knip reads them as the npm package `cloudflare`.
   ignoreDependencies: ["cloudflare"],
@@ -298,13 +314,13 @@ const config: KnipConfiguration = {
     "packages/env/examples/schema-lab": { entry: ["src/type-contract.ts"] },
     // These app configs import `vite-hub` from its build output, which Knip cannot load before a build.
     "playground/content": {
-      entry: matching("playground/content", viteHubAppEntries),
+      entry: appEntries("playground/content"),
       vite: false,
       // remove when the unused comark-content and @vite-hub/cli dependencies of the content playground are fixed
       ignoreDependencies: ["comark-content", "@vite-hub/cli"],
     },
     "playground/docs": {
-      entry: matching("playground/docs", viteHubAppEntries),
+      entry: appEntries("playground/docs"),
       ignoreDependencies: [
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
         /^@iconify-json\//,
@@ -317,7 +333,7 @@ const config: KnipConfiguration = {
         "vue-tsc",
       ],
     },
-    "playground/logs": { entry: matching("playground/logs", viteHubAppEntries), vite: false },
+    "playground/logs": { entry: appEntries("playground/logs"), vite: false },
   },
   ignoreWorkspaces: [
     // Consumer apps that tests copy and install on their own.
