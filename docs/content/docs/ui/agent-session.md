@@ -8,7 +8,7 @@ icon: i-ph-layout-light
 
 `AgentSession` gives a session a header, a centered timeline, a details card, and a resizable right panel. The layout follows [T3 Code](https://github.com/pingdotgg/t3code), under its MIT license. Your app owns session data and the content of each surface.
 
-::component-preview{name="AgentSessionExample" flush}
+::example{name="AgentSessionExample" height=30 flush}
 ::
 
 ## Installation

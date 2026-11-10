@@ -57,7 +57,14 @@ const runtimeEntries = [
   ...distributionEntries,
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
+  // Generated code imports these modules by path. They are not package exports.
+  "src/internal/agent-invocations.ts",
+  "src/internal/database-runtime-state.ts",
+  "src/internal/disabled-upstash-driver.ts",
+  "src/task/operations.ts",
   "src/console/auth-types.ts",
+  // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
+  "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/build.ts",
@@ -142,7 +149,7 @@ const runtimeEntries = [
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
-const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)
@@ -164,7 +171,6 @@ export default defineConfig({
         { from: "src/error-diagnostics.ts", to: "dist" },
         { from: ".vitehub/console", to: "dist/console/runtime/public" },
         { from: ".vitehub/skills", to: "dist/console/runtime/public" },
-        { from: ".vitehub/comments-overlay", to: "dist" },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -434,6 +440,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-date-input.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
@@ -445,8 +452,9 @@ export default defineConfig({
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        // Agent-only apps need the client-free journal constructor without installing the optional Database package.
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
@@ -488,6 +496,7 @@ export default defineConfig({
         customExports(exports) {
           delete exports["./console/auth-pages"];
           delete exports["./console/auth-types"];
+          delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/appearance"];
@@ -579,6 +588,9 @@ export default defineConfig({
           delete exports["./console/auth-client"];
           delete exports["./console/auth-cloudflare-access"];
           delete exports["./console/auth-inline"];
+          // Generated code imports `src/internal/*` entries by path. They are not public API.
+          for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
+          delete exports["./task/operations"];
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
@@ -621,8 +633,8 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
           neverBundle: ["esbuild", "vite"],

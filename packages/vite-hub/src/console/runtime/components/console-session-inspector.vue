@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentCapabilityInspector, AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
+import { AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { useElementSize } from "@vueuse/core";
@@ -16,6 +16,8 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
 const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
 const ConsoleFileDiff = defineAsyncComponent(() => import("@vite-hub/ui/file-diff").then(module => module.FileDiff));
+// JSON Render and Zod load with the Capabilities tab, not with every session.
+const AgentCapabilityInspector = defineAsyncComponent(() => import("./invocation/agent-capability-inspector").then(module => module.AgentCapabilityInspector));
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceChange = { path: string; status: "added" | "deleted" | "modified" };
