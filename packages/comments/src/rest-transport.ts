@@ -158,8 +158,8 @@ const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === un
 
 /**
  * A transport over the Comments API at `<base>/api/_vitehub/comments`: the routes that the overlay uses. The server
- * runs the `authorize` policy of `server/comments.ts` for the user of the request: the app session, the Console, or a
- * guest that `guest` names. It needs no Console access, so guests and share-link readers can use it. It has no
+ * runs the `authorize` policy of `server/comments.ts` for the user of the request: the app session, or a guest that
+ * `guest` names. Guests and share-link readers can use it. It has no
  * `subscribe`: the client refreshes when the window gets focus.
  */
 export function createRestTransport(options: RestTransportOptions = {}): RestTransport {

@@ -67,7 +67,7 @@ describe.each(["replay", "forced replay", "dispatch"])("%s Invocation references
     const runId = result.items[0]!.id
     expect(runId).not.toBe("trigger-run")
     const id = await agentInvocationId(runId, "support")
-    const invocation = { consoleUrl: `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`, id }
+    const invocation = { consoleUrl: `https://console.vitehub.dev/open?project=${encodeURIComponent("https://agents.example.test")}&path=${encodeURIComponent(`/agents/support/invocations/${encodeURIComponent(id)}`)}`, id }
     const accepted = { invocation, run: { ...metadata, runId } }
     expect(prepare).toHaveBeenCalledOnce()
     expect(prepare.mock.calls[0]?.[0]).toMatchObject(accepted)
