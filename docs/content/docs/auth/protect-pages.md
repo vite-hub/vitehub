@@ -58,7 +58,7 @@ The guard sends visitors to the login page with `?redirect=<the page>`. After th
 definePageMeta({ auth: 'guest' })
 
 const route = useRoute()
-const signIn = useSignIn()
+const { signIn } = useUserSession()
 const email = ref('')
 const password = ref('')
 const message = ref('')
@@ -151,7 +151,7 @@ Use both guards. The page guard gives the visitor the correct page. The server g
 | Where it runs | In Nuxt route middleware, on the server render and on each navigation in the browser | In server middleware, on each request that matches a route |
 | What it protects | Which page the browser shows | The response of the route: data and actions |
 | Without a session | Sends the browser to the login page | Returns `401`. For an HTML `GET` with [`access.signIn`](/docs/auth/configure), it starts the provider sign-in. |
-| What skips it | A request straight to an API route | No request that matches a route |
+| What skips it | A request straight to an API route | Nothing. Each request that matches a route goes through it. |
 
 Do not put Nuxt page paths in `access.routes`. A visitor without a session then gets a `401` response instead of your login page, unless `access.signIn` is set. Navigation in the browser does not request the page from the server, so the server guard does not run for it.
 
@@ -161,10 +161,8 @@ Nuxt imports these composables for you:
 
 | Composable | Gives |
 | --- | --- |
-| `useUserSession()` | `user`, `session`, `loggedIn`, `pending`, and `ready` refs, and the `signIn`, `signUp`, `signOut`, and `refresh` actions. |
+| `useUserSession()` | `user`, `session`, `loggedIn`, `pending`, and `ready` refs, and the `signIn`, `signUp`, `signOut`, and `refresh` actions. `signIn` and `signUp` are Better Auth's, such as `signIn.email()` and `signUp.email()`. |
 | `useSession()` | Better Auth's session ref: `data`, `error`, `isPending`, `isRefetching`, and `refetch`. |
-| `useSignIn()` | Better Auth's `signIn`, such as `signIn.email()` and `signIn.social()`. |
-| `useSignUp()` | Better Auth's `signUp`, such as `signUp.email()`. |
 | `useAuthClient()` | The Better Auth client that the composables use. |
 
 The guard runs only when the route changes. After a sign-out, send the user to another page yourself:
