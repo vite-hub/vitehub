@@ -1,13 +1,14 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRouter, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
 
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useUserSession } from "../vue.ts"
+import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler, useUserSession } from "../vue.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
+import type { RequestFetch } from "../vue.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
@@ -47,6 +48,34 @@ function appendSetCookies(event: EventLike, response: ResponseLike): void {
   }
 }
 
+/**
+ * The path and query of a URL that Better Auth's client built. The client can build an absolute URL from a variable
+ * such as `VERCEL_URL`, and that URL would leave the process.
+ */
+function pathOf(input: string | URL | Request): string {
+  const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost")
+  return url.pathname + url.search
+}
+
+/**
+ * The fetch of the current page request for Better Auth's client, or `undefined` outside a request. Nuxt's request fetch
+ * calls the app in-process with the headers of the page request, such as the cookie, and its `native` form answers with
+ * the `Response` that Better Auth reads.
+ */
+function currentRequestFetch(): RequestFetch | undefined {
+  const nuxtApp = tryUseNuxtApp() as object | undefined
+  const event = nuxtApp ? useRequestEvent() as EventLike | undefined : undefined
+  if (!nuxtApp || !event) return undefined
+  // Nuxt types the request fetch without `native`.
+  const { native } = useRequestFetch() as { native: typeof fetch }
+  const requestFetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const response = await native(pathOf(input), init)
+    appendSetCookies(event, response)
+    return response
+  }
+  return { request: nuxtApp, origin: (useRequestURL() as URL).origin, fetch: requestFetch }
+}
+
 /** Reads the session of the request once, so server rendering and hydration start signed in or signed out. */
 async function readServerSession(basePath: string): Promise<unknown> {
   const event = useRequestEvent() as (EventLike & { req?: { headers?: Headers }, headers?: Headers, node?: { req?: { headers?: Record<string, string | string[] | undefined> } } }) | undefined
@@ -82,6 +111,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   enforce: "pre",
   async setup(nuxtApp: NuxtApp) {
     setNuxtAppResolver(() => tryUseNuxtApp() as NuxtApp | undefined)
+    // During server rendering, client calls such as `listSessions()` reach the app in-process with the visitor's cookie.
+    if (!("window" in globalThis)) setRequestFetchResolver(currentRequestFetch)
     const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | { basePath?: string, redirects?: AuthRedirects } } }
     const config = runtimeConfig.public?.vitehubAuth
     const redirects = (config || undefined)?.redirects ?? {}
@@ -111,9 +142,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     // The server reads the session in process, where Nitro serves Auth below the base path of the build. The browser
     // calls Auth below the `app.baseURL` of the page, which `NUXT_APP_BASE_URL` can set at runtime.
     const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth", "window" in globalThis ? runtimeConfig.app?.baseURL : undefined)
-    // The page guard and the auto-imported composables share the default client, with the plugins of the app's `auth.client.ts`. They
-    // call the same Auth path, and
-    // a read of the guard updates every component.
+    // The page guard and the auto-imported composables share the default client, with the plugins of the app's
+    // `auth.client.ts`. They call the same Auth path, and a read of the guard updates every component.
     setDefaultAuthBasePath(basePath)
     const seed = useState(stateKey, () => undefined) as { value: unknown }
     if (!("window" in globalThis) && seed.value === undefined) seed.value = await readServerSession(basePath)

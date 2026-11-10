@@ -437,6 +437,20 @@ In Nuxt, the server reads the session once for each page request that has a Bett
 
 The server session lookup, the page guard, and the auto-imported composables use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
 
+During server rendering, a client call such as `listSessions()` or a plugin endpoint such as `organization.list()` calls the app in-process with the visitor's cookie. Call it in `<script setup>` or in `useAsyncData()`, and the page renders its data on the server. When Better Auth refreshes the session cookie, the page response sets it. A client with its own `baseURL` or `fetchOptions.customFetchImpl` keeps them, so its server calls do not carry the visitor's cookie. Better Auth's origin check refuses a `POST` call during server rendering with `403`, so make calls that change data in the browser. A prerendered or cached page renders without the visitor's cookie, so its calls answer as signed out.
+
+```vue
+<!-- app/pages/sessions.vue -->
+<script setup lang="ts">
+import { useAuthClient } from "vite-hub/auth/vue";
+
+const { data: sessions } = await useAsyncData("sessions", async () => {
+  const { data } = await useAuthClient().listSessions();
+  return data ?? [];
+});
+</script>
+```
+
 `definePageMeta({ auth })` guards a page on the server and on client navigation:
 
 | `auth` | Who may open the page | Others go to |

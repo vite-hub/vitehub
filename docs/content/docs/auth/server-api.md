@@ -48,6 +48,8 @@ All components share one session state, so a list of 100 rows that call `useUser
 
 In Nuxt, `useUserSession()` and `useSession()` use the Definition's `basePath` below `app.baseURL`, such as `/app/auth` for `basePath: '/auth'` below `/app/`. In the browser, they follow a `NUXT_APP_BASE_URL` that you set at runtime.
 
+In Nuxt, a client call during server rendering, such as `listSessions()` in `<script setup>` or `useAsyncData()`, calls the app in-process with the visitor's cookie. The page renders the data on the server, and a session cookie that Better Auth refreshes reaches the browser with the page. A client with its own `baseURL` or `fetchOptions.customFetchImpl` keeps them, so its server calls do not carry the visitor's cookie. Better Auth's origin check refuses a `POST` call during server rendering with `403`, so make calls that change data in the browser. A prerendered or cached page renders without the visitor's cookie, so its calls answer as signed out.
+
 `signOut()` signs out with Better Auth and sets `user` and `session` to `null` at once, in every component. Pass `redirectTo` to open a page after the sign-out:
 
 ```vue [src/components/UserMenu.vue]

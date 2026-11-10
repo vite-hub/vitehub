@@ -23,10 +23,21 @@ type SessionState = { data: unknown, error: unknown, isPending: boolean, isRefet
 
 const authClientKey: InjectionKey<VueAuthClient<any>> = Symbol("vitehub.auth.client")
 
+/** The fetch of one server request, which Better Auth's client uses for the calls of that request. */
+export interface RequestFetch {
+  /** The same object for every call of one request, such as the Nuxt app of the request. */
+  request: object
+  /** The origin of the request. On the server, Better Auth's client needs an absolute URL. */
+  origin: string
+  /** Calls the app in-process with the headers of the request, such as the cookie. */
+  fetch: typeof fetch
+}
+
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
 let sessionSeedResolver: (() => unknown) | undefined
 let signOutHandler: ((redirectTo: string | undefined) => unknown) | undefined
 let defaultBasePath: string | undefined
+let requestFetchResolver: (() => RequestFetch | undefined) | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
@@ -59,6 +70,14 @@ export function setSessionSeedResolver(resolver: (() => unknown) | undefined): v
   sessionSeedResolver = resolver
 }
 
+/**
+ * Internal bridge installed by the Nuxt module. On the server, the resolver returns the fetch of the current request, or
+ * `undefined` outside a request.
+ */
+export function setRequestFetchResolver(resolver: (() => RequestFetch | undefined) | undefined): void {
+  requestFetchResolver = resolver
+}
+
 /** The state of a client hook, such as `useSession()`, before Better Auth's client has loaded. */
 const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, isPending: true, isRefetching: false, refetch })
 
@@ -71,6 +90,7 @@ const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, 
  * browser then loads Better Auth and reads the session again only when the session can change: a call, `refetch()`,
  * the tab shows again, the network comes back, another tab signs out or updates the user, or the session expires. Use
  * `loadAuthClient()` for anything else, such as `$store`.
+ * During Nuxt server rendering, a call such as `listSessions()` reaches the app in-process with the visitor's cookie.
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => createLazyAuthClient(() => options, () => options)
 
@@ -92,6 +112,29 @@ function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOpt
   const whenLoaded = (run: (client: VueAuthClient<Option>) => void) => {
     if (betterAuth) run(betterAuth)
     else onLoad.add(run)
+  }
+  // On the server, each request has its own Better Auth client, so a call carries the cookie of its own request only.
+  const requestClients = new WeakMap<object, Promise<VueAuthClient<Option>>>()
+
+  /**
+   * Better Auth's client for a call. On the server, during a request, it calls the app in-process with the visitor's
+   * cookie. A client with its own `baseURL` or `customFetchImpl` keeps them. Call it before the caller's first `await`,
+   * because only the caller's frame knows the request.
+   */
+  function loadForCall(): Promise<VueAuthClient<Option>> {
+    const request = "window" in globalThis ? undefined : requestFetchResolver?.()
+    if (!request) return load()
+    let client = requestClients.get(request.request)
+    if (!client) {
+      client = Promise.all([import("better-auth/vue"), resolveOptions()]).then(([module, options]) => {
+        if (options?.baseURL || options?.fetchOptions?.customFetchImpl) return load()
+        // SAFETY: the same options with the origin and the fetch of the request, which change no type of the client.
+        const requestOptions = { ...options, baseURL: request.origin, fetchOptions: { ...options?.fetchOptions, customFetchImpl: request.fetch } } as Option
+        return module.createAuthClient(requestOptions)
+      })
+      requestClients.set(request.request, client)
+    }
+    return client
   }
 
   function hook(name: string, args: unknown[]) {
@@ -123,7 +166,7 @@ function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOpt
   function call(path: string[]): unknown {
     return new Proxy(function () {}, {
       get(_, key) {
-        if (key === LOAD && !path.length) return load
+        if (key === LOAD && !path.length) return loadForCall
         if (key === ON_LOAD && !path.length) return whenLoaded
         if (key === OPTIONS && !path.length) return knownOptions()
         // Like Better Auth's own client: no symbols, and never a thenable.
@@ -132,7 +175,7 @@ function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOpt
         return call([...path, key])
       },
       async apply(_, __, args) {
-        const client = await load()
+        const client = await loadForCall()
         // SAFETY: Better Auth's client resolves every path to a callable endpoint, as it does for its own calls.
         const target = path.reduce<unknown>((node, key) => Reflect.get(Object(node), key), client) as Callable
         return target(...args)
@@ -370,7 +413,10 @@ function wakeWhenSessionCanChange(options: BetterAuthClientOptions["sessionOptio
   }
 }
 
-/** Better Auth's own Vue client behind one that `createAuthClient()` returned, once it has loaded. */
+/**
+ * Better Auth's own Vue client behind one that `createAuthClient()` returned, once it has loaded. During Nuxt server
+ * rendering, it is the client of the current request.
+ */
 export async function loadAuthClient<Client extends VueAuthClient<any>>(client: Client): Promise<Client> {
   const load = Reflect.get(client, LOAD) as (() => Promise<Client>) | undefined
   return load ? await load() : client
