@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Source Bindings. |
 | `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools for a Workspace. |
 | Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
-| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
+| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
 | `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | [Add rules and hooks](#add-plugins-to-a-workspace) to a Workspace you do not define. |
 | `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Add discovery, generated types, assets, and runtime setup. |
