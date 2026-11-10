@@ -107,6 +107,11 @@
       "import": "./dist/copy-button.js",
       "default": "./dist/copy-button.js"
     },
+    "./device-frame": {
+      "types": "./dist/device-frame.d.ts",
+      "import": "./dist/device-frame.js",
+      "default": "./dist/device-frame.js"
+    },
     "./file-diff": {
       "types": "./dist/file-diff.d.ts",
       "import": "./dist/file-diff.js",
