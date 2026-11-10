@@ -248,7 +248,7 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console routes run in the Nitro output of the selected preset.",
+      "The Console endpoint runs in the Nitro output of the selected preset. The hosted Console calls it.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(

@@ -110,11 +110,6 @@
     "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
-    "label": "server/connections/github.ts",
-    "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
     "label": null,
     "error": "TS2304 Cannot find name 'content'."
@@ -318,11 +313,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
-  },
-  {
-    "id": "docs/content/docs/sandbox/configure.md#a0e8d52d7c6f",
-    "label": "server/tools/resize.sandbox-task.ts",
-    "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'.\n  Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }>'.\n    Types of parameters 'payload' and 'payload' are incompatible.\n      Type '{ width: number; } | undefined' is not assignable to type '{ width: number; }'.\n        Type 'undefined' is not assignable to type '{ width: number; }'."
   },
   {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
