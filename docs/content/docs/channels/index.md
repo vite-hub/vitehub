@@ -41,9 +41,18 @@ icon: i-lucide-send
   import { slack } from 'vite-hub/agent/channels'
   import { defineChannel } from 'vite-hub/channels'
 
-  // Sends through your Chat SDK Slack adapter
+  // The Agent that lists "slack" answers its messages.
   export default defineChannel({
     adapter: slack({ adapter: createSlackAdapter() }),
+  })
+  ```
+
+  ```ts [server/agents/support.ts]
+  import { defineAgent } from 'vite-hub/agent'
+
+  export default defineAgent({
+    channels: ['slack'],
+    driver: { model: 'openai/gpt-5.1-mini' },
   })
   ```
 
@@ -73,7 +82,7 @@ icon: i-lucide-send
   :::
 
   :::product-feature-item{title="A target for each event" icon="i-lucide-route" to="/docs/channels/server-api#receive-webhooks"}
-  Send an event to a handler, a Queue, a Workflow, or a trigger that starts an Agent.
+  Send an event to a handler, a Queue, a Workflow, or the Agent that lists the Channel.
   :::
 
   :::product-feature-item{title="Send from anywhere" icon="i-lucide-code-2" to="/docs/channels/server-api#send-a-message"}
@@ -86,7 +95,7 @@ icon: i-lucide-send
 ::
 
 ::agent-only{skill="channels"}
-A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`). Outbound messages go through `useChannel(name).send()` from any server code.
+A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`), or to the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. Outbound messages go through `useChannel(name).send()` from any server code.
 
 Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Inbound Channels need `agent: true` next to `channels: true`. Keep secrets in Server Env and never parse or verify a webhook by hand.
 
