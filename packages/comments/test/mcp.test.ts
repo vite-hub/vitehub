@@ -180,7 +180,7 @@ describe("Comments MCP tools", () => {
     const tool = commentsMcpTools(comments)[0]!
     const api = createCommentsHandler({ comments, realtime: false })
     const request = event({ "x-person": "ada" })
-    await api(request)
+    await api.fetch(request.req)
     expect((await tool.call({}, { user: { id: "other" }, event: request })).isError).toBeUndefined()
     // The HTTP session checks read, comment, resolve, and delete; the tool checks read again.
     expect(seen).toEqual([ada, ada, ada, ada, ada])

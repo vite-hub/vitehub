@@ -3,7 +3,7 @@ import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
-import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -237,7 +237,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           "",
         ].join("\n"))
       }
-      else if (environment?.command === "build" && authority === "auto") {
+      else if (isProductionBuild(config, environment) && authority === "auto") {
         throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
       else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {

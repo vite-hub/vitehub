@@ -1,5 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -20,6 +21,9 @@ import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
+
+// Generated code imports the operations by path, so they need no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
 
 export { discoverQueueDefinitions } from "./discovery.ts"
 export { inspectQueueDefinitions, type QueueInspectionOptions, queueConsoleSection } from "./inspect.ts"
@@ -250,8 +254,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
         const input = { provider: resolvedQueue.provider, ...(typeof base === "string" ? { base } : {}), ...(typeof database === "string" ? { database } : {}) }
         return [{ export: "queueDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "queue" }]
       },
-      // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
+      // The Console, `vitehub queue`, and agents run these.
+      operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: operationsModule }],
       inspect: () => {
         const resolvedQueue = normalizeQueueOptions(queue, { hosting })
         if (!resolvedQueue?.provider) return

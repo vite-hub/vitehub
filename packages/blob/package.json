@@ -46,11 +46,6 @@
       "import": "./dist/client.js",
       "default": "./dist/client.js"
     },
-    "./config": {
-      "types": "./dist/config.d.ts",
-      "import": "./dist/config.js",
-      "default": "./dist/config.js"
-    },
     "./content-type": {
       "types": "./dist/content-type.d.ts",
       "import": "./dist/content-type.js",
@@ -146,20 +141,15 @@
       "import": "./dist/ensure.js",
       "default": "./dist/ensure.js"
     },
-    "./errors": {
-      "types": "./dist/errors.d.ts",
-      "import": "./dist/errors.js",
-      "default": "./dist/errors.js"
+    "./internal/vercel-blob": {
+      "types": "./dist/internal/vercel-blob.d.ts",
+      "import": "./dist/internal/vercel-blob.js",
+      "default": "./dist/internal/vercel-blob.js"
     },
     "./media": {
       "types": "./dist/media.d.ts",
       "import": "./dist/media.js",
       "default": "./dist/media.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
     },
     "./reference": {
       "types": "./dist/reference.d.ts",

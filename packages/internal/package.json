@@ -298,6 +298,11 @@
       "import": "./dist/build/paths.js",
       "default": "./dist/build/paths.js"
     },
+    "./build/bundle-options": {
+      "types": "./dist/build/bundle-options.d.ts",
+      "import": "./dist/build/bundle-options.js",
+      "default": "./dist/build/bundle-options.js"
+    },
     "./build/esbuild": {
       "types": "./dist/build/esbuild.d.ts",
       "import": "./dist/build/esbuild.js",

@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { collectDurabilityContributions } from "@vite-hub/internal/durability"
 import { readInstanceCount } from "@vite-hub/runtime/durability"
 
@@ -59,13 +60,14 @@ export function viteHubDurabilityPlugin(options: DurabilityPluginOptions = {}): 
   const operations: readonly OperationContributionEntry[] = [{
     export: "durabilityOperations",
     load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).durabilityOperations,
-    module: "vite-hub/_internal/durability/operations",
+    module: ownModule(import.meta.url, "durability/operations"),
   }]
   return [
     generatedNitroPlugin("vite-hub/durability/nitro", "durability/plugin.mjs", () => bootPlugin),
     {
       name: "vite-hub/durability",
-      enforce: "post",
+      // Claim the virtual id before Vite treats `#vitehub/*` as package imports.
+      enforce: "pre",
       config(_config, env) {
         dev = env.command !== "build"
       },
