@@ -5,11 +5,11 @@ import { join, resolve } from "node:path"
 
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
-import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, isProductionBuild, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 
-import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { OperationContributingPlugin } from "@vite-hub/internal/operations"
@@ -24,8 +24,8 @@ import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
-import { transformConsoleOperationFeatures } from "./operation-features.ts"
+import { addConsoleAssetManifestModule, addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
+import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -199,7 +199,7 @@ export interface ConsoleVitePluginOptions {
   preset?: string
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
-  resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+  resolveAuthConfig?: (root: string, serverDirs: string[] | undefined) => ResolvedAuthViteConfig | undefined
   resolveBlobStores?: (blob: unknown) => readonly string[] | false
   /** Whether the effective KV configuration enables the section, including a standalone KV plugin. */
   resolveKV?: (kv: unknown, plugins?: readonly Plugin[]) => boolean
@@ -344,7 +344,10 @@ function configureConsoleNitroRoutes(
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, sections, !rpcOnly && oauth, crossOrigin)
-  if (!rpcOnly) addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, mount)
+  if (!rpcOnly) {
+    addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, mount)
+    addConsoleAssetManifestModule(kit.config)
+  }
   const consoleAssetsBase = consoleMountPath(mount, "/_vitehub/assets")
   // The page tools contribute their loader asset to the kit.
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
@@ -593,9 +596,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers)
       },
     },
-    transform(code) {
-      const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
-      return transformed === undefined ? undefined : { code: transformed, map: null }
+    transform: {
+      filter: consoleOperationFeaturesFilter,
+      handler(code) {
+        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
+        return transformed === undefined ? undefined : { code: transformed, map: null }
+      },
     },
     async config(config, environment) {
       development = environment.command === "serve"
@@ -609,57 +615,40 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       // The root integration does not add this plugin without Console options, so this only guards direct use.
       if (!configured) throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
       resolvedConsoleConfiguration = configured
-      // SAFETY: ViteHub Auth and server discovery extend Vite's user config with these documented keys.
+      // SAFETY: Server discovery and the CLI extend Vite's user config with these private keys.
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
-        auth?: AuthModuleOptions
-        blob?: unknown
-        database?: unknown
-        kv?: unknown
-        queue?: unknown
-        rateLimit?: unknown
-        sandboxTask?: unknown
-        schedule?: unknown
-        workspace?: unknown
-        workflow?: unknown
         vitehubCliDiscovery?: true
       }
-      resolveBlobRegistration(viteConfig.blob)
-      resolveKVRegistration(viteConfig.kv)
-      resolveQueueRegistration(viteConfig.queue)
-      resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
-      if (Object.hasOwn(viteConfig, "database")) {
+      const database = getResolvedFeatureOptions<unknown>(config, "database")
+      const rateLimit = getResolvedFeatureOptions<unknown>(config, "rateLimit")
+      const sandboxTask = getResolvedFeatureOptions<unknown>(config, "sandboxTask")
+      resolveBlobRegistration(getResolvedFeatureOptions(config, "blob"))
+      resolveKVRegistration(undefined)
+      resolveQueueRegistration(getResolvedFeatureOptions(config, "queue"))
+      resolveWorkflowRegistration(options.sections?.includes("workflows"))
+      if (database !== undefined) {
         sections = sections.filter(section => section !== "databases")
-        if (viteConfig.database) sections = [...sections, "databases"]
+        if (database) sections = [...sections, "databases"]
       }
-      if ("sandboxTask" in viteConfig) {
+      if (sandboxTask !== undefined) {
         sections = sections.filter(section => section !== "sandbox-tasks")
-        if (viteConfig.sandboxTask) sections = [...sections, "sandbox-tasks"]
-      }
-      if ("workspace" in viteConfig) {
-        sections = sections.filter(section => section !== "workspaces")
-        if (viteConfig.workspace) sections = [...sections, "workspaces"]
+        if (sandboxTask) sections = [...sections, "sandbox-tasks"]
       }
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
-        ? configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
-        : configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
-      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
-      rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
-        ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+      databaseDiscoveryRoot = configuredProjectRoot(database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+      rateLimitDiscoveryRoot = configuredProjectRoot(rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
+      rateLimitScanDirs = rateLimit && typeof rateLimit === "object" && "scanDirs" in rateLimit && Array.isArray(rateLimit.scanDirs)
+        ? rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
         : options.rateLimitScanDirs
-      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? configuredProjectRoot({ projectRoot: options.scheduleDiscoveryRoot })
-      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace) ?? configuredProjectRoot({ projectRoot: options.workspaceDiscoveryRoot })
+      scheduleDiscoveryRoot = configuredProjectRoot({ projectRoot: options.scheduleDiscoveryRoot })
+      workspaceDiscoveryRoot = configuredProjectRoot({ projectRoot: options.workspaceDiscoveryRoot })
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
-      const appAuth = options.resolveAuthConfig?.(
-        root,
-        viteConfig[VITEHUB_SERVER_DIRS],
-        viteConfig.auth,
-      );
+      const appAuth = options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS]);
       sections = sections.filter((section) => section !== "auth");
       if (appAuth) sections = insertConsoleSection(sections, "auth");
       resolvedAppAuth = appAuth
@@ -669,7 +658,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       assertConsoleProductionAccess(configured, {
         auth: appAuth,
         base: baseURL,
-        development: environment.command !== "build",
+        development: !isProductionBuild(config, environment),
         sections,
       })
       openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
@@ -860,42 +849,33 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       await refreshConsoleAuthClient?.()
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(projectRoot, generatedConsolePlugin)
-      // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandboxTask?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
-      resolveBlobRegistration(viteConfig.blob)
-      resolveKVRegistration(viteConfig.kv, config.plugins)
-      resolveQueueRegistration(viteConfig.queue)
-      resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      // SAFETY: Nitro extends the resolved Vite config with this documented key.
+      const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
+      const database = getResolvedFeatureOptions<unknown>(config, "database")
+      const rateLimit = getResolvedFeatureOptions<unknown>(config, "rateLimit")
+      const sandboxTask = getResolvedFeatureOptions<unknown>(config, "sandboxTask")
+      resolveBlobRegistration(getResolvedFeatureOptions(config, "blob"))
+      resolveKVRegistration(undefined, config.plugins)
+      resolveQueueRegistration(getResolvedFeatureOptions(config, "queue"))
+      resolveWorkflowRegistration(options.sections?.includes("workflows"))
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
-        ? configuredProjectRoot(viteConfig.database)
-        : databaseDiscoveryRoot
-      if (Object.hasOwn(viteConfig, "database")) {
+      if (database !== undefined) {
+        databaseDiscoveryRoot = configuredProjectRoot(database)
         sections = sections.filter(section => section !== "databases")
-        if (viteConfig.database) sections = [...sections, "databases"]
+        if (database) sections = [...sections, "databases"]
       }
-      rateLimitDiscoveryRoot = "rateLimit" in viteConfig
-        ? configuredProjectRoot(viteConfig.rateLimit)
-        : rateLimitDiscoveryRoot
-      if ("rateLimit" in viteConfig) {
-        rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
-          ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+      if (rateLimit !== undefined) {
+        rateLimitDiscoveryRoot = configuredProjectRoot(rateLimit)
+        rateLimitScanDirs = rateLimit && typeof rateLimit === "object" && "scanDirs" in rateLimit && Array.isArray(rateLimit.scanDirs)
+          ? rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
           : undefined
       }
-      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? scheduleDiscoveryRoot
-      if ("sandboxTask" in viteConfig) {
+      if (sandboxTask !== undefined) {
         sections = sections.filter(section => section !== "sandbox-tasks")
-        if (viteConfig.sandboxTask) sections = [...sections, "sandbox-tasks"]
-      }
-      workspaceDiscoveryRoot = "workspace" in viteConfig
-        ? configuredProjectRoot(viteConfig.workspace)
-        : workspaceDiscoveryRoot
-      if ("workspace" in viteConfig) {
-        sections = sections.filter(section => section !== "workspaces")
-        if (viteConfig.workspace) sections = [...sections, "workspaces"]
+        if (sandboxTask) sections = [...sections, "sandbox-tasks"]
       }
       const nitro = viteConfig.nitro ??= {}
       const scopedAuthHandlers = resolvedConfigState?.handlers ?? consoleAuthHandlers
@@ -1099,12 +1079,15 @@ export function consoleInvocationRootPlugin(
       if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
       rememberFrameworkAgent(resolved.id)
     },
-    async resolveId(source, importer, options) {
-      if (source !== frameworkAgentSpecifier) return
-      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-      if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
-      rememberFrameworkAgent(resolved.id)
-      return { ...resolved, external: false }
+    resolveId: {
+      filter: { id: /^vite-hub\/agent$/ },
+      async handler(source, importer, options) {
+        if (source !== frameworkAgentSpecifier) return
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+        if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
+        rememberFrameworkAgent(resolved.id)
+        return { ...resolved, external: false }
+      },
     },
     transform(code, id) {
       if (!frameworkAgentEntries.has(normalizeModuleId(id))) return

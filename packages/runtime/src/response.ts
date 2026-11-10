@@ -21,8 +21,18 @@ interface BlobMethods {
   readonly type: string
 }
 
-const blobTypeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
-const blobStreamMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "stream")?.value
+function prototypeGetter(constructor: { prototype: object }, key: string): (() => unknown) | undefined {
+  return Object.getOwnPropertyDescriptor(constructor.prototype, key)?.get
+}
+
+function prototypeMethod(constructor: { prototype: object }, key: string): CallableFunction | undefined {
+  const value: unknown = Object.getOwnPropertyDescriptor(constructor.prototype, key)?.value
+  return hasRuntimeType(value, "function") ? value : undefined
+}
+
+// Captured at import. Pure, so a bundle that never reads a Blob or an ArrayBuffer here drops the reads.
+const blobTypeGetter = /* @__PURE__ */ prototypeGetter(Blob, "type")
+const blobStreamMethod = /* @__PURE__ */ prototypeMethod(Blob, "stream")
 
 function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -76,7 +86,7 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
 }
 
 
-const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const arrayBufferByteLengthGetter = /* @__PURE__ */ prototypeGetter(ArrayBuffer, "byteLength")
 
 function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   if (!isRuntimeObject(value)) return false

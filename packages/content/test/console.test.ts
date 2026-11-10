@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -671,7 +672,7 @@ describe("Content Console locales", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => content.dispose())
-    return { actions: createContentConsoleActions({ content }), content }
+    return { actions: createContentConsoleActions({ default: content }), content }
   }
   const guide = { collection: "docs", id: "guide", data: { title: "Guide" }, body: "Hello.\n", ifDigest: null }
 
@@ -823,7 +824,7 @@ describe("Content Console section", () => {
     await expect(entryFor(`${imports}import { collections } from "./collections"\nexport default defineContent({ workspace: "site", collections })\n`)).resolves.toBe(true)
     await expect(entryFor(`${imports}import { options } from "./options"\nexport default defineContent({ ...options })\n`)).resolves.toBe(true)
     await expect(entryFor(`import { createContent } from "./create"\nexport default createContent()\n`)).resolves.toBe(true)
-    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: "@vite-hub/content/runtime/console", export: "createContentConsoleActions" } })
+    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: ownModule(import.meta.url, "runtime/console"), export: "createContentConsoleActions" } })
     // The dashboard opens at /_vitehub/content; Media shows only when the project enables Blob.
     expect(contentConsoleSection.pages).toEqual([
       { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },

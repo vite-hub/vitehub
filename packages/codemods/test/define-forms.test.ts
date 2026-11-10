@@ -102,6 +102,41 @@ describe("define-forms edge cases", () => {
     expect(after["server/routes/docs.ts"]).toBe("import content, { docs } from '~~/server/content'\nexport default () => [content, docs]\n")
   })
 
+  it.each([
+    "export default {}\n",
+    "const other = {}\nexport { other as default }\n",
+    "export { default } from './other'\n",
+  ])("reports a conflicting default export without changing Content consumers: %s", async (existingDefault) => {
+    const { after, run } = await migrate({
+      "server/content.ts": `export const content = defineContent({})\n${existingDefault}`,
+      "server/routes/docs.ts": "import { content } from '../content'\nexport default content\n",
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/content.ts", message: expect.stringContaining("default export") })])
+  })
+
+  it("keeps consumers unchanged when a Content declaration needs manual conversion", async () => {
+    const { after, run } = await migrate({
+      "server/content.ts": "export const content = defineContent({}), other = 1\n",
+      "server/routes/docs.ts": "import { content } from '../content'\nexport default content\n",
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toHaveLength(1)
+  })
+
+  it("rewrites CommonJS and TypeScript import-equals references to moved Databases", async () => {
+    const { after, run } = await migrate({
+      "server/databases/config.cjs": "module.exports = defineDatabase({ schema: require('./schema.cjs') })\n",
+      "server/databases/schema.cjs": "module.exports = {}\n",
+      "server/routes/docs.cjs": "const db = require('../databases/config.cjs')\nmodule.exports = db\n",
+      "server/routes/docs.cts": "import db = require('../databases/config')\nexport = db\n",
+    })
+    expect(after["server/databases/default/index.cjs"]).toContain("require('./schema.cjs')")
+    expect(after["server/routes/docs.cjs"]).toContain("require('../databases/default/index.cjs')")
+    expect(after["server/routes/docs.cts"]).toContain("require('../databases/default/index')")
+    expect(run.result.followUps).toEqual([])
+  })
+
   it("moves the implicit default Database migrations", async () => {
     const { run } = await migrate({
       "server/databases/migrations/0000_init.sql": "CREATE TABLE a (id integer);\n",

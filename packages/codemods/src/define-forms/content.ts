@@ -19,16 +19,25 @@ function exportedName(specifier: ExportNamedDeclaration["specifiers"][number]): 
 
 /**
  * Turns the `content` export of `server/content.ts` into the default export. Returns true when it changed the file,
- * and false when the file has no `content` export.
+ * and false when the file has no `content` export or needs a manual conversion.
  */
 export function rewriteContentFile(file: SourceFile, parsed: ParsedFile, output: MagicString, followUps: FollowUp[]): boolean {
   const { program } = parsed
-  if (program.program.body.some(statement => statement.type === "ExportDefaultDeclaration")) return false
+  const hasDefault = program.program.body.some(statement => statement.type === "ExportDefaultDeclaration"
+    || (statement.type === "ExportNamedDeclaration" && statement.specifiers.some(specifier => exportedName(specifier) === "default")))
   for (const statement of program.program.body) {
     if (statement.type !== "ExportNamedDeclaration") continue
     const declaration = statement.declaration
+    const declarator = declaration?.type === "VariableDeclaration"
+      ? declaration.declarations.find(item => item.id.type === "Identifier" && item.id.name === "content")
+      : undefined
+    const specifier = statement.specifiers.find(item => exportedName(item) === "content")
+    if (!declarator && !specifier) continue
+    if (hasDefault) {
+      followUps.push(followUpAt(file.path, statement, "This file already has a default export. Make the named `content` runtime its default export and update its consumers by hand."))
+      return false
+    }
     if (declaration?.type === "VariableDeclaration") {
-      const declarator = declaration.declarations.find(item => item.id.type === "Identifier" && item.id.name === "content")
       if (!declarator) continue
       if (declaration.declarations.length > 1 || !declarator.init) {
         followUps.push(followUpAt(file.path, statement, "Export the `defineContent()` result of this file as the default export by hand."))
@@ -45,7 +54,6 @@ export function rewriteContentFile(file: SourceFile, parsed: ParsedFile, output:
       }
       return true
     }
-    const specifier = statement.specifiers.find(item => exportedName(item) === "content")
     if (!specifier || specifier.type !== "ExportSpecifier") continue
     if (!statement.source && statement.specifiers.length === 1 && specifier.local.type === "Identifier" && specifier.local.name === "content") {
       output.overwrite(start(statement), end(statement), `export default content${parsed.style.semicolons ? ";" : ""}`)

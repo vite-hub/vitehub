@@ -30,11 +30,12 @@ function packageFile(framework: "vite" | "nitro" | "nuxt"): PrimitiveProjectFile
     content: JSON.stringify({
       private: true,
       type: "module",
+      ...(framework === "nuxt" ? { engines: { pnpm: ">=11.5.0" } } : {}),
       scripts: { dev: framework === "vite" ? "vite" : `${framework} dev` },
       dependencies: {
         "vite-hub": "^0.0.4",
         "comark-content": "0.4.1",
-        ...(framework === "nuxt" ? { nuxt: "^4.5.2" } : {}),
+        ...(framework === "nuxt" ? { nuxt: "npm:nuxt-nightly@5x" } : {}),
         ...(framework === "vite" || framework === "nitro" ? { nitro: "3.0.261102-rc" } : {}),
         ...(framework === "vite" ? { vite: "^8.2.2" } : {}),
       },

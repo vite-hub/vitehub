@@ -248,6 +248,11 @@
       "import": "./dist/build/included-nitro.js",
       "default": "./dist/build/included-nitro.js"
     },
+    "./build/included-nitro-registry": {
+      "types": "./dist/build/included-nitro-registry.d.ts",
+      "import": "./dist/build/included-nitro-registry.js",
+      "default": "./dist/build/included-nitro-registry.js"
+    },
     "./build/nitro-cache-bypass": {
       "types": "./dist/build/nitro-cache-bypass.d.ts",
       "import": "./dist/build/nitro-cache-bypass.js",
@@ -287,6 +292,11 @@
       "types": "./dist/build/paths.d.ts",
       "import": "./dist/build/paths.js",
       "default": "./dist/build/paths.js"
+    },
+    "./build/bundle-options": {
+      "types": "./dist/build/bundle-options.d.ts",
+      "import": "./dist/build/bundle-options.js",
+      "default": "./dist/build/bundle-options.js"
     },
     "./build/esbuild": {
       "types": "./dist/build/esbuild.d.ts",
@@ -377,7 +387,7 @@
   },
   "scripts": {
     "build": "vp pack",
-    "test": "vp run -t @vite-hub/internal#build && vp run -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
+    "test": "vp run --cache -t @vite-hub/internal#build && vp run --cache -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
     "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {

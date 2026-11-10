@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
 import { runSchedule } from "../src/runtime/execute.ts"
+import { readScheduleConsoleRecords } from "../src/runtime/console.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
 import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
@@ -197,6 +198,64 @@ describe("Process Schedule Runtime", () => {
       "2026-10-16T15:00:00.000Z",
     ])
     expect(fresh).not.toHaveBeenCalled()
+  })
+
+  it("loads a Schedule with a build timing when it is due, not at startup", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-11T09:01:20.000Z"))
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const handler = vi.fn()
+    const due = vi.fn(async () => ({ default: { cron: "*/5 * * * *", handler } }))
+    const later = vi.fn(async () => ({ default: { cron: "0 3 * * *", handler: vi.fn() } }))
+    const controller = await installProcessScheduleRuntime({
+      catchUpMs: 0,
+      registry: { due, later },
+      scheduleRunStore,
+      timings: { due: { cron: "*/5 * * * *" }, later: { cron: "0 3 * * *", timeZone: "Europe/Madrid" } },
+    })
+
+    expect(due).not.toHaveBeenCalled()
+    expect(later).not.toHaveBeenCalled()
+    // The Console reads the timing without loading the module.
+    expect(await readScheduleConsoleRecords()).toEqual([
+      expect.objectContaining({ fields: [{ label: "Cron", value: "*/5 * * * *" }, { label: "Time zone", value: "UTC" }], id: "definition:due" }),
+      expect.objectContaining({ fields: [{ label: "Cron", value: "0 3 * * *" }, { label: "Time zone", value: "Europe/Madrid" }], id: "definition:later" }),
+    ])
+    // 09:05 and 09:10 are due.
+    await vi.advanceTimersByTimeAsync(4 * 60_000)
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2))
+    await controller.close()
+
+    expect(due).toHaveBeenCalledOnce()
+    expect(later).not.toHaveBeenCalled()
+    expect((await scheduleRunStore.listRuns()).map(run => run.status)).toEqual(["succeeded", "succeeded"])
+  })
+
+  it("loads a timed Schedule again on its next wake after the load failed", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-11T09:01:20.000Z"))
+    const handler = vi.fn()
+    const onError = vi.fn()
+    const load = vi.fn<() => Promise<ScheduleDefinition>>()
+      .mockRejectedValueOnce(new Error("module failed"))
+      .mockResolvedValue({ cron: "*/5 * * * *", handler })
+    const controller = await installProcessScheduleRuntime({
+      catchUpMs: 0,
+      onError,
+      registry: { report: load },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      timings: { report: { cron: "*/5 * * * *" } },
+    })
+
+    expect(load).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(4 * 60_000)
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "module failed" })))
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    await controller.close()
+    expect(load).toHaveBeenCalledTimes(2)
   })
 
   it("loads Static Schedule definitions from module default exports before named exports", async () => {

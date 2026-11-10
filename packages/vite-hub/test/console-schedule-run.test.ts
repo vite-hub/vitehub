@@ -8,9 +8,9 @@ import type { Plugin } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
-import { scheduleOperations } from "@vite-hub/schedule/operations"
+import { scheduleOperations } from "../../schedule/dist/operations.js"
 import { createMemoryScheduleRunStore, resetScheduleRuntime } from "@vite-hub/schedule/runtime"
-import { readScheduleConsoleRecords } from "@vite-hub/schedule/runtime/console"
+import { readScheduleConsoleRecords } from "../../schedule/dist/runtime/console.js"
 import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/process"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
@@ -164,7 +164,7 @@ describe("Console Schedule runs", () => {
     await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
     const generated = await readFile(plugin, "utf8")
     expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
-    expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
+    expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
     expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
     const timeZone = (): Promise<string[]> => definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))

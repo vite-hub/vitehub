@@ -10,10 +10,20 @@ import { QueueLanding } from "../app/data/primitive-landings/queue";
 import { BlobLanding } from "../app/data/primitive-landings/blob";
 import { DatabasesLanding } from "../app/data/primitive-landings/databases";
 import { ContentLanding } from "../app/data/primitive-landings/content";
+import { EnvLanding } from "../app/data/primitive-landings/env";
 import { getPrimitiveLanding, primitiveLandings } from "../app/data/primitive-landings";
 import { stubLanding } from "../app/data/primitive-landings/stub";
 
 describe("primitive landing routes", () => {
+  it("passes Env declarations to the standalone owner plugin", () => {
+    for (const variant of EnvLanding.variants.filter((variant) => variant.framework !== "nuxt")) {
+      const config = variant.files.find((file) => file.path === "vite.config.ts")?.content;
+      expect(config).toContain("hubEnv({\n    server: {");
+      expect(config).toContain("dryRun: env.boolean");
+      expect(config).toContain("apiKey: env(");
+      expect(config).not.toContain("\n  env:");
+    }
+  });
   it("offers only supported Connections hosts in badges and project tabs", () => {
     const landing = getPrimitiveLanding("connections");
     expect(landing?.supported).toEqual(["Vite", "Nitro"]);

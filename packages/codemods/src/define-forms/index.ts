@@ -28,7 +28,7 @@ interface Counts {
 }
 
 /** Rewrites the define calls and Content exports of one file. */
-function rewriteCode(file: SourceFile, contentFiles: ReadonlySet<string>, counts: Counts, followUps: FollowUp[]): string {
+function rewriteCode(file: SourceFile, contentFiles: ReadonlySet<string>, counts: Counts, followUps: FollowUp[], migratedContentFiles?: Set<string>): string {
   const parsed = parseSource(file)
   if (!("program" in parsed)) {
     if (/defineSchedule|defineSandboxTask|defineContent/.test(file.code)) followUps.push(parsed)
@@ -38,10 +38,10 @@ function rewriteCode(file: SourceFile, contentFiles: ReadonlySet<string>, counts
   counts.schedules += rewriteSchedules(file, parsed, output, followUps)
   counts.sandboxTasks += rewriteSandboxTasks(file, parsed, output, followUps)
   if (contentFiles.has(file.path)) {
-    if (rewriteContentFile(file, parsed, output, followUps)) counts.contentFiles++
-  }
-  else {
-    counts.contentImports += rewriteContentImports(file, parsed, contentFiles, output, followUps)
+    if (rewriteContentFile(file, parsed, output, followUps)) {
+      counts.contentFiles++
+      migratedContentFiles?.add(file.path)
+    }
   }
   return output.toString()
 }
@@ -54,7 +54,18 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const contentFiles = new Set(sources.filter(file => contentFilePattern.test(file.path)).map(file => file.path))
 
   // The define forms first, then the Database moves on the result, so a moved file keeps both changes.
-  const code = new Map(sources.map(file => [file.path, rewriteCode(file, contentFiles, counts, followUps)]))
+  const migratedContentFiles = new Set<string>()
+  const code = new Map(sources.map(file => [file.path, rewriteCode(file, contentFiles, counts, followUps, migratedContentFiles)]))
+  // Only redirect consumers once their named runtime has become the default export.
+  for (const file of sources) {
+    if (!migratedContentFiles.size) break
+    const current = { path: file.path, code: code.get(file.path)! }
+    const parsed = parseSource(current)
+    if (!("program" in parsed)) continue
+    const output = new MagicString(current.code)
+    counts.contentImports += rewriteContentImports(current, parsed, migratedContentFiles, output, followUps)
+    code.set(file.path, output.toString())
+  }
 
   const paths = await databaseFiles(cwd)
   const plan = planDatabaseMoves(paths, path => (code.get(path) ?? "").includes("defineDatabase"))

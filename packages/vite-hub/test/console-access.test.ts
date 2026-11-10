@@ -25,7 +25,6 @@ import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
-import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
@@ -400,13 +399,9 @@ describe("Connections manager from Console access", () => {
     installConsoleAccess({ mode: "auth", check: async () => undefined })
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST" })
-    const event = requestEvent(request)
-    const actor = vi.fn((_request: Request, context?: ViteHubContext) => {
-      expect(context).toBe(event)
-      return consoleConnectionsActor(event, async () => undefined)
-    })
-    const response = await createConnectionsHandler({ actor, runtime })(event)
-    expect(actor).toHaveBeenCalledWith(request, event)
+    const actor = vi.fn((input: Request) => consoleConnectionsActor(input, async () => undefined))
+    const response = await createConnectionsHandler({ actor, runtime }).fetch(request)
+    expect(actor).toHaveBeenCalledWith(request)
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_MANAGER_REQUIRED", fix: expect.stringContaining("sign in again"), ok: false })
     expect(runtime).not.toHaveBeenCalled()
@@ -419,11 +414,7 @@ describe("Connections manager from Console access", () => {
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const call = (headers: Record<string, string>) => {
       const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local", ...headers }, method: "POST" })
-      const event = requestEvent(request)
-      return createConnectionsHandler({ actor: (_request, context) => {
-        expect(context).toBe(event)
-        return consoleConnectionsActor(event)
-      }, runtime })(event)
+      return createConnectionsHandler({ actor: input => consoleConnectionsActor(input), runtime }).fetch(request)
     }
     expect((await call({})).status).toBe(403)
     expect(runtime).not.toHaveBeenCalled()
@@ -507,7 +498,7 @@ describe("generated Console access", () => {
     expect(plugin).not.toContain('from "#vitehub/auth/server"')
     expect(plugin).toContain('const vitehubAuthServer = () => import("#vitehub/auth/server")')
     expect(plugin).toContain('const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/_vitehub/api/**"}], getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession })')
-    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/_vitehub/sign-in" })')
+    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event), verify: vitehubVerifyConsoleJwt }, signInPage: "/_vitehub/sign-in" })')
   })
 
   it.each(["/", "/portal/"])("installs the app Auth sign-in page and MCP OAuth below %s", async (base) => {
@@ -516,7 +507,7 @@ describe("generated Console access", () => {
       console: { auth: "app", signInPage: "/sign-in" },
       resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, method: "GET", route: `${mount}/_vitehub/api/**` }]),
     }, "build", { base })
-    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/sign-in" })`)
+    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event), verify: vitehubVerifyConsoleJwt }, signInPage: "/sign-in" })`)
   })
 
   it.each(["/", "/portal/"])("registers the page sign-in middleware before app Auth below %s", async (base) => {
