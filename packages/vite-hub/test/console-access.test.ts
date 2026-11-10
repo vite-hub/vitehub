@@ -495,7 +495,7 @@ describe("generated Console access", () => {
   })
 
   it("imports console.authorize for open access", async () => {
-    const plugin = await generatedPlugin({ console: { auth: false, authorize: hostManagedAuthorize } }, "build")
+    const plugin = await generatedPlugin({ console: { auth: false, authorize: hostManagedAuthorize } }, "serve")
     expect(plugin).toContain(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(hostManagedAuthorize).href)}`)
     expect(plugin).toContain('installConsoleAccess({ mode: "open", authorize: vitehubConsoleAuthorize })')
     await expect(generatedPlugin({ console: { auth: false, authorize: "missing-authorize.ts" } }, "serve"))
