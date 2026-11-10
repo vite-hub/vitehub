@@ -20,6 +20,7 @@ import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
+import { optionsKey } from "./options-key.ts"
 
 import type { BetterAuthOptions } from "better-auth"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -54,8 +55,8 @@ function isAuthSecondaryStorageMetadata(value: unknown): boolean {
 }
 
 /**
- * Without a database, Better Auth keeps users and sessions in the memory of one instance. Auth creates an instance per
- * request, so the instances of one Auth Definition share these tables. A restart still removes them.
+ * Without a database, Better Auth keeps users and sessions in the memory of one instance. Auth creates an instance for
+ * each set of resolved options, so the instances of one Auth Definition share these tables. A restart still removes them.
  */
 function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAuthOptions["database"]> {
   const state = getAuthRuntimeState()
@@ -291,6 +292,15 @@ export function resolveAuthOptions(
   return {
     get options() { return resolveSnapshot() },
     get providerOptions() { return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, resolveSnapshot(), input.event)), input.event) },
+    /** Equal for two resolutions of this Definition that give Better Auth equal options, else `undefined`. */
+    get providerKey() {
+      const snapshot = resolveSnapshot()
+      // `authDatabase(name)` returns a new adapter on each call, but each one uses the Database of the current request,
+      // so adapters of one name are equal. A callback that calls it on each request can then share its instance.
+      const database = authDatabaseName(snapshot.database)
+      const keyed = database === undefined ? snapshot : { ...snapshot, database: undefined }
+      return optionsKey([keyed, database ?? null, deriveAuthSecret(input.event), readAdmins(input.event), readAdminClaim(input.event)])
+    },
     requestRuntimeOptions,
   }
 }
