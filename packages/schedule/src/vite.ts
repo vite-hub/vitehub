@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { rm } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
+import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -15,7 +16,7 @@ import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readStaticScheduleTiming, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -77,7 +78,7 @@ export interface ScheduleProcessRuntimeOptions {
   prefix?: string
 }
 
-export interface ScheduleVitePluginOptions {
+export interface ScheduleOptions {
   /**
    * Cron per Schedule name for this build's host, in place of the cron that the Schedule declares. Set it in the
    * host's build config, such as `{ cleanup: "0 0 * * *" }` for Vercel Hobby, which runs cron jobs at most once a day.
@@ -88,7 +89,7 @@ export interface ScheduleVitePluginOptions {
   runtime?: ScheduleProcessRuntimeOptions
 }
 
-export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
+export interface ScheduleNitroConfigOptions extends ScheduleOptions {
   command?: "build" | "serve"
   /** @internal Resolve generated Nitro registrations from the ViteHub project root. */
   nitroOwnsPaths?: boolean
@@ -107,7 +108,7 @@ interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions 
   preliminary?: boolean
 }
 
-interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
+interface InternalScheduleVitePluginOptions extends ScheduleOptions {
   importBase?: string
   providerImportAliases?: Record<string, string>
   runtimeImport?: string
@@ -148,7 +149,7 @@ type ViteConfigWithNitro = Omit<UserConfig, "nitro"> & {
   nitro?: NitroConfig
 }
 
-function resolveSchedulePluginRoots(root: string, options: Pick<ScheduleVitePluginOptions, "projectRoot"> = {}) {
+function resolveSchedulePluginRoots(root: string, options: Pick<ScheduleOptions, "projectRoot"> = {}) {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: options.projectRoot,
@@ -193,7 +194,7 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
 function resolveCronOverrides(
   value: unknown,
   definitions: DiscoveredScheduleDefinition[] | undefined,
-  options: Pick<ScheduleVitePluginOptions, "providerOutput" | "runtime">,
+  options: Pick<ScheduleOptions, "providerOutput" | "runtime">,
 ): ScheduleCronOverrides | undefined {
   if (value === undefined) return
   if (!isRecord(value) || Array.isArray(value)) {
@@ -312,19 +313,25 @@ function mergeNitroVercelCrons(
 interface RenderNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
   timeZoneCrons: ScheduleTimeZoneCrons
-  importBase?: string
   pluginFile: string
   /** Set when a Definition has no `cron`: the registry of those Definitions, for `startSchedule()` and the tick. */
   startedRegistryFile?: string
   processRuntime?: ScheduleProcessRuntimeOptions
+  /** The static cron and time zone of each Process Runtime Schedule, so the runtime loads its module when it is due. */
+  processTimings?: Record<string, { cron: string, timeZone?: string }>
   providerDefinitions: DiscoveredScheduleDefinition[]
   providerRegistryFile: string
   staticRegistryFile: string
   runtimeImport?: string
 }
 
+// Generated code imports these Schedule runtime modules by path, so they need no package export.
+const scheduleRuntimeModule = ownModule(import.meta.url, "runtime")
+const scheduleKVRuntimeModule = ownModule(import.meta.url, "runtime/kv")
+const scheduleProcessRuntimeModule = ownModule(import.meta.url, "runtime/process")
+const scheduleStaticRuntimeModule = ownModule(import.meta.url, "runtime/static")
+
 function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): string {
-  const importBase = options.importBase ?? schedulePackageName
   const providerWake = options.providerDefinitions.length > 0
   const processRuntime = options.processRuntime
   const processRuntimeOptions = processRuntime
@@ -332,6 +339,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
         ...(processRuntime.catchUpMs !== undefined ? { catchUpMs: processRuntime.catchUpMs } : {}),
         ...(processRuntime.concurrency !== undefined ? { concurrency: processRuntime.concurrency } : {}),
         ...(processRuntime.intervalMs !== undefined ? { intervalMs: processRuntime.intervalMs } : {}),
+        ...(options.processTimings && Object.keys(options.processTimings).length ? { timings: options.processTimings } : {}),
       }
     : undefined
   const scheduleStoreOptions = processRuntime?.prefix !== undefined ? { prefix: processRuntime.prefix } : {}
@@ -340,22 +348,22 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(providerWake
       ? [
           `import scheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.providerRegistryFile))}`,
-          `import { executeCloudflareStaticSchedules } from ${JSON.stringify(options.runtimeImport ?? `${importBase}/runtime/static`)}`,
+          `import { executeCloudflareStaticSchedules } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
         ]
       : []),
     ...(processRuntime
       ? [
-          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? `${importBase}/runtime/static`)}`,
-          `import { createKVScheduleRunStore } from ${JSON.stringify(`${importBase}/runtime`)}`,
-          `import { scheduleKVStorage } from ${JSON.stringify(`${importBase}/runtime/kv`)}`,
-          `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
+          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
+          `import { createKVScheduleRunStore } from ${JSON.stringify(scheduleRuntimeModule)}`,
+          `import { scheduleKVStorage } from ${JSON.stringify(scheduleKVRuntimeModule)}`,
+          `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
           `import staticScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.staticRegistryFile))}`,
         ]
       : []),
     ...(options.startedRegistryFile
       ? [
-          `import { createKVStartedScheduleStore, installStartedSchedules } from ${JSON.stringify(`${importBase}/runtime`)}`,
-          ...(processRuntime ? [] : [`import { scheduleKVStorage } from ${JSON.stringify(`${importBase}/runtime/kv`)}`]),
+          `import { createKVStartedScheduleStore, installStartedSchedules } from ${JSON.stringify(scheduleRuntimeModule)}`,
+          ...(processRuntime ? [] : [`import { scheduleKVStorage } from ${JSON.stringify(scheduleKVRuntimeModule)}`]),
           `import startedScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.startedRegistryFile))}`,
         ]
       : []),
@@ -570,6 +578,7 @@ interface WriteNitroSchedulePluginOptions {
   importBase?: string
   netlifySchedules: NitroNetlifySchedule[]
   processRuntime?: ScheduleProcessRuntimeOptions
+  processTimings?: Record<string, { cron: string, timeZone?: string }>
   providerDefinitions: DiscoveredScheduleDefinition[]
   staticDefinitions: DiscoveredScheduleDefinition[]
   runtimeImport?: string
@@ -587,10 +596,10 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
     writeFileIfChanged(pluginFile, renderNitroSchedulePlugin({
       cronOverrides: options.cronOverrides,
       timeZoneCrons: options.timeZoneCrons,
-      importBase: options.importBase,
       pluginFile,
       startedRegistryFile,
       processRuntime: options.processRuntime,
+      ...(options.processTimings ? { processTimings: options.processTimings } : {}),
       providerDefinitions: options.providerDefinitions,
       providerRegistryFile,
       staticRegistryFile,
@@ -613,7 +622,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       netlify: {
         entryFile: resolve(root, generatedNitroNetlifyEntry),
         registryFile: providerRegistryFile,
-        runtimeImport: options.runtimeImport ?? `${options.importBase ?? schedulePackageName}/runtime/static`,
+        runtimeImport: options.runtimeImport ?? scheduleStaticRuntimeModule,
         schedules: options.netlifySchedules,
       },
     })))
@@ -630,23 +639,23 @@ function hasViteSuffixScheduleDefinitions(definitions: DiscoveredScheduleDefinit
   return definitions.some(definition => definition.source === "vite-suffix")
 }
 
-function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition[] {
+function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition[] {
   if (options.providerOutput === false || options.providerOutput === "standalone") return []
   if (options.providerOutput === "nitro") return definitions
   return definitions.filter(isServerScheduleDefinition)
 }
 
-function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition["source"] | undefined {
+function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition["source"] | undefined {
   if (options.providerOutput === "auto" || options.providerOutput === undefined) {
     return hasServerScheduleDefinitions(definitions) ? "vite-suffix" : undefined
   }
 }
 
-function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions, startable: number): boolean {
+function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions, startable: number): boolean {
   return selectNitroScheduleDefinitions(definitions, options).length > 0 || options.runtime !== undefined || startable > 0
 }
 
-function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
+function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): boolean {
   if (options.providerOutput === false || options.providerOutput === "nitro") return false
   if (options.providerOutput === "standalone") return definitions.length > 0
   if (hasServerScheduleDefinitions(definitions)) return hasViteSuffixScheduleDefinitions(definitions)
@@ -697,6 +706,18 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const crons = [...new Set(nitroCrons.values())]
   const netlifySchedules = [...nitroCrons].map(([name, cron]) => ({ cron, ...(Object.hasOwn(timeZoneCrons, name) ? { inTimeZone: true } : {}), name }))
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
+  const staticDefinitions = definitions.filter(definition =>
+    !nitroDefinitionNames.has(definition.name)
+    && !(processRuntime && options.providerOutput === "standalone")
+  )
+  // A build reads each static cron from source, so the server starts without importing the Schedule modules and what
+  // they import. `vite dev` loads them at startup, so an edited cron applies without a new plugin file.
+  const processTimings = processRuntime && options.command === "build"
+    ? Object.fromEntries(staticDefinitions.flatMap((definition) => {
+        const timing = readStaticScheduleTiming(definition.handler)
+        return timing ? [[definition.name, timing]] : []
+      }))
+    : undefined
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
     crons,
@@ -704,12 +725,10 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     netlifySchedules,
     timeZoneCrons,
     processRuntime,
+    ...(processTimings ? { processTimings } : {}),
     providerDefinitions: nitroDefinitions,
     startableDefinitions,
-    staticDefinitions: definitions.filter(definition =>
-      !nitroDefinitionNames.has(definition.name)
-      && !(processRuntime && options.providerOutput === "standalone")
-    ),
+    staticDefinitions,
     runtimeImport: (options as InternalScheduleVitePluginOptions).runtimeImport,
   })
   return mergeNitroScheduleConfig(nitro, {
@@ -724,7 +743,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   })
 }
 
-export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
+export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   const internalOptions = options as InternalScheduleVitePluginOptions
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
@@ -838,15 +857,21 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
       invalidateScheduleRegistry(context.server)
     },
-    resolveId(id) {
-      if (id === SCHEDULE_REGISTRY_ID) {
-        return RESOLVED_SCHEDULE_REGISTRY_ID
-      }
+    resolveId: {
+      filter: { id: /^#vitehub\/schedule\/registry$/ },
+      handler(id) {
+        if (id === SCHEDULE_REGISTRY_ID) {
+          return RESOLVED_SCHEDULE_REGISTRY_ID
+        }
+      },
     },
-    load(id) {
-      if (id === RESOLVED_SCHEDULE_REGISTRY_ID) {
-        return createRegistryContents()
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/schedule\/registry$/ },
+      handler(id) {
+        if (id === RESOLVED_SCHEDULE_REGISTRY_ID) {
+          return createRegistryContents()
+        }
+      },
     },
     buildApp: providerOutputEnvironment.buildApp,
     buildStart() {
@@ -971,7 +996,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   }
   inspectable.vitehub = {
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
-    operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: "@vite-hub/schedule/operations" }],
+    operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: ownModule(import.meta.url, "operations") }],
     inspect: () => ({
       definitions: [{
         kind: "schedule",

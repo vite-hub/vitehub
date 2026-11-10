@@ -18,7 +18,7 @@ function cli(test = createTestRuntime()) {
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler.fetch(new Request(input, init))) as typeof fetch, timeout: 5 }
   return {
     output,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
@@ -86,7 +86,7 @@ describe("vitehub connections", () => {
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
     const request = (async (input, init) => {
-      const response = await handler(new Request(input, init))
+      const response = await handler.fetch(new Request(input, init))
       if (JSON.parse(String(init?.body)).action === "complete") {
         // The grant is durable, but the app's final response arrives after 30 seconds.
         await new Promise(resolve => setTimeout(resolve, 31))

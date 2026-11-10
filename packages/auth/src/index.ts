@@ -24,7 +24,7 @@ export type {
   AuthFor,
   AuthGuardedHandler,
   AuthMiddleware,
-  AuthModuleOptions,
+  AuthOptions,
   AuthRequest,
   AuthReservedOption,
   AuthResolvedDefinitionOptions,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsHomePath, docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
+import { docsHomePath, docsPanelOf, docsRailEntries, docsRailTarget, docsStartPage, normalizeDocsPath } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
 import type { DocsAppPage, DocsRailEntry, DocsSection } from "@vite-hub/docs"
@@ -31,11 +31,14 @@ const currentPanel = computed(() => {
   const page = section?.pages.find(candidate => candidate.path === normalizeDocsPath(route.path))
   return section && page ? docsPanelOf(section, page) : null
 })
+// The item of the start section opens the start link that leads it, such as an Introduction outside every section.
+const startPage = docsStartPage(useDocsManifest(), start)
 function target(entry: DocsRailEntry<DocsAppPage>) {
-  return docsRailTarget(entry.sections[0]!, currentPanel.value)
+  const opensStart = startPage && !currentPanel.value && entry.sections.some(section => section.id === start?.section)
+  return opensStart ? startPage : docsRailTarget(entry.sections[0]!, currentPanel.value)
 }
 const brandLabel = site.badge ? `${site.name} ${site.badge.label}` : site.name
-const docsHome = docsHomePath(useDocsManifest())
+const docsHome = docsHomePath(useDocsManifest(), start)
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
