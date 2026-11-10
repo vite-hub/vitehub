@@ -15,6 +15,9 @@ import { console as consoleRuntime } from "../src/console/server.ts"
 
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
+
 const channelDeliveryHandlers = Symbol.for("vitehub.agent.channelDeliveryHandlers")
 
 afterEach(() => {
@@ -41,7 +44,7 @@ describe("inputCommands({ debug })", () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-debug-command-"))
     try {
       // The default Agent journal records the runs. The Console reads it.
-      installAgentInvocations({ journal: { projectRoot } })
+      installAgentInvocations({ journal: { libsql, projectRoot } })
       installConsoleInvocations(projectRoot)
       const replies: unknown[] = []
       const chat = channelAdapter("chat", {
