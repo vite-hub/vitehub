@@ -76,13 +76,6 @@ export const credentialsProvider = defineEnvProvider<{
 })
 
 export default defineConfig({
-  env: {
-    server: {
-      GH_TOKEN: env(),
-      credentialsGatewayKey: env({ secret: true }),
-      githubToken: env({ secret: true, source: env.provider("credentials", "github/token") }),
-    },
-  },
   plugins: [vitehub({
     name: "published-consumer",
     preset: "node",
@@ -91,6 +84,11 @@ export default defineConfig({
     database: true,
     env: {
       providers: { credentials: "./credentials-provider.ts" },
+      server: {
+        GH_TOKEN: env(),
+        credentialsGatewayKey: env({ secret: true }),
+        githubToken: env({ secret: true, source: env.provider("credentials", "github/token") }),
+      },
     },
     workflow: true,
     workspace: true,

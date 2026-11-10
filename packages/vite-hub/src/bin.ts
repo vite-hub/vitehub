@@ -24,6 +24,9 @@ const [connectionsCli, decisionsCli] = await Promise.all([
   importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
 ])
 
+// `vitehub bundle` reads the report of the last build in .vitehub/bundle/, so it does not load the project.
+const bundleCli = process.argv[2] === "bundle" ? await import("@vite-hub/bundle/cli") : undefined
+
 const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
   description: "Generate and derive app secrets without loading project configuration.",
   features: secretCliFeatures,
@@ -40,5 +43,5 @@ runViteHubCliEntrypoint({
   // `connections` commands only call the running app. Loading the project runs every ViteHub plugin, and the server
   // files that they generate make the running dev server rebuild while the command waits for its answer.
   runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? []],
-  runtimeNamespaces: [...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
+  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
 })

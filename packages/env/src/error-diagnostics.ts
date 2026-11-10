@@ -36,6 +36,7 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0026: dynamicError,
     ENV_R0027: dynamicError,
     ENV_R0028: dynamicError,
+    ENV_R0029: dynamicError,
     ENV_B0001: dynamicError,
     ENV_B0002: dynamicError,
     ENV_B0003: dynamicError,

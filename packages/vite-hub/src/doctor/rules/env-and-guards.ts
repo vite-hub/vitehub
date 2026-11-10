@@ -285,6 +285,11 @@ export const noLiteralCredentials: DoctorRule = createRule({
           emailOptions(callArguments(node)[0])
           return
         }
+        // `hubEnv({ server })` declares Server Env without an `env` key.
+        if (isConfig && isViteHubCall(r, node, ["env/vite"], "hubEnv")) {
+          serverEnvEntries(objectValue(callArguments(node)[0], "server"), "env.server")
+          return
+        }
         const reference = r.callee(node)
         if (isViteHubCall(r, node, ["auth"], "defineAuth")) {
           literalCredentials(callArguments(node)[0], "`defineAuth()`")

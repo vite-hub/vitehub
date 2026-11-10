@@ -92,13 +92,12 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/source#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/source#build && vp test"
+    "test": "vp run --cache -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs"
@@ -109,6 +108,7 @@
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
     "mrmime": "catalog:workspace",
     "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",
@@ -124,7 +124,7 @@
   },
   "peerDependencies": {
     "drizzle-orm": "catalog:database",
-    "nitro": "catalog:unjs",
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },

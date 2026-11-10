@@ -105,7 +105,7 @@
     "build": "vp pack && vp build --config overlay.vite.config.ts",
     "dev": "vp pack && vp build --config overlay.vite.config.ts && vp pack --watch --no-clean",
     "typecheck": "vp run --cache -t @vite-hub/comments#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/comments#build && vp test",
+    "test": "vp run --cache -t @vite-hub/comments#build && vp test",
     "test:browser": "vp run --cache -t @vite-hub/comments#build && node --test test/browser/overlay.browser.mjs"
   },
   "dependencies": {
@@ -119,14 +119,15 @@
     "@vite-hub/runtime": "workspace:*",
     "confbox": "^0.3.1",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs",
-    "nitro": "catalog:unjs"
+    "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "marked": "catalog:realtime",
+    "modern-screenshot": "4.7.0",
+    "nitro": "catalog:unjs",
     "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -139,6 +140,7 @@
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

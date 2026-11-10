@@ -36,6 +36,8 @@ interface Store {
   threads: Map<string, CommentThread>
   listeners: Set<(event: CommentEvent) => void>
   counters: Map<string, number>
+  /** The thread id of each scope and `requestId`. */
+  requests: Map<string, string>
   users: CommentUser[]
   scope: (subject: CommentSubject) => string
   now: () => number
@@ -62,6 +64,7 @@ export function createMemoryTransport(options: MemoryTransportOptions): MemoryTr
     threads: new Map(),
     listeners: new Set(),
     counters: new Map(),
+    requests: new Map(),
     users: options.users ?? [],
     scope: options.scope ?? (() => "site"),
     now: options.now ?? Date.now,
@@ -142,10 +145,17 @@ function view(store: Store, user: CommentUser): MemoryTransport {
     },
     async create(input) {
       const scope = store.scope(input.subject)
+      const request = input.requestId === undefined ? undefined : JSON.stringify([scope, input.requestId])
+      const earlier = request === undefined ? undefined : store.threads.get(store.requests.get(request) ?? "")
+      if (earlier) {
+        if (earlier.author.id !== user.id || earlier.subject.kind !== input.subject.kind || earlier.subject.id !== input.subject.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
+        return copy(earlier)
+      }
       const n = (store.counters.get(scope) ?? 0) + 1
       const id = `thread-${crypto.randomUUID()}`
       const first = message(store, user, { ...input, threadId: id })
       store.counters.set(scope, n)
+      if (request !== undefined) store.requests.set(request, id)
       return save({
         id,
         scope,

@@ -252,7 +252,7 @@ import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
 
 export const comments = defineComments({
-  // `event['~standard'].req` is the Web Request of the call, with its cookies.
+  // `event` is the Request of the call or its server event. `event['~standard'].req` is the Request, with its cookies.
   identify: async ({ event }) => {
     const session = await findSession(event['~standard'].req)
     return session ? { id: session.userId, name: session.name, image: session.avatar } : null
@@ -459,7 +459,7 @@ node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comm
 
 3. Run `vitehub db migrate --dry-run`, then `vitehub db migrate`.
 
-A Database that already has the comment operations' tables gets the new `metadata`, `context`, and `revision` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
+A Database that already has the comment operations' tables gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
 
 Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments checks the tables once per server process, so the next request after `vitehub db migrate` works without a restart.
 
@@ -594,9 +594,12 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | Key | Action |
 | --- | --- |
 | <kbd>C</kbd> | Turn **Comment** on or off. While on, a click anywhere starts a thread. |
+| <kbd>B</kbd> | Turn **Highlight** on or off. While on, a drag draws a highlighter stroke over the page. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
-| <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
-| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. |
+| <kbd>Esc</kbd> | Close the open thread, or turn **Comment**, **Highlight**, and **Edit** off. |
+| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the strokes. |
+
+**Highlight** works like the Marker in Drop. Pick a color, draw on the page, and select **Done**. The overlay takes a picture of the screen with the strokes on it, and opens a comment on the area that the strokes cover with the picture attached. The strokes stay on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
 
 Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
@@ -734,4 +737,4 @@ Your own MCP server can register the same tools. `commentsMcpTools(comments)` fr
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.
 ::
 
-Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the H3 request event; `authorize` then decides. Without `identify`, pass Console access with `commentsMcpTools(comments, { consoleSession })`. A `false` result or failed read denies access before `authorize`. Otherwise the tools use the Console reader, else the Auth reader in `{ session }`, else `user`. Browser guest headers name an author only when `authorize` permits the anonymous caller.
+Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the Request or the H3 event of the call; `authorize` then decides. Without `identify`, pass Console access with `commentsMcpTools(comments, { consoleSession })`. A `false` result or failed read denies access before `authorize`. Otherwise the tools use the Console reader, else the Auth reader in `{ session }`, else `user`. Browser guest headers name an author only when `authorize` permits the anonymous caller.

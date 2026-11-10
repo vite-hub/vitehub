@@ -40,15 +40,14 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv(), nitro()],
-  nitro: {
-    alias: createEnvImportAliases(),
-  },
-  env: {
+  plugins: [hubEnv({
     server: {
       dryRun: env.boolean({ default: true }),
       apiKey: env({ secret: true, source: env.source('API_KEY') }),
     },
+  }), nitro()],
+  nitro: {
+    alias: createEnvImportAliases(),
   },
 })`
             : `// Illustrative pseudocode: compose this Env configuration with your host setup.
@@ -56,13 +55,12 @@ import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     server: {
       dryRun: env.boolean({ default: true }),
       apiKey: env({ secret: true, source: env.source('API_KEY') }),
     },
-  },
+  })],
 })`,
       },
       {

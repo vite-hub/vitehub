@@ -33,7 +33,7 @@ import type { CollectedWorkspaceContribution } from "../../build/contributions.t
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -48,6 +48,10 @@ const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
+// Skip unrelated ids while retaining native package loading in the Nitro dev environment.
+const WORKSPACE_ID_PATTERN = /^#vitehub(?:-workspace-(?:assets-)?registry$|\/workspaces(?:$|\/))/
+// The native loader decodes file: URLs before checking their package paths.
+const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/workspaces(?:$|\/))|^file:|[/\\]node_modules[/\\]@vite-hub[/\\](?:agent|connections|runtime|workspace)[/\\]dist[/\\].+\.js$)/
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
@@ -1273,7 +1277,7 @@ export interface WorkspaceNitroConfigOptions {
   plugins?: readonly unknown[]
   serverDirs?: string[]
   viteRoot?: string
-  workspace?: false | WorkspaceModuleOptions
+  workspace?: false | WorkspaceOptions
 }
 
 export type NitroConfig = {
@@ -1306,7 +1310,7 @@ function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
 }
 
-function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined): WorkspacePluginRoots {
+function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceOptions | undefined): WorkspacePluginRoots {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: workspaceOptions ? workspaceOptions.projectRoot : undefined,
@@ -1518,13 +1522,13 @@ function hasNitroConfig(config: UserConfig): boolean {
   return "nitro" in config || hasNitroPlugin(config.plugins)
 }
 
-function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
+function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceOptions | undefined): boolean {
   return Boolean(options && (options.root || options.store))
 }
 
 function shouldInstallNitroWorkspacePlugin(
   config: UserConfig,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   normalized: ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
 ): boolean {
@@ -1572,7 +1576,7 @@ function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   return specifier.startsWith(".") ? specifier : `./${specifier}`
 }
 
-function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
+function shouldConfigureRuntime(options: false | WorkspaceOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
   return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
 }
 
@@ -1596,7 +1600,7 @@ function renderRuntimeValue(value: unknown, depth = 0): string {
 
 function runtimeWorkspaceConfig(
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   cloudflareRuntime: boolean,
 ): false | ResolvedWorkspaceModuleOptions {
   if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
@@ -1688,7 +1692,7 @@ function renderNitroWorkspacePlugin(
 async function writeNitroWorkspacePlugin(
   root: string,
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
   cloudflareRuntime = false,
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
@@ -1771,19 +1775,19 @@ export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: Workspac
   return true
 }
 
-interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
+interface InternalWorkspaceModuleOptions extends WorkspaceOptions {
   hosting?: WorkspacePluginHosting
 }
 
-function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions | undefined): false | WorkspaceModuleOptions | undefined {
+function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undefined): false | WorkspaceOptions | undefined {
   if (!options || !Object.hasOwn(options, "hosting")) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
   delete publicOptions.hosting
   return publicOptions
 }
 
-export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
-  let hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
+export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
+  let hosting = (options ? options as InternalWorkspaceModuleOptions : undefined)?.hosting
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -1832,9 +1836,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async config(config, env) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
       const resolvedHosting = resolveHostPreset({
         hosting: typeof hosting === "function" ? hosting() : hosting,
@@ -1885,9 +1887,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
@@ -2050,30 +2050,30 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         viteRoot: viteRoot || resolve(resolved.root),
       }, ctx.file)
     },
-    resolveId(id) {
-      if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
-      if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
-      if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
-      if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+    resolveId: {
+      filter: { id: WORKSPACE_ID_PATTERN },
+      handler(id) {
+        if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
+        if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
+        if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
+        if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+      },
     },
-    load(id) {
-      if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
-      if (id === RESOLVED_WORKSPACES_ID) {
-        return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
-      }
-      if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
-        const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
-        const workspace = manifest.workspaces.find(item => item.name === name)
-        return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
-      }
-      // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
-      return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+    load: {
+      filter: { id: WORKSPACE_LOAD_ID_PATTERN },
+      handler(id) {
+        if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
+        if (id === RESOLVED_WORKSPACES_ID) {
+          return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
+        }
+        if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
+          const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
+          const workspace = manifest.workspaces.find(item => item.name === name)
+          return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
+        }
+        // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
+        return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+      },
     },
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    workspace?: false | WorkspaceModuleOptions
   }
 }

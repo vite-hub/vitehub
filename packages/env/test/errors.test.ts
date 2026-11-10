@@ -33,7 +33,7 @@ describe("Env errors", () => {
     })
     expect(declarationError.cause).toMatchObject({
       code: "ENV_R0008",
-      message: "Invalid declaration at env.unknown. Vite env config only supports env.public, env.define, and env.server.",
+      message: "Invalid declaration at env.unknown. Declare Env in env.public, env.define, and env.server.",
     })
 
     const missingError = capture(() => resolveServerEnv({

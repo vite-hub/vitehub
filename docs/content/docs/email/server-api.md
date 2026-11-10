@@ -18,7 +18,7 @@ Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email`
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
-| `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailVitePluginOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
+| `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |
 
 The direct `@vite-hub/email` and `@vite-hub/email/markdown` paths remain stable for focused libraries and applications that install the owner package without the framework distribution.
