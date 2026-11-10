@@ -101,7 +101,7 @@ it("attaches startup Skills before deriving the generated Agent Workflow workspa
 
   const registry = createWorkflowRegistryContents(join(rootDir, "registry.mjs"), [
     { handler, name: "review", source: "agent-workflow" },
-  ])
+  ], { agent: { index: "/agent/dist/index.js", runtimeWorkflow: "/agent/dist/runtime/workflow.js", serverInternal: "/agent/dist/server/internal.js" } })
 
   expect(registry).toContain("workspaceAgentWithSourceRoot(agentWithColocatedSkills(agentWithColocatedInstructions(")
   expect(registry).toContain('"__vitehubAgentSkill:.agents/skills/review/SKILL.md":{"content":"IyBSZXZpZXcK","encoding":"base64","materialize":"startup","mount":"","workspacePath":".agents/skills/review/SKILL.md"}')
@@ -303,7 +303,7 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const artifacts = await writeProviderEntries(
     rootDir,
     false,
-    { workflow: "vite-hub/_internal/workflow" },
+    { workflow: "vite-hub/workflow" },
     undefined,
     true,
     undefined,

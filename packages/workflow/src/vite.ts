@@ -19,6 +19,7 @@ import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
+import type { AgentWorkflowModules } from "./internal/vite-build.ts"
 import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as EsbuildPlugin } from "esbuild"
@@ -61,7 +62,18 @@ interface AgentWorkflowRegistryPlugin extends Plugin {
   vitehub?: {
     agent?: {
       transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string>
+      /** The Agent files that the generated registry imports by path. */
+      workflowModules?: AgentWorkflowModules
     }
+  }
+}
+
+/** The Agent plugin hands out the paths of its files, so the registry of Agent Workflows needs no Agent package export. */
+function agentWorkflowModules(plugins: unknown): AgentWorkflowModules | undefined {
+  for (const plugin of [plugins].flat(Infinity)) {
+    // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which this reads defensively.
+    const modules = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.workflowModules
+    if (modules) return modules
   }
 }
 
@@ -79,7 +91,6 @@ interface ScheduledWorkflowBuildConfig {
 }
 
 interface InternalWorkflowModuleOptions {
-  agentImportBase?: string
   hosting?: string
   implicitlyEnabled?: boolean
   importBase?: string
@@ -90,7 +101,7 @@ interface InternalWorkflowModuleOptions {
     sandboxTaskRuntimeState?: string
     shellWorkspace?: string
   }
-  workspaceImportBase?: string
+  workspaceRuntimeModule?: string
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
@@ -215,9 +226,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
       .map(([handler, instructions]) => [retainedSources?.resolve(handler) ?? handler, instructions]))
     const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
-      agent: internalOptions?.agentImportBase,
+      agent: agentWorkflowModules(config.plugins),
       workflow: internalOptions?.importBase,
-      workspace: internalOptions?.workspaceImportBase,
+      workspaceRuntime: internalOptions?.workspaceRuntimeModule,
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (config.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
@@ -452,7 +463,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           if (viteConfig && (Reflect.get(viteConfig, VITEHUB_NITRO_CONFIG_CONTEXT) === true || !normalizeHosting(internalOptions.hosting).includes("cloudflare"))) return nitro
           const input = viteConfig ? { ...nitro, preset: nitro.preset ?? internalOptions.hosting } : nitro
           const configured = await createCloudflareWorkflowNitroConfig({
-            agentImportBase: internalOptions?.agentImportBase,
+            agentModules: agentWorkflowModules(viteConfig?.plugins),
             nitro: input,
             rootDir: projectRoot,
             serverDirs: nitroServerDirs,
@@ -460,7 +471,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
             workflow: viteConfig ? viteConfig.workflow === undefined ? defaultWorkflow : viteConfig.workflow : workflow,
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-            workspaceImportBase: internalOptions?.workspaceImportBase,
+            workspaceRuntimeModule: internalOptions?.workspaceRuntimeModule,
             transformRegistry,
           })
           if (configured === input) return nitro
@@ -568,9 +579,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
           .map(([handler, instructions]) => [retainedSources.resolve(handler), instructions]))
         const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
-          agent: internalOptions?.agentImportBase,
+          agent: agentWorkflowModules(config.plugins),
           workflow: internalOptions?.importBase,
-          workspace: internalOptions?.workspaceImportBase,
+          workspaceRuntime: internalOptions?.workspaceRuntimeModule,
           workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
         }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), retainedAgentInstructions)
         stagedArtifactDirs.set(environment, artifactDir)
@@ -583,7 +594,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           rootDir,
           write: async ({ write }) => {
             await generateWorkflowProviderOutputs({
-              agentImportBase: internalOptions?.agentImportBase,
+              agentModules: agentWorkflowModules(config.plugins),
               artifacts,
               clientOutDir: resolve(config.root, config.build.outDir),
               bundleDefines: resolveViteHubBundleDefines(config),
@@ -601,7 +612,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               includeUserAppEntry: internalOptions?.includeUserAppEntry,
               workflow: workflowOptions,
               workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-              workspaceImportBase: internalOptions?.workspaceImportBase,
+              workspaceRuntimeModule: internalOptions?.workspaceRuntimeModule,
               transformRegistry,
             }, write)
           },
