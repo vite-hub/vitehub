@@ -254,8 +254,8 @@ export interface AuthObjectOptions {
   /** Where the Nuxt page guard of `definePageMeta({ auth })` and `routes` sends visitors. Vite apps without Nuxt ignore it. */
   redirects?: AuthRedirects
   /**
-   * Nuxt pages that the page guard protects, by route glob: `'user'`, `'guest'`, or `false`. The most specific glob
-   * wins, and `definePageMeta({ auth })` of a page wins over all globs. Vite apps without Nuxt ignore it.
+   * Nuxt pages that the page guard protects, by route pattern: `'user'`, `'guest'`, or `false`. The most specific
+   * pattern wins, and `definePageMeta({ auth })` of a page wins over all patterns. Vite apps without Nuxt ignore it.
    */
   routes?: AuthRoutes
 }

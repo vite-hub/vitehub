@@ -75,19 +75,36 @@ const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
 
+/** A static segment, `:name`, or `*`. */
+const routeSegment = /^(?:[^:*?+(){}/]+|:[A-Za-z_]\w*|\*)$/
+
 /**
  * Attaches the page guard to the pages of `vitehub.auth.routes` with the `appMiddleware` route rule. Nuxt runs it on the
- * server render and on navigation in the browser. Nuxt merges the rules of all matching globs and the most specific
- * glob wins, so each rule sets both modes: `false` and a narrower other mode remove the mode of a wider glob.
+ * server render and on navigation in the browser. Nuxt merges the rules of all matching patterns and the most specific
+ * pattern wins, so each rule sets both modes: `false` and a narrower other mode remove the mode of a wider pattern.
+ *
+ * Nuxt orders matches by their segments from the left: a static segment wins over `:name` or `*`, which win over `**`.
+ * Optional, repeated, and regex params and duplicate patterns break this order, because Nuxt then orders the matches by
+ * position in `routeRules`. The route map accepts only the patterns that keep the order, so a wider pattern never
+ * silently replaces a narrower one.
  */
 function guardRoutes(routeRules: NonNullable<NuxtLike["options"]["routeRules"]>, routes: AuthRoutes): void {
+  const shapes = new Map<string, string>()
   for (const [path, mode] of Object.entries(routes)) {
-    if (!path.startsWith("/") || (mode !== "user" && mode !== "guest" && mode !== false)) {
-      throw authErrorDiagnostics.AUTH_B0003({ message: `\`vitehub.auth.routes\` has ${JSON.stringify(path)}: ${JSON.stringify(mode)}. A key must start with \`/\`, and a value must be 'user', 'guest', or false.` })
+    const invalid = (reason: string) => authErrorDiagnostics.AUTH_B0003({ message: `\`vitehub.auth.routes\` has ${JSON.stringify(path)}: ${JSON.stringify(mode)}. ${reason}` })
+    if (mode !== "user" && mode !== "guest" && mode !== false) throw invalid("A value must be 'user', 'guest', or false.")
+    const segments = path.split("/").slice(1)
+    if (!path.startsWith("/") || (path !== "/" && !segments.every((segment, index) => routeSegment.test(segment) || (segment === "**" && index === segments.length - 1)))) {
+      throw invalid("A key must start with `/` and have only static segments, `:name`, `*`, and a last `**`.")
     }
+    // `:name` and `*` match the same segments, so two patterns that differ only there have no order.
+    const shape = segments.map(segment => segment.startsWith(":") ? "*" : segment).join("/")
+    const same = shapes.get(shape)
+    if (same !== undefined) throw invalid(`It matches the same pages as ${JSON.stringify(same)}. Keep one of them.`)
+    shapes.set(shape, path)
     const rule = routeRules[path] ??= {}
     const current = rule.appMiddleware
-    // Keep the middleware that the app attaches to the same glob. Nuxt reads a name or a list as `{ [name]: true }`.
+    // Keep the middleware that the app attaches to the same pattern. Nuxt reads a name or a list as `{ [name]: true }`.
     const attached = typeof current === "string" ? { [current]: true } : Array.isArray(current) ? Object.fromEntries(current.map(name => [name, true])) : typeof current === "object" ? current : undefined
     rule.appMiddleware = { ...attached, "vitehub-auth-user": mode === "user", "vitehub-auth-guest": mode === "guest" }
   }
