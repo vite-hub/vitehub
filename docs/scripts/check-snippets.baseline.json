@@ -3,15 +3,5 @@
     "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
     "label": "server/invocations.ts",
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/comments/index.md#daebbc2b469e",
-    "label": "server/api/open-threads.get.ts",
-    "error": "TS2339 Property 'page' does not exist on type 'CommentThread'."
-  },
-  {
-    "id": "packages/agent/README.md#e0e7838a305c",
-    "label": "server/agents/codex/agent.ts",
-    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'.\n  Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type '(context: AgentProviderCredentialContext<AgentRuntimeConfig>) => MaybePromise<AgentProviderCredentialValue>'.\n    Type 'Promise<unknown>' is not assignable to type 'MaybePromise<AgentProviderCredentialValue>'.\n      Type 'Promise<unknown>' is not assignable to type 'Promise<AgentProviderCredentialValue>'.\n        Type 'unknown' is not assignable to type 'AgentProviderCredentialValue'."
   }
 ]
