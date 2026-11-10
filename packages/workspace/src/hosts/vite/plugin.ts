@@ -48,6 +48,10 @@ const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
+// Skip unrelated ids while retaining native package loading in the Nitro dev environment.
+const WORKSPACE_ID_PATTERN = /^#vitehub(?:-workspace-(?:assets-)?registry$|\/workspaces(?:$|\/))/
+// The native loader decodes file: URLs before checking their package paths.
+const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/workspaces(?:$|\/))|^file:|[/\\]node_modules[/\\]@vite-hub[/\\](?:agent|connections|runtime|workspace)[/\\]dist[/\\].+\.js$)/
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
@@ -2050,24 +2054,30 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         viteRoot: viteRoot || resolve(resolved.root),
       }, ctx.file)
     },
-    resolveId(id) {
-      if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
-      if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
-      if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
-      if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+    resolveId: {
+      filter: { id: WORKSPACE_ID_PATTERN },
+      handler(id) {
+        if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
+        if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
+        if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
+        if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+      },
     },
-    load(id) {
-      if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
-      if (id === RESOLVED_WORKSPACES_ID) {
-        return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
-      }
-      if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
-        const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
-        const workspace = manifest.workspaces.find(item => item.name === name)
-        return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
-      }
-      // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
-      return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+    load: {
+      filter: { id: WORKSPACE_LOAD_ID_PATTERN },
+      handler(id) {
+        if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
+        if (id === RESOLVED_WORKSPACES_ID) {
+          return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
+        }
+        if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
+          const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
+          const workspace = manifest.workspaces.find(item => item.name === name)
+          return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
+        }
+        // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
+        return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+      },
     },
   }
 }
