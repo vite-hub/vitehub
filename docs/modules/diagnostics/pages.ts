@@ -20,6 +20,7 @@ export const diagnosticSections: Record<string, string> = {
   "forms": "development",
   "forge": "agents",
   "gateways": "agents",
+  "i18n": "i18n",
   "internal": "development",
   "kv": "kv",
   "markdown-template": "agents",
