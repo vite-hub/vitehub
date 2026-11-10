@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 
@@ -48,6 +48,11 @@ async function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root:
   await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 }
 
+// Generated code imports the Schedule runtime by file path, as `ownModule()` resolves it.
+function ownRuntime(path: string) {
+  return fileURLToPath(new URL(`../dist/${path}.js`, import.meta.url))
+}
+
 describe("Vite schedule integration", () => {
   it("serializes shared Provider Output finalization", () => {
     expect(hubSchedule().closeBundle).toMatchObject({ order: "post", sequential: true })
@@ -55,9 +60,12 @@ describe("Vite schedule integration", () => {
 
   it("collects provider import aliases without a Workflow plugin", async () => {
     const root = await temporaryDirectory("vitehub-schedule-provider-aliases-")
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
     const getImportAliases = vi.fn(async () => ({}))
-    const plugin = hubSchedule()
+    const plugin = hubSchedule({ providerOutput: "standalone" })
 
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)({ root }, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist" },
       command: "build",
@@ -70,6 +78,24 @@ describe("Vite schedule integration", () => {
     await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
     expect(getImportAliases).toHaveBeenCalledOnce()
+  })
+
+  it("does not collect provider import aliases when no Schedule needs provider functions", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-provider-aliases-")
+    const getImportAliases = vi.fn(async () => ({}))
+    const plugin = hubSchedule()
+
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      plugins: [{ vitehub: { providerOutput: { getImportAliases } } }],
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
+
+    expect(getImportAliases).not.toHaveBeenCalled()
   })
 
   it("runs before downstream framework integrations that consume Provider Output config", () => {
@@ -173,7 +199,7 @@ describe("Vite schedule integration", () => {
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("./provider-registry.js")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("@vite-hub/schedule/runtime/static")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toMatch(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]static\.(?:ts|js)"/)
     const moduleSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")
     expect(moduleSource).toContain("build:before")
     expect(moduleSource).toContain("dedupeCloudflareCrons")
@@ -205,8 +231,8 @@ describe("Vite schedule integration", () => {
 
     expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 6,7 * * *", "* * * * *"] } } } } })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('import { createKVStartedScheduleStore, installStartedSchedules } from "@vite-hub/schedule/runtime"')
-    expect(pluginSource).toContain('import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"')
+    expect(pluginSource).toContain(`import { createKVStartedScheduleStore, installStartedSchedules } from ${JSON.stringify(ownRuntime("runtime"))}`)
+    expect(pluginSource).toContain(`import { scheduleKVStorage } from ${JSON.stringify(ownRuntime("runtime/kv"))}`)
     expect(pluginSource).toContain("    catchUpMs: 0,")
     expect(pluginSource).toContain("cloudflare:scheduled")
     expect(pluginSource).toContain('timeZoneCrons: {"daily":"0 6,7 * * *"}')
@@ -268,11 +294,11 @@ describe("Vite schedule integration", () => {
     expect(userConfig).not.toHaveProperty("nitro.modules")
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('import { installProcessScheduleRuntime, onShutdown } from "@vite-hub/schedule/runtime/process"')
-    expect(pluginSource).toContain('import { createKVScheduleRunStore } from "@vite-hub/schedule/runtime"')
+    expect(pluginSource).toContain(`import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(ownRuntime("runtime/process"))}`)
+    expect(pluginSource).toContain(`import { createKVScheduleRunStore } from ${JSON.stringify(ownRuntime("runtime"))}`)
     expect(pluginSource).not.toContain("RuntimeScheduleStore")
     expect(pluginSource).not.toContain("from \"@vite-hub/kv\"")
-    expect(pluginSource).toContain('import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"')
+    expect(pluginSource).toContain(`import { scheduleKVStorage } from ${JSON.stringify(ownRuntime("runtime/kv"))}`)
     expect(pluginSource).toContain("kvStore: scheduleKVStorage")
     expect(pluginSource).toContain("\"prefix\": \"brujula:schedule\"")
     expect(pluginSource).toContain("\"concurrency\": 2")
@@ -321,6 +347,33 @@ describe("Vite schedule integration", () => {
     const ids = ["#vitehub/schedule/registry", "\0#vitehub/schedule/registry", "#vitehub/schedule/registry.mjs", "\0#vitehub/schedule/targets", "@vite-hub/schedule", "/app/server/schedules/report.ts"]
     expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/schedule/registry"])
     expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(["\0#vitehub/schedule/registry"])
+  })
+
+  it("gives a built Process Runtime the static cron of each Schedule, so it loads Schedule modules when they are due", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-process-timings-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "server", "schedules", "report.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8"),
+      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule('*/5 * * * *', () => {})\n", "utf8"),
+      // A cron that only the module knows: the runtime loads it at startup.
+      writeFile(join(root, "server", "schedules", "dynamic.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nconst cron = process.env.CRON ?? '* * * * *'\nexport default defineSchedule({ cron, handler: () => {} })\n", "utf8"),
+    ])
+    const generate = async (command: "build" | "serve") => {
+      const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process" } })
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)({ root }, { command, mode: command === "build" ? "production" : "development" })
+      return await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    }
+
+    const built = await generate("build")
+    const options = JSON.parse(/const processRuntimeOptions = (\{[\s\S]*?\n\})/.exec(built)![1]!) as unknown
+    expect(options).toEqual({
+      timings: {
+        cleanup: { cron: "*/5 * * * *" },
+        report: { cron: "0 9 * * *", timeZone: "Europe/Madrid" },
+      },
+    })
+    // `vite dev` loads every Schedule at startup, so an edited cron applies at once.
+    expect(await generate("serve")).not.toContain("timings")
   })
 
   it("installs an explicit Process Runtime with an empty canonical registry", async () => {
@@ -682,7 +735,7 @@ describe("Vite schedule integration", () => {
     expect(JSON.stringify(serveConfig.nitro)).not.toContain("dev-handler")
     expect(JSON.stringify(serveConfig.nitro)).not.toContain("/_vitehub/schedule/dev")
     const [contribution] = (plugin.vitehub as { operations: Array<{ export: string, load(): Promise<readonly { name: string }[]>, module: string }> }).operations
-    expect(contribution).toMatchObject({ export: "scheduleOperations", module: "@vite-hub/schedule/operations" })
+    expect(contribution).toMatchObject({ export: "scheduleOperations", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]operations\.(?:ts|js)$/) })
     expect((await contribution!.load()).map(operation => operation.name)).toEqual(["schedule.runs", "schedule.attempts", "schedule.run", "schedule.list", "schedule.start", "schedule.cancel"])
   })
 
@@ -965,9 +1018,9 @@ describe("Vite schedule integration", () => {
     const root = await temporaryDirectory("vitehub-schedule-empty-workflow-")
     const prepareScheduleRuntime = vi.fn(async () => ({
       bundleAlias: {},
-      importBase: "@vite-hub/workflow",
       native: false,
       registryFile: join(root, "workflow-registry.js"),
+      runtimeModules: { state: "/workflow/runtime/state.js", vercelVite: "/workflow/runtime/vercel-vite.js" },
     }))
     const plugin = hubSchedule()
     await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(

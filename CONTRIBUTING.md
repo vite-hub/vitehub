@@ -89,6 +89,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.

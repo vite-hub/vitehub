@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { agentInvocationId, defineAgent, resolveAgentTriggerInvocation, runAgentTrigger, streamAgentTrigger } from "../src/index.ts"
 import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { setWorkflowJournalName } from "../src/internal/workflow-journal-name.ts"
@@ -29,6 +29,7 @@ function ticketsAgent(options: {
   delayMs?: number
   /** Answer without the webhook queue. */
   inline?: boolean
+  lazyTarget?: "definition" | "module"
   failed?: (event: AgentTriggerFailedEvent) => void
   taskFailed?: (event: AgentTriggerFailedEvent) => void
   hostThrows?: boolean
@@ -44,7 +45,7 @@ function ticketsAgent(options: {
   const agent = defineAgent({
     name: "support",
     channels: {
-      tickets: defineChannel("tickets", {
+      tickets: channelAdapter("tickets", {
         messages: false,
         triggers: {
           // The webhook route passes the parsed body as `payload`.
@@ -53,7 +54,8 @@ function ticketsAgent(options: {
             ...(options.failed ? { failed: options.failed } : {}),
             tasks: {
               triage: {
-                agent: triageAgent,
+                agent: options.lazyTarget === "module" ? async () => ({ default: triageAgent })
+                  : options.lazyTarget === "definition" ? () => triageAgent : triageAgent,
                 ...(options.taskFailed ? { failed: options.taskFailed } : {}),
                 prepare: options.taskPrepare
                   ? (_context, invocation) => options.taskPrepare!(invocation.input, invocation) as undefined
@@ -112,7 +114,7 @@ function serve(agent: ReturnType<typeof ticketsAgent>["agent"], state: Awaited<R
 }
 
 describe("Channel trigger tasks", () => {
-  it("stores the task, its Agent and the accepted input before prepare runs", async () => {
+  it.each([undefined, "module"] as const)("stores the task, its Agent and the accepted input before prepare runs (lazy: %s)", async (lazyTarget) => {
     const state = await stateFile()
     let release!: () => void
     const released = new Promise<void>(resolve => (release = resolve))
@@ -122,7 +124,7 @@ describe("Channel trigger tasks", () => {
       stored.push(...(await state.webhookDeliveries(scope ?? "")).map(delivery => delivery.invocation))
       await released
     })
-    const { agent, host, triage } = ticketsAgent({ taskPrepare })
+    const { agent, host, triage } = ticketsAgent({ taskPrepare, lazyTarget })
     const { send } = serve(agent, state)
 
     const response = await send({ id: "1", kind: "triage" })
@@ -227,7 +229,7 @@ describe("Channel trigger tasks", () => {
     const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
     const agent = defineAgent({
       name: "support",
-      channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger<{ runId?: string, task?: string }>({
+      channels: { tickets: channelAdapter("tickets", { messages: false, triggers: { opened: defineChannelTrigger<{ runId?: string, task?: string }>({
         prepare: (_context, invocation) => prepare(invocation),
         tasks: { mirror: { run: (_context, invocation) => run(invocation) } },
         invoke: (_context, { runId, task }) => ({ input: { prompt: "x" }, ...(runId ? { run: { runId } } : {}), ...(task ? { task } : {}) }),
@@ -251,7 +253,7 @@ describe("Channel trigger tasks", () => {
       const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
-        channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger({
+        channels: { tickets: channelAdapter("tickets", { messages: false, triggers: { opened: defineChannelTrigger({
           prepare: (_context, invocation) => prepare(invocation),
           invoke: () => ({ input: { prompt: "hello" }, run: { runId: "named-run" } }),
         }) } }) },
@@ -305,8 +307,8 @@ describe("Channel trigger tasks", () => {
     expect(triage).not.toHaveBeenCalled()
   })
 
-  it("runs the selected task when a trigger runs directly", async () => {
-    const { agent, host, triage } = ticketsAgent()
+  it.each([undefined, "definition", "module"] as const)("runs the selected task when a trigger runs directly (lazy: %s)", async (lazyTarget) => {
+    const { agent, host, triage } = ticketsAgent({ lazyTarget })
     const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
 
     await runAgentTrigger(agent, runtime, "tickets.opened", { payload: { id: "7", kind: "triage" } })
@@ -317,7 +319,7 @@ describe("Channel trigger tasks", () => {
   it("rejects a task that is not declared or declares both agent and run", async () => {
     const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
     const channelAgent = (trigger: Parameters<typeof defineChannelTrigger>[0]) => defineAgent({
-      channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger(trigger) } }) },
+      channels: { tickets: channelAdapter("tickets", { messages: false, triggers: { opened: defineChannelTrigger(trigger) } }) },
       driver: { run: () => "ok" },
       runtime: false,
     })
