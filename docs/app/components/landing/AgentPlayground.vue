@@ -1014,7 +1014,7 @@ function selectHost(key: string) {
   container-type: inline-size;
   overflow: hidden;
   border: 1px solid var(--ui-border);
-  border-radius: 0.75rem;
+  border-radius: var(--vh-frame-radius);
   background: var(--ui-bg);
 }
 

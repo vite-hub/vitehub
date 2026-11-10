@@ -194,7 +194,7 @@ Without `artifacts.directory`, transcripts go to `transcripts/<date>/<stem>.txt`
 
 ### Public helpers
 
-Import these from `@vite-hub/agent/capabilities` when hooks or executors need the same data.
+Import these from `vite-hub/agent/capabilities` when hooks or executors need the same data.
 
 | Helper | Return value | Behavior |
 | --- | --- | --- |
