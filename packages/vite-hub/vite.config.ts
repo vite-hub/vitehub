@@ -57,7 +57,12 @@ const runtimeEntries = [
   ...distributionEntries,
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
+  // Generated code imports these modules by path. They are not package exports.
+  "src/internal/database-runtime-state.ts",
+  "src/internal/disabled-upstash-driver.ts",
   "src/console/auth-types.ts",
+  // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
+  "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/build.ts",
@@ -476,6 +481,7 @@ export default defineConfig({
         customExports(exports) {
           delete exports["./console/auth-pages"];
           delete exports["./console/auth-types"];
+          delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/appearance"];
@@ -566,6 +572,8 @@ export default defineConfig({
           delete exports["./console/auth-client"];
           delete exports["./console/auth-cloudflare-access"];
           delete exports["./console/auth-inline"];
+          // Generated code imports `src/internal/*` entries by path. They are not public API.
+          for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
