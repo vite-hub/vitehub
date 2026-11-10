@@ -323,6 +323,11 @@
       "import": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
       "default": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js"
     },
+    "./_internal/workspace/internal/runtime/registry": {
+      "types": "./dist/_internal/workspace/internal/runtime/registry.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/registry.js",
+      "default": "./dist/_internal/workspace/internal/runtime/registry.js"
+    },
     "./_internal/workspace/internal/runtime/state": {
       "types": "./dist/_internal/workspace/internal/runtime/state.d.ts",
       "import": "./dist/_internal/workspace/internal/runtime/state.js",

@@ -171,6 +171,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/default-database",
   "@vite-hub/database/runtime/default-database-postgresql",
   "@vite-hub/database/runtime/hosted",
+  "@vite-hub/database/runtime/libsql-drizzle",
   "@vite-hub/database/runtime/migrate-on-start",
   "@vite-hub/database/runtime/postgres",
   "@vite-hub/database/runtime/request-stats",
