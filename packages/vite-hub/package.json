@@ -133,21 +133,6 @@
       "import": "./dist/_internal/auth/runtime/console.js",
       "default": "./dist/_internal/auth/runtime/console.js"
     },
-    "./_internal/blob": {
-      "types": "./dist/_internal/blob.d.ts",
-      "import": "./dist/_internal/blob.js",
-      "default": "./dist/_internal/blob.js"
-    },
-    "./_internal/blob/operations": {
-      "types": "./dist/_internal/blob/operations.d.ts",
-      "import": "./dist/_internal/blob/operations.js",
-      "default": "./dist/_internal/blob/operations.js"
-    },
-    "./_internal/blob/runtime/state": {
-      "types": "./dist/_internal/blob/runtime/state.d.ts",
-      "import": "./dist/_internal/blob/runtime/state.js",
-      "default": "./dist/_internal/blob/runtime/state.js"
-    },
     "./_internal/comments/operations": {
       "types": "./dist/_internal/comments/operations.d.ts",
       "import": "./dist/_internal/comments/operations.js",
@@ -168,100 +153,15 @@
       "import": "./dist/_internal/content/runtime/console.js",
       "default": "./dist/_internal/content/runtime/console.js"
     },
-    "./_internal/database/runtime/state": {
-      "types": "./dist/_internal/database/runtime/state.d.ts",
-      "import": "./dist/_internal/database/runtime/state.js",
-      "default": "./dist/_internal/database/runtime/state.js"
-    },
-    "./_internal/email/operations": {
-      "types": "./dist/_internal/email/operations.d.ts",
-      "import": "./dist/_internal/email/operations.js",
-      "default": "./dist/_internal/email/operations.js"
-    },
-    "./_internal/email/runtime/console": {
-      "types": "./dist/_internal/email/runtime/console.d.ts",
-      "import": "./dist/_internal/email/runtime/console.js",
-      "default": "./dist/_internal/email/runtime/console.js"
-    },
-    "./_internal/kv": {
-      "types": "./dist/_internal/kv.d.ts",
-      "import": "./dist/_internal/kv.js",
-      "default": "./dist/_internal/kv.js"
-    },
-    "./_internal/kv/runtime/nitro-cache": {
-      "types": "./dist/_internal/kv/runtime/nitro-cache.d.ts",
-      "import": "./dist/_internal/kv/runtime/nitro-cache.js",
-      "default": "./dist/_internal/kv/runtime/nitro-cache.js"
-    },
-    "./_internal/kv/operations": {
-      "types": "./dist/_internal/kv/operations.d.ts",
-      "import": "./dist/_internal/kv/operations.js",
-      "default": "./dist/_internal/kv/operations.js"
-    },
-    "./_internal/kv/runtime/disabled-upstash": {
-      "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",
-      "import": "./dist/_internal/kv/runtime/disabled-upstash.js",
-      "default": "./dist/_internal/kv/runtime/disabled-upstash.js"
-    },
     "./_internal/markdown-template": {
       "types": "./dist/_internal/markdown-template.d.ts",
       "import": "./dist/_internal/markdown-template.js",
       "default": "./dist/_internal/markdown-template.js"
     },
-    "./_internal/queue/operations": {
-      "types": "./dist/_internal/queue/operations.d.ts",
-      "import": "./dist/_internal/queue/operations.js",
-      "default": "./dist/_internal/queue/operations.js"
-    },
-    "./_internal/rate-limit/runtime": {
-      "types": "./dist/_internal/rate-limit/runtime.d.ts",
-      "import": "./dist/_internal/rate-limit/runtime.js",
-      "default": "./dist/_internal/rate-limit/runtime.js"
-    },
-    "./_internal/rate-limit/operations": {
-      "types": "./dist/_internal/rate-limit/operations.d.ts",
-      "import": "./dist/_internal/rate-limit/operations.js",
-      "default": "./dist/_internal/rate-limit/operations.js"
-    },
     "./_internal/sandbox/task/runtime/state": {
       "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
       "import": "./dist/_internal/sandbox/task/runtime/state.js",
       "default": "./dist/_internal/sandbox/task/runtime/state.js"
-    },
-    "./_internal/schedule": {
-      "types": "./dist/_internal/schedule.d.ts",
-      "import": "./dist/_internal/schedule.js",
-      "default": "./dist/_internal/schedule.js"
-    },
-    "./_internal/schedule/operations": {
-      "types": "./dist/_internal/schedule/operations.d.ts",
-      "import": "./dist/_internal/schedule/operations.js",
-      "default": "./dist/_internal/schedule/operations.js"
-    },
-    "./_internal/schedule/runtime": {
-      "types": "./dist/_internal/schedule/runtime.d.ts",
-      "import": "./dist/_internal/schedule/runtime.js",
-      "default": "./dist/_internal/schedule/runtime.js"
-    },
-    "./_internal/schedule/runtime/console": {
-      "types": "./dist/_internal/schedule/runtime/console.d.ts",
-      "import": "./dist/_internal/schedule/runtime/console.js",
-      "default": "./dist/_internal/schedule/runtime/console.js"
-    },
-    "./_internal/schedule/runtime/kv": {
-      "types": "./dist/_internal/schedule/runtime/kv.d.ts",
-      "import": "./dist/_internal/schedule/runtime/kv.js",
-      "default": "./dist/_internal/schedule/runtime/kv.js"
-    },
-    "./_internal/schedule/runtime/process": {
-      "types": "./dist/_internal/schedule/runtime/process.d.ts",
-      "import": "./dist/_internal/schedule/runtime/process.js",
-      "default": "./dist/_internal/schedule/runtime/process.js"
-    },
-    "./_internal/schedule/runtime/static": {
-      "types": "./dist/_internal/schedule/runtime/static.d.ts",
-      "import": "./dist/_internal/schedule/runtime/static.js",
-      "default": "./dist/_internal/schedule/runtime/static.js"
     },
     "./_internal/task/operations": {
       "types": "./dist/_internal/task/operations.d.ts",
@@ -273,40 +173,10 @@
       "import": "./dist/_internal/workflow.js",
       "default": "./dist/_internal/workflow.js"
     },
-    "./_internal/workflow/operations": {
-      "types": "./dist/_internal/workflow/operations.d.ts",
-      "import": "./dist/_internal/workflow/operations.js",
-      "default": "./dist/_internal/workflow/operations.js"
-    },
-    "./_internal/workflow/runtime/cloudflare-runner": {
-      "types": "./dist/_internal/workflow/runtime/cloudflare-runner.d.ts",
-      "import": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
-      "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
-    },
-    "./_internal/workflow/runtime/cloudflare-vite": {
-      "types": "./dist/_internal/workflow/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
-      "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
-    },
-    "./_internal/workflow/runtime/dev-runs": {
-      "types": "./dist/_internal/workflow/runtime/dev-runs.d.ts",
-      "import": "./dist/_internal/workflow/runtime/dev-runs.js",
-      "default": "./dist/_internal/workflow/runtime/dev-runs.js"
-    },
-    "./_internal/workflow/runtime/execute": {
-      "types": "./dist/_internal/workflow/runtime/execute.d.ts",
-      "import": "./dist/_internal/workflow/runtime/execute.js",
-      "default": "./dist/_internal/workflow/runtime/execute.js"
-    },
     "./_internal/workflow/runtime/state": {
       "types": "./dist/_internal/workflow/runtime/state.d.ts",
       "import": "./dist/_internal/workflow/runtime/state.js",
       "default": "./dist/_internal/workflow/runtime/state.js"
-    },
-    "./_internal/workflow/runtime/vercel-vite": {
-      "types": "./dist/_internal/workflow/runtime/vercel-vite.d.ts",
-      "import": "./dist/_internal/workflow/runtime/vercel-vite.js",
-      "default": "./dist/_internal/workflow/runtime/vercel-vite.js"
     },
     "./_internal/workspace": {
       "types": "./dist/_internal/workspace.d.ts",
@@ -322,6 +192,11 @@
       "types": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
       "import": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
       "default": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js"
+    },
+    "./_internal/workspace/internal/runtime/registry": {
+      "types": "./dist/_internal/workspace/internal/runtime/registry.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/registry.js",
+      "default": "./dist/_internal/workspace/internal/runtime/registry.js"
     },
     "./_internal/workspace/internal/runtime/state": {
       "types": "./dist/_internal/workspace/internal/runtime/state.d.ts",
@@ -397,11 +272,6 @@
       "types": "./dist/agent/server.d.ts",
       "import": "./dist/agent/server.js",
       "default": "./dist/agent/server.js"
-    },
-    "./agent/server/github": {
-      "types": "./dist/agent/server/github.d.ts",
-      "import": "./dist/agent/server/github.js",
-      "default": "./dist/agent/server/github.js"
     },
     "./agent/state/sqlite": {
       "types": "./dist/agent/state/sqlite.d.ts",
@@ -783,6 +653,31 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./forms": {
+      "types": "./dist/forms.d.ts",
+      "import": "./dist/forms.js",
+      "default": "./dist/forms.js"
+    },
+    "./forms/client": {
+      "types": "./dist/forms/client.d.ts",
+      "import": "./dist/forms/client.js",
+      "default": "./dist/forms/client.js"
+    },
+    "./forms/database": {
+      "types": "./dist/forms/database.d.ts",
+      "import": "./dist/forms/database.js",
+      "default": "./dist/forms/database.js"
+    },
+    "./forms/operations": {
+      "types": "./dist/forms/operations.d.ts",
+      "import": "./dist/forms/operations.js",
+      "default": "./dist/forms/operations.js"
+    },
+    "./forms/runtime": {
+      "types": "./dist/forms/runtime.d.ts",
+      "import": "./dist/forms/runtime.js",
+      "default": "./dist/forms/runtime.js"
+    },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
       "import": "./dist/gateways.js",
@@ -792,6 +687,26 @@
       "types": "./dist/gateways/ai-sdk.d.ts",
       "import": "./dist/gateways/ai-sdk.js",
       "default": "./dist/gateways/ai-sdk.js"
+    },
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "import": "./dist/i18n.js",
+      "default": "./dist/i18n.js"
+    },
+    "./i18n/runtime": {
+      "types": "./dist/i18n/runtime.d.ts",
+      "import": "./dist/i18n/runtime.js",
+      "default": "./dist/i18n/runtime.js"
+    },
+    "./i18n/server": {
+      "types": "./dist/i18n/server.d.ts",
+      "import": "./dist/i18n/server.js",
+      "default": "./dist/i18n/server.js"
+    },
+    "./i18n/vue": {
+      "types": "./dist/i18n/vue.d.ts",
+      "import": "./dist/i18n/vue.js",
+      "default": "./dist/i18n/vue.js"
     },
     "./kv": {
       "types": "./dist/kv.d.ts",
@@ -1316,9 +1231,9 @@
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
+    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack && node scripts/write-console-digest.ts",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
-    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
+    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
@@ -1396,7 +1311,9 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
@@ -1478,7 +1395,9 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/i18n": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/presets": "workspace:*",
@@ -1600,7 +1519,13 @@
     "@vite-hub/email": {
       "optional": true
     },
+    "@vite-hub/forms": {
+      "optional": true
+    },
     "@vite-hub/gateways": {
+      "optional": true
+    },
+    "@vite-hub/i18n": {
       "optional": true
     },
     "@vite-hub/kv": {

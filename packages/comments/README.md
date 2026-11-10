@@ -51,6 +51,22 @@ A single page app whose `index.html` Vite serves or builds gets a short inline c
 
 Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
+By default the overlay comments on the page itself, `{ kind: "page", id: "/pricing" }`. `page` maps a page to a subject of your own. The server decides: the overlay reads the subject from the session route, and a thread that the overlay starts must be on that subject. `authorize` still runs on it. A `page` given to the API, as the `?page=` query of a route such as `GET /threads?page=/pricing` or in the body of `POST /threads`, means that same subject.
+
+```ts fragment
+import { defineCommentSubject, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+  page: async ({ url }) => {
+    const id = url.pathname.match(/^\/d\/([^/]+)/)?.[1]
+    return id ? { kind: "drop", id, revision: await latestRevision(id) } : undefined
+  },
+})
+```
+
+`url` has the origin and the normalized path, without query and hash. Return `undefined` or `null` for the page itself. With `revision`, new threads from the overlay start on the version that the person saw: the overlay sends the `revision` that `/session` gave for the page, and the server keeps it when it is not newer than the one `page` gives now. A missing or newer revision becomes the one from `page`.
+
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
 Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
@@ -100,7 +116,7 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 
 | Import | Purpose |
 | --- | --- |
-| `@vite-hub/comments` | `defineComments()`, `installComments()`, and types. |
+| `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
 | `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, and `resolveAnchor()`. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |

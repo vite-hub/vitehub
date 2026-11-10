@@ -34,10 +34,11 @@ export function hasDirtyComposer(root: ParentNode = document): boolean {
   return root.querySelector(dirtySelector) !== null;
 }
 
-// Shakes every composer that has text. Returns whether there was one.
-export function shakeDirtyComposers(root: ParentNode = document): boolean {
+// Shakes every composer that has text. Returns whether there was one. `escape`: Esc caused it, so the next Esc in that
+// composer discards its text.
+export function shakeDirtyComposers(root: ParentNode = document, escape = false): boolean {
   const dirty = [...root.querySelectorAll(dirtySelector)];
-  for (const composer of dirty) composer.dispatchEvent(new CustomEvent(shakeEventName));
+  for (const composer of dirty) composer.dispatchEvent(new CustomEvent(shakeEventName, { detail: { escape } }));
   return dirty.length > 0;
 }
 

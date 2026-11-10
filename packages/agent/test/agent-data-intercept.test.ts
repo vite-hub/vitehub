@@ -2,7 +2,7 @@ import { createTraceEventLog } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent, defineCapability, runAgent, runAgentTrigger } from "../src/index.ts"
 import { runAgentInline, runAgentWithContext } from "../src/internal/agent-run.ts"
 
@@ -38,7 +38,7 @@ function interceptChannel(options: { omitMessage?: boolean } = {}) {
     from: v.string(),
     subject: v.string(),
   }), v.transform(message => ({ ...message, subject: message.subject.toUpperCase() })))
-  return defineChannel("mail", {
+  return channelAdapter("mail", {
     message: { data: messageSchema },
     messages: false,
     triggers: {
@@ -67,6 +67,23 @@ function interceptChannel(options: { omitMessage?: boolean } = {}) {
 }
 
 describe("Agent data and intercept", () => {
+  it("does not traverse input data for mutation tracking without a data schema", async () => {
+    const ownKeys = vi.fn((target: object) => Reflect.ownKeys(target))
+    const data = { records: new Proxy([{ id: 1 }], { ownKeys }) }
+    const run = vi.fn(({ input }: { input: { data?: unknown } }) => {
+      expect(input.data).toBe(data)
+      return "ok"
+    })
+    const agent = defineAgent({ driver: { run }, runtime: false })
+
+    const [error, result] = await runAgent(agent, { data })
+
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe("ok")
+    expect(run).toHaveBeenCalledOnce()
+    expect(ownKeys).not.toHaveBeenCalled()
+  })
+
   it("rejects invalid data before the Driver runs", async () => {
     const run = vi.fn(() => ({ label: "jev" }))
     const intercept = vi.fn(() => undefined)

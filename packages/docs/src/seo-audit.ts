@@ -1,3 +1,5 @@
+import { ELEMENT_NODE, parse, walkSync } from "ultrahtml"
+
 /**
  * The search checks that every prerendered page must pass. The limits are those of common site audits, such as OpenSEO:
  * a title of 10 to 60 characters, a description of 70 to 160, one `h1`, headings that go down one level at a time, and
@@ -41,7 +43,15 @@ export function readDocsSeoPage(path: string, html: string, origin: string): Doc
   const body = (html.match(/<body\b[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html).replace(hiddenElements, " ")
   const meta = (name: string) => attribute(head.match(new RegExp(`<meta\\b[^>]*\\b(?:name|http-equiv)=["']${name}["'][^>]*>`, "i"))?.[0], "content")
   const canonical = attribute(head.match(/<link\b[^>]*\brel=["']canonical["'][^>]*>/i)?.[0], "href")
-  const levels = [...body.matchAll(/<h([1-6])\b/gi)].map(match => Number(match[1]))
+  const levels: number[] = []
+  walkSync(parse(body), (node, parent) => {
+    if (node.type !== ELEMENT_NODE || !/^h[1-6]$/i.test(node.name)) return
+    // A preview demonstrates its own document, including headings, without changing the page's outline.
+    for (let ancestor = parent; ancestor; ancestor = ancestor.parent) {
+      if (ancestor.type === ELEMENT_NODE && ancestor.attributes.class?.split(/\s+/).includes("docs-example-preview")) return
+    }
+    levels.push(Number(node.name[1]))
+  })
   const skip = levels.findIndex((level, index) => index > 0 && level > levels[index - 1]! + 1)
   const text = decode(body.replace(blockTags, " ").replace(/<[^>]+>/g, ""))
   const links = new Set<string>()

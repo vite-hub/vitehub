@@ -70,7 +70,7 @@ it("shows one rail item per group and lists every section of the group in its si
         ],
       }]],
     }
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true, nitro: { static: true } }), ready: true })
     await build(nuxt)
     const page = (path: string) => readFile(join(root, ".output/public", `${path}.html`), "utf8")
     const currentRailLabels = (html: string) => {
@@ -83,8 +83,9 @@ it("shows one rail item per group and lists every section of the group in its si
     const charts = await page("docs/charts/notes")
     const rail = /<nav[^>]*aria-label="Lumen navigation"[\s\S]*?<\/nav>/.exec(charts)?.[0] ?? ""
     const railLabels = [...rail.matchAll(/<a [^>]*aria-label="([^"]+)"/g)].map(match => match[1])
-    // Components stands for annotate, charts, and table. It opens annotate, its first section.
-    expect(railLabels).toEqual(["Start", "Components", "Linter", "Migrate"])
+    // The brand leads the rail on wide screens. Components stands for annotate, charts, and table. It opens annotate,
+    // its first section.
+    expect(railLabels).toEqual(["Lumen", "Start", "Components", "Linter", "Migrate"])
     expect(/<a [^>]*href="\/docs\/annotate"[^>]*>/.exec(rail)?.[0]).toContain('aria-current="true"')
     // Excluded members with a visible group mark that group alone, without the start fallback.
     expect.soft(currentRailLabels(charts)).toEqual(["Components"])
