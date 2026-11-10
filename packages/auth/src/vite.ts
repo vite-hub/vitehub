@@ -94,14 +94,14 @@ async function readTargetDialect(context: AuthDatabaseContributionContext, datab
   return target ? readDatabaseDefinitionDialect(target.handler) : "sqlite"
 }
 
-export interface AuthInspectionOptions {
+interface AuthInspectionOptions {
   projectRoot: string
   rootDir: string
   serverDirs?: string[]
 }
 
 /** Lists the Auth Definition as a serializable inspection summary. */
-export function inspectAuthDefinitions(options: AuthInspectionOptions): ViteHubDefinitionSummary[] {
+function inspectAuthDefinitions(options: AuthInspectionOptions): ViteHubDefinitionSummary[] {
   return summarizeDefinitions(options.projectRoot, discoverAuthDefinitions(options.rootDir, { serverDirs: options.serverDirs }), "server-auth")
 }
 
