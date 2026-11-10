@@ -986,7 +986,7 @@ export const content = defineContent(${options})
 
     const [handler] = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
-    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
+    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default.fetch", expect.any(Function))
   })
 
   it("registers generated Collection handlers in plain Vite Nitro config", async () => {
