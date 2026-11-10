@@ -3754,6 +3754,9 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
