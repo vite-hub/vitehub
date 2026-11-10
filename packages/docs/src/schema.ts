@@ -44,8 +44,11 @@ export interface DocsPageFrontmatter {
   tutorial?: "project" | "quickstart"
   /** Tutorials only. Shows the file tree and code of the current step beside the prose. */
   codePanel?: boolean
-  /** `false` hides the navigation sidebar on this page. */
-  sidebar?: boolean
+  /**
+   * `false` hides the navigation sidebar on this page. `"collapsed"` shows a narrow strip instead, with a button that opens
+   * the sidebar, for a page that needs the width, such as a playground. Code panel tutorials start collapsed.
+   */
+  sidebar?: boolean | "collapsed"
   /** `false` hides the "On this page" outline. */
   toc?: boolean
   navigation?: DocsPageNavigation
@@ -117,7 +120,7 @@ const pageFields: Fields<DocsPageFrontmatter> = {
   layout: z.enum(docsLayouts).optional(),
   tutorial: z.enum(["project", "quickstart"]).optional(),
   codePanel: z.boolean().optional(),
-  sidebar: z.boolean().optional(),
+  sidebar: z.union([z.boolean(), z.literal("collapsed")]).optional(),
   toc: z.boolean().optional(),
   navigation: z.union([z.literal(false), z.strictObject(navigationFields)]).optional(),
   seo: z.strictObject(seoFields).optional(),
