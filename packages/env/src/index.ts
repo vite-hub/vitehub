@@ -21,6 +21,7 @@ export type {
   EnvMode,
   EnvRuntimeConfigOptions,
   EnvRuntimeRegistry,
+  EnvSchemaModuleReference,
   EnvSource,
   EnvSourceContext,
   EnvSourceResolver,

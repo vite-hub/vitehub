@@ -97,10 +97,10 @@ Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.
 | --- | --- | --- | --- |
 | `diagnostics` | `EnvDiagnostics` | Package default | Diagnostic output in Vite config, dev, and build: `off`, `summary`, `trace`. |
 | `prefix` | `string \| false` | `'VITEHUB_'` | Prefix of [canonical variable names](#variable-names). `false` disables canonical names. |
-| `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
-| `providers` | `Record<string, string>` | None | Maps runtime provider names to application module specifiers. Relative specifiers resolve from the ViteHub project root. |
-| `runtimeImports.secret` | `string` | `@vite-hub/env` | Replaces the type import used for `SecretEnv` in generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/internal/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, `runWithCloudflareEnv`, and `deriveSecret`, and the `ViteHubContext` and `EnvAccessContext` types used by generated declarations. Export `createServerEnvManagement` to enable credential management; without it, the other Env operations still work. Framework integrations can point generated code at their runtime-owned entry point. |
+| `projectRoot` | `string` | ViteHub project root | Custom root for generated files and package import updates. |
+| `providers` | `Record<string, string>` | None | Maps runtime provider names to app modules. Relative paths start at the ViteHub project root. |
+| `runtimeImports.secret` | `string` | `@vite-hub/env` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/internal/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `ViteHubContext` and `EnvAccessContext` types. Also export `createServerEnvManagement` to get credential management, and `bindServerEnvSchemas` when declarations use `env.schemaFrom()`. |
 
 To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime facade, re-export `deriveSecret` and `createSealing` from `@vite-hub/env/internal/server`. The generated module uses these to read the project's development secret. Also re-export `seal` and `unseal` for their public types in generated declarations. Existing Env resolution and inspection operations do not require these sealing exports.
 
@@ -123,9 +123,9 @@ To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime f
 | `required` | `boolean` | `true` unless `optional` is set | Throws when the runtime value is missing. Server Env checks all values at once, so one missing value fails every read. |
 | `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
 | `mode` | `EnvMode` | `runtime` | Build Env or Runtime Env: `build` or `runtime`. |
-| `schema` | Standard Schema-compatible parser | string parser | Parses `env.public` and `env.define` values. `env.server` takes only the built-in parsers below, because the runtime must serialize them. |
+| `schema` | Standard Schema-compatible parser, or `env.schemaFrom()` | string parser | Parses `env.public` and `env.define` values. `env.server` accepts the built-in parsers below, or a schema from a module through [`env.schemaFrom()`](#validate-server-env-with-your-own-schema). |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
-| `type` | `string` | Inferred | Overrides the generated type label in `env.public` and `env.define`. In `env.server`, it must match the parser. |
+| `type` | `string` | Inferred | Overrides the generated type label in `env.public` and `env.define`. In `env.server`, it must match the parser, and `env.schemaFrom()` does not accept it. |
 
 ## Typed values
 
@@ -222,6 +222,92 @@ Typed helpers accept every `env()` option except `schema` and `type`. A `default
 Error details hold the declaration path and source kind, never the rejected value. `inspectServerEnv()` reports a value that does not parse as `invalid`.
 
 The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
+
+## Validate Server Env with your own schema
+
+Use `env.schemaFrom(module, exportName)` when a Server Env value needs more than the built-in parsers, such as a pattern, a custom refinement, or a transform. Export a [Standard Schema](https://standardschema.dev) from a module. The server build imports that module, and Server Env runs the schema on the raw value each time it resolves.
+
+```ts [server/env.schema.ts]
+import { z } from 'zod'
+
+export const apiUrl = z.url().refine(url => url.startsWith('https://'), 'Use an https URL.')
+export const retries = z.coerce.number().int().min(1).max(5)
+export const tags = z.string().transform(value => value.split(','))
+export const token = z.string().min(20)
+```
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' }), nitro()],
+  env: {
+    server: {
+      apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+      retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+      tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+      token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    server: {
+      apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+      retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+      tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+      token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+    },
+  },
+})
+```
+:::
+::
+
+`useServerEnv().retries` is a `number`, `tags` is a `string[]`, and `token` is a `SecretEnv<string>`. The generated types read the output type of each export, or use `unknown` when the schema has no type metadata.
+
+- A relative module path resolves from the project root, as `providers` does. `exportName` defaults to `default`.
+- The schema gets the raw host string, or the default as written. Use coercion, such as `z.coerce.number()`, for other types.
+- The schema must be synchronous. An async schema fails with `ENV_RUNTIME_VALUE_INVALID`.
+- An export that is not a Standard Schema fails when the server module loads, with `ENV_DECLARATION_INVALID`.
+- For a non-secret value, the error cause contains the schema issue messages. For a secret value, it contains only the path, because issue messages can quote the input.
+- `env.schemaFrom()` works only in `env.server`. In `env.public` and `env.define`, pass the schema object directly: those values resolve during the build, where the config can run it.
 
 ## Import an environment schema
 
