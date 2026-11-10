@@ -2,14 +2,22 @@ import { effectScope, nextTick, ref } from "vue"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Better Auth's client, recorded: which options it was created with, and every call it answered.
-const betterAuth = vi.hoisted(() => ({ created: [] as unknown[], calls: [] as unknown[][], hydrated: [] as unknown[], session: undefined as unknown, subscriptions: 0 }))
+const betterAuth = vi.hoisted(() => ({
+  created: [] as unknown[],
+  calls: [] as unknown[][],
+  hydrated: [] as unknown[],
+  session: undefined as unknown,
+  subscriptions: 0,
+  store: { name: "store" } as object,
+  signOutResult: { data: true } as unknown,
+}))
 
 vi.mock("better-auth/vue", () => ({
   createAuthClient(options: unknown) {
     betterAuth.created.push(options)
     return {
       signIn: { social: async (input: unknown) => { betterAuth.calls.push(["signIn.social", input]); return { data: input } } },
-      signOut: async () => { betterAuth.calls.push(["signOut"]); return { data: true } },
+      signOut: async (...args: unknown[]) => { betterAuth.calls.push(["signOut", ...args]); return betterAuth.signOutResult },
       // Better Auth reads the session when its `useSession()` hook first mounts.
       useSession: () => {
         betterAuth.subscriptions++
@@ -17,12 +25,12 @@ vi.mock("better-auth/vue", () => ({
         return betterAuth.session
       },
       hydrateSession: (session: unknown) => { betterAuth.hydrated.push(session) },
-      $store: { name: "store" },
+      $store: betterAuth.store,
     }
   },
 }))
 
-const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 const signedIn = { session: { id: "s" }, user: { id: "u", name: "Ada" } }
 
@@ -49,10 +57,13 @@ beforeEach(() => {
 afterEach(() => {
   setSessionSeedResolver(undefined)
   setNuxtAppResolver(undefined)
+  setSignOutHandler(undefined)
   betterAuth.created.length = 0
   betterAuth.calls.length = 0
   betterAuth.subscriptions = 0
   betterAuth.hydrated.length = 0
+  betterAuth.store = { name: "store" }
+  betterAuth.signOutResult = { data: true }
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -374,5 +385,101 @@ describe("Vue Auth composables", () => {
     await client.useSession(useFetch as never)
     expect(runWithContext).toHaveBeenCalledOnce()
     setNuxtAppResolver(undefined)
+  })
+})
+
+describe("signOut() of useUserSession()", () => {
+  // `location.assign()` of the browser: a full page load.
+  const pageLoads = vi.fn()
+
+  /** A signed-in browser, with Better Auth's session store, which every `useSession()` of a client follows. */
+  function signedIn({ browser = true } = {}) {
+    pageLoads.mockClear()
+    if (browser) vi.stubGlobal("window", {})
+    vi.stubGlobal("location", { assign: pageLoads })
+    const real = ref<Record<string, unknown>>({ data: { session: { id: "s" }, user: { id: "u" } }, error: null, isPending: false, isRefetching: false, refetch: async () => {} })
+    betterAuth.session = real
+    betterAuth.store = { atoms: { session: { get: () => real.value, set: (value: Record<string, unknown>) => { real.value = value } } } }
+  }
+
+  it("shows the sign-out in every component at once, before Better Auth reads the session again", async () => {
+    signedIn()
+    const client = createAuthClient()
+    const header = useUserSession(client)
+    const menu = useUserSession(client)
+    await vi.waitFor(() => expect(header.loggedIn.value).toBe(true))
+
+    await expect(menu.signOut()).resolves.toEqual({ data: true })
+
+    expect(header.user.value).toBeNull()
+    expect(header.loggedIn.value).toBe(false)
+    expect(menu.session.value).toBeNull()
+    expect(menu.ready.value).toBe(true)
+    expect(pageLoads).not.toHaveBeenCalled()
+  })
+
+  it("gives Better Auth its own options and opens redirectTo", async () => {
+    signedIn()
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ redirectTo: "/goodbye", fetchOptions: { headers: { "x-reason": "menu" } } })
+
+    // The session store follows Better Auth's session atom before the call runs.
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { fetchOptions: { headers: { "x-reason": "menu" } } }]])
+    expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
+  })
+
+  it("lets the Nuxt module open the next page", async () => {
+    signedIn()
+    const handler = vi.fn()
+    setSignOutHandler(handler)
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ redirectTo: "/goodbye" })
+    await signOut()
+
+    expect(handler.mock.calls).toEqual([["/goodbye"], [undefined]])
+    expect(pageLoads).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["{ data, error }", { data: { success: true, url: "https://idp.example.com/logout", redirect: true }, error: null }],
+    ["fetchOptions.throw", { success: true, url: "https://idp.example.com/logout", redirect: true }],
+  ])("lets Better Auth open the provider's sign-out page (%s)", async (_name, result) => {
+    signedIn()
+    const handler = vi.fn()
+    setSignOutHandler(handler)
+    betterAuth.signOutResult = result
+    const session = useUserSession(createAuthClient())
+    await vi.waitFor(() => expect(session.loggedIn.value).toBe(true))
+
+    await session.signOut({ redirectTo: "/goodbye" })
+
+    expect(session.user.value).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("leaves the shared session store alone on the server", async () => {
+    signedIn({ browser: false })
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ redirectTo: "/goodbye" })
+
+    expect(betterAuth.session).toMatchObject({ value: { data: { user: { id: "u" } } } })
+    expect(pageLoads).not.toHaveBeenCalled()
+  })
+
+  it("keeps the session and the page when Better Auth cannot sign out", async () => {
+    signedIn()
+    const handler = vi.fn()
+    setSignOutHandler(handler)
+    betterAuth.signOutResult = { data: null, error: { status: 500 } }
+    const session = useUserSession(createAuthClient())
+    await vi.waitFor(() => expect(session.loggedIn.value).toBe(true))
+
+    await expect(session.signOut({ redirectTo: "/goodbye" })).resolves.toEqual({ data: null, error: { status: 500 } })
+
+    expect(session.user.value).toEqual({ id: "u" })
+    expect(handler).not.toHaveBeenCalled()
   })
 })

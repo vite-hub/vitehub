@@ -334,6 +334,8 @@ import { useUserSession } from "@vite-hub/auth/vue";
 export const session = useUserSession();
 ```
 
+`session.signOut()` calls Better Auth's `signOut()` and sets `user` and `session` to `null` at once, in every component that reads the session. It does not wait for Better Auth to read the session again. `signOut({ redirectTo: "/" })` then opens that page: a plain Vue app loads it with `location.assign()`, and Nuxt opens it with `navigateTo()`. Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns Better Auth's result. When the sign-out fails, the session and the page stay. When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page.
+
 That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client, below the app base path. In Nuxt, the default client already uses the Auth Definition's `basePath`.
 
 ```ts
@@ -430,6 +432,8 @@ export default defineNuxtConfig({
 ```
 
 On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
+
+The guard runs when the route changes. A sign-out does not change the route, so `signOut()` of `useUserSession()` does the guard's work: on a `'user'` page, it sends the visitor to the login page of that page, with `?redirect=<the page>`. `redirectTo` takes priority. Other pages stay open.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`.
 

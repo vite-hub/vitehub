@@ -1,11 +1,11 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRouter, useRuntimeConfig, useState } from "#app"
 
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, useUserSession } from "../vue.ts"
+import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useUserSession } from "../vue.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
 
@@ -80,11 +80,33 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   async setup(nuxtApp: NuxtApp) {
     setNuxtAppResolver(() => tryUseNuxtApp() as NuxtApp | undefined)
     const config = useRuntimeConfig().public?.vitehubAuth as false | { basePath?: string, redirects?: AuthRedirects } | undefined
+    const redirects = (config || undefined)?.redirects ?? {}
+    /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
+    const guardOf = (to: RouteLike) => {
+      const meta = to.meta.auth
+      if (config === false || meta === undefined || meta === false) return
+      const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
+      const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
+      return (loggedIn: boolean) => {
+        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
+        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+      }
+    }
+    if ("window" in globalThis) {
+      setSignOutHandler(redirectTo => nuxtApp.runWithContext(() => {
+        // A component that starts after the sign-out must not start with the session that the server read.
+        const seed = useState(stateKey, () => undefined) as { value: unknown }
+        seed.value = null
+        // Nuxt throws for a URL on another site without `external`.
+        if (redirectTo) return navigateTo(redirectTo, { external: /^(?:[\w+.-]{2,}:|[/\\]{2})/.test(redirectTo) })
+        // The guard runs only when the route changes, so do its work for the page on screen.
+        return guardOf((useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value)?.(false)
+      }))
+    }
     if (config === false) return
     const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth")
     // The guard uses the client of the auto-imported composables, so a read of the guard updates every component.
     setDefaultAuthBasePath(basePath)
-    const redirects = config?.redirects ?? {}
     const seed = useState(stateKey, () => undefined) as { value: unknown }
     if (!("window" in globalThis) && seed.value === undefined) seed.value = await readServerSession(basePath)
     // A prerendered or cached page was rendered without this visitor's cookie, so its session is unknown.
@@ -102,14 +124,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     })
 
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
-      const meta = to.meta.auth
-      if (meta === undefined || meta === false) return
-      const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
-      const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
-      const decide = (loggedIn: boolean) => {
-        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
-      }
+      const decide = guardOf(to)
+      if (!decide) return
       // Decide synchronously on the server to keep Nuxt's request context. Browser navigations read the session into
       // the state that `useUserSession()` and `useSession()` share, so the page and the guard see the same answer.
       const loggedIn = "window" in globalThis

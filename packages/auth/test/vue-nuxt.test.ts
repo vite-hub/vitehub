@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import hubAuthNuxt from "../src/nuxt.ts"
 
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
-import type { createAuthClient } from "../src/vue.ts"
 
 type Route = { fullPath: string, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
@@ -25,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   useSession: vi.fn(),
   createAuthClient: vi.fn(),
   navigateTo: vi.fn((target: unknown) => target),
+  signOut: vi.fn(),
+  currentRoute: { value: { fullPath: "/", meta: {} } as Route },
   middleware: undefined as Middleware | undefined,
 }))
 
@@ -35,6 +36,7 @@ vi.mock("#app", () => ({
   tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
   useRequestFetch: () => mocks.requestFetch,
+  useRouter: () => ({ currentRoute: mocks.currentRoute }),
   useRuntimeConfig: () => mocks.config,
   useState: () => mocks.state,
 }))
@@ -51,6 +53,7 @@ vi.mock("better-auth/vue", () => ({
     atom.value = { data: null, error: null, isPending: true, isRefetching: false, refetch }
     return {
       getSession: mocks.getSession,
+      signOut: mocks.signOut,
       useSession: () => {
         mocks.useSession()
         return atom
@@ -59,9 +62,11 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
-type Plugin = { setup: (app: { payload: typeof mocks.payload }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
+type Plugin = { setup: (app: { payload: typeof mocks.payload, runWithContext?: <T>(run: () => T) => T }) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
 // Each test gets new modules, so the default client and its session start empty.
 let plugin: Plugin
+let createAuthClient: typeof import("../src/vue.ts").createAuthClient
+let setSignOutHandler: typeof import("../src/vue.ts").setSignOutHandler
 let useUserSession: typeof import("../src/vue.ts").useUserSession
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
@@ -69,7 +74,7 @@ const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00
 beforeEach(async () => {
   vi.resetModules()
   plugin = (await import("../src/runtime/vue-nuxt.ts") as { default: Plugin }).default
-  ;({ useUserSession } = await import("../src/vue.ts"))
+  ;({ createAuthClient, setSignOutHandler, useUserSession } = await import("../src/vue.ts"))
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
   mocks.state.value = undefined
@@ -77,9 +82,12 @@ beforeEach(async () => {
   mocks.payload = {}
   mocks.middleware = undefined
   mocks.getSession.mockResolvedValue({ data: session })
+  mocks.signOut.mockResolvedValue({ data: { success: true }, error: null })
+  mocks.currentRoute.value = { fullPath: "/", meta: {} }
 })
 
 afterEach(async () => {
+  setSignOutHandler(undefined)
   vi.unstubAllGlobals()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
@@ -182,5 +190,76 @@ describe("Nuxt session and page guard", () => {
 
     expect(user.value).toBeNull()
     expect(loggedIn.value).toBe(false)
+  })
+})
+
+describe("signOut() in Nuxt", () => {
+  /** A signed-in browser that opened `route`, as the router and the page guard see it. */
+  async function openInBrowser(route: Route) {
+    vi.stubGlobal("window", {})
+    mocks.state.value = session
+    await plugin.setup({ payload: mocks.payload, runWithContext: run => run() })
+    await mocks.middleware?.(route)
+    mocks.currentRoute.value = route
+    mocks.navigateTo.mockClear()
+  }
+
+  it("sends the visitor from a page for signed-in visitors to the login page, as the page guard does", async () => {
+    await openInBrowser(userPage)
+
+    await expect(useUserSession(createAuthClient()).signOut()).resolves.toEqual({ data: { success: true }, error: null })
+
+    expect(mocks.signOut).toHaveBeenCalledOnce()
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/login", query: { redirect: "/private" } })
+    // A component that starts on the next page starts signed out.
+    expect(mocks.state.value).toBeNull()
+  })
+
+  it("opens redirectTo with navigateTo on any page", async () => {
+    await openInBrowser(userPage)
+
+    await useUserSession(createAuthClient()).signOut({ redirectTo: "/goodbye" })
+
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith("/goodbye", { external: false })
+  })
+
+  it.each([
+    ["a page without a guard", { fullPath: "/blog", meta: {} }],
+    ["a page for guests", { fullPath: "/login", meta: { auth: "guest" as const } }],
+  ])("keeps the visitor on %s", async (_name, route: Route) => {
+    await openInBrowser(route)
+
+    await useUserSession(createAuthClient()).signOut()
+
+    expect(mocks.navigateTo).not.toHaveBeenCalled()
+    expect(mocks.state.value).toBeNull()
+  })
+
+  it("follows the page on screen when another middleware stopped a navigation", async () => {
+    await openInBrowser(userPage)
+    // The page guard allowed `/admin`, then another middleware stopped the navigation.
+    await mocks.middleware?.({ fullPath: "/admin", meta: { auth: "user" } })
+    await mocks.middleware?.({ fullPath: "/blog", meta: {} })
+    mocks.navigateTo.mockClear()
+
+    await useUserSession(createAuthClient()).signOut()
+
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/login", query: { redirect: "/private" } })
+  })
+
+  it("opens a redirectTo on another site as an external page", async () => {
+    await openInBrowser(userPage)
+
+    await useUserSession(createAuthClient()).signOut({ redirectTo: "https://accounts.example.com/bye" })
+
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith("https://accounts.example.com/bye", { external: true })
+  })
+
+  it("follows the page's own redirectTo", async () => {
+    await openInBrowser({ fullPath: "/team", meta: { auth: { only: "user", redirectTo: "/join" } } })
+
+    await useUserSession(createAuthClient()).signOut()
+
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/join", query: { redirect: "/team" } })
   })
 })

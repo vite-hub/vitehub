@@ -25,10 +25,20 @@ const authClientKey: InjectionKey<VueAuthClient<any>> = Symbol("vitehub.auth.cli
 
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
 let sessionSeedResolver: (() => unknown) | undefined
+let signOutHandler: ((redirectTo: string | undefined) => unknown) | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
   nuxtAppResolver = resolver
+}
+
+/**
+ * Internal bridge installed by the Nuxt module in the browser. `signOut()` of `useUserSession()` calls it after a
+ * sign-out. It forgets the session that the server read, and opens `redirectTo`, or the login page when the page on
+ * screen is only for signed-in visitors.
+ */
+export function setSignOutHandler(handler: ((redirectTo: string | undefined) => unknown) | undefined): void {
+  signOutHandler = handler
 }
 
 /**
@@ -135,6 +145,8 @@ interface SessionStore {
   read: (query?: SessionQuery) => Promise<unknown>
   /** Sets the session that the server read for the request, if it is known now and nothing settled the state yet. */
   seed: () => void
+  /** Sets the session to `null` at once, such as after a sign-out. */
+  clear: () => void
   /** Keeps the browser's wait for a change of the session while `scope` lives. See `wakeWhenSessionCanChange()`. */
   hold: (scope: EffectScope | undefined) => void
   /** The scope of the store's computed refs and its one watcher. It never stops, as the store lives as long as the app. */
@@ -290,7 +302,7 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
     // store with the server's session waits until the session can change. An unknown session loads Better Auth at once.
     if (!seeded || state.value.isPending) void follow()
   }
-  return { state, read, seed, hold, scope }
+  return { state, read, seed, clear: () => void (state.value = settled(null)), hold, scope }
 }
 
 /** The browser globals that the wait listens to. The package compiles without the DOM types. */
@@ -394,6 +406,15 @@ export function useSession<Client extends VueAuthClient<any> = typeof authClient
 
 type ClientSession<Client extends VueAuthClient<any>> = Client["$Infer"]["Session"]
 
+/** The options of `signOut()` from `useUserSession()`: the options of Better Auth's `signOut()`, and `redirectTo`. */
+export type SignOutOptions<Client extends VueAuthClient<any> = typeof authClient> = NonNullable<Parameters<Client["signOut"]>[0]> & {
+  /**
+   * The page to open after the sign-out. Without it, in Nuxt, a page that only signed-in visitors may open sends the
+   * visitor to the login page, as its page guard does.
+   */
+  redirectTo?: string
+}
+
 export interface UserSession<Client extends VueAuthClient<any> = typeof authClient> {
   data: ComputedRef<ClientSession<Client> | null>
   error: ComputedRef<BetterFetchError | null>
@@ -410,7 +431,11 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   refresh: () => Promise<ClientSession<Client> | null>
   session: ComputedRef<ClientSession<Client>["session"] | null>
   signIn: Client["signIn"]
-  signOut: Client["signOut"]
+  /**
+   * Signs out with Better Auth, sets the session to `null` at once, then opens `redirectTo`. Returns Better Auth's
+   * result. When the sign-out fails, the session and the page stay.
+   */
+  signOut: (options?: SignOutOptions<Client>) => ReturnType<Client["signOut"]>
   signUp: Client["signUp"]
   /** End the impersonation session and restore the administrator's own session. */
   stopImpersonating: () => Promise<void>
@@ -445,7 +470,7 @@ function createUserSession<Client extends VueAuthClient<any>>(client: Client, st
     refresh,
     session: computed(() => state.value.data?.session ?? null),
     signIn: client.signIn,
-    signOut: client.signOut,
+    signOut: options => signOut(client, store, options) as ReturnType<Client["signOut"]>,
     signUp: client.signUp,
     async stopImpersonating() {
       // The path works without Better Auth's `adminClient()` plugin on the client.
@@ -454,6 +479,30 @@ function createUserSession<Client extends VueAuthClient<any>>(client: Client, st
     },
     user: computed(() => state.value.data?.user ?? null),
   }
+}
+
+async function signOut(client: { signOut(options: object): Promise<unknown> }, store: SessionStore, options: { redirectTo?: string } = {}): Promise<unknown> {
+  const { redirectTo, ...betterAuthOptions } = options
+  const result = await client.signOut(betterAuthOptions)
+  // Better Auth returns `{ data, error }`, and only the data with `fetchOptions.throw`, which throws on an error.
+  const answer = typeof result === "object" && result !== null && "data" in result && "error" in result ? result : { data: result, error: null }
+  if (answer.error) return result
+  if (!("window" in globalThis)) return result
+  // Better Auth reads the session again after a sign-out, and the page shows the user until it answers. Its session
+  // atom starts that read from `null`, so the read cannot show the user again. Every component shares the store, so
+  // they all show the sign-out at once.
+  const session = (await loadAuthClient(client as VueAuthClient<{}>)).$store?.atoms?.session
+  session?.set({ ...session.get(), data: null, error: null, isPending: false })
+  store.clear()
+  // A provider sign-out, such as OpenID Connect logout, answers `{ url, redirect: true }`, and Better Auth then
+  // loads the provider's page. Another navigation now would cancel it.
+  const data: unknown = answer.data
+  if (typeof data === "object" && data !== null && Reflect.get(data, "redirect") === true && typeof Reflect.get(data, "url") === "string") return result
+  // Nuxt opens the next page with `navigateTo()`. Plain Vue knows no router, so it loads `redirectTo`. The package
+  // types have no DOM, so `location` comes from `globalThis`.
+  if (signOutHandler) await signOutHandler(redirectTo)
+  else if (redirectTo) (globalThis as { location?: { assign(url: string): void } }).location?.assign(redirectTo)
+  return result
 }
 
 /** What `useAbility()` returns. */
