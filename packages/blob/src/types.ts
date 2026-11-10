@@ -184,6 +184,11 @@ export interface BlobEnsureOptions {
 export interface BlobServeResponseOptions {
   /** Defaults to the `Cache-Control` of `headers`, or `private, no-cache`. */
   cacheControl?: string
+  /**
+   * Send `Content-Disposition: attachment`, so a browser saves the file and does not open it. `true` uses the last
+   * segment of the pathname as the file name. A string sets the file name.
+   */
+  download?: boolean | string
   /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**

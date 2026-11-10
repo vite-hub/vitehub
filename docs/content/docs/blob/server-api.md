@@ -144,6 +144,24 @@ export default defineEventHandler((event) => {
 
 HEAD responses keep the same status and headers as GET, with no body.
 
+Every response that serves an object sends `X-Content-Type-Options: nosniff`. A browser opens some types as a page that can run script: `text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`, `text/xsl`, `text/rdf`, and every other `+xml` type. For these types, and for a content type that names one of them in a list, `serve()` also sends `Content-Security-Policy: sandbox`. The browser then shows the file but runs no script and gives it no access to the app origin. An `<img>` tag still shows an SVG. When the `headers` option has a `Content-Security-Policy`, `serve()` adds `sandbox` to it as a second policy.
+
+Set `download` to send `Content-Disposition: attachment`, so the browser saves the file and does not open it. `download: true` uses the last segment of the pathname as the file name. A string sets the file name. ViteHub keeps only the last path segment of the name and removes control characters.
+
+```ts [server/routes/exports/[...pathname].get.ts]
+import { blob } from '@vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  return blob.serve(event.req, `exports/${pathname}`, { download: true })
+})
+```
+
+> [!WARNING]
+> A stored file has the content type that the uploader sent. When users who are not fully trusted can upload, serve their files from another origin with `serve.publicBaseUrl`, or with `download`. Limit `ensure.types` to the types that your app needs.
+
 In an H3 app, headers that middleware set on `event.res.headers` before the route replace the same headers of the returned `Response`, and they do not reach `4xx` responses. The generated Blob serve route preserves those middleware headers on `4xx` responses and keeps the Blob response headers when both set the same name.
 
 `blob.serve()` answers byte-range requests, so `<video>` and `<audio>` can seek and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`.
@@ -206,7 +224,8 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 for each file. The file name, without folders, is the pathname. ViteHub does
 not URL-decode it, so a file named `..%2Fevil.txt` stays inside `prefix`.
 It returns `[error, objects]`. No files, too many files, or a file that fails
-`ensure` throws an H3 400 error before anything is stored.
+`ensure` throws an H3 400 error before anything is stored. Each file keeps the
+content type that the client sent. Use `ensure.types` to limit it.
 
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
@@ -443,7 +462,7 @@ Use `ensureBlob()` where uploads enter your app.
 | Option | Type | Description |
 | --- | --- | --- |
 | `maxSize` | `BlobSize` | Rejects larger blobs. Examples: `4MB`, `128KB`, `1GB`. |
-| `types` | `BlobType[]` | Exact MIME types, or broad types such as `image`, `video`, `audio`, `pdf`, and `text`. |
+| `types` | `BlobType[]` | Exact MIME types, or broad types such as `image`, `video`, `audio`, `pdf`, and `text`. A broad type does not accept a type that a browser opens as a page, such as `image/svg+xml` or `text/html`. List that type exactly, for example `['image', 'image/svg+xml']`. |
 
 ## Production checks
 
