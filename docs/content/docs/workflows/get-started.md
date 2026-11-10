@@ -116,11 +116,11 @@ Create `server/api/onboard.post.ts`. This route starts the `onboard-user` Workfl
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from 'vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
-  return runWorkflow('onboard-user', payload)
+  return startWorkflow('onboard-user', payload)
 })
 ```
 

@@ -224,7 +224,7 @@ const globalModules = name => entries => ["declare global {", `  interface ${nam
 
 /**
  * The registries that ViteHub generates from the Definitions of an app, in the form that each package writes them.
- * A page shows the Definitions that its other blocks use by name, such as `runQueue('welcome-email')`.
+ * A page shows the Definitions that its other blocks use by name, such as `sendQueue('welcome-email')`.
  */
 const registries = [
   {
