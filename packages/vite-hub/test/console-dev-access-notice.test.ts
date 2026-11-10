@@ -26,6 +26,16 @@ describe("the startup line of a development Console without sign-in", () => {
     }
   })
 
+  it("links the hosted Console to the server's port and base", () => {
+    expect(consoleDevAccessNotice("local", { address: "127.0.0.1", port: 5173 })?.message)
+      .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2F127.0.0.1%3A5173&path=%2F")
+    expect(consoleDevAccessNotice("open", { address: "::1", port: 3000 }, "/docs/")?.message)
+      .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2F%5B%3A%3A1%5D%3A3000%2Fdocs&path=%2F")
+    expect(consoleDevAccessNotice("open", { address: "0.0.0.0", port: 4000 }, "/docs/")?.message)
+      .toContain("https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A4000%2Fdocs&path=%2F")
+    expect(consoleDevAccessNotice("local", { address: "127.0.0.1" })?.message).not.toContain("console.vitehub.dev")
+  })
+
   it("says nothing for a Console with sign-in or a server without a TCP address", () => {
     expect(consoleDevAccessNotice("auth", { address: "0.0.0.0" })).toBeUndefined()
     expect(consoleDevAccessNotice("cloudflare-access", { address: "0.0.0.0" })).toBeUndefined()
@@ -51,8 +61,9 @@ describe("the startup line of a development Console without sign-in", () => {
         httpServer: http, config: { root, server: {}, logger }, watcher: new EventEmitter(),
       }])
       http.emit("listening")
-      expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("Console has no sign-in"))
+      expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("has no sign-in"))
       expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("console.auth"))
+      expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("https://console.vitehub.dev/open?project=http%3A%2F%2F"))
     }
     finally {
       http.emit("close")

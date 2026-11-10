@@ -136,7 +136,6 @@ vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.vite
 import type { KVOptions } from "@vite-hub/kv"
 import { getResolvedFeatureOptions, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
-import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub, type ViteHubOptions } from "../src/index.ts"
@@ -517,16 +516,9 @@ describe("vitehub", () => {
     }
   })
 
-  it("adds the Console to the Vite DevTools dock outside static DevTools builds", () => {
+  it("adds no Vite DevTools dock, since apps serve no Console page", () => {
     const plugin = dependencyPluginByName(vitehub({ console: { auth: false }, preset: "node" }), "vite-hub/console")
-    // SAFETY: The Console plugin declares the `devtools` field that `@vitejs/devtools` reads.
-    const { devtools } = plugin as Plugin & { devtools: ConsoleViteDevTools }
-    const register = vi.fn()
-
-    devtools.setup({ docks: { register }, viteConfig: { base: "/portal/" } })
-
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({ id: "vitehub-console", type: "iframe", url: "/portal/_vitehub" }))
-    expect(devtools.capabilities).toEqual({ build: false })
+    expect(plugin).not.toHaveProperty("devtools")
   })
 
   it("keeps an application KV route beside the Console RPC route", async () => {
@@ -572,7 +564,7 @@ describe("vitehub", () => {
       })
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/**" }),
+          expect.objectContaining({ route: "/_vitehub/sign-in", middleware: true }),
           expect.objectContaining({ route: "/_vitehub/rpc/**" }),
         ]),
       })

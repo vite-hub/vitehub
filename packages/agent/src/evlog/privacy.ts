@@ -1,3 +1,5 @@
+import { hostedConsoleOrigin } from "@vite-hub/runtime"
+
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 const secretKey = /^(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|credentials?|prompt|messages|input|output|raw|context|headers|body|pre_context|post_context|context_line|tool[_-]?(?:input|output|arguments?|result)|(?:input|output)[_-]?body)$/i
 
@@ -8,8 +10,9 @@ function sanitizeString(value: string): string {
         const url = new URL(value)
         url.username = ''
         url.password = ''
-        url.search = ''
         url.hash = ''
+        // A hosted Console link holds only the app URL and a Console path, which `consoleInvocationUrl()` builds.
+        if (url.origin !== hostedConsoleOrigin || url.pathname !== '/open') url.search = ''
         return url.href
       }
       catch { return '[URL]' }

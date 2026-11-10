@@ -12,6 +12,8 @@ import { defineAgent } from "../src/index.ts"
 import { agentInvocationId } from "../src/invocations.ts"
 import { resolveAgentTriggers } from "../src/trigger-runtime.ts"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 function githubIssueCommentPayload(body = "/review please", userType = "User") {
   return {
     action: "created",
@@ -1982,7 +1984,7 @@ describe("agent channels", () => {
     const id = await agentInvocationId(result.run.runId, agentName)
     expect(result.run.activity?.links).toEqual([{
       label: "Current session",
-      url: `https://agent.example.test/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${id}`,
+      url: hostedConsoleLink("https://agent.example.test", `/agents/${encodeRouteSegment(agentName)}/invocations/${id}`),
     }])
   }, 30_000)
 
@@ -2006,7 +2008,7 @@ describe("agent channels", () => {
       const linked = await invoke("support")
       expect(linked.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/support/invocations/${await agentInvocationId(linked.runId, "support")}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/support/invocations/${await agentInvocationId(linked.runId, "support")}`),
       }])
       expect((await invoke("unconfigured")).activity?.links).toEqual([])
     }
@@ -2033,7 +2035,7 @@ describe("agent channels", () => {
       if (result instanceof Response || !result.run) throw new Error("Expected GitHub invocation.")
       expect(result.run.activity?.links).toEqual([{
         label: "Current session",
-        url: `https://agents.example.test/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${await agentInvocationId(result.run.runId, agentName)}`,
+        url: hostedConsoleLink("https://agents.example.test", `/agents/${encodeRouteSegment(agentName)}/invocations/${await agentInvocationId(result.run.runId, agentName)}`),
       }])
     }
     finally {

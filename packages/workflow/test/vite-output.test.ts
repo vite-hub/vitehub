@@ -17,6 +17,8 @@ import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-o
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, createWorkflowRegistryContents, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 const workflowBackupRetirement = vi.hoisted<{
   attempts: number
   enabled: boolean
@@ -640,7 +642,7 @@ export async function linkWorkflow() {
   runInNewContext(vmCode, vmContext)
   const workflow = [...vmContext.__private_workflows.entries()].find(([id]) => id.endsWith("//linkWorkflow"))?.[1]
   expect(workflow).toBeDefined()
-  await expect(workflow!()).resolves.toBe("https://native.example.com/portal/_vitehub/agents/bot/invocations/flow")
+  await expect(workflow!()).resolves.toBe(hostedConsoleLink("https://native.example.com/portal", `/agents/bot/invocations/flow`))
   const steps = source.slice(0, vmStart)
   const vm = source.slice(vmStart)
   for (const bundle of [steps, vm]) {

@@ -540,82 +540,32 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("bundles a discovered Console client extension", async () => {
-    const root = await mkdtemp(join(process.cwd(), ".vitehub-console-auth-client-"))
+  it("rejects the removed Console Auth client, by path and by discovered file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-client-"))
     try {
       const directory = resolve(root, "vitehub/console/auth")
+      const removed = "The Console Auth client (console.auth.client, vitehub/console/auth/client) was removed"
+      expect(() => resolveConsoleAuthConfig(root, { provider: "github", allowedEmails: ["maintainer@example.com"], databasePath: join(root, "console.sqlite"), client: "client.ts" } as never)).toThrow(removed)
       await mkdir(directory, { recursive: true })
       await writeFile(resolve(directory, "server.ts"), "export default {}")
-      const clientSource = resolve(directory, "client.ts")
-      await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "original" } }')
-      const files = resolveConsoleAuthConfig(root, {})
-      if ("provider" in files) throw new TypeError("Expected file configuration.")
-      const handlers = await writeConsoleAuthHandlers(root, files)
-      const responseSource = await readFile(handlers.client, "utf8")
-      expect(handlers.clientSource).toBe(clientSource)
-      expect(responseSource).toContain("vitehub.console.auth.client")
-      expect(responseSource).toContain("text/javascript")
-      expect(responseSource).toContain("original")
-      await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "updated" } }')
-      await writeConsoleAuthHandlers(root, files)
-      expect(await readFile(handlers.client, "utf8")).toContain("updated")
+      expect(() => resolveConsoleAuthConfig(root, { client: "client.ts" } as never)).toThrow(removed)
+      expect(resolveConsoleAuthConfig(root, {})).toEqual({ server: resolve(directory, "server.ts") })
+      await writeFile(resolve(directory, "client.ts"), "export default {}")
+      expect(() => resolveConsoleAuthConfig(root, {})).toThrow(removed)
     }
     finally {
       await rm(root, { recursive: true, force: true })
     }
   })
 
-  it("refreshes the Vite client handler when an imported local module changes", async () => {
-    const root = await mkdtemp(join(process.cwd(), ".vitehub-console-auth-watch-"))
+  it("writes no Console Auth client handler", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-no-client-"))
     try {
       const server = resolve(root, "server.ts")
-      const client = resolve(root, "client.ts")
-      const helper = resolve(root, "helper.ts")
       await writeFile(server, "export default {}")
-      await writeFile(helper, 'export const marker = "vite_auth_helper_original"')
-      await writeFile(client, 'import { marker } from "./helper"; export default { setup() { globalThis.consoleAuthMarker = marker } }')
-      const plugin = consoleVitePlugin({ console: { auth: { server, client } }, preset: "node" })
-      const listeners = new Map<string, (path: string) => Promise<void>>()
-      const add = vi.fn()
-      const config = { root }
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected Console config hook.")
-      await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "serve", mode: "development" }])
-      const configureServer = plugin.configureServer
-      if (!configureServer) throw new TypeError("Expected Console development-server hook.")
-      Reflect.apply("handler" in configureServer ? configureServer.handler : configureServer, {}, [{ config: { logger: { error: vi.fn() } }, watcher: { add, on: (event: string, listener: (path: string) => Promise<void>) => listeners.set(event, listener) } }])
-      expect(add).toHaveBeenCalledWith(expect.arrayContaining([client, helper]))
-      await writeFile(helper, 'export const marker = "vite_auth_helper_updated"')
-
-      let markRefreshBuilt: (() => void) | undefined
-      const refreshBuilt = new Promise<void>((resolve) => { markRefreshBuilt = resolve })
-      let releaseRefresh: (() => void) | undefined
-      const refreshPending = new Promise<void>((resolve) => { releaseRefresh = resolve })
-      const writeHandlers = writeConsoleAuthHandlers
-      const refresh = vi.spyOn(await import("../src/console/auth-build.ts"), "writeConsoleAuthHandlers").mockImplementationOnce(async (...args) => {
-        const handlers = await writeHandlers(...args)
-        markRefreshBuilt?.()
-        await refreshPending
-        return handlers
-      })
-      const first = listeners.get("change")?.(helper)
-      let second: Promise<void> | undefined
-      try {
-        await refreshBuilt
-        expect(await readFile(resolve(root, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("vite_auth_helper_updated")
-        await writeFile(helper, 'export const marker = "vite_auth_helper_concurrent"')
-        second = listeners.get("add")?.(helper)
-        expect(refresh).toHaveBeenCalledTimes(1)
-        releaseRefresh?.()
-        await Promise.all([first, second])
-        expect(refresh).toHaveBeenCalledTimes(2)
-        expect(await readFile(resolve(root, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("vite_auth_helper_concurrent")
-      }
-      finally {
-        releaseRefresh?.()
-        await Promise.allSettled([first, second])
-        refresh.mockRestore()
-      }
+      const handlers = await writeConsoleAuthHandlers(root, { server })
+      expect(Object.keys(handlers).sort()).toEqual(["auth", "middleware", "route", "signIn"])
+      await expect(stat(resolve(root, ".vitehub/nitro/console/auth-client.mjs"))).rejects.toThrow()
     }
     finally {
       await rm(root, { recursive: true, force: true })

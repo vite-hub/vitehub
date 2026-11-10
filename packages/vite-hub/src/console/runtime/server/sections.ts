@@ -1,5 +1,5 @@
 import { installConsoleProjectRoot } from "./project-root.ts"
-import { installConsoleBuildScope, installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth, resolveConsoleBuild, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
+import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -9,8 +9,6 @@ export { consoleConnectionsActor, consoleRealtimeAccess, resolveConsoleAppAuthId
 export { installConsoleAccess } from "./access-policy.ts"
 export { verifyConsoleJwt } from "./bearer-jwt.ts"
 export { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../../auth-pages.ts"
-export { installConsolePageTool } from "./page-tool.ts"
-export { installConsoleClient } from "./client-assets.ts"
 export { installConsoleOrigins } from "./cors.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
@@ -23,18 +21,6 @@ export function installConsoleSections(projectRoot: string, sections: readonly C
 export function installConsoleProjectName(projectRoot: string, projectName: string): string {
   installConsoleProjectRoot(projectRoot)
   return installConsoleProjectNameScope(projectRoot, projectName)
-}
-
-/**
- * Install the build id of the generated Console output. It changes when the Console catalog or the Console client
- * changes, so an open Console compares it to know that a newer Console is deployed.
- */
-export function installConsoleBuild(projectRoot: string, build: string): string {
-  return installConsoleBuildScope(projectRoot, build)
-}
-
-export function getConsoleBuild(): string | undefined {
-  return resolveConsoleBuild()
 }
 
 export function getConsoleSections(): readonly ConsoleSectionId[] {

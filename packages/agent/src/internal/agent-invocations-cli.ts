@@ -373,7 +373,7 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * A deployed host, or any URL of a Console page such as `http://localhost:3000/_vitehub`, selects the Console.
+ * A deployed host, or any URL with `/_vitehub`, such as `http://localhost:3000/_vitehub`, selects the Console endpoint.
  * Other loopback URLs keep their local meaning: the invocation endpoint, or the Vite Development Server for cancel.
  */
 function consoleBaseUrl(value: string): URL | undefined {

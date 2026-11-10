@@ -109,6 +109,14 @@ it("removes secrets and raw model content from nested log data", () => {
   expect(sanitizeAgentLog(data)).toEqual({ customer: "[EMAIL]", url: "https://example.org/a", nested: { message: "Bearer [REDACTED]" } })
 })
 
+it("keeps the query of a hosted Console link and drops it from other Console URLs", () => {
+  const link = "https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fbot%2Finvocations%2Fid"
+  expect(sanitizeAgentLog({ session_url: link, other: "https://console.vitehub.dev/link?p=secret#k=secret" })).toEqual({
+    session_url: link,
+    other: "https://console.vitehub.dev/link",
+  })
+})
+
 it("filters minimal observability to lifecycle metadata", () => {
   expect(filterAgentObservability("minimal", {
     invocation_id: "inv-1", model: "gpt-test", duration_ms: 12,
@@ -198,7 +206,7 @@ it.each([
   const terminal = exporter.capture.mock.calls.find(([name]) => name === "$ai_trace")
   expect(await invocations.getByRunId("links", name)).toMatchObject({ agentName: name, id: await agentInvocationId("links", name) })
   expect(terminal?.[1].agent_name).toBe(name)
-  expect(terminal?.[1].session_url).toBe(`https://console.example/inspect/_vitehub/agents/${segment}/invocations/${await agentInvocationId("links", name)}`)
+  expect(terminal?.[1].session_url).toBe(`https://console.vitehub.dev/open?project=${encodeURIComponent("https://console.example/inspect")}&path=${encodeURIComponent(`/agents/${segment}/invocations/${await agentInvocationId("links", name)}`)}`)
   await hooks.get("close")!()
   expect(telemetry.status().closed).toBe(true)
 })

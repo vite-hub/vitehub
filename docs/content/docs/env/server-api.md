@@ -204,7 +204,7 @@ This GitHub token lets the app fetch Sources. It is not the model or shell crede
 
 `describeServerEnv()` lists declarations without reading values or calling provider `read()`. Each entry has the path, [canonical variable name](/docs/env/configure#variable-names), source kind, provider alias, secret and required flags, whether a default exists, and the value type, such as `boolean` or `"draft" | "send"`. It leaves out defaults, conventional names, provider keys, and provider module paths. `inspectServerEnv()` entries also report `via` and `conflict`; see [Variable names](/docs/env/configure#variable-names).
 
-The Console Env section shows this metadata behind Console access. With Env Bridge, a provider panel adds masked previews and runtime replacement, and admins see activity and manage grants per credential. The provider's own auth and permissions still apply. Host variables stay read-only.
+The Console Env section shows this metadata behind Console access. Host variables stay read-only. Env management (masked previews, replacement, activity, and grants) needed the Console that the app served, which is removed.
 
 `inspectServerEnv()` loads providers the same way. It reports only paths, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 

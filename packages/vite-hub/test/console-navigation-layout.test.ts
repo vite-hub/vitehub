@@ -50,7 +50,7 @@ describe("shared Console navigation layout", () => {
     // The stored appearance applies before mount, so the first render uses the chosen scheme.
     expect(client).toMatch(/startConsoleAppearance\([\s\S]*?\.provide\(consoleAppearanceKey, appearance\)[\s\S]*?\.mount\("#app"\)/)
     // Nuxt UI color mode would write the root class from a second, origin-wide storage key.
-    expect(readFileSync(new URL("../console.vite.config.ts", import.meta.url), "utf8")).toContain("colorMode: false")
+    expect(readFileSync(new URL("../console.hosted.vite.config.ts", import.meta.url), "utf8")).toContain("colorMode: false")
   })
 
   it("loads built-in route views on navigation", () => {

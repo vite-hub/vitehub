@@ -87,13 +87,13 @@ export default defineConnection({
 | `fallback` | None | Key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
-Set the key in the Console with **Set key**, or pipe it to the CLI:
+Pipe the key to the CLI:
 
 ```bash [Terminal]
 printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 ```
 
-The CLI reads the key only from stdin, so it stays out of shell history. The CLI and the Console send the key only over HTTPS or to a loopback host.
+The CLI reads the key only from stdin, so it stays out of shell history. It sends the key only over HTTPS or to a loopback host.
 
 ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth. A key has no scopes or refresh, so a `401` keeps the status. A redirect to another origin drops the key header. A revoke deletes the stored key. Revoke it at the provider too.
 
@@ -113,7 +113,7 @@ export default defineConnection({
 })
 ```
 
-The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from the Console or `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
+The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
 
 ## Keyed Connections
 

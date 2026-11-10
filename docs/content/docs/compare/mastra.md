@@ -50,7 +50,7 @@ Sources: [Mastra docs](https://mastra.ai/docs),
 | Evals | Model-graded, rule-based, or statistical scorers. Live scoring at a sampling rate. | `defineEval()` with Evalite and Vitest, run by `vitehub agent eval` |
 | MCP | Connect to MCP servers and author MCP servers | Connect to MCP servers with the `mcp()` Capability |
 | Approvals | Suspend an agent or workflow until a person decides | Tool policy `require-approval` |
-| Development UI | Mastra Studio | Console at `/_vitehub` and the `vitehub` CLI |
+| Development UI | Mastra Studio | The hosted Console at console.vitehub.dev and the `vitehub` CLI |
 
 Sources: [workflows](https://mastra.ai/docs/workflows/overview),
 [control flow](https://mastra.ai/docs/workflows/control-flow),
