@@ -109,7 +109,7 @@ await posts.save('hello', input, { lease: 'override' })
 | `session` | The caller's session token. Its own lease does not block the write, which renews it. |
 | `lease: 'override'` | Write even while another session holds the lease. |
 
-The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`, a `409` in the Console. Agents, the CLI, and API routes write freely to documents nobody has open, and honor leases unless you pass `lease: 'override'`. [`vitehub content edit`](/docs/content/cli#edit-leases) passes it only with `--override-lease`.
+The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`, a `409` over the Console endpoint. Agents, the CLI, and API routes write freely to documents nobody has open, and honor leases unless you pass `lease: 'override'`. [`vitehub content edit`](/docs/content/cli#edit-leases) passes it only with `--override-lease`.
 
 Other Workspace writers to the draft check leases too, such as [`vitehub push`](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder), a raw `history.commit()`, or an Agent's `workspace.commit`. The `vitehub.content` Workspace plugin refuses a commit that writes or deletes a document that another session holds, with `CONTENT_LEASE_HELD` and status 409. Nothing is saved. One error names every held document of the commit: `details` has the first one as `collection`, `id`, and `holder`, and all of them in `documents`. To write anyway, put `lease: 'override'` in the revision metadata:
 
@@ -137,6 +137,9 @@ settings: singleton({ path: 'settings.json', fields, editing: { lease: false } }
 Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` always succeeds, `holder` is always `null`, and writes never fail with `CONTENT_LEASE_HELD`. `collection.editing.lease` shows the setting.
 
 ## Live editing
+
+> [!NOTE]
+> The live editor was part of the Console that the app served, which is removed. The hosted Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
 
 With Realtime, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
