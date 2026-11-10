@@ -11,7 +11,7 @@ Pass ViteHub Source definitions, registered names, readers, reader factories, or
 
 ```ts
 import { defineContent } from "@vite-hub/content"
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 
 export const content = defineContent({
   sources: {

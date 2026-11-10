@@ -49,6 +49,7 @@ A thread and its first message are written together: with `batch()` on libSQL an
 | `COMMENTS_R0019` | 503 | The Database has old comment tables, or none. On a ViteHub Database, run the migration in [Upgrade to one model](/docs/comments/configure#upgrade-to-one-model). For the live-site tables, use the SQL of `commentsMigrationSql({ from: "live" })`. Otherwise run `vitehub database generate` and `vitehub database migrate`. |
 | `COMMENTS_R0020` | 404 | No thread the caller may read has this attachment key, or the file is gone. |
 | `COMMENTS_R0021` | 501 | `storeAttachment` is set, but `readAttachment` is missing, so files cannot be read back. |
+| `COMMENTS_R0022` | 409 | Another thread of the scope already uses this `requestId`, and the caller did not start it, started it on another subject, or may not read it. Send a new `requestId` for a new comment. |
 | `COMMENTS_B0001` | build | The app has `server/comments.ts` and sets `database: false`. |
 | `COMMENTS_B0002` | build | `server/comments.ts` does not default-export `defineComments()`. |
 | `COMMENTS_B0003` | build | The app adds `comments()` next to `vitehub()`. Remove `comments()` and set `vitehub({ comments: true })`, or add `server/comments.ts`. |

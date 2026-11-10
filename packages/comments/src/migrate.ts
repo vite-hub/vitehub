@@ -29,7 +29,10 @@ export interface CommentsMigration {
 export const liveThreadsBackup = "vitehub_comment_threads_live"
 
 /** The columns that one model added to `vitehub_comment_threads` after its first version. */
-const addedColumns = { metadata: "text", context: "text", revision: "integer" } as const
+const addedColumns = { metadata: "text", context: "text", revision: "integer", request_id: "text" } as const
+
+/** The unique index of the `comments.create` retry key, which came with `request_id`. */
+const requestIndex = commentsTables.find(statement => statement.includes("`vitehub_comment_threads_scope_request`"))!
 
 const scopeOf = "CASE WHEN `scope` = 'pages' THEN 'site' ELSE `scope` END"
 
@@ -78,6 +81,7 @@ function liveToCurrent(): string[] {
 function postgresCurrent(): string[] {
   return [
     ...Object.entries(addedColumns).map(([column, type]) => `ALTER TABLE "vitehub_comment_threads" ADD COLUMN IF NOT EXISTS "${column}" ${type === "integer" ? "bigint" : type}`),
+    requestIndex.replaceAll("`", "\""),
     "CREATE TABLE IF NOT EXISTS \"vitehub_comment_forge\" (\"id\" text PRIMARY KEY NOT NULL, \"thread_id\" text, \"repository\" text NOT NULL, \"pull_request\" bigint NOT NULL, \"remote_id\" text, \"node_id\" text, \"url\" text, \"digest\" text, \"posted_as\" text, \"minimized\" boolean DEFAULT false NOT NULL, \"error\" text, \"updated_at\" bigint NOT NULL)",
     "CREATE INDEX IF NOT EXISTS \"vitehub_comment_forge_thread\" ON \"vitehub_comment_forge\" (\"thread_id\")",
     "CREATE INDEX IF NOT EXISTS \"vitehub_comment_forge_pull_request\" ON \"vitehub_comment_forge\" (\"repository\",\"pull_request\")",
@@ -99,6 +103,7 @@ export function commentsMigrationSql(options: CommentsMigrationOptions & { from:
   const missing = options.missing ?? Object.keys(addedColumns)
   return [
     ...Object.entries(addedColumns).filter(([column]) => missing.includes(column)).map(([column, type]) => `ALTER TABLE \`vitehub_comment_threads\` ADD COLUMN \`${column}\` ${type}`),
+    requestIndex,
     ...commentsTables.filter(statement => statement.includes("vitehub_comment_forge")),
   ]
 }
