@@ -149,6 +149,14 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout).not.toContain(REFRESH_TOKEN)
   })
 
+  it("prints the Connection's docs after its actions", async () => {
+    const harness = cli(createTestRuntime(async () => defineConnection({ provider: testProvider(), scopes: [], docs: "Sign in with the **support** inbox.\n" })))
+    expect(await harness.run("inspect", ["mail"])).toBe(0)
+    expect(harness.output.stdout).toMatch(/\n\nSign in with the \*\*support\*\* inbox\.\n$/)
+    expect(await harness.run("inspect", ["mail", "--json"])).toBe(0)
+    expect(harness.output.stdout).toContain('"docs": "Sign in with the **support** inbox.\\n"')
+  })
+
   it("prints the Console connect URL for a deployed app", async () => {
     const harness = cli()
     expect(await harness.run("connect", ["mail", "--url", "https://app.example.com"])).toBe(0)
