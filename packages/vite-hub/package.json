@@ -282,11 +282,6 @@
       "import": "./dist/connections.js",
       "default": "./dist/connections.js"
     },
-    "./connections/agent": {
-      "types": "./dist/connections/agent.d.ts",
-      "import": "./dist/connections/agent.js",
-      "default": "./dist/connections/agent.js"
-    },
     "./connections/chatgpt": {
       "types": "./dist/connections/chatgpt.d.ts",
       "import": "./dist/connections/chatgpt.js",
@@ -322,20 +317,10 @@
       "import": "./dist/comments/anchor.js",
       "default": "./dist/comments/anchor.js"
     },
-    "./comments/realtime": {
-      "types": "./dist/comments/realtime.d.ts",
-      "import": "./dist/comments/realtime.js",
-      "default": "./dist/comments/realtime.js"
-    },
     "./comments/runtime": {
       "types": "./dist/comments/runtime.d.ts",
       "import": "./dist/comments/runtime.js",
       "default": "./dist/comments/runtime.js"
-    },
-    "./comments/runtime/auth": {
-      "types": "./dist/comments/runtime/auth.d.ts",
-      "import": "./dist/comments/runtime/auth.js",
-      "default": "./dist/comments/runtime/auth.js"
     },
     "./content": {
       "types": "./dist/content.d.ts",
@@ -903,50 +888,10 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/auth/cloudflare-access": {
-      "types": "./dist/console/auth-cloudflare-access.d.ts",
-      "import": "./dist/console/auth-cloudflare-access.js",
-      "default": "./dist/console/auth-cloudflare-access.js"
-    },
-    "./console/auth/inline": {
-      "types": "./dist/console/auth-inline.d.ts",
-      "import": "./dist/console/auth-inline.js",
-      "default": "./dist/console/auth-inline.js"
-    },
-    "./console/blob": {
-      "types": "./dist/console/runtime/server/blob.d.ts",
-      "import": "./dist/console/runtime/server/blob.js",
-      "default": "./dist/console/runtime/server/blob.js"
-    },
-    "./console/database": {
-      "types": "./dist/console/runtime/server/database.d.ts",
-      "import": "./dist/console/runtime/server/database.js",
-      "default": "./dist/console/runtime/server/database.js"
-    },
-    "./console/definitions": {
-      "types": "./dist/console/runtime/server/definitions.d.ts",
-      "import": "./dist/console/runtime/server/definitions.js",
-      "default": "./dist/console/runtime/server/definitions.js"
-    },
-    "./console/env": {
-      "types": "./dist/console/runtime/server/env.d.ts",
-      "import": "./dist/console/runtime/server/env.js",
-      "default": "./dist/console/runtime/server/env.js"
-    },
     "./console/mcp-client": {
       "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
       "import": "./dist/console/runtime/server/mcp-client-operations.js",
       "default": "./dist/console/runtime/server/mcp-client-operations.js"
-    },
-    "./console/operations": {
-      "types": "./dist/console/runtime/server/operation-contributions.d.ts",
-      "import": "./dist/console/runtime/server/operation-contributions.js",
-      "default": "./dist/console/runtime/server/operation-contributions.js"
-    },
-    "./console/sections": {
-      "types": "./dist/console/runtime/server/sections.d.ts",
-      "import": "./dist/console/runtime/server/sections.js",
-      "default": "./dist/console/runtime/server/sections.js"
     },
     "./page/pill.js": {
       "default": "./dist/page/pill.iife.js"
@@ -993,11 +938,6 @@
       "import": "./dist/sandbox/ssh.js",
       "default": "./dist/sandbox/ssh.js"
     },
-    "./console/documents": {
-      "types": "./dist/console/runtime/server/documents.d.ts",
-      "import": "./dist/console/runtime/server/documents.js",
-      "default": "./dist/console/runtime/server/documents.js"
-    },
     "./auth/console": {
       "types": "./dist/auth/console.d.ts",
       "import": "./dist/auth/console.js",
@@ -1027,11 +967,6 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
-    },
-    "./console/setup": {
-      "types": "./dist/console/runtime/server/setup.d.ts",
-      "import": "./dist/console/runtime/server/setup.js",
-      "default": "./dist/console/runtime/server/setup.js"
     }
   },
   "scripts": {
