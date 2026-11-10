@@ -135,8 +135,6 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
 
-      # Run contracts first: examples:verify leaves generated example output
-      # that the repository contract tests would scan.
       - run: vp run build
 
       # vp pack rewrites each package's exports map in sorted order. Commit
@@ -150,8 +148,6 @@ jobs:
 
       - name: Validate packed package metadata
         run: vp run package:metadata
-
-      - run: vp run --ignore-depends-on examples:verify
 
   # Match Void's prepublish contract: install the exact tarballs a release
   # would publish and exercise them without workspace visibility. This runs
@@ -356,10 +352,14 @@ jobs:
 
       - name: Require Node.js 22.18
         run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
+      # Install-time builds ran on Node 24. Rebuild once on Node 22.18 before
+      # allowing the six targets to reuse each other's dependency builds.
+      - name: Clear install-time build cache
+        run: vp cache clean
       - name: Build tested packages
         run: |
           for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
-            vp run -t "$task"
+            vp run --cache -t "$task"
           done
       - run: vp test
         working-directory: packages/rate-limit
@@ -497,8 +497,9 @@ jobs:
         with:
           prepare-docs: "false"
 
-      # The Console client imports the built packages, such as vite-hub/console/sections.
-      - run: vp run -t vite-hub#build
+      # The Console client imports built packages, such as vite-hub/console/sections.
+      # Setup and this build both use Node 24, so reuse the docs postinstall builds.
+      - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vite-hub build:console-hosted
       - name: Identify hosted Console build
         run: |

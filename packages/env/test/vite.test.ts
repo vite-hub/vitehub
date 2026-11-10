@@ -14,11 +14,13 @@ import {
   ScriptTarget,
 } from "typescript"
 import { build, resolveConfig } from "vite"
+import type { InlineConfig } from "vite"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { resolveServerEnv } from "../src/server.ts"
 import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
+import { VITEHUB_ENV_SERVER } from "@vite-hub/internal/build/vite"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 import { cloudflareRequest } from "./cloudflare-request.ts"
@@ -120,10 +122,10 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"debug\": boolean")
     expect(types).toContain("\"port\": number")
     expect(types).toContain("\"optionalLabel\": string | undefined")
-    expect(types).toContain("\"githubToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("\"githubToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     expect(types).toContain("\"dryRun\": boolean")
     expect(types).toContain("\"mode\": \"draft\" | \"send\"")
-    expect(types).toContain("\"pin\": import(\"@vite-hub/env/secret\").SecretEnv<number>")
+    expect(types).toContain("\"pin\": import(\"@vite-hub/env\").SecretEnv<number>")
     expect(types).toContain("\"retries\"?: number")
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("\"pin\": SecretEnv<number>")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export interface PublicEnv")
@@ -133,7 +135,6 @@ describe("Vite plugin", () => {
   it.each(["serve", "build"] as const)("keeps public contract types after %s configuration resolves", async (command) => {
     const root = await temporaryDirectory("vitehub-env-contract-types-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "contract-types" }), "utf8")
-    const plugin = hubEnv()
     const declarations = {
       public: {
         mode: env.enum(["draft", "send"], { default: "draft", mode: "build" }),
@@ -146,6 +147,7 @@ describe("Vite plugin", () => {
         }),
       },
     }
+    const plugin = hubEnv(declarations)
     await plugin.api.prepareTypes(declarations, root)
     const ambientPath = join(root, ".vitehub", "types", "env.d.ts")
     const publicPath = join(root, ".vitehub", "env", "public.d.ts")
@@ -154,7 +156,6 @@ describe("Vite plugin", () => {
 
     await resolveConfig({
       configFile: false,
-      env: declarations,
       logLevel: "silent",
       plugins: [plugin],
       root,
@@ -170,7 +171,6 @@ describe("Vite plugin", () => {
   it.each(["serve", "build"] as const)("uses resolved values for opaque public schema types after %s configuration", async (command) => {
     const root = await temporaryDirectory("vitehub-env-opaque-types-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "opaque-types" }), "utf8")
-    const plugin = hubEnv()
     const schema = {
       safeParse: (input: unknown) => input === null || typeof input === "string"
         ? { data: input, success: true as const }
@@ -183,6 +183,7 @@ describe("Vite plugin", () => {
         defaulted: env({ default: null, mode: "build", schema, source: env.custom("defaulted", () => undefined) }),
       },
     }
+    const plugin = hubEnv(declarations)
     await plugin.api.prepareTypes(declarations, root)
     const typePaths = [join(root, ".vitehub", "env", "public.d.ts"), join(root, ".vitehub", "types", "env.d.ts")]
     for (const path of typePaths) {
@@ -194,7 +195,6 @@ describe("Vite plugin", () => {
 
     await resolveConfig({
       configFile: false,
-      env: declarations,
       logLevel: "silent",
       plugins: [plugin],
       root,
@@ -218,11 +218,10 @@ describe("Vite plugin", () => {
           env.boolean({ default: "false" as never, mode: "build", source: env.custom("test", () => hostValue) }),
           env.number({ default: "0.6" as never, mode: "build", source: env.custom("test", () => hostValue) }),
         ]) {
-          const plugin = hubEnv()
+          const plugin = hubEnv({ [section]: section === "define" ? { settings: { value: declaration } } : { value: declaration } })
           const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
           await expect(configHook({
             root,
-            env: { [section]: section === "define" ? { settings: { value: declaration } } : { value: declaration } },
           }, { command: "build", mode: "production" })).rejects.toThrow(`Invalid default for env.${section}.${section === "define" ? "settings." : ""}value: Expected a ${declaration.type} default.`)
         }
       }
@@ -235,11 +234,7 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-vite-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "quiver-chat", version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
-    const plugin = hubEnv({ diagnostics: "trace" })
-    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    const result = await configHook({
-      env: {
-        define: {
+    const plugin = hubEnv({ diagnostics: "trace", define: {
           __APP_VERSION__: env({
             mode: "build",
             schema: stringSchema(),
@@ -289,14 +284,12 @@ describe("Vite plugin", () => {
             },
             hosting: "vercel",
           },
-        },
-        public: {
+        }, public: {
           appName: env({
             mode: "build",
             schema: stringSchema(),
           }),
-        },
-        server: {
+        }, server: {
           app: {
             name: "Telegram Audio",
           },
@@ -309,8 +302,9 @@ describe("Vite plugin", () => {
           teams: {
             appType: "SingleTenant",
           },
-        },
-      },
+        } })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const result = await configHook({
       root,
     }, { command: "build", mode: "production" })
 
@@ -387,18 +381,18 @@ describe("Vite plugin", () => {
     const types = await readFile(join(root, ".vitehub/types/env.d.ts"), "utf8")
     expect(types).toContain("declare module \"#vitehub/env/public\"")
     expect(types).toContain("declare module \"#vitehub/env/server\"")
-    expect(types).toContain("import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("import(\"@vite-hub/env\").SecretEnv<string>")
     expect(types).toContain("export interface PublicEnv")
     expect(types).toContain("export interface ServerEnv")
     expect(types).toContain("\"appName\": string")
     expect(types).toContain("\"app\": {")
     expect(types).toContain("\"name\": \"Telegram Audio\"")
-    expect(types).toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
-    expect(types).toContain("\"optionalSecret\"?: import(\"@vite-hub/env/secret\").SecretEnv<string>")
-    expect(types).toContain("\"optionalToken\"?: import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
+    expect(types).toContain("\"optionalSecret\"?: import(\"@vite-hub/env\").SecretEnv<string>")
+    expect(types).toContain("\"optionalToken\"?: import(\"@vite-hub/env\").SecretEnv<string>")
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
-    expect(types).toContain("useServerEnv(event?: import(\"@vite-hub/env/server\").ViteHubContext): ServerEnv")
+    expect(types).toContain("useServerEnv(event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): ServerEnv")
     expect(types).toContain("runWithServerEnv")
     expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
@@ -409,11 +403,11 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("useServerEnv")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export function usePublicEnv(): PublicEnv")
     const serverModuleTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
-    expect(serverModuleTypes).toContain("import type { SecretEnv } from \"@vite-hub/env/secret\"")
+    expect(serverModuleTypes).toContain("import type { SecretEnv } from \"@vite-hub/env\"")
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
-    expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/server\").ViteHubContext): ServerEnv")
-    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/server\").ViteHubContext): Promise<string>")
+    expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): ServerEnv")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = hookHandler<(id: string) => string | undefined>(plugin.load)
@@ -449,7 +443,7 @@ describe("Vite plugin", () => {
       expect(resolveIdFilter?.test(`\0${id}`)).toBe(false)
       expect(loadFilter?.test(id)).toBe(false)
     }
-    for (const id of ["#vitehub/env/secret", "#vitehub/env/server.mjs", "@vite-hub/env/server", "/app/server/api/env.ts"]) {
+    for (const id of ["#vitehub/env/secret", "#vitehub/env/server.mjs", "@vite-hub/env/internal/server", "/app/server/api/env.ts"]) {
       expect(resolveIdFilter?.test(id)).toBe(false)
       expect(loadFilter?.test(`\0${id}`)).toBe(false)
     }
@@ -460,19 +454,18 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-no-package-json-")
     await writeFile(join(root, ".env.production"), "DEFINE_SENTRY_DEBUG=true\n", "utf8")
 
-    const plugin = hubEnv()
+    const plugin = hubEnv({
+      define: {
+        __SENTRY_DEBUG__: env({
+          mode: "build",
+          schema: booleanSchema(),
+        }),
+      },
+    })
     expect(plugin.enforce).toBeUndefined()
     expect(plugin.resolveId).toMatchObject({ order: "pre" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const result = await configHook({
-      env: {
-        define: {
-          __SENTRY_DEBUG__: env({
-            mode: "build",
-            schema: booleanSchema(),
-          }),
-        },
-      },
       root,
     }, { command: "build", mode: "production" })
 
@@ -488,22 +481,18 @@ describe("Vite plugin", () => {
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.mjs" } }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
     await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\nexport interface ViteHubContext { readonly "~standard": { readonly req: Request } }\nexport declare function seal(purpose: string, value: unknown): Promise<string>\nexport declare function unseal(purpose: string, sealed: string): Promise<unknown>\n', "utf8")
-    const sealingRuntime = new URL("../dist/server.js", import.meta.url).href
+    const sealingRuntime = new URL("../dist/internal/server.js", import.meta.url).href
     await writeFile(join(root, "runtime.mjs"), `export { createSealing, deriveSecret } from ${JSON.stringify(sealingRuntime)};\nexport const resolveServerEnv = () => ({ token: "ok" }); export const loadServerEnv = async () => ({ token: "ok" }); export const inspectServerEnv = async () => ({ entries: [] });\n`, "utf8")
 
     const plugin = hubEnv({
       runtimeImports: {
         secret: "../../secret.js",
         server: "#app/env/server",
-      },
-    })
+      }, server: {
+          token: env({ secret: true }),
+        } })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const configResult = await configHook({
-      env: {
-        server: {
-          token: env({ secret: true }),
-        },
-      },
       root,
     }, { command: "build", mode: "production" })
 
@@ -516,7 +505,7 @@ describe("Vite plugin", () => {
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(serverModule).toContain('from "#app/env/server"')
-    expect(serverModule).not.toContain('from "@vite-hub/env/server"')
+    expect(serverModule).not.toContain('from "@vite-hub/env/internal/server"')
     const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)
     expect(await generated.loadServerEnv()).toEqual({ token: "ok" })
     expect((await generated.manageServerEnv(new Request("http://localhost"))).status).toBe(503)
@@ -560,7 +549,7 @@ describe("Vite plugin", () => {
     ].join("\n"), "utf8")
     const runtimeFacadePath = join(root, "env-runtime.mjs")
     await writeFile(runtimeFacadePath, [
-      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
+      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/internal/server.js", import.meta.url).href)}`,
       ``,
     ].join("\n"), "utf8")
 
@@ -570,17 +559,15 @@ describe("Vite plugin", () => {
         unused: "./server/env/unused.mjs",
       },
       runtimeImports: { server: pathToFileURL(runtimeFacadePath).href },
+      server: {
+        ["__proto__"]: { nested: env({ source: env.source("NESTED") }) },
+        gatewayKey: env({ secret: true, source: env.source("GATEWAY_KEY") }),
+        codexAuth: env({ secret: true, source: env.provider("secrets", "shared/token") }),
+        githubToken: env({ secret: true, source: env.provider("secrets", "shared/token") }),
+      },
     })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const userConfig = {
-      env: {
-        server: {
-          ["__proto__"]: { nested: env({ source: env.source("NESTED") }) },
-          gatewayKey: env({ secret: true, source: env.source("GATEWAY_KEY") }),
-          codexAuth: env({ secret: true, source: env.provider("secrets", "shared/token") }),
-          githubToken: env({ secret: true, source: env.provider("secrets", "shared/token") }),
-        },
-      },
       root,
     }
     const configResult = await configHook(userConfig, { command: "build", mode: "production" })
@@ -672,10 +659,9 @@ describe("Vite plugin", () => {
       secondValue: "gateway-secret:4",
     })
 
-    const missing = hubEnv()
+    const missing = hubEnv({ server: { token: env({ source: env.provider("secrets", "token") }) } })
     const missingConfig = missing.config as typeof configHook
     await expect(missingConfig({
-      env: { server: { token: env({ source: env.provider("secrets", "token") }) } },
       root,
     }, { command: "build", mode: "production" })).rejects.toThrow("hubEnv({ providers })")
   })
@@ -700,11 +686,11 @@ describe("Vite plugin", () => {
         outDir: join(root, "dist"),
       },
       configFile: false,
-      env: {
-        server: { token: env({ source: env.provider("secrets", "token") }) },
-      },
       logLevel: "silent",
-      plugins: [hubEnv({ providers: { secrets: "./server/env#blue?%/provider.mjs" } })],
+      plugins: [hubEnv({
+        providers: { secrets: "./server/env#blue?%/provider.mjs" },
+        server: { token: env({ source: env.provider("secrets", "token") }) },
+      })],
       root,
     })
 
@@ -721,8 +707,10 @@ describe("Vite plugin", () => {
       root,
       configFile: false,
       logLevel: "silent",
-      plugins: [hubEnv({ providers: { vault: "./provider.mjs" } })],
-      env: { server: { token: env({ secret: true, source: env.provider("vault", "private/key") }) } },
+      plugins: [hubEnv({
+        providers: { vault: "./provider.mjs" },
+        server: { token: env({ secret: true, source: env.provider("vault", "private/key") }) },
+      })],
       build: { lib: { entry, fileName: () => "entry.mjs", formats: ["es"] }, outDir: join(root, "dist") },
     })
     const url = pathToFileURL(join(root, "dist", "entry.mjs")).href
@@ -745,18 +733,14 @@ describe("Vite plugin", () => {
         local: "./server/env/provider.mjs",
         packaged: "@example/env-provider",
         unc: uncProvider,
-      },
-    })
-    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    const userConfig = {
-      env: {
-        server: {
+      }, server: {
           crossVolumeToken: env({ source: env.provider("crossVolume", "token") }),
           localToken: env({ source: env.provider("local", "token") }),
           packagedToken: env({ source: env.provider("packaged", "token") }),
           uncToken: env({ source: env.provider("unc", "token") }),
-        },
-      },
+        } })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const userConfig = {
       root,
     }
     const configResult = await configHook(userConfig, { command: "build", mode: "production" })
@@ -784,10 +768,9 @@ describe("Vite plugin", () => {
   it("keeps provider modules scoped to each Vite configuration", async () => {
     const firstRoot = await temporaryDirectory("vitehub-env-provider-first-")
     const secondRoot = await temporaryDirectory("vitehub-env-provider-second-")
-    const plugin = hubEnv({ providers: { secrets: "./server/provider.mjs" } })
+    const plugin = hubEnv({ providers: { secrets: "./server/provider.mjs" }, server: { token: env({ source: env.provider("secrets", "token") }) } })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const config = (root: string) => ({
-      env: { server: { token: env({ source: env.provider("secrets", "token") }) } },
       root,
     })
 
@@ -805,16 +788,33 @@ describe("Vite plugin", () => {
     expect(secondModule).not.toContain(`${firstRoot}/server/provider.mjs`)
   })
 
+  it("applies the app's Server Env over the declarations that ViteHub features add", () => {
+    const appToken = env({ source: env.source("APP_TOKEN") })
+    const appTelegram = env({ secret: true, source: env.source("APP_TELEGRAM") })
+    const kind = env({ source: env.source("SERVICE_KIND") })
+    const source = env({ source: env.source("SERVICE_SOURCE") })
+    const plugin = hubEnv({ server: { service: { token: appToken }, telegram: appTelegram } })
+    const declarations = plugin.api.resolveDeclarations({
+      [VITEHUB_ENV_SERVER]: {
+        service: { kind, source, token: env({ source: env.source("FEATURE_TOKEN") }) },
+        telegram: { botToken: env({ secret: true, source: env.source("TELEGRAM_BOT_TOKEN") }) },
+      },
+    })
+    expect(declarations).toEqual({ server: { service: { kind, source, token: appToken }, telegram: appTelegram } })
+    expect(hubEnv().api.resolveDeclarations({})).toBeUndefined()
+  })
+
   it("serializes generated files while preserving same-root Env configurations", async () => {
     const root = await temporaryDirectory("vitehub-env-same-root-")
     const plugin = hubEnv()
+    // A ViteHub feature declares Server Env for each configuration, as Agent Channels do.
     const resolve = (key: string) => resolveConfig({
+      [VITEHUB_ENV_SERVER]: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) },
       configFile: false,
-      env: { server: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) } },
       logLevel: "silent",
       plugins: [plugin],
       root,
-    }, "serve", "development")
+    } as InlineConfig, "serve", "development")
 
     const [first, second] = await Promise.all([resolve("first"), resolve("second")])
 
@@ -833,13 +833,14 @@ describe("Vite plugin", () => {
   it("regenerates Env after completed same-root configuration reuse", async () => {
     const root = await temporaryDirectory("vitehub-env-sequential-root-")
     const plugin = hubEnv()
+    // A ViteHub feature declares Server Env for each configuration, as Agent Channels do.
     const resolve = (key: string) => resolveConfig({
+      [VITEHUB_ENV_SERVER]: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) },
       configFile: false,
-      env: { server: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) } },
       logLevel: "silent",
       plugins: [plugin],
       root,
-    }, "serve", "development")
+    } as InlineConfig, "serve", "development")
 
     await resolve("first")
     await resolve("second")
@@ -857,7 +858,7 @@ describe("Vite plugin", () => {
     const resolveEnvironment = async (key: string) => {
       const environmentConfig = {}
       const userConfig = {
-        env: { server: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) } },
+        [VITEHUB_ENV_SERVER]: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) },
         environments: { ssr: environmentConfig },
         root,
       }
@@ -887,17 +888,14 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-vite-")
     await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
 
-    const plugin = hubEnv({ prefix: "VITEHUB_" })
-    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
-      env: {
-        public: {
+    const plugin = hubEnv({ prefix: "VITEHUB_", public: {
           appName: env({
             mode: "build",
             schema: stringSchema(),
           }),
-        },
-      },
+        } })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
       root,
     }, { command: "build", mode: "production" })
 
@@ -927,12 +925,11 @@ describe("Vite plugin", () => {
         outDir: join(root, "dist"),
       },
       configFile: false,
-      env: {
+      logLevel: "silent",
+      plugins: [hubEnv({
         public: { appName: env({ default: "ViteHub", mode: "build" }) },
         server: { token: env({ secret: true }) },
-      },
-      logLevel: "silent",
-      plugins: [hubEnv()],
+      })],
       root,
     })
 
@@ -958,14 +955,13 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "app"), { recursive: true })
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
 
-    const plugin = hubEnv()
+    const plugin = hubEnv({
+      server: {
+        airtableToken: env({ secret: true }),
+      },
+    })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const configResult = await configHook({
-      env: {
-        server: {
-          airtableToken: env({ secret: true }),
-        },
-      },
       root: join(root, "app"),
     }, { command: "build", mode: "production" })
 
@@ -976,7 +972,7 @@ describe("Vite plugin", () => {
       root: join(root, "app"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -987,7 +983,7 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } export function seal(purpose: string, value: unknown): Promise<string>; export function unseal(purpose: string, sealed: string): Promise<unknown> }\n', "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/internal/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } export function seal(purpose: string, value: unknown): Promise<string>; export function unseal(purpose: string, sealed: string): Promise<unknown> }\n', "utf8")
     const packageJsonPath = join(appRoot, "package.json")
     const packageJson = JSON.stringify({
       imports: {
@@ -998,18 +994,14 @@ describe("Vite plugin", () => {
     })
     await writeFile(packageJsonPath, packageJson, "utf8")
 
-    const plugin = hubEnv({ runtimeImports: { secret: "../../secret.js" } })
-    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    const configResult = await configHook({
-      env: {
-        public: {
+    const plugin = hubEnv({ runtimeImports: { secret: "../../secret.js" }, public: {
           appName: env({
             mode: "build",
             schema: stringSchema(),
           }),
-        },
-        server: { token: env({ secret: true }) },
-      },
+        }, server: { token: env({ secret: true }) } })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const configResult = await configHook({
       root: appRoot,
     }, { command: "build", mode: "production" })
 
@@ -1054,14 +1046,13 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "frontend"), { recursive: true })
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
 
-    const plugin = hubEnv()
+    const plugin = hubEnv({
+      server: {
+        airtableToken: env({ secret: true }),
+      },
+    })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const configResult = await configHook({
-      env: {
-        server: {
-          airtableToken: env({ secret: true }),
-        },
-      },
       root: join(root, "frontend"),
     }, { command: "build", mode: "production" })
 
@@ -1072,7 +1063,7 @@ describe("Vite plugin", () => {
       root: join(root, "frontend"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "frontend", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -1081,14 +1072,13 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "app"), { recursive: true })
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-only" }), "utf8")
 
-    const plugin = hubEnv()
+    const plugin = hubEnv({
+      server: {
+        airtableToken: env({ secret: true }),
+      },
+    })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const configResult = await configHook({
-      env: {
-        server: {
-          airtableToken: env({ secret: true }),
-        },
-      },
       root: join(root, "app"),
     }, { command: "build", mode: "production" })
 
@@ -1099,7 +1089,7 @@ describe("Vite plugin", () => {
       root: join(root, "app"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -1107,14 +1097,11 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-vite-explicit-root-")
     await mkdir(join(root, "app"), { recursive: true })
 
-    const plugin = hubEnv({ projectRoot: ".." })
+    const plugin = hubEnv({ projectRoot: "..", server: {
+          airtableToken: env({ secret: true }),
+        } })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const configResult = await configHook({
-      env: {
-        server: {
-          airtableToken: env({ secret: true }),
-        },
-      },
       root: join(root, "app"),
     }, { command: "build", mode: "production" })
 
@@ -1125,7 +1112,7 @@ describe("Vite plugin", () => {
       root: join(root, "app"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
