@@ -42,6 +42,7 @@
       "vitehub-hosted": "./dist/runtime/definition-hosted.js",
       "default": "./dist/runtime/definition-local.js"
     },
+    "#vitehub/database/libsql": "./dist/runtime/libsql.js",
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {
@@ -79,6 +80,11 @@
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
+    },
+    "./runtime/libsql-drizzle": {
+      "types": "./dist/runtime/libsql-drizzle.d.ts",
+      "import": "./dist/runtime/libsql-drizzle.js",
+      "default": "./dist/runtime/libsql-drizzle.js"
     },
     "./runtime/request-stats": {
       "types": "./dist/runtime/request-stats.d.ts",

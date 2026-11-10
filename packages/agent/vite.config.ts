@@ -77,7 +77,6 @@ export default defineConfig({
       "src/runtime/provider-agent-worker.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
-      "src/server/github.ts",
       "src/server/internal.ts",
       "src/server/registry.ts",
       "src/server/workspace.ts",

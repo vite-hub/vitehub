@@ -36,7 +36,6 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./runtime/registry",
     "./runtime/workflow",
     "./server",
-    "./server/github",
     "./server/internal",
     "./server/registry",
     "./server/workspace",
@@ -192,6 +191,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./connect/node",
     "./drizzle",
     "./nuxt",
+    "./runtime/libsql-drizzle",
     "./runtime/request-stats",
     "./runtime/state",
     "./virtual",
@@ -259,6 +259,16 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     ".",
     "./ai-sdk",
     "./internal",
+    "./package.json",
+  ],
+  "@vite-hub/i18n": [
+    ".",
+    "./cli",
+    "./nuxt",
+    "./runtime",
+    "./server",
+    "./vite",
+    "./vue",
     "./package.json",
   ],
   "@vite-hub/kv": [
@@ -449,6 +459,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./internal/runtime/assets",
     "./internal/runtime/hosted",
     "./internal/runtime/hosted-vercel-blob",
+    "./internal/runtime/registry",
     "./internal/runtime/state",
     "./internal/runtime/workspace",
     "./internal/stores/github",
@@ -484,6 +495,7 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./_internal/workspace",
     "./_internal/workspace/internal/runtime/hosted",
     "./_internal/workspace/internal/runtime/hosted-vercel-blob",
+    "./_internal/workspace/internal/runtime/registry",
     "./_internal/workspace/internal/runtime/state",
     "./_internal/workspace/operations",
     "./_internal/workspace/runtime",
@@ -499,7 +511,6 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./agent/observability",
     "./agent/runtime/process",
     "./agent/server",
-    "./agent/server/github",
     "./agent/state/sqlite",
     "./agent/vite",
     "./agent/vue",
@@ -582,6 +593,10 @@ export const publicPackageExportAllowlist: Readonly<Record<string, readonly stri
     "./forms/runtime",
     "./gateways",
     "./gateways/ai-sdk",
+    "./i18n",
+    "./i18n/runtime",
+    "./i18n/server",
+    "./i18n/vue",
     "./kv",
     "./markdown-template",
     "./markdown-template/file",
@@ -817,7 +832,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent` and `vite-hub/_internal/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forms", "i18n", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }
