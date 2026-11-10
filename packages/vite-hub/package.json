@@ -163,41 +163,6 @@
       "import": "./dist/_internal/sandbox/task/runtime/state.js",
       "default": "./dist/_internal/sandbox/task/runtime/state.js"
     },
-    "./_internal/schedule": {
-      "types": "./dist/_internal/schedule.d.ts",
-      "import": "./dist/_internal/schedule.js",
-      "default": "./dist/_internal/schedule.js"
-    },
-    "./_internal/schedule/operations": {
-      "types": "./dist/_internal/schedule/operations.d.ts",
-      "import": "./dist/_internal/schedule/operations.js",
-      "default": "./dist/_internal/schedule/operations.js"
-    },
-    "./_internal/schedule/runtime": {
-      "types": "./dist/_internal/schedule/runtime.d.ts",
-      "import": "./dist/_internal/schedule/runtime.js",
-      "default": "./dist/_internal/schedule/runtime.js"
-    },
-    "./_internal/schedule/runtime/console": {
-      "types": "./dist/_internal/schedule/runtime/console.d.ts",
-      "import": "./dist/_internal/schedule/runtime/console.js",
-      "default": "./dist/_internal/schedule/runtime/console.js"
-    },
-    "./_internal/schedule/runtime/kv": {
-      "types": "./dist/_internal/schedule/runtime/kv.d.ts",
-      "import": "./dist/_internal/schedule/runtime/kv.js",
-      "default": "./dist/_internal/schedule/runtime/kv.js"
-    },
-    "./_internal/schedule/runtime/process": {
-      "types": "./dist/_internal/schedule/runtime/process.d.ts",
-      "import": "./dist/_internal/schedule/runtime/process.js",
-      "default": "./dist/_internal/schedule/runtime/process.js"
-    },
-    "./_internal/schedule/runtime/static": {
-      "types": "./dist/_internal/schedule/runtime/static.d.ts",
-      "import": "./dist/_internal/schedule/runtime/static.js",
-      "default": "./dist/_internal/schedule/runtime/static.js"
-    },
     "./_internal/task/operations": {
       "types": "./dist/_internal/task/operations.d.ts",
       "import": "./dist/_internal/task/operations.js",
@@ -208,40 +173,10 @@
       "import": "./dist/_internal/workflow.js",
       "default": "./dist/_internal/workflow.js"
     },
-    "./_internal/workflow/operations": {
-      "types": "./dist/_internal/workflow/operations.d.ts",
-      "import": "./dist/_internal/workflow/operations.js",
-      "default": "./dist/_internal/workflow/operations.js"
-    },
-    "./_internal/workflow/runtime/cloudflare-runner": {
-      "types": "./dist/_internal/workflow/runtime/cloudflare-runner.d.ts",
-      "import": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
-      "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
-    },
-    "./_internal/workflow/runtime/cloudflare-vite": {
-      "types": "./dist/_internal/workflow/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
-      "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
-    },
-    "./_internal/workflow/runtime/dev-runs": {
-      "types": "./dist/_internal/workflow/runtime/dev-runs.d.ts",
-      "import": "./dist/_internal/workflow/runtime/dev-runs.js",
-      "default": "./dist/_internal/workflow/runtime/dev-runs.js"
-    },
-    "./_internal/workflow/runtime/execute": {
-      "types": "./dist/_internal/workflow/runtime/execute.d.ts",
-      "import": "./dist/_internal/workflow/runtime/execute.js",
-      "default": "./dist/_internal/workflow/runtime/execute.js"
-    },
     "./_internal/workflow/runtime/state": {
       "types": "./dist/_internal/workflow/runtime/state.d.ts",
       "import": "./dist/_internal/workflow/runtime/state.js",
       "default": "./dist/_internal/workflow/runtime/state.js"
-    },
-    "./_internal/workflow/runtime/vercel-vite": {
-      "types": "./dist/_internal/workflow/runtime/vercel-vite.d.ts",
-      "import": "./dist/_internal/workflow/runtime/vercel-vite.js",
-      "default": "./dist/_internal/workflow/runtime/vercel-vite.js"
     },
     "./_internal/workspace": {
       "types": "./dist/_internal/workspace.d.ts",

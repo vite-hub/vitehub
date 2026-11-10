@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
@@ -316,9 +317,10 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const [vercelNativeFile] = artifacts.vercelNativeFiles
   await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(retainedWorkflowFile)
   expect(() => buildSync({ bundle: true, entryPoints: [vercelNativeFile!], platform: "node", write: false })).not.toThrow()
-  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/cloudflare-vite"`)
-  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/cloudflare-runner"`)
-  await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/vercel-vite"`)
+  // Generated entries import the Workflow runtime by file path, not through a package export.
+  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from ${JSON.stringify(workflowRuntimeModule("cloudflare-vite"))}`)
+  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from ${JSON.stringify(workflowRuntimeModule("cloudflare-runner"))}`)
+  await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from ${JSON.stringify(workflowRuntimeModule("vercel-vite"))}`)
 
   const publishedDir = join(rootDir, ".vitehub", "workflow")
   await generateWorkflowProviderOutputs({
@@ -350,19 +352,20 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   await writeFile(cloudflareViteStub, "export const createWorkflowCloudflareWorker = options => options\nexport const installWorkflowCloudflareRuntime = () => undefined\n")
   await writeFile(cloudflareRunnerStub, "export const runCloudflareWorkflow = async () => undefined\n")
   await writeFile(workflowRuntimeStub, "export const createWorkflowSteps = () => []\nexport const takeInlineWorkflowDefinitionForModule = () => undefined\n")
+  const runtimeStubs: Record<string, string> = {
+    [workflowRuntimeModule("cloudflare-runner")]: cloudflareRunnerStub,
+    [workflowRuntimeModule("cloudflare-vite")]: cloudflareViteStub,
+    [workflowRuntimeModule("execute")]: workflowRuntimeStub,
+    [workflowRuntimeModule("state")]: workflowRuntimeStub,
+  }
   const fileUrlPlugin: import("esbuild").Plugin = {
     name: "file-url",
     setup(build) {
       build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
+      build.onResolve({ filter: /runtime/ }, args => runtimeStubs[args.path] ? { path: runtimeStubs[args.path]! } : undefined)
     },
   }
   await expect(build({
-    alias: {
-      "vite-hub/_internal/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
-      "vite-hub/_internal/workflow/runtime/cloudflare-vite": cloudflareViteStub,
-      "vite-hub/_internal/workflow/runtime/execute": workflowRuntimeStub,
-      "vite-hub/_internal/workflow/runtime/state": workflowRuntimeStub,
-    },
     bundle: true,
     entryPoints: [join(publishedDir, "cloudflare-worker.mjs")],
     external: ["cloudflare:workflows"],
@@ -373,12 +376,6 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
 
   const ownerArtifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, rootDir, join(rootDir, ".vitehub", "workflow-owner-output"))
   await expect(build({
-    alias: {
-      "@vite-hub/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
-      "@vite-hub/workflow/runtime/cloudflare-vite": cloudflareViteStub,
-      "@vite-hub/workflow/runtime/execute": workflowRuntimeStub,
-      "@vite-hub/workflow/runtime/state": workflowRuntimeStub,
-    },
     bundle: true,
     entryPoints: [ownerArtifacts.cloudflareWorkerFile],
     external: ["cloudflare:workflows"],
