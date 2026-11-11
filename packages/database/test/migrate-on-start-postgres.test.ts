@@ -69,7 +69,7 @@ async function createProject(migrations: Array<{ sql: string, tag: string, when:
   cleanups.push(() => rm(root, { force: true, recursive: true }))
   await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
   await mkdir(join(root, "server/databases"), { recursive: true })
-  await writeFile(join(root, "server/databases/config.ts"), [
+  await writeFile(join(root, "server/databases/default.ts"), [
     'import { defineDatabase } from "@vite-hub/database"',
     'import { integer, pgTable, text } from "drizzle-orm/pg-core"',
     "export default defineDatabase({",
@@ -84,7 +84,7 @@ async function createProject(migrations: Array<{ sql: string, tag: string, when:
 
 async function writeMigrations(root: string, migrations: Array<{ sql: string, tag: string, when: number }>) {
   // Drizzle Kit 1.0 writes `<YYYYMMDDHHmmss>_<name>/migration.sql`. The folder time is the `when` of each fixture.
-  const dir = join(root, "server/databases/migrations")
+  const dir = join(root, "server/databases/default/migrations")
   await rm(dir, { force: true, recursive: true })
   for (const migration of migrations) {
     await mkdir(join(dir, migration.tag), { recursive: true })
@@ -213,7 +213,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const oldInstance = await sql.reserve()
     await oldInstance`begin`
     await oldInstance`select * from users`
-    const migrating = postgres(url, { connection: { statement_timeout: "15000" }, max: 1, onnotice: () => {} })
+    const migrating = postgres(url, { connection: { statement_timeout: 15_000 }, max: 1, onnotice: () => {} })
     cleanups.push(() => migrating.end())
     try {
       await expect(migratePostgres([{ client: migrating, database: { migrations: [initial, pending], name: "default" } }], { log: () => {} }))

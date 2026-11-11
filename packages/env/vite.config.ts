@@ -1,9 +1,9 @@
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     plugins: [
       {
@@ -24,17 +24,11 @@ export default defineConfig({
     entry: [
       "src/index.ts",
       "src/bridge.ts",
-      "src/auth.ts",
       "src/cli.ts",
-      "src/http.ts",
       "src/internal/agent.ts",
       "src/internal/connections.ts",
+      "src/internal/server.ts",
       "src/database.ts",
-      "src/presets.ts",
-      "src/provider.ts",
-      "src/schema.ts",
-      "src/server.ts",
-      "src/secret.ts",
       "src/seal.ts",
       "src/virtual.ts",
       "src/vite.ts",
@@ -60,10 +54,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 });

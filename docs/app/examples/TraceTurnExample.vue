@@ -11,7 +11,7 @@
           <TraceCollapsible>
             <TraceCollapsibleTrigger>
               <TraceLine>
-                <TraceIcon><UIcon name="i-ph-brain-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-brain" /></TraceIcon>
                 <TraceTitle>Thought</TraceTitle>
                 <TraceDescription>12 s</TraceDescription>
               </TraceLine>
@@ -23,20 +23,20 @@
           <TraceCollapsible default-open>
             <TraceCollapsibleTrigger>
               <TraceLine status="error">
-                <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
                 <TraceTitle>Ran 2 commands, 1 failed</TraceTitle>
               </TraceLine>
             </TraceCollapsibleTrigger>
             <TraceCollapsibleContent>
               <Trace>
                 <TraceLine>
-                  <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+                  <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
                   <TraceTitle>Ran node --version</TraceTitle>
                 </TraceLine>
                 <TraceCollapsible>
                   <TraceCollapsibleTrigger>
                     <TraceLine status="error">
-                      <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+                      <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
                       <TraceTitle>Failed to run pnpm --version</TraceTitle>
                     </TraceLine>
                   </TraceCollapsibleTrigger>
@@ -56,9 +56,9 @@
         <Trace>
           <a href="#whole-turn">
             <TraceLine>
-              <TraceIcon><UIcon name="i-ph-file-text-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-file-text" /></TraceIcon>
               <TraceTitle>Read nuxt.config.ts</TraceTitle>
-              <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
             </TraceLine>
           </a>
         </Trace>

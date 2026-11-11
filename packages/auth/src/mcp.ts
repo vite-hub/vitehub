@@ -4,7 +4,8 @@ import { APIError, createAuthMiddleware } from "better-auth/api"
 import { verifyJwsAccessToken } from "better-auth/oauth2"
 import { jwt } from "better-auth/plugins"
 
-import { getAuthForRequest } from "./server.ts"
+import { authForRequest } from "./auth-instance.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Result } from "@vite-hub/runtime"
 import type { BetterAuthPlugin } from "better-auth"
@@ -77,10 +78,6 @@ export type McpOAuthPlugins = [ReturnType<typeof jwt>, ReturnType<typeof oauthPr
 
 const baseScopes = ["openid", "profile", "email", "offline_access"]
 const registerPath = "/oauth2/register"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 /** Bounds RFC 7591 client metadata without restricting the private-use redirect schemes of native MCP clients. */
 function registrationProblem(body: unknown, maxBytes: number): string | undefined {
@@ -179,7 +176,7 @@ export function mcpOAuth(options: McpOAuthOptions): McpOAuthPlugins {
   ]
 }
 
-/** What the MCP helpers read from a Better Auth instance. `getAuthForRequest()` returns one. */
+/** What the MCP helpers read from a Better Auth instance. `useAuth()` returns one. */
 export interface McpOAuthAuth {
   $context: Promise<{
     baseURL: string
@@ -221,8 +218,8 @@ async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 
 const pathOf = (url: string) => new URL(url).pathname.replace(/\/+$/, "")
 
-// SAFETY: `getAuthForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-const appAuth = (request: Pick<Request, "headers" | "url">) => getAuthForRequest(request) as unknown as McpOAuthAuth
+// SAFETY: `authForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
+const appAuth = (request: Pick<Request, "headers" | "url">) => authForRequest(request) as unknown as McpOAuthAuth
 
 /** Options of {@link serveMcpOAuthDiscovery}. */
 export interface McpOAuthDiscoveryOptions {

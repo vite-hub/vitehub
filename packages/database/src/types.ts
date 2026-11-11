@@ -68,7 +68,7 @@ export interface DatabaseIntegrationOptions {
   }
   /**
    * Applies pending migrations when a Node server build starts, before it handles requests. It uses the ledger and
-   * data loss check of `vitehub db migrate`, and a failed migration stops the server.
+   * data loss check of `vitehub database migrate`, and a failed migration stops the server.
    *
    * Unset, Postgres databases of a Node build migrate on start and other databases do not. Postgres migrations hold an
    * advisory lock, so several instances can start together. `true` also migrates local SQLite files, one server
@@ -238,7 +238,7 @@ export interface ResolvedDBViteConfig {
   tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
 }
 
-export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+export type DatabaseOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
   connection?: DatabaseConnectionConfig
 }
 

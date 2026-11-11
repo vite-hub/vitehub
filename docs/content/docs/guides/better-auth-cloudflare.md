@@ -88,9 +88,9 @@ export default defineAuth({
 })
 ```
 
-`authDatabase()` is the Better Auth adapter for the `default` Database, using each request's D1 binding. ViteHub adds these tables: `user`, `session`, `account`, `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [Console MCP OAuth](/docs/development/mcp#set-up-oauth). With no Database Definition, ViteHub uses an implicit `default` Database with the D1 binding `DB`. To name the D1 database, add `server/databases/config.ts`, and the Auth tables move into it:
+`authDatabase()` is the Better Auth adapter for the `default` Database, using each request's D1 binding. ViteHub adds these tables: `user`, `session`, `account`, `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [Console MCP OAuth](/docs/development/mcp#set-up-oauth). With no Database Definition, ViteHub uses an implicit `default` Database with the D1 binding `DB`. To name the D1 database, add `server/databases/default.ts`, and the Auth tables move into it:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({
@@ -104,11 +104,11 @@ See [Keep users in the app Database](/docs/auth/configure#keep-users-in-the-app-
 ### Generate the migration
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-`generate` writes the table SQL to `server/databases/migrations/`. `migrate` applies it to the local dev SQLite file. `pnpm vitehub inspect definitions --kind database` lists the tables, with `@vite-hub/auth/vite` as their plugin.
+`generate` writes the table SQL to `server/databases/default/migrations/`. `migrate` applies it to the local dev SQLite file. `pnpm vitehub inspect definitions --kind database` lists the tables, with `@vite-hub/auth/vite` as their plugin.
 
 ## How to run Better Auth locally
 
@@ -201,17 +201,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true }), nitro()],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
         },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -223,17 +226,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true })],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
         },
       },
     },
-  },
+  })],
 })
 ```
 :::
@@ -260,7 +266,7 @@ Store `GITHUB_CLIENT_SECRET` and `VITEHUB_SECRET` with `wrangler secret put`. Th
 ## Limits worth knowing
 
 - D1 allows 50 queries per Worker invocation on Workers Free and 1,000 on Workers Paid. A database holds 500 MB on Free and 10 GB on Paid. See [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
-- Wrangler applies D1 migrations, not `vitehub db migrate`. Run `wrangler d1 migrations apply` after each schema change, before the new Worker gets traffic.
+- Wrangler applies D1 migrations, not `vitehub database migrate`. Run `wrangler d1 migrations apply` after each schema change, before the new Worker gets traffic.
 - `session.onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, it fails with `AUTH_C0042`.
 - A `stateless()` cookie holds the user and the provider tokens. Large tokens can pass browser or proxy header limits.
 - Rotating `VITEHUB_SECRET` signs out every session.

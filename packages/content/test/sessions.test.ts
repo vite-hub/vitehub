@@ -12,7 +12,7 @@ import { createOperationRegistry, runOperation } from "@vite-hub/internal/operat
 import { useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { pullWorkspaces, pushWorkspaces } from "@vite-hub/workspace/checkout"
-import { workspaceOperations } from "@vite-hub/workspace/operations"
+import { workspaceOperations } from "../../workspace/src/operations.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"

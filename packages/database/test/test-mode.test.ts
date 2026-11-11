@@ -24,7 +24,7 @@ vi.mock("#vitehub/database/databases", async () => {
             connection: { url: "file:unused.sqlite" },
             dialect: "sqlite",
             generatedSchemaFile: ".vitehub/database/schema/default.ts",
-            migrationsDir: "server/databases/migrations",
+            migrationsDir: "server/databases/default/migrations",
             mode: "default",
             name: "default",
             orm: "drizzle",
@@ -40,7 +40,7 @@ let root: string
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "vitehub-database-test-mode-"))
-  const migrations = join(root, "server/databases/migrations")
+  const migrations = join(root, "server/databases/default/migrations")
   // Drizzle Kit 1.0 writes one folder per migration.
   await mkdir(join(migrations, "20260901000000_notes"), { recursive: true })
   await writeFile(join(migrations, "20260901000000_notes/migration.sql"), "CREATE TABLE `notes` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`title` text NOT NULL\n);\n")

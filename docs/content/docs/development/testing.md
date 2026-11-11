@@ -82,7 +82,7 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 
 `reset()` deletes the test folders, closes the databases, empties the lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
 
-Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/migrations/`. Run `vitehub db generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
+Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/default/migrations/`. Run `vitehub database generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
 
 To run a Queue handler, import its Definition and call the handler with a job from `hub.jobs`.
 

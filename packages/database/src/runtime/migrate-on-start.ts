@@ -47,7 +47,7 @@ interface StartMigrationPlan {
 }
 
 // Drizzle's ledger, created and upgraded with the same statements as `drizzle-orm/libsql/migrator` 1.0, so
-// `vitehub db migrate` and the server agree on what is applied.
+// `vitehub database migrate` and the server agree on what is applied.
 const migrationsTable = "__drizzle_migrations"
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`
 
@@ -147,7 +147,7 @@ function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfil
 
 /**
  * Applies the pending migrations of each database before the server handles requests. It uses Drizzle Kit's ledger and
- * refuses migrations that lose data, like `vitehub db migrate`. It checks every database before the first one changes,
+ * refuses migrations that lose data, like `vitehub database migrate`. It checks every database before the first one changes,
  * so a refusal leaves all of them as they were.
  *
  * A local SQLite file runs all its pending migrations in one transaction. A Postgres database runs them in one
@@ -233,13 +233,13 @@ function isPostgresClient(value: unknown): value is PostgresMigrationClient {
 
 /**
  * The key of the Postgres advisory lock that every ViteHub migration of a Postgres database holds: migrate on start
- * and `vitehub db migrate`. Advisory locks belong to one database, and so does Drizzle Kit's ledger. Read it with
+ * and `vitehub database migrate`. Advisory locks belong to one database, and so does Drizzle Kit's ledger. Read it with
  * `select * from pg_locks where locktype = 'advisory'` while a migration waits.
  */
 export const postgresMigrationLock = "vitehub:migrations"
 
 // Drizzle's Postgres ledger, created and upgraded with the statements of `migrate` in `drizzle-orm/pg-core/async/session`
-// 1.0, so `drizzle-kit migrate`, `vitehub db migrate` and a starting server agree on what is applied.
+// 1.0, so `drizzle-kit migrate`, `vitehub database migrate` and a starting server agree on what is applied.
 const postgresLedger = "\"drizzle\".\"__drizzle_migrations\""
 const createPostgresLedger = `CREATE TABLE IF NOT EXISTS ${postgresLedger} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())`
 

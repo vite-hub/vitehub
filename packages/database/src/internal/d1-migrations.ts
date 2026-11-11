@@ -3,11 +3,12 @@ import { copyFile, mkdir } from "node:fs/promises"
 
 import { join } from "pathe"
 
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
 
 import type { MigrationEntry } from "./migration-journal.ts"
 
-/** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub db migrate` share it. */
+/** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub database migrate` share it. */
 export const defaultD1MigrationsTable = "d1_migrations"
 
 // Drizzle Kit's ledger. ViteHub used it for D1 HTTP before it used Wrangler's ledger.
@@ -27,7 +28,7 @@ export interface D1Ledger {
   applied: ReadonlySet<string>
   /**
    * Set when the ledger table does not exist yet. Names of the migrations that Drizzle Kit applied before, which the
-   * first `vitehub db migrate` writes into the new ledger.
+   * first `vitehub database migrate` writes into the new ledger.
    */
   missing?: { adopted: readonly string[] }
   table: string
@@ -87,12 +88,12 @@ function readD1MigrationNames(migrationsDir: string): Record<string, string> {
   try {
     value = JSON.parse(readFileSync(file, "utf8"))
   }
-  catch (error) {
+  catch {
     // For example the markers of a merge conflict.
-    throw new Error(`${file} is not valid JSON. Fix the JSON. ${shape}`, { cause: error })
+    throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `${file} is not valid JSON. Fix the JSON. ${shape}` })
   }
   const valid = isRecord(value) && !Array.isArray(value) && Object.values(value).every(name => typeof name === "string" && name.endsWith(".sql"))
-  if (!valid) throw new Error(shape)
+  if (!valid) throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: shape })
   return value as Record<string, string>
 }
 
@@ -130,12 +131,12 @@ export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   for (const name of flat) {
     const folder = files.find(file => file.name === name)
     if (folder) {
-      throw new Error(`${join(migrationsDir, name)} has the Wrangler name of the migration folder ${folder.tag}. Rename the file, for example with the next free number.`)
+      throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `${join(migrationsDir, name)} has the Wrangler name of the migration folder ${folder.tag}. Rename the file, for example with the next free number.` })
     }
     files.push({ name, source: join(migrationsDir, name), tag: name.slice(0, -".sql".length) })
   }
   const duplicate = files.find((file, index) => files.findIndex(other => other.name === file.name) !== index)
-  if (duplicate) throw new Error(`${join(migrationsDir, d1MigrationNamesFile)} gives two migrations the Wrangler name ${duplicate.name}. Give one of them the next free number.`)
+  if (duplicate) throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `${join(migrationsDir, d1MigrationNamesFile)} gives two migrations the Wrangler name ${duplicate.name}. Give one of them the next free number.` })
   return files.sort((a, b) => {
     const aNumber = Number.parseInt(a.name.split("_")[0]!, 10)
     const bNumber = Number.parseInt(b.name.split("_")[0]!, 10)
@@ -178,14 +179,14 @@ function assertNumbering(applied: ReadonlySet<string>, files: readonly D1Migrati
     const suffix = /^\d+_(.+)$/.exec(name)?.[1]
     const moved = suffix && files.find(file => file.name.endsWith(`_${suffix}`))
     if (moved) {
-      throw new Error(`Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). Wrangler would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name}" in it.`)
+      throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). Wrangler would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name}" in it.` })
     }
   }
 }
 
 /**
  * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the migrations that
- * Drizzle Kit applied count as applied, so a database that `vitehub db migrate` migrated before keeps its state.
+ * Drizzle Kit applied count as applied, so a database that `vitehub database migrate` migrated before keeps its state.
  */
 export async function readD1Ledger(
   query: D1Query,

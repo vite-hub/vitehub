@@ -16,7 +16,7 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { file as blobFile, image as blobImage } from "@vite-hub/blob/reference"
+import { file as blobFile, image as blobImage } from "@vite-hub/blob"
 import { documents, optional, singleton } from "../src/collections.ts"
 import { defineContent, file, image, seo } from "../src/index.ts"
 

@@ -25,8 +25,10 @@ export type { PendingMigration } from "./migration-journal.ts"
 
 export interface MigrationPlan {
   database: string
-  /** Where `vitehub db migrate` applies migrations, without credentials. */
+  /** Where `vitehub database migrate` applies migrations, without credentials. */
   target: string
+  /** How many migrations of the journal the database already has. */
+  applied: number
   pending: PendingMigration[]
 }
 
@@ -166,7 +168,7 @@ async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "post
 }
 
 /**
- * Lists the migrations that `vitehub db migrate` would apply to one database, with their statements that lose data.
+ * Lists the migrations that `vitehub database migrate` would apply to one database, with their statements that lose data.
  * It reads the Drizzle migrations table, or Wrangler's `d1_migrations` table for D1 HTTP, and changes nothing.
  */
 export async function readMigrationPlan(
@@ -188,19 +190,20 @@ export async function readMigrationPlan(
       const pending = listD1Migrations(database.migrationsDir)
         .filter(file => !ledger.applied.has(file.name))
         .map(file => readPendingMigration(database.migrationsDir, file.tag, entries))
-      return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
+      return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
     const { applied, unmatched } = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
     // Drizzle 1.0 adds `name` to a Drizzle Kit 0.x ledger first, and refuses rows that match no migration folder, for
     // example the rows of another Definition on the same database.
     if (unmatched.length) {
-      throw new Error(`Its Drizzle Kit 0.x migrations table has ${unmatched.length} row(s) (id ${unmatched.join(", ")}) that match no migration folder in ${database.migrationsDir}, so Drizzle 1.0 cannot upgrade it. Restore the missing folders, or give each Definition its own database.`)
+      const problem = `Its Drizzle Kit 0.x migrations table has ${unmatched.length} row(s) (id ${unmatched.join(", ")}) that match no migration folder in ${database.migrationsDir}, so Drizzle 1.0 cannot upgrade it. Restore the missing folders, or give each Definition its own database.`
+      return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
     }
     const pending = entries
       .filter(entry => !applied.has(entry.tag))
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
-    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
+    return [undefined, { applied: entries.length - pending.length, database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)
@@ -210,7 +213,7 @@ export async function readMigrationPlan(
 
 /**
  * Applies the pending migrations of a D1 HTTP database with Wrangler's ledger, so `wrangler d1 migrations apply` and
- * `vitehub db migrate` agree on what is applied. Returns the error message when a request fails.
+ * `vitehub database migrate` agree on what is applied. Returns the error message when a request fails.
  */
 export async function migrateD1Http(
   database: ResolvedDrizzleDatabaseConfig,

@@ -34,10 +34,8 @@ const d1HttpRequestTimeoutMs = 30_000
 
 function getD1HttpErrorDetail(...sources: Array<D1HttpErrorSource | undefined>) {
   const messages = sources.flatMap(source => [
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- D1 JSON error fields are untrusted; only strings can enter diagnostics.
     ...(typeof source?.error === "string" ? [source.error] : []),
     ...(Array.isArray(source?.errors) ? source.errors : [])
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- D1 JSON error messages are untrusted; only strings can enter diagnostics.
       .map(error => typeof error?.message === "string" ? error.message : undefined),
   ]).filter((message): message is string => Boolean(message?.trim()))
   return messages.join("; ")

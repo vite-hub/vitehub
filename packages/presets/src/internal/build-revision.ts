@@ -24,7 +24,7 @@ export function presetsBuildRevision(root: string): string {
   const add = (path: string) => { if (existsSync(path)) files.add(path); };
   const manifest = (directory: string) => v.parse(manifestSchema, JSON.parse(readFileSync(join(directory, "package.json"), "utf8")));
   if (workspace) {
-    for (const name of ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.json", "vite.config.ts"]) add(join(workspace, name));
+    for (const name of ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.json", "tsconfig.build.base.json", "vite.config.ts"]) add(join(workspace, name));
     const directory = join(workspace, "packages");
     if (existsSync(directory)) for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);

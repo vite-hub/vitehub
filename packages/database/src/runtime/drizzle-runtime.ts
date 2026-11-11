@@ -3,6 +3,7 @@ import { localSqlite } from "#vitehub/database/libsql"
 import { defineRelations } from "drizzle-orm"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
+import { createUseDatabase } from "./use-database.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { AnyRelations } from "drizzle-orm"
@@ -66,7 +67,7 @@ function withTestDatabase<TSchema extends Record<string, unknown>>(
     if (!test || !localSqlite) return database
     const sqlite = localSqlite
     return test.backend(`database:${name}`, () => {
-      const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
+      const directory = migrationsDir ?? `server/databases/${name}/migrations`
       const client = sqlite.createTestClient(test.root, directory)
       // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
       // SAFETY: These are the relations of `schema`; a schema typed as a plain record gives them an index signature.
@@ -113,3 +114,5 @@ export const databases = {
 }
 
 export const db = databases.default.db
+
+export const useDatabase = createUseDatabase(databases, Object.keys(resolvedDatabases))

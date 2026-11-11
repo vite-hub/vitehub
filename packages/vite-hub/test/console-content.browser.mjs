@@ -179,7 +179,7 @@ test("Content hydrates Rich without changing stored Markdown", { timeout: 120_00
     await page.waitForTimeout(3500);
     await capture(page, "rich", [".vitehub-markdown-editor"]);
     const rich = await page.locator(".tiptap").innerText();
-    await page.getByRole("radio", { name: "Source", exact: true }).click();
+    await page.getByRole("tab", { name: "Source", exact: true }).click();
     assert.equal(
       await page.getByRole("textbox", { name: "Markdown body", exact: true }).inputValue(),
       body,
@@ -188,14 +188,14 @@ test("Content hydrates Rich without changing stored Markdown", { timeout: 120_00
       rich.includes("July and August"),
       `Rich body is blank while Source has ${body.length} characters. Browser errors: ${errors.join("; ")}`,
     );
-    await page.getByRole("radio", { name: "Rich", exact: true }).click();
+    await page.getByRole("tab", { name: "Rich", exact: true }).click();
     assert.equal(await page.locator(".tiptap").getAttribute("contenteditable"), "true");
     assert.equal(
       controls.saves.length,
       0,
       "Hydration must not autosave or normalize the stored body",
     );
-    await page.getByRole("radio", { name: "Rich", exact: true }).click();
+    await page.getByRole("tab", { name: "Rich", exact: true }).click();
     await page
       .getByRole("textbox", { name: "Title", exact: true })
       .fill("July in Thailand, updated");
@@ -208,7 +208,7 @@ test("Content hydrates Rich without changing stored Markdown", { timeout: 120_00
     await page.locator(".tiptap table").first().waitFor();
     assert.equal(await page.locator(".tiptap table").count(), 2);
     assert.equal(await page.locator(".tiptap").getAttribute("contenteditable"), "true");
-    await page.getByRole("radio", { name: "Source", exact: true }).click();
+    await page.getByRole("tab", { name: "Source", exact: true }).click();
     assert.equal(
       await page.getByRole("textbox", { name: "Markdown body", exact: true }).inputValue(),
       tableBody,
@@ -408,23 +408,23 @@ test(
       const controls = await fixture(page);
       await page.goto(`${origin}/_vitehub/content/en/weather`);
       await page.getByRole("textbox", { name: "Title", exact: true }).waitFor();
-      await page.getByRole("radio", { name: "Rich", exact: true }).focus();
+      await page.getByRole("tab", { name: "Rich", exact: true }).focus();
       await page.keyboard.press("ArrowRight");
       assert.equal(
-        await page.getByRole("radio", { name: "Source", exact: true }).getAttribute("aria-checked"),
+        await page.getByRole("tab", { name: "Source", exact: true }).getAttribute("aria-selected"),
         "true",
       );
       await page
         .getByRole("textbox", { name: "Markdown body", exact: true })
         .fill(`${body}\nA source edit.\n`);
-      await page.getByRole("radio", { name: "Source", exact: true }).focus();
+      await page.getByRole("tab", { name: "Source", exact: true }).focus();
       await page.keyboard.press("ArrowLeft");
       await page.waitForFunction(() =>
         document.querySelector(".tiptap")?.textContent.includes("A source edit."),
       );
       await page.locator(".tiptap").press("ControlOrMeta+End");
       await page.keyboard.type(" Pending rich edit.");
-      await page.getByRole("radio", { name: "Source", exact: true }).click();
+      await page.getByRole("tab", { name: "Source", exact: true }).click();
       assert.ok(
         (
           await page.getByRole("textbox", { name: "Markdown body", exact: true }).inputValue()
