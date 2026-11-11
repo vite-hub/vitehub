@@ -20,7 +20,9 @@ import type { ConsoleRequestEvent } from "./request.ts"
 declare global {
   interface ImportMeta {
     viteHubConsoleAgents?: boolean
+    viteHubConsoleAuth?: boolean
     viteHubConsoleDatabase?: boolean
+    viteHubConsoleDocuments?: boolean
   }
 }
 
@@ -184,7 +186,7 @@ function authRead<Input>(
     kind: "read",
     mcp: false,
     name: authConsoleReadOperations[name],
-    run: async (value, context) => (await import("./auth-manage.ts")).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
     section: "auth",
   })
 }
@@ -205,7 +207,7 @@ function authAction<Input>(
     kind,
     mcp: false,
     name: authConsoleActionOperations[action],
-    run: async (value, context) => (await import("./auth-manage.ts")).runAuthConsoleAction(context, mutation(value)),
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleAction(context, mutation(value)),
     section: "auth",
   })
 }
@@ -299,7 +301,7 @@ const documentsAction = defineConsoleOperation({
     : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
-    const documents = await import("./documents.ts")
+    const documents = await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : import("./documents.ts"))
     // JSON cannot preserve an omitted body. Use the checked operation's access for that call.
     if (body === undefined) {
       const actions = await documents.loadConsoleDocumentActions(section)
@@ -399,7 +401,7 @@ const mediaAction = defineConsoleOperation({
   // A read-only grant still browses the library.
   readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
-  run: async ({ action, body, section }, context) => (await loadConsoleMedia()).runConsoleMediaAction(section, action, body, context.access),
+  run: async ({ action, body, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : loadConsoleMedia())).runConsoleMediaAction(section, action, body, context.access),
   section: input => input.section,
 })
 
@@ -419,7 +421,7 @@ const mediaUpload = defineConsoleOperation({
   kind: "write",
   maxRequestBytes: consoleOperationRequestBytes["media.upload"],
   name: "media.upload",
-  run: async (input, context) => (await loadConsoleMedia()).uploadConsoleMedia(input, context.access),
+  run: async (input, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : loadConsoleMedia())).uploadConsoleMedia(input, context.access),
   section: input => input.section,
 })
 

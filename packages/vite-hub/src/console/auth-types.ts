@@ -1,3 +1,4 @@
+import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 
 /** The signed-in user that the Console gives `console.authorize`. */
@@ -19,7 +20,7 @@ export interface ConsoleSessionAuthorizeContext {
 export interface ConsoleSignedConsoleAuthorizeContext {
   request: Request
   /** The person signed in to the Console. */
-  user: ConsoleUser
+  user: ConsoleUser & ConsoleCallerUser
   /** The Console team that linked the app, and the role of `user` in it, such as `owner`, `admin`, or `member`. */
   team?: { id: string, role?: string }
   /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` variable whose key verified the signature. */

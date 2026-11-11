@@ -67,9 +67,15 @@ describe("default Agent Invocation journal", () => {
     expect(defaultAgentInvocationsDatabase(createCoreAgentInvocations({ d1, env: {}, projectRoot: "/worker" }))?.driver).toBe("d1")
     expect(defaultAgentInvocationsDatabase(createCoreAgentInvocations({ env: {}, projectRoot: "/worker" }))).toBeUndefined()
     const env = { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "libsql://journal.example.com" }
-    expect(() => createCoreAgentInvocations({ d1, env, projectRoot: "/worker" })).toThrow(expect.objectContaining({ code: "AGENT_R1036" }))
+    expect(() => createCoreAgentInvocations({ d1, env, projectRoot: "/worker" })).toThrow(expect.objectContaining({
+      code: "AGENT_R1036",
+      message: expect.stringContaining("built without the libSQL driver"),
+    }))
     vi.unstubAllGlobals()
-    expect(() => createCoreAgentInvocations({ env: {}, projectRoot: "/app" })).toThrow(expect.objectContaining({ code: "AGENT_R1036" }))
+    expect(() => createCoreAgentInvocations({ env: {}, projectRoot: "/app" })).toThrow(expect.objectContaining({
+      code: "AGENT_R1036",
+      message: expect.stringContaining("built without the libSQL driver"),
+    }))
   })
 
   it("keeps records in memory on a Worker without D1 or a remote URL", () => {

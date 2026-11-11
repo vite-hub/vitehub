@@ -28,6 +28,10 @@ from `vite-hub/cms/access` then decide in `server/content.ts`, `server/comments.
 
 An admin changes a role in the Console Auth section.
 
+`GET /api/users` lists the users for an admin. `server/routes/api/users.get.ts` checks the role with
+`requireAuthorization(event, ...)` and calls the `admin()` plugin's `listUsers` on `useAuth(event).api`. Another user
+gets `403`, and a signed-out caller gets `401`.
+
 The playground uses `console: { auth: "app" }`. The hosted Console at console.vitehub.dev needs `auth: "token"` to open
 an app, so use the CLI or MCP with the app session, or switch to a token to open it there.
 

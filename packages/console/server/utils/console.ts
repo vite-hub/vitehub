@@ -48,18 +48,25 @@ export interface ConsoleCallOptions {
  * `console.authorize` receives them with `via: "console"`.
  */
 export function consoleCallerOf(caller: ConsoleTeamCaller, options: ConsoleCallOptions = {}): ConsoleCaller {
+  const role = presentationText(caller.roles.join(","))
   return {
-    team: { id: caller.teamId, role: caller.roles.join(",") },
+    team: { id: caller.teamId, ...(role ? { role } : {}) },
     user: caller.user,
     via: "console",
     ...(options.surface ? { surface: options.surface, ...(options.confirmed ? { confirmed: true } : {}) } : {}),
   }
 }
 
-/** The signed fields of a person: the id, and the name and email when they have them. */
+/** The signed fields of a person: the id, and the name and email when they have them and they fit the signed header. */
 export function consoleCallerUser(user: { id: string, name?: unknown, email?: unknown }): ConsoleCallerUser {
-  const { email, name } = user
-  return { id: user.id, ...(typeof name === "string" && name ? { name } : {}), ...(typeof email === "string" && email ? { email } : {}) }
+  const name = presentationText(user.name)
+  const email = presentationText(user.email)
+  return { id: user.id, ...(name ? { name } : {}), ...(email ? { email } : {}) }
+}
+
+/** Optional presentation fields must fit `decodeConsoleCaller()`; the required identity fields stay unchanged. */
+function presentationText(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 512 ? value : undefined
 }
 
 /** Owners and admins link and unlink projects. Every member opens them. */

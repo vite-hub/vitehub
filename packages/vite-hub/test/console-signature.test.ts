@@ -1,11 +1,15 @@
+import { once } from "node:events"
+import { createServer, request as httpRequest } from "node:http"
+
 import { consoleCallerHeader, consoleSignatureHeader } from "@vite-hub/internal/console-signature"
 import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { callOperation, defineOperation, installedOperationSectionResolver } from "@vite-hub/internal/operations"
-import { defineHandler } from "h3"
+import { defineHandler, H3, toNodeHandler } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { forwardProjectRequest } from "../../console/src/forward.ts"
+import { consoleCallerOf } from "../../console/src/caller.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import envManageHandler from "../src/console/runtime/server/env-manage.ts"
@@ -78,6 +82,7 @@ function stubKeys(env: Record<string, string>): void {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
   installConsoleOperations([])
   // The other Console tests run as the local development server.
@@ -85,6 +90,49 @@ afterEach(() => {
 })
 
 describe("signed Console requests", () => {
+  it.each([undefined, "http://production.example.com"])("rejects preview replays through the Node adapter with publicUrl %s", async (publicUrl) => {
+    stubKeys(ci.env)
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", publicUrl ? { url: publicUrl } : undefined)
+    install()
+    const server = createServer(toNodeHandler(new H3().all("/**", consoleRpcHandler)))
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    try {
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Expected a TCP address.")
+      const sendToNode = async (signed: Request, host: string): Promise<Response> => {
+        const body = await signed.text()
+        return new Promise((resolve, reject) => {
+          const request = httpRequest({
+            headers: { ...Object.fromEntries(signed.headers), host, "x-forwarded-host": "preview.example.com", "x-forwarded-proto": "https" },
+            hostname: "127.0.0.1", method: "POST", path: "/_vitehub/rpc", port: address.port,
+          }, (response) => {
+            let text = ""
+            response.setEncoding("utf8")
+            response.on("data", (chunk: string) => { text += chunk })
+            response.on("end", () => resolve(new Response(text, { status: response.statusCode })))
+            response.on("error", reject)
+          })
+          request.on("error", reject)
+          request.end(body)
+        })
+      }
+      const signed = await signedRpcRequest({ key: ci.key, url: "http://preview.example.com/_vitehub/rpc" })
+      for (const host of ["preview.example.com", "production.example.com"]) {
+        const response = await sendToNode(signed.clone(), host)
+        expect(response.status, await response.clone().text()).toBe(publicUrl ? 401 : 500)
+        await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_SIGNATURE_ORIGIN" })
+      }
+      if (publicUrl) {
+        const response = await sendToNode(await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` }), "production.example.com")
+        expect(response.status, await response.clone().text()).toBe(200)
+      }
+    }
+    finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    }
+  })
+
   it("accepts a request that the CLI signed with a key in VITEHUB_CONSOLE_KEY_<NAME>", async () => {
     stubKeys({ ...ci.env, ...link.env })
     install()
@@ -220,6 +268,22 @@ describe("signed Console requests", () => {
 })
 
 describe("signed callers", () => {
+  it.each([513, 1024])("accepts an account name of %s characters through the forwarder and RPC", async (length) => {
+    stubKeys(link.env)
+    install()
+    const caller = consoleCallerOf({
+      authorization: { user: { email: "ada@example.com", id: "user-1", name: "a".repeat(length) } },
+      roles: ["owner"], teamId: "team-1",
+    })
+    const page = new Request("https://console.vitehub.dev/p/1/_vitehub/rpc", {
+      body: operationRpcBody("test.whoami", {}),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST",
+    })
+    const response = await forwardProjectRequest(page, { caller, key: link.key, url: app }, "/_vitehub/rpc", (url, init) => send(new Request(url, init)))
+    expect(response.status, await response.clone().text()).toBe(200)
+    await expect(operationRpcResponseResult(response)).resolves.toEqual({ ok: true, value: { surface: "console", user: { email: "ada@example.com", id: "user-1" } } })
+  })
+
   it("the Console forwarder signs a call for the person, and the app accepts it", async () => {
     stubKeys(link.env)
     const seen: ConsoleAuthorizeContext[] = []
