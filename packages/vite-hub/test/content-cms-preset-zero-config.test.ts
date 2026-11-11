@@ -24,7 +24,7 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
     const generate = await runCli(root, zeroConfig(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrationsDir = join(root, "server/databases/migrations")
+    const migrationsDir = join(root, "server/databases/default/migrations")
     const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
     expect((await readFile(join(migrationsDir, migration), "utf8")).match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
       "CREATE TABLE `vitehub_content_sessions`",

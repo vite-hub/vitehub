@@ -113,7 +113,7 @@ const contentEvaluations = "__vitehubContentEvaluations"
 function contentModule(): string {
   return [
     `Reflect.set(globalThis, ${JSON.stringify(contentEvaluations)}, (Reflect.get(globalThis, ${JSON.stringify(contentEvaluations)}) ?? 0) + 1)`,
-    `export const content = {`,
+    `export default {`,
     `  async handler(request: Request) {`,
     `    return Response.json({`,
     `      aborted: request.signal.aborted,`,
@@ -682,12 +682,12 @@ describe("framework generated types", () => {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
-    // Agents receive this file's `content` export as the content primitive.
+    // Agents receive this file's default export as the content primitive.
     expect(plugin.api.getContentDefinition(root)).toEqual({ handler: join(root, "server/content.ts") })
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineContentHandler } from "vite-hub/content"`,
-        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        `import content from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
         ``,
         `export default defineContentHandler(content)`,
         ``,
@@ -697,7 +697,7 @@ describe("framework generated types", () => {
       [
         `import { defineContentPreviewPlugin } from "vite-hub/content/preview"`,
         ``,
-        `export default defineContentPreviewPlugin(() => import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}).then(module => module.content))`,
+        `export default defineContentPreviewPlugin(() => import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}).then(module => module.default))`,
         ``,
       ].join("\n"),
     )
@@ -724,7 +724,7 @@ describe("framework generated types", () => {
         `  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })`,
         '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
         `}`,
-        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).content, write, { moduleName: "vite-hub/content" }) : () => {}`,
+        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).default, write, { moduleName: "vite-hub/content" }) : () => {}`,
         ``,
       ].join("\n"),
     )
@@ -761,7 +761,7 @@ describe("framework generated types", () => {
     const file = join(root, "server/content.ts")
     const write = async (route: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
 const publicRoute = ${route}
-export const content = defineContent({ route: publicRoute, source: { async items() { return [] } }, seo: { sitemap: true, robots: true } })
+export default defineContent({ route: publicRoute, source: { async items() { return [] } }, seo: { sitemap: true, robots: true } })
 `)
     await write("true")
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
@@ -783,7 +783,7 @@ export const content = defineContent({ route: publicRoute, source: { async items
     const file = join(root, "server/content.ts")
     const preview = { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true }
     const write = async (options: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
-export const content = defineContent(${options})
+export default defineContent(${options})
 `)
     // Previews read drafts of collections. A plugin without them would only load Content when the server starts.
     await write("{ sources: { docs: { async items() { return [] } } } }")
@@ -804,7 +804,7 @@ export const content = defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export const content = defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ sitemap: true, robots: { disallow: ["/admin"] } }`)
@@ -846,7 +846,7 @@ export const content = defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export const content = defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ markdown: true }`)
@@ -890,7 +890,13 @@ export const content = defineContent(${options})
     await expect(sourcePlugin().api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir],
-    })).rejects.toThrow('must export a Comark Content instance named "content"')
+    })).rejects.toThrow("must default-export the result of defineContent()")
+
+    await writeFile(join(firstServerDir, "content.ts"), "export const content = {}\n")
+    await expect(sourcePlugin().api.prepareSources({
+      projectRoot: root,
+      serverDirs: [firstServerDir],
+    })).rejects.toThrow(expect.objectContaining({ code: "SOURCE_B0009", message: expect.stringContaining("`export default defineContent({ ... })`") }))
   })
 
   it("preserves generated Collection artifacts when Content discovery fails", async () => {
@@ -915,7 +921,7 @@ export const content = defineContent(${options})
       writeFile(join(root, "server/content.ts"), "export const other = {}\n"),
     ])
     await expect(sourcePlugin().api.prepareSources({ projectRoot: root })).rejects.toThrow(
-      'must export a Comark Content instance named "content"',
+      "must default-export the result of defineContent()",
     )
 
     await expect(readFile(collectionRoute, "utf8")).resolves.toBe(routeBeforeFailure)
@@ -1459,7 +1465,7 @@ export const content = defineContent(${options})
     const { root } = await createNestedProject()
     const definition = join(root, "server/content.ts")
     await mkdir(dirname(definition), { recursive: true })
-    await writeFile(definition, "export const content = defineContent({})")
+    await writeFile(definition, "export default defineContent({})")
     const plugin = sourcePlugin()
     await config(plugin)({ root })
     const types = join(root, ".vitehub/types/content.d.ts")

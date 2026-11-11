@@ -22,6 +22,10 @@ const awsRuntimePackages = [
 ]
 
 async function run(command: string, args: string[], cwd: string) {
+  if (command === "pnpm") {
+    command = "corepack"
+    args = ["pnpm", ...args]
+  }
   try {
     return await execFileAsync(command, args, {
       cwd,

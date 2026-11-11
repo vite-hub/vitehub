@@ -37,7 +37,7 @@ Create `server/content.ts`. It tells Content where your Markdown files are:
 import { defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob({ cwd: 'docs', include: '**/*.md' }),
   },
@@ -58,7 +58,7 @@ Create an API route that reads it:
 
 ```ts [server/api/guide.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   return await content.get('/intro')
