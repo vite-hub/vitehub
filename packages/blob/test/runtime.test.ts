@@ -1304,6 +1304,21 @@ describe("blob runtime", () => {
     })
   })
 
+  it("uses the R2 binding without the HTTP credential env variables that the config names", async () => {
+    // Test values only. The binding does not use the HTTP credentials, so the server can leave them out.
+    const config = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare-r2", secretAccessKey: "test-secret" }, {
+      env: { TEST_MEDIA_KEY: "test-key", TEST_MEDIA_SECRET: "test-secret" },
+    })
+    if (!config) throw new Error("Expected a store.")
+    const env = { MEDIA: createMemoryBucket() }
+    await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.put("notes/worker.txt", "hello")))
+    expect(await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.list()))).toMatchObject({ blobs: [{ pathname: "notes/worker.txt" }] })
+    expect(await cloudflareRequest(config, env, async () => blob.sign("notes/worker.txt", { expiresIn: 60, method: "GET" })))
+      .toMatchObject([expect.objectContaining({ cause: expect.objectContaining({ code: "BLOB_R0044", message: expect.stringContaining("`TEST_MEDIA_KEY`") }) }), undefined])
+    const signed = await cloudflareRequest(config, { ...env, R2_ACCOUNT_ID: "account", TEST_MEDIA_KEY: "worker-key", TEST_MEDIA_SECRET: "worker-secret" }, async () => expectBlobSuccess(await blob.sign("notes/worker.txt", { expiresIn: 60, method: "GET" })))
+    expect(signed.url).toContain("worker-key")
+  })
+
   it("rehydrates R2 HTTP fallback secrets from the Cloudflare request env", async () => {
     const config: ResolvedBlobModuleOptions = {
       store: {

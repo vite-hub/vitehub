@@ -130,3 +130,36 @@ it("fails the build when a store has a literal credential", async () => {
     await rm(root, { force: true, recursive: true })
   }
 }, 60_000)
+
+it("keeps an Azure endpoint with a SAS query out of the server bundle and reads it at runtime", async () => {
+  // Test values only. The query has the shape of a SAS token, but it is not a real one.
+  const signature = `test-signature-${randomUUID()}`
+  const requests: string[] = []
+  const azure = createServer((request, response) => {
+    requests.push(String(request.url))
+    response.setHeader("content-type", "application/xml")
+    response.end("<?xml version=\"1.0\" encoding=\"utf-8\"?><EnumerationResults ContainerName=\"assets\"><Blobs /><NextMarker /></EnumerationResults>")
+  })
+  await new Promise<void>(resolve => azure.listen(0, "127.0.0.1", resolve))
+  await mkdir(join(workspaceRoot, ".cache"), { recursive: true })
+  const root = await mkdtemp(join(workspaceRoot, ".cache", "blob-build-azure-"))
+  const env = { VITEHUB_TEST_AZURE_ENDPOINT: `http://127.0.0.1:${(azure.address() as AddressInfo).port}/acct?sv=2024-01-01&sig=${signature}` }
+  Object.assign(process.env, env)
+
+  try {
+    await buildNitroApp(root, { accountName: "acct", container: "assets", driver: "azure", endpoint: process.env.VITEHUB_TEST_AZURE_ENDPOINT! })
+    for (const name of Object.keys(env)) delete process.env[name]
+
+    expect(await filesContaining(join(root, ".output"), [signature])).toEqual([])
+    expect(await filesContaining(join(root, ".vitehub"), [signature])).toEqual([])
+
+    await requestBuiltApp(root, env)
+    expect(requests).toEqual([expect.stringContaining(`sig=${signature}`)])
+  }
+  finally {
+    for (const name of Object.keys(env)) delete process.env[name]
+    azure.closeAllConnections()
+    azure.close()
+    await rm(root, { force: true, recursive: true })
+  }
+}, 120_000)

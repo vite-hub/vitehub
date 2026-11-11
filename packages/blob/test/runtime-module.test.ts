@@ -214,6 +214,24 @@ describe("Blob Nitro runtime module", () => {
     }
   })
 
+  it("uses the R2 binding in generated output without the HTTP credential env variables that the config names", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-r2-binding-secrets-")
+    // Test values only. The binding does not use the HTTP credentials, so the server can leave them out.
+    const resolved = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare-r2", secretAccessKey: "test-secret" }, {
+      env: { TEST_MEDIA_KEY: "test-key", TEST_MEDIA_SECRET: "test-secret" },
+    })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const list = vi.fn(async () => ({ objects: [], truncated: false }))
+    vi.stubGlobal("MEDIA", { list })
+    const file = join(rootDir, "runtime.mjs")
+    await writeFile(file, renderBlobRuntimeModule(file, resolved, "cloudflare"), "utf8")
+    expect(await readFile(file, "utf8")).not.toMatch(/test-key|test-secret/)
+    const runtime = await import(pathToFileURL(file).href) as { blob: BlobStorage }
+
+    expect(await runtime.blob.list()).toMatchObject([undefined, { blobs: [], hasMore: false }])
+    expect(list).toHaveBeenCalledOnce()
+  })
+
   it.each([
     { objectAccess: "private" as const, storeAccess: "public" as const },
     { objectAccess: "public" as const, storeAccess: "private" as const },

@@ -364,6 +364,50 @@ describe("blob config", () => {
     expect(normalizeBlobOptions(store, { env: { AWS_SECRET_ACCESS_KEY: "secret" } })?.store).toEqual(store)
   })
 
+  // Test values only. Each test checks that a credential value does not go into the resolved config.
+  it.each([
+    ["an Azure endpoint with a query", { accountName: "acct", container: "assets", driver: "azure", endpoint: "https://acct.blob.example.test/?sig=test-signature" }, "endpoint"],
+    ["an S3 endpoint with a user and password", { bucket: "assets", driver: "s3", endpoint: "https://test-user:test-password@s3.example.test" }, "endpoint"],
+    ["a Supabase URL with a query", { bucket: "assets", driver: "supabase", url: "https://project.example.test/?apikey=test-api-key" }, "url"],
+  ] as const)("hides %s and reads it from env at runtime", (_name, store, option) => {
+    const value = store[option as keyof typeof store]
+    const config = normalizeBlobOptions(store, { env: { TEST_STORE_URL: value } })
+    expect(config?.store).toMatchObject({ [option]: "********", secretEnv: { [option]: "TEST_STORE_URL" } })
+    expect(JSON.stringify(config)).not.toMatch(/test-signature|test-password|test-api-key/)
+    if (!config) throw new Error("Expected a store.")
+    expect(resolveRuntimeBlobSecrets(config.store, { TEST_STORE_URL: value })).toMatchObject({ [option]: value })
+    expect(() => normalizeBlobOptions(store, { env: {} })).toThrow(expect.objectContaining({ code: "BLOB_C0019", message: expect.stringContaining(`\`blob.${option}\` holds a credential`) }))
+  })
+
+  it.each([
+    ["Google Cloud Storage authorized-user JSON", { bucket: "assets", credentials: { client_id: "test-client-id", client_secret: "test-client-secret", refresh_token: "test-refresh-token", type: "authorized_user" }, driver: "gcs" }],
+    ["Google Drive OAuth", { driver: "google-drive", oauth: { clientId: "test-client-id", clientSecret: "test-client-secret", refreshToken: "test-refresh-token" } }],
+  ])("treats each unknown option of %s as a credential", (_name, store) => {
+    expect(() => normalizeBlobOptions(store as never, { env: { TEST_CLIENT_SECRET: "test-client-secret", TEST_REFRESH_TOKEN: "test-refresh-token" } }))
+      .toThrow(expect.objectContaining({ code: "BLOB_C0019", message: expect.stringContaining("is not a known option of the") }))
+
+    const env = { TEST_CLIENT_ID: "test-client-id", TEST_CLIENT_SECRET: "test-client-secret", TEST_CREDENTIAL_TYPE: "authorized_user", TEST_REFRESH_TOKEN: "test-refresh-token" }
+    const config = normalizeBlobOptions(store as never, { env })
+    expect(JSON.stringify(config)).not.toMatch(/test-client-secret|test-refresh-token|test-client-id/)
+    if (!config) throw new Error("Expected a store.")
+    expect(resolveRuntimeBlobSecrets(config.store, env)).toEqual(store)
+  })
+
+  it("fails with BLOB_C0020 when two env variables hold the credential value at build time", () => {
+    const store = { bucket: "media", credentials: { accessKeyId: "test-key", secretAccessKey: "test-secret" }, driver: "s3" } as const
+    const env = { AWS_ACCESS_KEY_ID: "test-key", AWS_SECRET_ACCESS_KEY: "test-secret", MEDIA_S3_ACCESS_KEY_ID: "test-key", MEDIA_S3_SECRET_ACCESS_KEY: "test-secret" }
+    expect(() => normalizeBlobOptions(store, { env })).toThrow(expect.objectContaining({
+      code: "BLOB_C0020",
+      message: expect.stringContaining("`AWS_ACCESS_KEY_ID` and `MEDIA_S3_ACCESS_KEY_ID`"),
+    }))
+  })
+
+  it("fails with BLOB_C0020 when two credential options have the same value in different env variables", () => {
+    const store = { accessKeyId: "test-shared", driver: "minio", secretAccessKey: "test-shared" } as const
+    expect(() => normalizeBlobOptions(store, { env: { MEDIA_MINIO_PASSWORD: "test-shared", MEDIA_MINIO_USER: "test-shared" } }))
+      .toThrow(expect.objectContaining({ code: "BLOB_C0020", message: expect.stringContaining("`blob.accessKeyId`") }))
+  })
+
   it("throws on non-object config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })
@@ -746,7 +790,7 @@ describe("blob config", () => {
 
   it("preserves every first-class provider driver", () => {
     const stores = [
-      { bucket: "assets", container: "assets", driver: "azure" },
+      { container: "assets", driver: "azure" },
       { bucket: "assets", driver: "akamai", region: "us-east-1" },
       { bucket: "assets", driver: "digitalocean-spaces", region: "nyc3" },
       { bucket: "assets", driver: "gcs" },

@@ -459,7 +459,10 @@ A driver is the storage service a store uses. `driver` selects which options app
 
 ### Credentials
 
-ViteHub writes the resolved Blob config into the server bundle. It never writes a credential there. A credential is an option such as `secretAccessKey`, `token`, `accountKey`, `connectionString`, `sasToken`, `key`, or `credentials.private_key`, and also the access key id that goes with a secret key.
+ViteHub writes the resolved Blob config into the server bundle. It never writes a credential there. A credential is an option such as `secretAccessKey`, `token`, `accountKey`, `connectionString`, `sasToken`, `key`, or `credentials.private_key`, and also the access key id that goes with a secret key. ViteHub also treats these values as credentials:
+
+- A URL option with a user name, password, or query, such as an Azure `endpoint` with a SAS token.
+- An option that the driver tables below do not show, such as Google OAuth fields in `credentials` or `oauth`.
 
 Give a credential in one of two ways:
 
@@ -494,6 +497,8 @@ export default defineConfig({
 
 A literal credential, or a value that no env variable holds, fails `vite dev` and the build with [`BLOB_C0019`](/docs/blob/diagnostics/blob_c0019). At build time, ViteHub looks only in `process.env`. A value that `loadEnv()` reads from a `.env` file is not there, so set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` first. A variable that the build used but the server does not have fails when the store starts, with [`BLOB_R0044`](/docs/blob/diagnostics/blob_r0044). ViteHub reads the variable as it is: a value that the config changes, such as a private key with `\n` replaced by line breaks, does not match. Put the final value in the variable, or use `keyFilename` for Google Cloud Storage.
 
+The value must be in exactly one env variable at build time. When two variables hold the same value, ViteHub cannot tell which one the config reads, and `vite dev` and the build fail with [`BLOB_C0020`](/docs/blob/diagnostics/blob_c0020). This also applies when two options, such as a MinIO user and password, have the same value. Give each variable a different value, or remove the other variable from the build environment.
+
 ### Local filesystem
 
 | Option | Type | Default | Description |
@@ -519,7 +524,7 @@ Use filesystem storage on one machine with one process. On a serverless host, it
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | None | Public or CDN base URL for objects, instead of signed URLs when supported. |
 
-The runtime binding takes precedence. HTTP credentials are used when no active binding exists. In `vite dev`, a store that the Cloudflare preset infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
+The runtime binding takes precedence. HTTP credentials are used when no active binding exists. ViteHub reads them only for HTTP access and signed URLs, so a server with the binding does not need the HTTP credential variables. In `vite dev`, a store that the Cloudflare preset infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
 
 ### Vercel Blob
 
