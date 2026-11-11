@@ -3,12 +3,11 @@ import { getConsoleContributedSections } from "./definitions.ts"
 import { consoleState } from "../../internal.ts"
 import { consoleSetupRoute } from "./development.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { getConsoleAuth, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
 import type { ConsoleContributedSection } from "../definitions.ts"
 
 interface ConsoleSectionsResponse {
-  auth?: true | "cloudflare-access"
   contributions?: readonly ConsoleContributedSection[]
   /** The registered operations that run app code (`console.invoke`) and that this request may run. The pages hide the others. */
   operations?: readonly string[]
@@ -22,7 +21,7 @@ interface ConsoleSectionsResponse {
   setup?: string
 }
 
-/** The sections that this access may use. Each operation still checks its own section. */
+/** The sections that this access may use. The client hides the others. Each operation still checks its own section. */
 export function listConsoleSections(access: ConsoleAccess): ConsoleSectionsResponse {
   const projectName = getConsoleProjectName()
   const sections = allowedConsoleSections(access, consoleState().navigationSections ?? getConsoleSections())
@@ -30,9 +29,6 @@ export function listConsoleSections(access: ConsoleAccess): ConsoleSectionsRespo
   const result: ConsoleSectionsResponse = { sections }
   const readOnly = sections.filter(section => !consoleAccessWrites(access, section))
   if (readOnly.length) result.readOnly = readOnly
-  const auth = getConsoleAuth()
-  if (auth) result.auth = auth
-  else if (access.mode === "auth") result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   const operations = consoleOperationRegistry().list()

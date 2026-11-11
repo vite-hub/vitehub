@@ -8,14 +8,14 @@ This package is private and in progress. `vitehub console deploy` comes next.
 
 1. A person signs in with GitHub or a passkey. A new account gets a personal team. People can make more teams and invite others.
 2. An owner or admin of a team links an app with its URL. The Console makes an Ed25519 key pair for the link. It keeps the private key encrypted and shows the public key and the variable that holds it, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`.
-3. You set that variable on the app and deploy. The app needs `console: { auth: "token" }`.
-4. The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then signs the call and sends it to the app. The signature covers the exact body bytes and the person who calls: their user id, name, email, team id, and role. The app's `console.authorize` receives them with `via: "console"`. See [Sign Console requests](https://vitehub.dev/docs/development/console#sign-console-requests).
+3. You set that variable on the app and deploy. The app needs `console: true`.
+4. The Console page calls `/p/<project>/_vitehub/rpc` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then signs the call and sends it to the app. The signature covers the exact body bytes and the person who calls: their user id, name, email, team id, and role. The app's `console.authorize` receives them with `via: "console"`. See [Sign Console requests](https://vitehub.dev/docs/development/console#sign-console-requests).
 
 Each link has its own variable, so two teams can link the same app, and unlinking one leaves the other.
 
 The migration `0002_sign_project_calls` removes the links that an older Console made with bearer tokens, because they cannot sign. Link those apps again and set the new line.
 
-The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
+The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the one Console route of a project, `POST /_vitehub/rpc`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
 
 Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
 

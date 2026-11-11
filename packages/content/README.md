@@ -67,6 +67,48 @@ Set `route: false` in `defineContent()` to disable the public `/api/content/**` 
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
 `defineContentHandler(content)` also returns 404 when this option is false.
 
+## Live GitHub Sources
+
+A `github()` Source with a GitHub token is live. Content serves one commit of its branch, the head, and keeps the head in ViteHub KV under `content:head:<source>`. A push does not change what readers get until the head moves.
+
+```ts
+// server/content.ts
+import { defineContent } from "@vite-hub/content"
+import { github } from "@vite-hub/source"
+
+export default defineContent({
+  sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+})
+```
+
+```ts fragment
+await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, cache }
+await content.sources.advance("docs") // move to the latest commit of main when every document parses
+await content.sources.pin(sha, "docs") // serve this commit until unpin(), for example to roll back
+await content.sources.unpin("docs")
+```
+
+- The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
+- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. Call `advance()` after a push, for example from a GitHub push webhook route.
+- Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
+- A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
+- Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
+- Without a token, the Source is not live: each load reads the latest commit of its branch without validation, and Content logs `CONTENT_R0020` once. The token is `github({ auth })`, or the Server Env `VITEHUB_GITHUB_TOKEN`.
+- ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
+- Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
+- When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
+
+### Commit cache
+
+The files of a commit never change. Content downloads each commit once per cache key, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so nothing purges a cache, on any host.
+
+- A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- `parserHash` hashes the Comark options, plugin source text, the Source fingerprint, its effective `prefix` and `schema`, and the build. Each build uses new keys.
+- The built-in parser reuses parsed documents from KV. With custom `markdown.plugins` or Content `plugins`, each new runtime parses the cached files again without a download. Function source text cannot identify captured plugin options or implementations. Within one runtime, memory holds the parsed result.
+- Content writes an artifact only after every document parses. A rollback with `pin()` to a valid commit reads it from the cache. A rejected load or failed download stays out of memory, so `advance()` can retry it.
+- Each server instance holds the last 4 commits in memory.
+- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
+
 ## Types
 
 In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
@@ -243,8 +285,8 @@ vitehub content unschedule <schedule>
 vitehub content sitemap [--site <url>] [--xml]
 ```
 
-Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation through the app's `POST /_vitehub/rpc` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.
+Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation through the app's `POST /_vitehub/rpc` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, and signs each call with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. The operations call `content.can()` with the user of the call: the person that the Console signed, or no user for the CLI.
 
-## Console MCP
+## ViteHub MCP
 
-With the Console enabled, ViteHub MCP lists readable collections and documents, reads drafts, and saves drafts through the same Content actions as the editor. Each call checks `content.can()` with the Console user. Saves require `ifDigest` and respect edit leases. The application module loads on the first call. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp).
+With the Console enabled, an agent on the ViteHub MCP of the Console lists readable collections and documents, reads drafts, and saves drafts through the same Content operations as the editor. Each call checks `content.can()` with the Console user. Saves require `ifDigest` and respect edit leases. The application module loads on the first call. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp).

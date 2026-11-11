@@ -16,6 +16,7 @@ import { installConsoleProjectRoot } from "../src/console/runtime/server/project
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // A plugin of the app contributes this operation, as `@vite-hub/content` contributes `content.*`.
@@ -40,15 +41,30 @@ const secret = defineOperation({
 })
 
 /** A Console RPC request. `remoteAddress` is the peer address that the host reports, as plain `vite dev` does. `null` is no address. */
-function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc", remoteAddress: string | null = "127.0.0.1") {
-  return handleConsoleRpcRequest(new Request(url, {
+/** Signs each call while a test takes only signed calls. */
+let signAs: ((request: Request) => Promise<Request>) | undefined
+
+async function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc", remoteAddress: string | null = "127.0.0.1") {
+  const request = new Request(url, {
     body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
-  }), { remoteAddress: remoteAddress ?? undefined })
+  })
+  return handleConsoleRpcRequest(signAs ? await signAs(request) : request, { remoteAddress: remoteAddress ?? undefined })
+}
+
+/** Take only signed calls in this test, signed as the Console for `user`, or as the CLI. */
+async function signedCalls(user?: { id: string }): Promise<() => void> {
+  const signer = await signedConsoleAccess()
+  signAs = request => signer.sign(request, user)
+  return () => {
+    signAs = undefined
+    signer.restore()
+  }
 }
 
 afterEach(() => {
+  signAs = undefined
   vi.unstubAllEnvs()
   installConsoleDevelopment("/work/app", false)
   installConsoleAccess({ mode: "open" })
@@ -63,7 +79,7 @@ describe("operations that run app code", () => {
       expect(getStandardContext(event).req.headers.get("cookie")).toBe("sid=ada")
       return { entries: [] }
     })
-    installConsoleEnv("/work/app", { entries: [] }, undefined, inspect)
+    installConsoleEnv("/work/app", { entries: [] }, inspect)
     const response = await call("env.get", { status: true }, { cookie: "sid=ada" })
     expect(response.status).toBe(200)
     await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { entries: [], status: [] } })
@@ -140,15 +156,15 @@ describe("operations that run app code", () => {
   it.each([
     { grant: "fixture", operations: ["fixture.start"], readOnly: undefined },
     { grant: "fixture:read", operations: undefined, readOnly: ["fixture"] },
-  ])("advertises app Auth and permitted actions for $grant access", async ({ grant, operations, readOnly }) => {
+  ])("advertises the permitted actions for $grant access", async ({ grant, operations, readOnly }) => {
     installConsoleSections("/work/app", ["fixture"])
     installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
-    installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => ({ sections: [grant] }) })
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: [grant] }) })
 
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    const { value } = await operationRpcResponseResult(response) as { value: { auth?: true, operations?: string[], readOnly?: string[] } }
-    expect(value.auth).toBe(true)
+    const { value } = await operationRpcResponseResult(response) as { value: { auth?: unknown, operations?: string[], readOnly?: string[] } }
+    expect(value).not.toHaveProperty("auth")
     expect(value.operations).toEqual(operations)
     expect(value.readOnly).toEqual(readOnly)
   })
@@ -284,10 +300,13 @@ describe("contributed operations over the Console RPC", () => {
   it("loads the Console runtime once, on the first accepted request or agent tool", async () => {
     const load = vi.fn(async () => () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
     try {
-      installConsoleAccess({ check: async () => new Response("no", { status: 401 }), mode: "auth" })
+      // An unsigned call to an app that takes only signed calls.
+      const restore = await signedCalls()
+      signAs = undefined
       installConsoleRuntime(load)
       expect((await call("fixture.greet", { name: "Ada" })).status).toBe(401)
       expect(load).not.toHaveBeenCalled()
+      restore()
 
       installConsoleAccess({ mode: "open" })
       const [first, second] = await Promise.all([call("fixture.greet", { name: "Ada" }), call("fixture.greet", { name: "Grace" })])
@@ -361,11 +380,16 @@ describe("contributed operations over the Console RPC", () => {
     expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc")).status).toBe(200)
   })
 
-  it("does not apply the loopback rule to a signed-in Console", async () => {
+  it("does not apply the loopback rule to signed calls", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     installConsoleDevelopment("/work/app", true)
-    installConsoleAccess({ check: async () => undefined, mode: "auth" })
-    expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc")).status).toBe(200)
+    const restore = await signedCalls()
+    try {
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc", "192.168.1.30")).status).toBe(200)
+    }
+    finally {
+      restore()
+    }
   })
 
   it("gives a development server without sign-in the local developer as the user, and production none", async () => {
@@ -376,11 +400,13 @@ describe("contributed operations over the Console RPC", () => {
       installConsoleAccess({ mode })
       expect(await user("http://localhost:5173/_vitehub/rpc"), mode).toBe("local")
     }
-    // A signed-in Console keeps its own user, or none.
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ id: "ada" }) as never })
+    // A signed call keeps the person that the Console signed, or none from the CLI.
+    let restore = await signedCalls({ id: "ada" })
     expect(await user("http://localhost:5173/_vitehub/rpc")).toBe("ada")
-    installConsoleAccess({ check: async () => undefined, mode: "auth" })
+    restore()
+    restore = await signedCalls()
     expect(await user("http://localhost:5173/_vitehub/rpc")).toBeNull()
+    restore()
     installConsoleDevelopment("/work/app", false)
     vi.stubEnv("NODE_ENV", "development")
     installConsoleAccess({ mode: "local" })
