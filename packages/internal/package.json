@@ -83,6 +83,11 @@
       "import": "./dist/dev-peer.js",
       "default": "./dist/dev-peer.js"
     },
+    "./dev-token": {
+      "types": "./dist/dev-token.d.ts",
+      "import": "./dist/dev-token.js",
+      "default": "./dist/dev-token.js"
+    },
     "./hosting": {
       "types": "./dist/hosting.d.ts",
       "import": "./dist/hosting.js",

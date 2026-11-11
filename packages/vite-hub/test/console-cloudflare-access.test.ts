@@ -428,7 +428,7 @@ describe("Cloudflare Access Console Auth", () => {
 
       const development = await run("serve")
       expect(development.some(entry => entry.middleware)).toBe(false)
-      expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
+      expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"])`)
     }
     finally {
       await rm(root, { recursive: true, force: true })
