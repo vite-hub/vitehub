@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as page from "../src/page.ts"
 import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { api } from "../src/overlay/api.ts"
-import { commentsButton, openList, pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
+import { commentsButton, openList, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { ElementAnchor } from "../src/types.ts"
 
@@ -131,6 +131,23 @@ describe("the Comments overlay on a page", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
     await vi.waitFor(() => expect(room.setLocal).toHaveBeenCalledWith("commentsChange", expect.any(String)))
     expect(room.notify).not.toHaveBeenCalled()
+  })
+
+  it("ends edit mode when comment mode, pressed while the new page loads, comes back", async () => {
+    await open()
+    await startEdit()
+    const session = vi.mocked(api.session).getMockImplementation()!
+    const held = deferred<void>()
+    vi.mocked(api.session).mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/next"))
+    press(document.body, "c")
+    held.resolve()
+    await vi.waitFor(() => expect(commentsButton(tools.bar)!.getAttribute("aria-pressed")).toBe("true"))
+    expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("false")
   })
 
   it("ignores an older inline field lookup after a new selection", async () => {

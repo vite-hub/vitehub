@@ -896,6 +896,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
   let retryToast: Toast | undefined
+  function clearRetry() {
+    if (toast.value === retryToast) toast.value = undefined
+    retryToast = undefined
+  }
   /**
    * Asks `/session` for the subject and the permissions of a new page. Until it answers, comments stay paused. A failed
    * answer keeps them paused, because the subject is not known, and offers Retry.
@@ -905,12 +909,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     void api.session(next).then(([error, answer]) => {
       if (current !== navigations || page.value !== next) return
       if (error) {
-        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => resolvePage(next)] }
+        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => {
+          // The Retry of a page that the person left must not cancel the request for the page they are on now.
+          if (page.value === next) resolvePage(next)
+        }] }
         showToast(retryToast, true)
         return
       }
-      if (toast.value === retryToast) toast.value = undefined
-      retryToast = undefined
+      clearRetry()
       pageCan.value = answer.can
       revision = answer.revision
       const mapped = answer.subject ?? { kind: "page", id: next }
@@ -918,8 +924,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // The same subject lists no threads again, so the new page joins its room here.
       else if (!room && state.status.value === "ready") void joinRoom()
       resolving.value = false
-      state.active.value = paused.value && canComment.value
+      const resume = paused.value
       paused.value = false
+      // Through setMode, so comment mode ends edit mode, and a guest without a name gets the name card first.
+      if (resume) setMode("comment")
     })
   }
 
@@ -951,6 +959,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // Strokes mark the screen of the old page.
       if (marking.value) setMode("view")
       dropInk()
+      // The Retry of the previous page does not apply here.
+      clearRetry()
       // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
       paused.value = paused.value || state.active.value
       state.active.value = false
