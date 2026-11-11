@@ -61,7 +61,7 @@ import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/op
 interface OperationContext {
   access: OperationAccess // the checked Console access of the call
   user: OperationUser | null // the signed-in user
-  actor?: OperationActor // the Agent Actor, when an agent calls for `user`
+  actor?: OperationActor // the Agent Invoker, when an agent calls for `user`
   surface: 'console' | 'cli' | 'mcp' | 'agent'
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
@@ -170,7 +170,7 @@ Each operation becomes a tool with dots as underscores: `reports.list` is `repor
 
 `approve` sets which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as a read never waits.
 
-The agent acts for the Auth user its Actor stands for (`auth.user(actor)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
+The agent acts for the Auth user its Invoker stands for (`auth.user(invoker)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
 
 ::warning
 Without `console.authorize`, nothing filters by section, and `include` is the only gate. List only what the agent may do.

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { getResolvedFeatureOptions, resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
+import { sql as drizzleSql } from "drizzle-orm"
 import { createProgram, flattenDiagnosticMessageText, getPreEmitDiagnostics, ModuleKind, ModuleResolutionKind, ScriptTarget } from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -12,6 +13,8 @@ import { discoverDatabaseDefinitions, resolveDBViteConfig } from "../src/config.
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 import { hubDb } from "../src/nuxt.ts"
+
+import type { AnyRelations } from "drizzle-orm"
 
 const execFileAsync = promisify(execFile)
 const fixtureDir = join(import.meta.dirname, "../fixtures/nuxt-layers")
@@ -126,7 +129,8 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(runtime).toContain(`import schemaSource_0_0 from ${JSON.stringify(pathToFileURL(app.layerDefinition("blog")).href)}`)
     expect(runtime).toContain(`import schemaSource_0_1 from ${JSON.stringify(pathToFileURL(app.layerDefinition("accounts")).href)}`)
     expect(runtime).toContain("const schema_0 = { ...schemaSource_0_0.schema, ...schemaSource_0_1.schema }")
-    expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0 }, definitionDefaults),")
+    expect(runtime).toContain("const relations_0 = mergeDatabaseRelations(\"default\", schema_0, [schemaSource_0_0.relations, schemaSource_0_1.relations])")
+    expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0, relations: relations_0 }, definitionDefaults),")
     expect(nitroConfig.alias).toEqual({
       "#vitehub/database/definition-defaults": join(app.appDir, ".nuxt/vitehub/database/definition-defaults.mjs"),
       "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"),
@@ -208,6 +212,115 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(nitroConfig.alias["@vite-hub/database/drizzle"]).toBe(join(app.appDir, runtimePath))
 
     // Nuxt 5 runs module hooks first, then writes each Nitro alias that has no path yet, with its `.mjs` extension.
+    const paths: Record<string, string[]> = {}
+    for (const hook of hooks["prepare:types"] ?? []) await hook({ references: [], serverTsConfig: { compilerOptions: { paths } } })
+    for (const [alias, target] of Object.entries(nitroConfig.alias)) paths[alias] ??= [target]
+    const program = createProgram({
+      options: {
+        allowImportingTsExtensions: true,
+        allowJs: true,
+        module: ModuleKind.ESNext,
+        moduleResolution: ModuleResolutionKind.Bundler,
+        noEmit: true,
+        paths,
+        skipLibCheck: true,
+        strict: true,
+        target: ScriptTarget.ES2022,
+        types: [],
+      },
+      rootNames: [route, join(app.appDir, ".vitehub/types/database.d.ts")],
+    })
+    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  }, 60_000)
+
+  it.each([false, true])("merges layer relations into db.query at runtime and in types (replace users: %s)", async (replaceUsers) => {
+    const app = await createLayeredApp()
+    // The blog layer relates its posts to the users of the accounts layer.
+    await writeModule(app.layerDefinition("blog"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { defineRelationsPart } from 'drizzle-orm'",
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "import { users } from '../../../accounts/server/databases/default.ts'",
+      "export const posts = sqliteTable('posts', { id: integer('id').primaryKey(), authorId: integer('author_id').notNull(), title: text('title').notNull() })",
+      "export default defineDatabase({",
+      "  schema: { posts },",
+      "  relations: defineRelationsPart({ posts, users }, r => ({ posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) } })),",
+      "})",
+    ])
+    // The app adds the reverse relation, and may replace users and every relation that uses it.
+    await writeModule(join(app.appDir, "server/databases/default.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { defineRelationsPart } from 'drizzle-orm'",
+      replaceUsers
+        ? "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'"
+        : "import { users } from '../../../layers/accounts/server/databases/default.ts'",
+      "import { posts } from '../../../layers/blog/server/databases/default.ts'",
+      ...replaceUsers ? ["const users = sqliteTable('users', { id: integer('id').primaryKey(), email: text('email').notNull(), name: text('name') })"] : [],
+      "export default defineDatabase({",
+      replaceUsers ? "  schema: { users }," : "  schema: {},",
+      "  relations: defineRelationsPart({ posts, users }, r => ({",
+      "    users: { posts: r.many.posts({ from: r.users.id, to: r.posts.authorId }) },",
+      ...replaceUsers ? ["    posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },"] : [],
+      "  })),",
+      "})",
+    ])
+
+    const { config, sql } = await generateMigration(app.appDir, app.serverDirs)
+    expect(sql).toContain("`author_id` integer NOT NULL")
+    const generatedFile = config.generatedSchemaFilesByDatabase.default!
+    await expect(readFile(generatedFile, "utf8")).resolves.toContain(
+      "export const relations = mergeDatabaseRelations(\"default\", schema, [schemaSource_0.relations, schemaSource_1.relations, schemaSource_2.relations])",
+    )
+    const generated = await import(pathToFileURL(generatedFile).href) as { relations: AnyRelations, schema: Record<string, unknown> }
+    expect(Object.keys(generated.relations.posts!.relations)).toEqual(["author"])
+    expect(Object.keys(generated.relations.users!.relations)).toEqual(["posts"])
+
+    const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
+    const db = createDefinitionRuntime({ connection: { url: `file:${join(app.appDir, "app.db")}` }, name: "default", relations: generated.relations, schema: generated.schema })
+    await db.run(drizzleSql`CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL)`)
+    await db.run(drizzleSql`CREATE TABLE posts (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT NOT NULL)`)
+    await db.run(drizzleSql`INSERT INTO users VALUES (1, 'ada@example.com')`)
+    if (replaceUsers) {
+      await db.run(drizzleSql`ALTER TABLE users ADD COLUMN name TEXT`)
+      await db.run(drizzleSql`UPDATE users SET name = 'Ada'`)
+    }
+    await db.run(drizzleSql`INSERT INTO posts VALUES (1, 1, 'Hello')`)
+    const query = db.query as unknown as Record<string, { findFirst: (options: unknown) => Promise<unknown> }>
+    await expect(query.users!.findFirst({ columns: { email: true }, with: { posts: { columns: { title: true } } } })).resolves.toEqual({
+      email: "ada@example.com",
+      posts: [{ title: "Hello" }],
+    })
+    await expect(query.posts!.findFirst({ columns: { title: true }, with: { author: { columns: { email: true } } } })).resolves.toEqual({
+      author: { email: "ada@example.com" },
+      title: "Hello",
+    })
+    if (replaceUsers) {
+      await expect(query.posts!.findFirst({ with: { author: true } })).resolves.toMatchObject({ author: { name: "Ada" } })
+    }
+
+    // The Nuxt development runtime merges the same parts in the same order.
+    const hooks: Record<string, Array<(value: Record<string, unknown>) => Promise<void> | void>> = {}
+    await hubDb()(undefined, {
+      hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
+        (hooks[name] ??= []).push(callback)
+      },
+      options: { ...app.options, dev: true },
+    })
+    const nitroConfig: { alias: Record<string, string> } = { alias: {} }
+    for (const hook of hooks["nitro:config"] ?? []) await hook(nitroConfig)
+    const runtime = await readFile(join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"), "utf8")
+    expect(runtime).toContain("const relations_0 = mergeDatabaseRelations(\"default\", schema_0, [schemaSource_0_0.relations, schemaSource_0_1.relations, schemaSource_0_2.relations])")
+    expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0, relations: relations_0 }, definitionDefaults),")
+
+    const route = join(app.appDir, "server/api/posts.ts")
+    await writeModule(route, [
+      "import { db, useDatabase } from '@vite-hub/database/drizzle'",
+      "export const authors = (): Promise<Array<{ email: string, posts: Array<{ title: string }> }>> => db.query.users.findMany({ with: { posts: true } })",
+      "export const firstPost = (): Promise<{ author: { email: string } | null } | undefined> => useDatabase('default').db.query.posts.findFirst({ with: { author: true } })",
+      "// An untyped `with` would accept this relation.",
+      "// @ts-expect-error Posts have no comments relation.",
+      "export const comments = db.query.posts.findMany({ with: { comments: true } })",
+    ])
     const paths: Record<string, string[]> = {}
     for (const hook of hooks["prepare:types"] ?? []) await hook({ references: [], serverTsConfig: { compilerOptions: { paths } } })
     for (const [alias, target] of Object.entries(nitroConfig.alias)) paths[alias] ??= [target]

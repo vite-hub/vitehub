@@ -7,7 +7,7 @@ icon: i-lucide-file-user
 navigation.kind: Reference
 ---
 
-An Agent Definition is the object that you pass to `defineAgent()` to configure one Agent. It chooses the [Agent Driver](/docs/agents/agent-drivers) that runs it (for example, a model), its Capabilities (tools), its Workspace context (reachable files), and, when needed, Channels, Actor resolution, hooks, and hosted runtime behavior.
+An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Invoker resolution, hooks, or hosted runtime behavior.
 
 ViteHub finds definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`.
 
@@ -86,7 +86,9 @@ When a model calls a known tool with arguments that fail its input schema, an AI
 
 ### Named presets
 
-A preset is a named reusable Agent Definition. `preset` and `presets` select a locally imported definition by name. Select one parent only, with `preset` or `extends`. Use a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#named-presets) with typed options and a `configure` callback.
+Pass the imported Agent Definition as `extends`. Set its typed options with `options` or its named configuration block.
+
+Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#presets-from-a-package) with typed options and a `configure` callback.
 
 ## Return structured output
 
@@ -189,7 +191,7 @@ A child Agent's `data` or `intercept` replaces the parent's; schemas and interce
 
 ## Choose hosted execution
 
-A discovered Agent runs through the active host's Workflow integration by default. `runtime: false` finishes inline, and `runtime: workflow('support')` selects a named Workflow identity.
+Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: agentWorkflow('support')`.
 
 `runAgent()` and `streamAgent()` run the Agent inline in the calling process, whatever its `runtime`. See [Run an Agent](/docs/agents/invocations#run-an-agent).
 
@@ -197,7 +199,7 @@ A discovered Agent runs through the active host's Workflow integration by defaul
 
 | Option | Purpose |
 | --- | --- |
-| `extends`, `preset`, `presets` | Reuse one parent Definition. See [Agent presets and inheritance](/docs/agents/agent-presets). |
+| `extends` | Reuse one parent Definition. See [Agent presets and inheritance](/docs/agents/agent-presets). |
 | `options`, `configure`, `configKey` | Expose typed settings on a reusable Agent preset. |
 | `driver` | Required unless inherited. Selects a built-in provider, model-backed, or custom-run path. |
 | `capabilities` | A static list or invocation-time Capability resolver. |
@@ -209,7 +211,7 @@ A discovered Agent runs through the active host's Workflow integration by defaul
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
-| `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
+| `invoker` | Configures Agent Invoker profiles and resolution. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `invocations` | Selects the [Invocation journal](/docs/agents/invocation-storage) and its storage policy. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. Finish and error hooks act on the Channel message through [`event.message`](/docs/agents/channels#act-on-the-channel-message-in-hooks). |
@@ -217,4 +219,4 @@ A discovered Agent runs through the active host's Workflow integration by defaul
 | `name`, `description`, `version` | Explicit discovery and inspection metadata. |
 | `cli.capabilities` | Turns Capability-contributed CLI commands on or off. |
 
-Details: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), and [Invocations](/docs/agents/invocations).
+Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Trusted Invokers](/docs/agents/trusted-invokers), and [Invocations](/docs/agents/invocations).
