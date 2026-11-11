@@ -7,7 +7,7 @@ import { renderToString } from "vue/server-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import hubAuthNuxt from "../src/nuxt.ts"
-import { useUserSession } from "../src/vue.ts"
+import { Can, useUserSession } from "../src/vue.ts"
 
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
 import type { createAuthClient } from "../src/vue.ts"
@@ -41,6 +41,8 @@ vi.mock("#app", () => ({
   useRuntimeConfig: () => mocks.config,
   useState: () => mocks.state,
 }))
+
+vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
 vi.mock("better-auth/vue", () => ({
   createAuthClient: (options: unknown) => {
@@ -167,6 +169,20 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
     // The payload seeds the browser's composables, without the session token.
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
+  })
+
+  it("reads the session once for SSR <Can> components, and renders what the rule allows", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+    const can = (authorId: string) => h(Can as never, { do: "posts.edit", with: { authorId, published: false } }, {
+      default: () => h("button", "Edit"),
+      denied: ({ code }: { code: string }) => h("span", code),
+    })
+
+    const html = await renderToString(createSSRApp(() => h("main", [can("u"), can("other")])))
+
+    expect(html.replace(/<!--[[\]]-->/g, "")).toBe("<main><button>Edit</button><span>not-author</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
   })
 
   it("settles the session for an SSR component whose async setup waits until the session is ready", async () => {
