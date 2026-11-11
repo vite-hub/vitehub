@@ -35,7 +35,7 @@ export interface CmsPresetOptions {
    * root, where a collection path such as `content/posts/**\/*.md` starts at the root.
    */
   root?: string
-  /** GitHub store: how a publish reaches `branch`. `"commit"` (default) commits to it. `"pr"` opens a pull request. */
+  /** GitHub store: how a publish reaches `branch`. `"commit"` (default) commits to it. `"pr"` opens a pull request from a `vitehub/publish/*` branch, which only Console access or a signed link previews. */
   publish?: "commit" | "pr"
 }
 

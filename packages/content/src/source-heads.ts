@@ -80,7 +80,8 @@ export interface ContentSourceHeads {
    * Decide whether a request may read a ref of a `github()` Source, before Content downloads the commit. A ref is public
    * when the published branch contains its commit, or when the commit is the head of an open or merged pull request from
    * the same repository, or from a fork with the `preview:enabled` label. Private branches, such as the CMS draft
-   * branch, and every other ref need the preview cookie of `content.preview.enable()` or a link from `sign()`.
+   * branch and the `vitehub/publish/*` branches of CMS pull requests, and every other ref need the preview cookie of
+   * `content.preview.enable()` or a link from `sign()`.
    *
    * Content holds a decision from GitHub for 10 minutes. An invalid or unknown ref is denied with `missing`, so answer a
    * plain 404 for every denial. It throws `CONTENT_R0029` or `CONTENT_R0032` when GitHub does not answer.

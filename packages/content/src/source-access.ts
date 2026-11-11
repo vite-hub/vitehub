@@ -5,6 +5,12 @@ import type { ContentSourceRef } from "./source-refs.ts"
 /** The label that makes the head commit of a fork pull request public. */
 export const PREVIEW_LABEL = "preview:enabled"
 
+/**
+ * The branch prefix of the pull requests that the CMS opens with `publish: "pr"`, such as `vitehub/publish/1a2b3c4-...`.
+ * These branches hold unreviewed drafts, so `allow()` keeps them private like the draft branch.
+ */
+export const publishBranchPrefix = "vitehub/publish/"
+
 /** How long a server instance holds a decision that came from GitHub. A removed label shows after this time at most. */
 export const ACCESS_HOLD_MS: number = 10 * 60_000
 
@@ -21,7 +27,7 @@ export type ContentSourceAllowReason = "published" | "pull" | "label" | "console
 /**
  * Why `content.sources.allow()` denies a ref. A route answers 404 for every reason.
  * - `missing`: the ref is not valid, or the repository has no such ref.
- * - `private`: the ref is a private branch, such as the CMS draft branch, or a pull request from it.
+ * - `private`: the ref is a private branch, such as the CMS draft branch or a CMS publish branch, or a pull request from it.
  * - `fork`: the ref is an open fork pull request without the `preview:enabled` label.
  * - `closed`: the ref is a pull request that was closed without a merge.
  * - `unpublished`: no rule above makes the commit public.
@@ -51,17 +57,22 @@ export interface PublicRuleFacts {
   pulls(): Promise<GitHubPullRequest[]>
 }
 
+/** Whether a branch is private: one that the app lists, such as the CMS draft branch, or a CMS publish branch. */
+function isPrivateBranch(branch: string, privateBranches: ReadonlySet<string>): boolean {
+  return privateBranches.has(branch) || branch.startsWith(publishBranchPrefix)
+}
+
 /** What a pull request makes public: its head commit, when it is open or merged, and from the same repository or labelled. */
 function pullAllows(pull: GitHubPullRequest, privateBranches: ReadonlySet<string>): "pull" | "label" | undefined {
   if (pull.state !== "open" && !pull.merged) return
-  if (!pull.fork) return privateBranches.has(pull.head) ? undefined : "pull"
+  if (!pull.fork) return isPrivateBranch(pull.head, privateBranches) ? undefined : "pull"
   return pull.labels.includes(PREVIEW_LABEL) ? "label" : undefined
 }
 
 /** Whether a ref is a private branch, or a pull request from one in the same repository. */
 export function isPrivateRef(target: ContentSourceRef, privateBranches: ReadonlySet<string>): boolean {
-  if (target.kind === "branch") return privateBranches.has(target.ref)
-  return target.kind === "pull" && target.pull !== null && !target.pull.fork && privateBranches.has(target.pull.head)
+  if (target.kind === "branch") return isPrivateBranch(target.ref, privateBranches)
+  return target.kind === "pull" && target.pull !== null && !target.pull.fork && isPrivateBranch(target.pull.head, privateBranches)
 }
 
 /**

@@ -147,13 +147,13 @@ const view = await content.sources.at(access.target) // the commit that allow() 
 | The head commit of an open or merged fork pull request with the `preview:enabled` label | Yes | `label` |
 | A fork pull request without the label | No | `fork` |
 | A pull request that was closed without a merge, unless the published branch contains its head | No | `closed` |
-| A private branch, such as the CMS draft branch, and a same-repository pull request from it | No | `private` |
+| A private branch, such as the CMS draft branch or a CMS publish branch (`vitehub/publish/*`), and a same-repository pull request from it | No | `private` |
 | A branch or commit with no allowed pull request and outside the published history | No | `unpublished` |
 | An invalid ref, or one that the repository does not have | No | `missing` |
 
 - The published branch is the `ref` of the `github()` Source, or the default branch of the repository. Content asks GitHub `compare/<branch>...<sha>` and counts `behind` and `identical`.
 - A request passes every rule with the preview cookie of `content.preview.enable()` (reason `console`), or with a link from `content.sources.sign(ref, source?, { maxAge })` (reason `token`). A link carries `?vitehub-content-token=<token>`, signs one ref of one Source, and expires after `maxAge` seconds: one hour by default, 24 hours at most. Both use `VITEHUB_CONTENT_KEY`. `sign()` is trusted server API: check `content.can()` or Console access before you call it.
-- The `cms` preset with a GitHub store makes its `draftBranch` private. A preset sets other private branches with `privateBranches`.
+- The `cms` preset with a GitHub store makes its `draftBranch` private. The pull requests that the CMS opens with `publish: "pr"` come from `vitehub/publish/*` branches, and these are always private: they hold drafts that nobody reviewed yet. A preset sets other private branches with `privateBranches`.
 - Content holds each decision from GitHub for 10 minutes on each server instance. A removed label or a closed pull request shows after 10 minutes at most. A failed GitHub call holds nothing and throws `CONTENT_R0032`.
 - Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
 - Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.

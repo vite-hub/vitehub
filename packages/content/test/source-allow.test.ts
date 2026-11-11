@@ -19,6 +19,8 @@ let fake: FakeGitHub
 const key = "11".repeat(32)
 const page = (title: string) => `---\ntitle: ${title}\n---\nBody\n`
 const draftBranch = "vitehub/content"
+/** A branch that the CMS opens a pull request from with `publish: "pr"`. */
+const publishBranch = "vitehub/publish/1a2b3c4-20261111-0000"
 
 beforeEach(async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-content-allow-"))
@@ -89,13 +91,14 @@ function repository() {
   fake.branch("main", "merged")
   const published = fake.commit("main", { "guide.md": page("Guide v2") })
   const refs: Record<string, string> = { old, published, merged: fake.head("merged")! }
-  for (const branch of ["feat/open", "feat/lonely", "feat/closed", "feat/squashed", draftBranch, "fork-plain", "fork-labelled", "fork-closed"]) {
+  for (const branch of ["feat/open", "feat/lonely", "feat/closed", "feat/squashed", draftBranch, publishBranch, "fork-plain", "fork-labelled", "fork-closed"]) {
     fake.branch(branch, "main")
     refs[branch] = fake.commit(branch, { "guide.md": page(`Guide on ${branch}`) })
   }
   const pulls = {
     open: fake.openPull("feat/open", "main", "Same repository"),
     draft: fake.openPull(draftBranch, "main", "Publish drafts"),
+    publish: fake.openPull(publishBranch, "main", "Publish guide"),
     closed: fake.openPull("feat/closed", "main", "Rejected"),
     squashed: fake.openPull("feat/squashed", "main", "Squash merged"),
     fork: fake.openPull("fork-plain", "main", "From a fork", { fork: "mallory/docs" }),
@@ -135,6 +138,11 @@ const cases: Case[] = [
   ["the draft branch with the preview cookie", () => draftBranch, withPreviewCookie, { allowed: true, reason: "console" }],
   ["a same-repo pull request from the draft branch", ({ pulls }) => `pr/${pulls.draft}`, anonymous, { allowed: false, reason: "private" }],
   ["the head commit of the draft branch", ({ refs }) => refs[draftBranch]!, anonymous, { allowed: false, reason: "unpublished" }],
+  // D4: a pull request that the CMS opens with `publish: "pr"` holds drafts too. Only Console access or a signed link opens it.
+  ["a CMS publish pull request", ({ pulls }) => `pr/${pulls.publish}`, anonymous, { allowed: false, reason: "private" }],
+  ["a CMS publish pull request with the preview cookie", ({ pulls }) => `pr/${pulls.publish}`, withPreviewCookie, { allowed: true, reason: "console" }],
+  ["a CMS publish branch", () => publishBranch, anonymous, { allowed: false, reason: "private" }],
+  ["the head commit of a CMS publish pull request", ({ refs }) => refs[publishBranch]!, anonymous, { allowed: false, reason: "unpublished" }],
   ["a branch merged into the published branch", () => "merged", anonymous, { allowed: true, reason: "published" }],
   ["the published branch", () => "main", anonymous, { allowed: true, reason: "published" }],
   // Differs: the template renders every same-repo branch.
@@ -171,6 +179,15 @@ describe("content.sources.allow()", () => {
 
     vi.setSystemTime(Date.now() + 61_000)
     expect(decision(await content.sources.allow(draftBranch, withToken(token), "docs"))).toEqual({ allowed: false, reason: "private" })
+  })
+
+  it("allows a CMS publish pull request with its signed link", async () => {
+    const { pulls } = repository()
+    const content = server()
+    const ref = `pr/${pulls.publish}`
+    const { token } = await content.sources.sign(ref, "docs")
+    expect(decision(await content.sources.allow(ref, withToken(token), "docs"))).toEqual({ allowed: true, reason: "token" })
+    expect(decision(await content.sources.allow(ref, anonymous(), "docs"))).toEqual({ allowed: false, reason: "private" })
   })
 
   it("does not take a cookie signed with another key", async () => {
