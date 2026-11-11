@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process"
-import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -9,6 +8,8 @@ import { createBuilder } from "vite"
 import { expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
+import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -29,14 +30,14 @@ it("starts a KV app with the Console from the Node output", async () => {
     await mkdir(join(root, "server/api"), { recursive: true })
     await writeFile(join(root, "server/api/health.get.ts"), "import { defineEventHandler } from \"h3\"\n\nexport default defineEventHandler(() => ({ ok: true }))\n")
 
-    const token = "console-node-start-token-0123456789abcdef"
+    const ci = await consoleTestKey("CI")
     const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: "token" }, kv: true, preset: "node" })], root })
     await builder.buildApp()
 
     const port = await freePort()
     const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
       cwd: root,
-      env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") },
+      env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), ...ci.env },
       stdio: ["ignore", "ignore", "pipe"],
     })
     let stderr = ""
@@ -56,9 +57,14 @@ it("starts a KV app with the Console from the Node output", async () => {
       expect(stderr).not.toContain("TypeError")
       expect(response?.status).toBe(200)
       expect(await response?.json()).toEqual({ ok: true })
-      // Without the Schedules and Auth sections, their Console routes are absent. Apps no longer serve a Console page.
+      // The built server verifies an Ed25519 signature with Web Crypto, and refuses an unsigned call.
+      const signed = await fetch(await signedRpcRequest({ key: ci.key, operation: "project.get", url: `http://127.0.0.1:${port}/_vitehub/rpc` }))
+      await expect(operationRpcResponseResult(signed)).resolves.toMatchObject({ ok: true, value: { protocol: 1 } })
+      const unsigned = await fetch(`http://127.0.0.1:${port}/_vitehub/rpc`, { body: "{}", headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
+      expect(unsigned.status).toBe(401)
+      // Without the Auth section, its Console route is absent. Apps no longer serve a Console page or a Schedule run route.
       for (const path of ["/_vitehub/schedules/run", "/_vitehub/auth/manage"]) {
-        const post = await fetch(`http://127.0.0.1:${port}${path}`, { body: "{}", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, method: "POST" })
+        const post = await fetch(`http://127.0.0.1:${port}${path}`, { body: "{}", headers: { "content-type": "application/json" }, method: "POST" })
         expect(post.status, path).toBe(404)
       }
       expect(stderr).not.toContain("Unhandled error")
