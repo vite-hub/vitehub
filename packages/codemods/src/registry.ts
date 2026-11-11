@@ -1,3 +1,4 @@
+import { agentSurface } from "./agent-surface/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
@@ -24,4 +25,5 @@ export const codemods: readonly Codemod[] = [
   defineForms,
   oneEntryImports,
   vitehubOptions,
+  agentSurface,
 ]
