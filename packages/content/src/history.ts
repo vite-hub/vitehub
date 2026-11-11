@@ -299,29 +299,41 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
 
   async function dates(source: string, keys: readonly string[], options: ContentDatesOptions = {}): Promise<Map<string, string>> {
     if (!keys.length) return new Map()
-    const target = await datesTarget(source)
-    if (!target) return new Map()
-    const { definition, sha, prefix } = target
     const pick = (stored: Record<string, string | null>) => new Map(keys.flatMap(key => Object.hasOwn(stored, key) && stored[key] ? [[key, stored[key]] as const] : []))
-    if (options.waitUntil) {
-      const ready = await readySet(prefix, sha, keys)
-      if (ready) return pick(ready.dates)
-      // Answer now with the dates of the previous head, and compute this head after the response.
-      options.waitUntil(refreshSet(definition, prefix, sha, keys))
-      const previous = lastDates.get(prefix) ?? await readSet(`${prefix}:last`)
+    const previousSet = async (prefix: string) => lastDates.get(prefix) ?? await readSet(`${prefix}:last`)
+    let prefix: string | undefined
+    try {
+      const target = await datesTarget(source)
+      if (!target) return new Map()
+      const { definition, sha } = target
+      prefix = target.prefix
+      if (options.waitUntil) {
+        const ready = await readySet(prefix, sha, keys)
+        if (ready) return pick(ready.dates)
+        // Answer now with the dates of the previous head, and compute this head after the response.
+        options.waitUntil(refreshSet(definition, prefix, sha, keys))
+        const previous = await previousSet(prefix)
+        return previous ? pick(previous.dates) : new Map()
+      }
+      const cacheKey = `${prefix}:${sha}:${await parserHash([...keys].sort())}`
+      let pending = dateSets.get(cacheKey)
+      if (!pending) {
+        pending = sourceDates(definition, prefix, sha, keys)
+        dateSets.set(cacheKey, pending)
+        pending.catch(() => {
+          if (dateSets.get(cacheKey) === pending) dateSets.delete(cacheKey)
+        })
+        while (dateSets.size > memoryDates) dateSets.delete(dateSets.keys().next().value!)
+      }
+      return pick((await pending).dates)
+    }
+    catch (error) {
+      // The dates only enrich the sitemap and the feed, so a GitHub failure keeps the dates of the previous head, or
+      // none. The failed set is not stored, so the next request asks again.
+      console.warn(`[vitehub] Content could not read the page dates of Source ${JSON.stringify(source)}, so its pages keep older dates or none: ${error instanceof Error ? error.message : String(error)}`)
+      const previous = prefix ? await previousSet(prefix) : undefined
       return previous ? pick(previous.dates) : new Map()
     }
-    const cacheKey = `${prefix}:${sha}:${await parserHash([...keys].sort())}`
-    let pending = dateSets.get(cacheKey)
-    if (!pending) {
-      pending = sourceDates(definition, prefix, sha, keys)
-      dateSets.set(cacheKey, pending)
-      pending.catch(() => {
-        if (dateSets.get(cacheKey) === pending) dateSets.delete(cacheKey)
-      })
-      while (dateSets.size > memoryDates) dateSets.delete(dateSets.keys().next().value!)
-    }
-    return pick((await pending).dates)
   }
 
   async function refresh(source: string, keys: readonly string[]): Promise<void> {

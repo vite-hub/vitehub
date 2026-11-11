@@ -157,6 +157,42 @@ describe("seo.rss for github() Sources", () => {
     expect(warm.map(request => request.operation ?? request.path.replace(/\/compare\/.*/, "/compare"))).toEqual(["/repos/acme/docs/compare", "FileHistory"])
   }, 60_000)
 
+  it("dates a page that a later commit reverted by the revert, not by the net change", async () => {
+    fake.commit("main", { "content/guide.md": page("Guide"), "content/other.md": page("Other") }, { author: { date: at(1), name: "Ada" } })
+    const content = sourceSite()
+    await content.sitemap()
+    fake.commit("main", { "content/guide.md": page("Guide draft") }, { author: { date: at(2), name: "Ada" } })
+    fake.commit("main", { "content/guide.md": page("Guide"), "content/other.md": page("Other v2") }, { author: { date: at(3), name: "Ada" } })
+    await content.sources.advance("docs")
+    await content.list("docs")
+    const start = fake.requests.length
+
+    expect(await content.sitemap()).toEqual([
+      { collection: "docs", id: "guide", loc: "https://example.com/docs/guide", lastmod: at(3) },
+      { collection: "docs", id: "other", loc: "https://example.com/docs/other", lastmod: at(3) },
+    ])
+    // One compare, the files of its 2 commits, and one GraphQL request for both pages.
+    const requests = fake.requests.slice(start, start + 4).map(request => request.operation ?? request.path.replace(/\/(compare|commits)\/.*/, "/$1"))
+    expect(requests).toEqual(["/repos/acme/docs/compare", "/repos/acme/docs/commits", "/repos/acme/docs/commits", "FileHistory"])
+  })
+
+  it("keeps serving the sitemap when GitHub fails to give the page dates", async () => {
+    fake.commit("main", { "content/a.md": page("A") }, { author: { date: at(1), name: "Ada" } })
+    let failing = true
+    fake.respond(request => failing && request.operation === "FileHistory" ? new Response(JSON.stringify({ message: "Forbidden" }), { status: 403 }) : undefined)
+    const content = sourceSite({ rss: false })
+    await content.list("docs")
+
+    const response = await defineContentSitemapHandler(content).fetch(new Request("https://example.com/sitemap.xml"))
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("<loc>https://example.com/docs/a</loc>")
+    expect(warn.mock.calls.some(([message]) => String(message).includes("could not read the page dates"))).toBe(true)
+
+    // The failed dates are not kept, so the next request asks again.
+    failing = false
+    expect(await content.sitemap()).toEqual([{ collection: "docs", id: "a", loc: "https://example.com/docs/a", lastmod: at(1) }])
+  })
+
   it("asks again with half the pages when GitHub stops a GraphQL request", async () => {
     const files: Record<string, string> = {}
     for (let index = 0; index < 150; index++) files[`content/p${index}.md`] = page(`P${index}`)
