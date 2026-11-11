@@ -19,6 +19,11 @@ export interface ForwardTarget {
   url: string
   /** The project token. The Console sends it as `Authorization: Bearer`. */
   token: string
+  /**
+   * Headers that the Console server sets for this call, such as the confirmation of an MCP call. They win over the
+   * headers of the request, and the Console page cannot set them.
+   */
+  headers?: Record<string, string>
 }
 
 function problem(status: number, code: string, message: string): Response {
@@ -48,11 +53,13 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
     if (body.byteLength > maxForwardBodyBytes) return problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is larger than 9 MiB.")
   }
 
-  const headers = new Headers({ authorization: `Bearer ${target.token}` })
+  const headers = new Headers()
   for (const name of requestHeaders) {
     const value = request.headers.get(name)
     if (value !== null) headers.set(name, value)
   }
+  for (const [name, value] of Object.entries(target.headers ?? {})) headers.set(name, value)
+  headers.set("authorization", `Bearer ${target.token}`)
 
   let response: Response
   try {

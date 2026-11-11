@@ -31,6 +31,15 @@ describe("forwardProjectRequest", () => {
     expect(init?.method).toBe("POST")
   })
 
+  it("adds the headers of the Console server, but never replaces the token", async () => {
+    const send = upstream()
+    await forwardProjectRequest(call({ headers: { "x-vitehub-surface": "page" } }), { ...target, headers: { "authorization": "Bearer other", "x-vitehub-confirmation": "required", "x-vitehub-surface": "cli" } }, "/_vitehub/rpc/__call", send)
+    const headers = new Headers(send.mock.calls[0]![1]?.headers)
+    expect(headers.get("authorization")).toBe("Bearer project-token")
+    expect(headers.get("x-vitehub-confirmation")).toBe("required")
+    expect(headers.get("x-vitehub-surface")).toBe("cli")
+  })
+
   it.each([
     "/_vitehub/rpc/__call",
     "/_vitehub/api/env/manage",
