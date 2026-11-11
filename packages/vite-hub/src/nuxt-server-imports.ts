@@ -4,8 +4,8 @@
  * Rules for an entry:
  * - Runtime helpers that server code calls in a handler, such as `kv` or `sendQueue`.
  * - `define*` helpers only when Nitro alone loads their Definition files. ViteHub also loads Agent, Auth, Comments,
- *   Database, and Workspace Definitions outside Nitro (Vite SSR, jiti, or `runnerImport`), where Nitro auto-imports
- *   do not exist. Those files keep explicit imports.
+ *   Database, Schedule, Workflow, and Workspace Definitions outside Nitro (Vite SSR, jiti, `runnerImport`, or
+ *   provider bundles). Those files and their dependencies keep explicit imports for every helper they use.
  * - No name that Nuxt, Nitro, or H3 auto-imports, such as `getSession`, `useSession`, `defineTask`, or `useStorage`.
  *
  * The `satisfies` check fails the typecheck when a name is not a value export of its `vite-hub/*` entry.
@@ -27,8 +27,8 @@ export const viteHubServerImports = {
   rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"] },
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
-  schedule: { "vite-hub/schedule": ["defineSchedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
-  workflow: { "vite-hub/workflow": ["defineWorkflow", "cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
+  schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
+  workflow: { "vite-hub/workflow": ["cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
   workspace: { "vite-hub/workspace": ["useWorkspace"] },
 } as const satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
 

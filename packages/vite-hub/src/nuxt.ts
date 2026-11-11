@@ -1146,6 +1146,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
+    // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
+    workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.preset !== "netlify")),
   })
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined

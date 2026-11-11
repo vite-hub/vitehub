@@ -8,7 +8,9 @@ icon: i-lucide-folder-tree
 ---
 
 On Nuxt 5, the `vite-hub/nuxt` module auto-imports the server helpers of each
-feature that you turn on. Server code uses them without an import:
+feature that you turn on. Nitro server code uses them without an import.
+Definition files that ViteHub loads outside Nitro must keep explicit imports,
+as described below.
 
 ```ts [server/api/welcome.post.ts] fragment
 import { defineEventHandler, readBody } from 'nitro/h3'
@@ -50,12 +52,14 @@ The module scans the server directory of the app and of each Nuxt layer.
 | Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()` and `checkRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `requireRateLimit`, `resetRateLimit` |
 | Realtime | `realtime` | `server/realtime/` | `defineRealtime`, `isRealtimeAvailable`, `refreshRealtimeDocument` |
 | Sandbox Task | `sandboxTask` | `server/sandbox-tasks/` | `runSandboxTask` |
-| Schedule | `schedule` | `server/schedules/` | `defineSchedule`, `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
-| Workflow | `workflow` | `server/workflows/` | `defineWorkflow`, `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
+| Schedule | `schedule` | `server/schedules/` | `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
+| Workflow | `workflow`, or enabled through `agent` | `server/workflows/` | `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
 | Workspace | `workspace` | `server/workspaces/` | `useWorkspace` |
 
 - A feature that is off adds no auto-imports. A host without the service adds
   none either. For example, `queue: true` on Netlify adds no Queue helpers.
+- Agent also enables Workflow unless `workflow: false`. On Netlify, Agent
+  does not enable Workflow by default.
 - [File conventions](/docs/reference/file-conventions) shows the file names in
   each folder and the suffix form, such as `<path>.queue.ts`.
 - `useServerEnv` comes from the generated `#vitehub/env/server` module. Its
@@ -64,8 +68,9 @@ The module scans the server directory of the app and of each Nuxt layer.
 ## Definition files that keep their imports
 
 ViteHub also loads some Definition files outside Nitro, for example in the
-Vite dev server. Nitro auto-imports do not exist there, so these files must
-import their `define*` helper:
+Vite dev server or in a separate provider bundle. Nitro auto-imports do not
+exist there. These files and all modules they load must import every helper
+they use, including runtime helpers such as `kv` inside handlers:
 
 | Helper | Import |
 | --- | --- |
@@ -73,7 +78,29 @@ import their `define*` helper:
 | `defineAuth` | `vite-hub/auth` |
 | `defineComments` | `vite-hub/comments` |
 | `defineDatabase` | `vite-hub/database` |
+| `defineSchedule` | `vite-hub/schedule` |
+| `defineWorkflow` | `vite-hub/workflow` |
 | `defineWorkspace` | `vite-hub/workspace` |
+
+This rule applies to Schedule and Workflow Definitions on every host, so
+the same files work when the deployment preset changes. It also applies
+to Workflow step files. For example:
+
+```ts [server/schedules/cleanup.ts]
+import { kv } from 'vite-hub/kv'
+import { defineSchedule } from 'vite-hub/schedule'
+
+export default defineSchedule({
+  cron: '0 0 * * *',
+  async handler() {
+    const [error] = await kv.del('expired')
+    if (error) throw error
+  },
+})
+```
+
+Routes and other files that Nitro alone loads can still use the runtime
+auto-imports in the table.
 
 ## Types
 

@@ -4521,7 +4521,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
       ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
-      ...names("vite-hub/schedule", "defineSchedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"),
+      ...names("vite-hub/schedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"),
     ])
   })
 
@@ -4545,6 +4545,27 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const netlifyConfig: Record<string, unknown> = { imports: { imports: [] } }
     await netlify.runNitroConfigHook(netlifyConfig)
     expect(netlifyConfig).toHaveProperty("imports.imports", [])
+  })
+
+  it.each([
+    { preset: "cloudflare", agent: true, workflow: undefined, enabled: true },
+    { preset: "node", agent: true, workflow: undefined, enabled: true },
+    { preset: "vercel", agent: true, workflow: undefined, enabled: true },
+    { preset: "netlify", agent: true, workflow: undefined, enabled: false },
+    { preset: "cloudflare", agent: true, workflow: false, enabled: false },
+    { preset: "cloudflare", agent: false, workflow: undefined, enabled: false },
+    { preset: "cloudflare", agent: false, workflow: true, enabled: true },
+  ] as const)("selects server imports for effective Workflow enablement: %j", async ({ preset, agent, workflow, enabled }) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    // Read Agent from Nuxt options too, as applications configured through vitehub() do.
+    Object.assign(nuxt.options, { vitehub: { agent } })
+    await viteHubNuxtModule({ env: false, preset, workflow }, nuxt)
+
+    const config: { imports: { imports: { from: string, name: string }[] } } = { imports: { imports: [] } }
+    await runNitroConfigHook(config)
+    expect(config.imports.imports.filter(entry => entry.from === "vite-hub/workflow").map(entry => entry.name)).toEqual(
+      enabled ? ["cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] : [],
+    )
   })
 
   it.each([false, true])("auto-imports I18n server helpers from inline or Nuxt module options: %s", async (inline) => {

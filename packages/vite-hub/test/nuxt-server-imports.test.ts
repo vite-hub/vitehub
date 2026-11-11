@@ -47,6 +47,6 @@ describe("ViteHub server auto-imports", () => {
   })
 
   it("keeps Definition helpers out when ViteHub also loads their files outside Nitro", () => {
-    for (const name of ["defineAgent", "defineAuth", "defineComments", "defineDatabase", "defineWorkspace"]) expect(names).not.toContain(name)
+    for (const name of ["defineAgent", "defineAuth", "defineComments", "defineDatabase", "defineSchedule", "defineWorkflow", "defineWorkspace"]) expect(names).not.toContain(name)
   })
 })
