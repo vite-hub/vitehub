@@ -20,7 +20,7 @@ const message = {
 }
 
 function configured(options: Record<string, unknown> = {}) {
-  return defineAgent({ preset: "labeller", presets: { labeller }, options: {
+  return defineAgent({ extends: labeller, options: {
     labels: { Receipts: { description: "Purchases" }, Work: { description: "Work" } },
     ...options,
   } })
@@ -216,9 +216,32 @@ describe("labeller preset", () => {
     expect(requests.slice(2)).toEqual(["GET messages", "POST messages/m1/trash"])
   })
 
+  it("searches Spam too and skips messages that are gone before trash", async () => {
+    const requests: string[] = []
+    const queries: unknown[] = []
+    const client = async (request: { method: string, path: string, query?: Record<string, unknown> }) => {
+      requests.push(`${request.method} ${request.path}`)
+      if (request.path === "messages") {
+        queries.push(request.query)
+        return { messages: [{ id: "m1" }, { id: "gone" }, ...(request.query?.includeSpamTrash === true ? [{ id: "spam" }] : [])] }
+      }
+      if (request.path === "messages/gone/trash") throw Object.assign(new Error("Not Found"), { status: 404 })
+      return {}
+    }
+    const query = 'label:"Shop/Deals" older_than:14d -is:starred -in:trash'
+    const agent = configured({ labels: { "Shop/Deals": {} }, cleanup: { promotions: { label: "Shop/Deals", olderThan: 14 } }, client, dryRun: false })
+    await expect(cleanupLabeller(agent, { apply: true })).resolves.toEqual({
+      applied: true,
+      rules: [{ messageIds: ["m1", "gone", "spam"], query, rule: "promotions" }],
+    })
+    expect(queries).toEqual([{ includeSpamTrash: true, maxResults: 500, q: query }])
+    expect(requests).toEqual(["GET messages", "POST messages/m1/trash", "POST messages/gone/trash", "POST messages/spam/trash"])
+  })
+
   it.each([
     [{ receipts: { label: "Missing", olderThan: 30 } }, /undeclared label/],
     [{ receipts: { label: "Receipts", olderThan: 0 } }, /positive whole number/],
+    [{ receipts: { label: "Receipts", olderThan: 1.5 } }, /positive whole number/],
     [[], /cleanup must be an object/],
   ])("rejects invalid cleanup %j", async (cleanup, error) => {
     const attempt = Promise.resolve().then(() => runAgentWithContext(configured({ cleanup }), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))

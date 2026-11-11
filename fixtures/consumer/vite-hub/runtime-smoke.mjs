@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { defineAgent, runAgent, startAgentInvocation, workflow as agentWorkflow } from "vite-hub/agent"
+import { defineAgent, runAgent, startAgentInvocation, agentWorkflow } from "vite-hub/agent"
 import { blob as blobCapability } from "vite-hub/agent/capabilities"
 import { env } from "vite-hub/env"
 import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"
@@ -126,7 +126,7 @@ const pwd = await workspaceTools.shell.execute({ command: "pwd" })
 assert.equal(pwd.exitCode, 0)
 assert.equal(pwd.stdout, "/workspace\n")
 
-const workflow = defineWorkflow(async ({ payload }) => ({ marker: payload.marker }))
-assert.deepEqual(await workflow.handler({ payload: { marker: "runtime" } }), { marker: "runtime" })
+const workflow = defineWorkflow("runtime", async payload => ({ marker: payload.marker }))
+assert.deepEqual(await workflow.handler({ marker: "runtime" }, { name: "runtime", payload: { marker: "runtime" }, provider: "openworkflow", steps: {} }), { marker: "runtime" })
 
 console.log("vite-hub runtime smoke ok")

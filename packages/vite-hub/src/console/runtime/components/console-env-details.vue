@@ -1,14 +1,12 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed } from "vue";
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 
-import ConsoleEnvManaged from "./console-env-managed.vue";
 import ConsolePropertyList from "./console-property-list.vue";
-import ConsoleStatus from "./console-status.vue";
 
 const props = defineProps<{
   entry: ServerEnvDescriptionEntry;
-  endpoint: string;
   /** The result of the last status check, when the page ran one. */
   status?: { label: string; tone: "error" | "neutral" | "success" | "warning" };
 }>();
@@ -27,14 +25,11 @@ const properties = computed(() => [
   { label: "Required", value: props.entry.required ? "Yes" : "No" },
   { label: "Default", value: props.entry.hasDefault ? "Configured" : "None" },
 ]);
-/** Whether the management of a provider value is open, and its tab. The Env page keeps both in the URL. */
-const managing = defineModel<boolean>("managing", { default: false });
-const tab = defineModel<"credential" | "activity" | "access">("tab", { default: "credential" });
 </script>
 
 <template>
   <div class="grid gap-6">
-    <ConsoleStatus v-if="status" :label="status.label" :tone="status.tone" />
+    <Status v-if="status" :label="status.label" :tone="status.tone" />
     <ConsolePropertyList title="Declaration" :items="properties" />
     <p class="text-[13px] leading-5 text-pretty text-muted">
       {{
@@ -44,22 +39,7 @@ const tab = defineModel<"credential" | "activity" | "access">("tab", { default: 
             ? "Defined in application configuration. Update it in your source code."
             : "Resolved through the configured provider when the application loads Server Env. Manage values in the connected store."
       }}
-      <template v-if="!managing"> This view does not load values.</template>
+      This view does not load values.
     </p>
-    <UButton
-      v-if="entry.source === 'provider' && entry.path && !managing"
-      class="justify-self-start"
-      label="Manage credential"
-      color="neutral"
-      variant="outline"
-      @click="managing = true"
-    />
   </div>
-  <ConsoleEnvManaged
-    v-if="managing && entry.source === 'provider' && entry.path"
-    :key="entry.path"
-    :endpoint="endpoint"
-    v-model:tab="tab"
-    :path="entry.path"
-  />
 </template>

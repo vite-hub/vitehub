@@ -51,6 +51,7 @@ interface InstallOptions {
   scheduleRunStore?: ScheduleRunStore
   startedStore?: StartedScheduleStore
   startedRegistry?: ScheduleDefinitionRegistry
+  timings?: Record<string, { cron: string, timeZone?: string }>
 }
 
 async function install(server: ServerProcess, options: InstallOptions) {
@@ -66,6 +67,7 @@ async function install(server: ServerProcess, options: InstallOptions) {
     onError: options.onError ?? (error => console.error(error)),
     ...(options.prefix === undefined ? {} : { prefix: options.prefix }),
     registry: options.registry,
+    timings: options.timings,
     scheduleRunStore: options.scheduleRunStore ?? createMemoryScheduleRunStore(),
   })
   controllers.push(controller)
@@ -116,7 +118,7 @@ describe("Process Runtime on more than one process", () => {
     }
   })
 
-  it("runs each occurrence once when two processes share the leases", async () => {
+  it.each([false, true])("runs each occurrence once when two processes share the leases (build timings: %s)", async (buildTimings) => {
     const time = clock("2026-11-09T08:00:10.000Z")
     const leases = createMemoryLeaseStore()
     const calls: Array<{ at: string, process: string }> = []
@@ -130,8 +132,9 @@ describe("Process Runtime on more than one process", () => {
       }),
     })
     // Each process has its own run history, so only the leases keep them apart.
-    await install(await startProcess(), { leases, now: time.now, registry: registry("a") })
-    await install(await startProcess(), { leases, now: time.now, registry: registry("b") })
+    const timings = buildTimings ? { daily: { cron: "* * * * *" } } : undefined
+    await install(await startProcess(), { leases, now: time.now, registry: registry("a"), timings })
+    await install(await startProcess(), { leases, now: time.now, registry: registry("b"), timings })
 
     for (let index = 0; index < 3; index++) {
       if (index > 0) time.advance(60_000)
@@ -196,7 +199,7 @@ describe("Process Runtime on more than one process", () => {
     }))
   })
 
-  it("runs an unfinished occurrence once when every process restarts after its minute", async () => {
+  it.each([false, true])("runs an unfinished occurrence once when every process restarts after its minute (build timings: %s)", async (buildTimings) => {
     const leases = createMemoryLeaseStore()
     const scheduleRunStore = createMemoryScheduleRunStore()
     const scheduledAt = minute("2026-11-09T08:00:00.000Z")
@@ -218,8 +221,9 @@ describe("Process Runtime on more than one process", () => {
     const now = () => minute("2026-11-09T08:02:10.000Z")
 
     // Two processes start at 08:02 with an empty memory.
-    await install(await startProcess(), { catchUpMs: 60 * 60_000, leases, now, registry, scheduleRunStore })
-    await install(await startProcess(), { catchUpMs: 60 * 60_000, leases, now, registry, scheduleRunStore })
+    const timings = buildTimings ? { daily: { cron: "* * * * *" } } : undefined
+    await install(await startProcess(), { catchUpMs: 60 * 60_000, leases, now, registry, scheduleRunStore, timings })
+    await install(await startProcess(), { catchUpMs: 60 * 60_000, leases, now, registry, scheduleRunStore, timings })
     await vi.waitFor(() => expect(calls).toContain("2026-11-09T08:00:00.000Z"), { timeout: 2000 })
     await sleep(300)
 

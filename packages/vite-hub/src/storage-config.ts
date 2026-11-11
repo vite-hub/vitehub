@@ -2,7 +2,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
-import type { ViteHubOptions } from "./index.ts"
+import type { ViteHubOptions } from "./plugins.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
@@ -28,7 +28,6 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
-  const consoleOptions = options.console === true ? { auth: "app" as const } : options.console
   return {
     ...options,
     ...(cache ? { cache } : {}),
@@ -42,23 +41,14 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent ? {
       agent: {
         ...agent,
-        ...(state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
-          providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        ...(state !== false && (!state?.driver || ["auto", "sqlite", "libsql"].includes(state.driver)) ? {
+          providers: { ...agent.providers, state: { ...state, driver: state?.driver ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
         } : {}),
         ...(isDefaultAgentJournal(agent.invocations) ? {
           invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },
         } : {}),
       },
     } : {}),
-    ...(consoleOptions === undefined ? {} : {
-      console: consoleOptions === false ? false : {
-        ...consoleOptions,
-        auth: consoleOptions.auth instanceof Object && "provider" in consoleOptions.auth && consoleOptions.auth.provider === "github" ? {
-          ...consoleOptions.auth,
-          databasePath: consoleOptions.auth.databasePath ?? join(root, "console-auth.sqlite"),
-        } : consoleOptions.auth,
-      },
-    }),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),

@@ -6,30 +6,48 @@ navigation.order: 8
 icon: i-lucide-users-round
 ---
 
-The Auth section is at `/_vitehub/auth` on your app's origin. It appears when the app has a primary Auth Definition. It needs a Better Auth database adapter, such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database), to read stored data. Stateless Auth shows why the data is unavailable.
+The Auth section of the [Console](/docs/development/console) appears when the app has a primary Auth Definition. To read stored data, it needs a Better Auth database adapter such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). With stateless Auth, it explains why the data is missing.
 
-Enable and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`. That scope covers every Auth page and management request. Console access permits inspection. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login does not grant app admin rights.
+Turn on and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`, and it covers every Auth page and management request. Console access lets you look. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A Console account gives no app admin rights.
 
-With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call.
+`console: { auth: false }` is for development. A production build with it fails. Set `console: true` and link the app in the Console at `https://console.vitehub.dev`, which shows the `VITEHUB_CONSOLE_KEY_<NAME>` line to set.
+
+Each page and action of the section is an operation on the Console RPC: `auth.describe`, `auth.overview`, `auth.activity`, `auth.users`, `auth.user`, `auth.sessions`, `auth.organizations`, `auth.organization`, and `auth.agents` read, and `auth.ban`, `auth.unban`, `auth.remove`, `auth.revoke-sessions`, `auth.revoke-session`, `auth.set-role`, `auth.edit-field`, and `auth.revoke-consent` change. `auth.impersonate` and `auth.stop-impersonating` return a [one-time link](/docs/development/console#one-time-links), because impersonation sets the session cookie on the app origin.
+
+## Who makes Auth changes
+
+The Console [signs](/docs/development/console#sign-console-requests) the person who calls, with their email. Changes run as the app user with that email, with the newest app session of that user that is not an impersonation, so Better Auth checks the permissions of that account and Activity records it as the actor. The session never leaves the server.
+
+- Without an app user with that email, changes are refused with `403`: "No app user has the email of your Console account".
+- Without a live app session of that user, changes are refused with `401`. Sign in to the app as that user once, then try again.
+- The CLI signs no person, so `vitehub auth ban` and the other changes are refused with `403`. The CLI can still read.
+
+`auth.describe` says why each action is off, so the Console disables the buttons with the same reason.
 
 ## Pages
 
-- **Overview** is the section index. It shows users, new users in the last seven days, active sessions, and approved agents when the OAuth provider plugin is enabled. With events enabled, it adds active users in the last seven days, daily sign-ins and sign-ups for 30 UTC days, sign-in methods, and the eight latest events.
-- **Activity** lists events newest first. Filter by Sign-in, Admin actions, Agents, or Organizations, and by the subject user ID. Next and Previous use cursors. New events do not shift later pages. Refresh returns to the newest page. Actor and subject names link to the user panel. Deleted users keep their IDs in the log.
-- **Users** searches names and email addresses, filters admins, banned users, or users with approved clients, and loads one page at a time. Open a user to inspect their profile, declared fields, sessions, linked accounts, organizations, approved clients, and recent events. View all opens Activity with that subject user selected.
-- **Sessions** shows active sessions, devices, creation dates, and expiry dates. Revoke a session by its id.
-- **Organizations** appears with the Better Auth organization plugin. Open an organization to read members, roles, and pending invitations.
+- **Overview** shows users, new users in the last seven days, active sessions, and approved agents (with the OAuth provider plugin). With events on, it adds active users in the last seven days, daily sign-ins and sign-ups for 30 UTC days, sign-in methods, and the eight latest events.
+- **Activity** lists events, newest first. Filter by Sign-in, Admin actions, Agents, or Organizations, and by subject user ID. Next and Previous use cursors, so new events do not shift later pages. Refresh goes back to the newest page. Actor and subject names link to the user panel. Deleted users keep their IDs in the log.
+- **Users** searches names and emails, filters admins, banned users, or users with approved clients, and loads one page at a time. A user shows their profile, declared fields, sessions, linked accounts, organizations, approved clients, and recent events. View all opens Activity for that user.
+- **Sessions** shows active sessions, devices, and creation and expiry dates. Revoke a session by its id.
+- **Organizations** appears with the Better Auth organization plugin. It shows members, roles, and pending invitations.
 - **Agents** appears with the OAuth provider or MCP plugin. It shows each user's approved clients and scopes. Last use is `Unknown` when the provider does not record it.
 
-Active users are distinct users who completed a recorded sign-in in the last seven days. A session created at sign-up counts. The chart includes today and the previous 29 UTC days. The current day is incomplete. Method shares use recorded sign-ins in this chart window. Event counts cover retained records only, with no backfill. The default retention is 90 days or 100,000 events.
+Active users are distinct users with a recorded sign-in in the last seven days, including sessions created at sign-up. The chart covers today, which is not complete, and the 29 UTC days before. Method shares use recorded sign-ins in this window. Counts cover only kept events, with no backfill. By default, the log keeps 90 days or 100,000 events.
 
-Users and new users come from the current user database. Active sessions count unexpired database sessions. This count is unavailable when the app keeps sessions only in secondary storage. Approved agents counts consent grants, one per user and client.
+Users and new users come from the user database. Active sessions count unexpired database sessions, so the count is missing when sessions live only in secondary storage. Approved agents counts consent grants, one per user and client.
 
 ## Enable events
 
-Overview and Activity stay visible without an event store. They show the required setup. Overview still shows totals from the Auth database.
+Without an event store, Overview and Activity show the setup steps. Overview still shows totals from the Auth database.
 
-Add `events.store` to `defineAuth()` in your Auth Definition. This example uses a SQLite Database Definition named `auth`. Keep the app's existing Better Auth adapter and options.
+Add `events.store` to `defineAuth()`. This example uses a SQLite Database Definition named `auth`. Keep your Better Auth adapter and options.
+
+```ts [server/databases/auth/index.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
@@ -43,15 +61,15 @@ export default defineAuth(() => ({
 }))
 ```
 
-The event store supports Node SQLite and Cloudflare D1. It records new events after setup. Read the [event log contract](/docs/auth/events) for retention, event coverage, and storage failure limits. The Console checks `console.authorize` for the `auth` section before reading either store. `events.authorize` controls the separate CLI endpoint and is not required for the Console.
+The event store supports Node SQLite and Cloudflare D1, and records events from setup on. The [event log](/docs/auth/events) page covers retention, which events it records, and storage failures. The Console checks `console.authorize` for the `auth` section before it reads either store. `events.authorize` controls only the CLI endpoint, so the Console does not need it.
 
-Activity returns event IDs, types, times, and actor and subject names and IDs. It does not send event metadata, IP addresses, tokens, or secret values to the client.
+Activity sends event IDs, types, times, and actor and subject names and IDs. It never sends event metadata, IP addresses, tokens, or secrets to the client.
 
 ## Declare fields and policy
 
-Better Auth `user.additionalFields` become columns and profile fields. Fields with `returned: false` stay private. All fields start read-only. Opt in to editing each field under `console.fields`.
+Better Auth `user.additionalFields` become columns and profile fields. Fields with `returned: false` stay private. All fields are read-only until you allow editing in `console.fields`.
 
-Use a Better Auth adapter and schema that include those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) owns a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
+Use a Better Auth adapter and schema with those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) has a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
 
 ```ts [server/auth.ts] fragment
 import { defineAuth } from 'vite-hub/auth'
@@ -91,19 +109,20 @@ export default defineAuth({
 })
 ```
 
-Computed columns receive public core Better Auth users and return values keyed by user id. They run on the server. Their types are `string`, `number`, `boolean`, or `date`. Computed values are read-only. A computed key cannot replace an additional field.
+Computed columns run on the server. They receive public core Better Auth users and return values keyed by user id, typed `string`, `number`, `boolean`, or `date`. They are read-only, and a computed key cannot replace an additional field.
 
-Additional fields use the Better Auth field type. Strings, enum choices, numbers, booleans, dates, and string or number arrays have editors. Other types are shown as JSON and stay read-only. Fields with `input: false` can still be edited by an admin when the app sets `editable: true`; Better Auth's admin update API owns that operation.
+Additional fields use their Better Auth type. Strings, enums, numbers, booleans, dates, and string or number arrays get editors. Other types show as read-only JSON. With `editable: true`, an admin can edit a field even when it has `input: false`. Better Auth's admin update API does the change.
 
-A field policy accepts `label`, `editable`, and `reason`. `roles` and each entry in `actions` accept `false` or `{ editable: false, reason }` to deny an action. `true` keeps the Better Auth capability; it cannot grant a missing permission. Supported action keys are `ban`, `unban`, `remove`, `revokeSession`, `revokeSessions`, `setRole`, `editField`, `impersonate`, and `revokeConsent`.
+- A field policy takes `label`, `editable`, and `reason`.
+- `roles` and each entry in `actions` take `false` or `{ editable: false, reason }` to deny an action. `true` keeps the Better Auth permission but cannot add a missing one.
+- Action keys are `ban`, `unban`, `remove`, `revokeSession`, `revokeSessions`, `setRole`, `editField`, `impersonate`, and `revokeConsent`.
+- `access` is display text only. It does not enforce sign-in rules. Put those in Better Auth and your route authorization.
 
-`access` contains display text only. It does not enforce sign-in rules. Define those rules in Better Auth and your app's route authorization.
-
-The `console` option also works in a request-time Auth Definition callback. It has no Nuxt, Vite, or Console host dependency. Apps with external roles can mirror those fields into Better Auth and mark them read-only with a source note.
+The `console` option also works in a request-time Auth Definition callback, and needs no Nuxt, Vite, or Console host. Apps with external roles can copy them into Better Auth fields and mark them read-only with a source note.
 
 ### Computed roles
 
-When the app computes roles, for example from an environment variable, add `read` to `roles`. The Console then shows those roles and its Admins filter uses them, also for users who have not signed in since the rule changed. It writes nothing.
+When the app computes roles, for example from an environment variable, add `read` to `roles`. The Console shows those roles and the Admins filter uses them, also for users who have not signed in since the rule changed. It writes nothing.
 
 ```ts [server/auth.ts] fragment
 console: {
@@ -115,29 +134,42 @@ console: {
 },
 ```
 
-`read` gets public core users and returns a role per user id, like a computed column. `null` keeps the stored role. A computed role can't be filtered in the database, so the Admins filter calls `read` for every user, 500 users at a time. Impersonation also refuses a user whose computed role is an admin role.
+`read` gets public core users and returns a role per user id, like a computed column. `null` keeps the stored role. The database cannot filter a computed role, so the Admins filter calls `read` for every user, 500 at a time. Impersonation refuses a user whose computed role is an admin role.
 
-Better Auth's admin endpoints still check the stored `user.role` of the signed-in admin. Write that role when the user signs in, for example in a `session.create.after` database hook.
+Better Auth's admin endpoints still check the signed-in admin's stored `user.role`. Write that role at sign-in, for example in a `session.create.after` database hook.
 
 ## Changes and limits
 
-Ban, unban, remove, role changes, field edits, session revocation, and impersonation call Better Auth plugin APIs. They do not write through the adapter. Better Auth checks the current app session and runs its hooks. A successful action returns an actor receipt in the form `user:<id>`.
+Ban, unban, remove, role changes, field edits, session revocation, and impersonation call Better Auth plugin APIs, not the adapter. Better Auth checks the current app session and runs its hooks. A successful action returns an actor receipt such as `user:<id>`.
 
-The client never receives session tokens, account passwords, access tokens, refresh tokens, or OAuth client secrets. Session revocation resolves the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
+The client never gets session tokens, account passwords, access or refresh tokens, or OAuth client secrets. Session revocation looks up the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
 
-Impersonation is off unless the host turns it on. The Console turns it on with `console.impersonation: true`. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it. It also needs `events.store`, so that each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user that the request's session impersonates, and `user(id, request)` returns whether Better Auth accepts that user as a target. See [Impersonate users](/docs/development/console#impersonate-users).
+Impersonation is off until the host turns it on. In ViteHub, `console.impersonation: true` turns it on. It also needs `events.store`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it.
 
-With the admin plugin, Auth bounds every impersonation session, whoever starts it. The session never refreshes past its `impersonationSessionDuration`, and it cannot create OAuth, MCP, or device grants, API keys, passkeys, passwords, email or phone number changes, username changes, linked accounts, two-factor settings, one-time tokens, or another impersonation. It also cannot unlink an account, or read or refresh a linked account's provider tokens through `/get-access-token`, `/refresh-token`, or `/account-info`. Those requests return `403` with `IMPERSONATION_FORBIDDEN`, and so does a server call such as `auth.api.setPassword()` that uses the impersonation session. Grant and client reads, such as `/oauth2/get-consents`, still work.
+In the Console, open a user and select **Impersonate**. The Console calls `auth.impersonate`, and a new tab opens the [one-time link](/docs/development/console#one-time-links) on your app. The app then checks the browser:
 
-Better Auth OAuth Provider 1.7.7 has no admin endpoint that revokes one user's grant. Its consent-delete endpoint is owner-only and does not revoke issued tokens. The Console shows Revoke disabled with this reason. It does not impersonate users or delete token rows to bypass the provider.
+1. The browser must be signed in to the app with the email of your Console account. Otherwise the tab shows `CONSOLE_TICKET_MISMATCH`.
+2. Better Auth must let that app session impersonate the user, with the `impersonate` permission of the admin plugin.
 
-Session lists read the Better Auth session table. Sessions kept only in secondary storage cannot be enumerated. Set `session.storeSessionInDatabase: true` when using secondary storage to inspect those sessions.
+The app sets the impersonation session cookie and opens its home page as the user. **Stop impersonating** in the user panel opens a link that ends the impersonation of this browser and restores your session. The app's own UI can stop it too, with `stopImpersonating()` of `useUserSession()`.
 
-Lists use a default page size of 25 and a maximum of 100. Search and the approved-client filter read matching ids in batches because Better Auth adapters do not share a join query API. Plain user and session pages use database pagination. User detail shows the first 100 linked accounts and organization memberships. Session and approved-client lists have pagination. Organization members and invitations also have pagination.
+With the admin plugin, Auth limits every impersonation session, whoever starts it:
+
+- It never refreshes past its `impersonationSessionDuration`.
+- It cannot create OAuth, MCP, or device grants, API keys, passkeys, passwords, email, phone number, or username changes, linked accounts, two-factor settings, one-time tokens, or another impersonation.
+- It cannot unlink an account, or read or refresh a linked account's provider tokens through `/get-access-token`, `/refresh-token`, or `/account-info`.
+
+Those requests return `403` with `IMPERSONATION_FORBIDDEN`, and so do server calls such as `auth.api.setPassword()` that use the impersonation session. Grant and client reads, such as `/oauth2/get-consents`, still work.
+
+Better Auth OAuth Provider 1.7.7 has no admin endpoint to revoke one user's grant. Its consent-delete endpoint is owner-only and does not revoke issued tokens. So the Console shows Revoke as disabled, with this reason. It does not impersonate users or delete token rows to get around the provider.
+
+Session lists read the Better Auth session table, so sessions only in secondary storage are not listed. To see them, set `session.storeSessionInDatabase: true`.
+
+Lists show 25 items by default, up to 100. Better Auth adapters share no join query API, so search and the approved-client filter read matching ids in batches. Plain user and session pages use database pagination. User detail shows the first 100 linked accounts and organization memberships. Session, approved-client, member, and invitation lists have pagination.
 
 ## Inspect from code
 
-Use the same reader from trusted server code:
+Trusted server code can use the same reader:
 
 ```ts fragment
 import { getAuthConsoleForRequest } from 'vite-hub/auth/server'
@@ -148,10 +180,14 @@ if (error) throw error
 for (const user of users.items) console.log(user.email, user.fields)
 ```
 
-Operations return `[error, data]`. Errors have a typed code, a cause for server diagnostics, and a link to [Auth errors](/docs/auth/limits-and-errors).
+Operations return `[error, data]`. Errors have a typed code, a cause for server logs, and a link to [Auth errors](/docs/auth/limits-and-errors).
 
-`inspect.overview()` returns the same totals, chart data, and recent events as Overview. `inspect.activity({ group: 'admin', userId: 'user-id', limit: 25 })` returns safe display records and a `nextCursor`. Pass that cursor with the same filters for the next page.
+`inspect.overview()` returns the totals, chart data, and recent events of Overview. `inspect.activity({ group: 'admin', userId: 'user-id', limit: 25 })` returns safe display records and a `nextCursor`. For the next page, pass that cursor with the same filters.
 
-Manual hosts can use `createAuthConsole(auth, consoleOptions, eventStore)` from `vite-hub/auth/console-runtime`. `auth` is the app's Better Auth instance. Pass the same store as `events.store`, or omit it to disable event reads. Read methods do not check HTTP access themselves. A host must check its access policy before exposing them in a route.
+Manual hosts can use `createAuthConsole(auth, consoleOptions, eventStore)` from `vite-hub/auth/console-runtime`, where `auth` is the app's Better Auth instance. Pass the `events.store` store, or leave it out to turn off event reads.
 
-Use `inspect.execute(action, request)` for the same policy and permission checks as the Console, or call Better Auth's own API from trusted code. No separate CLI is needed for these operations.
+::warning
+Read methods do not check HTTP access. Check your access policy before you expose them in a route.
+::
+
+`inspect.execute(action, request)` runs the same policy and permission checks as the Console. Trusted code can also call Better Auth's API. These operations need no separate CLI.

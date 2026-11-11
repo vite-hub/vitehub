@@ -31,11 +31,12 @@ export async function createProject(files: Record<string, string>): Promise<stri
 }
 
 export const contentDefinition = [
-  "import { defineContent, documents } from 'vite-hub/content'",
+  "import { defineContent } from 'vite-hub/content'",
+  "import { documents } from 'vite-hub/content/collections'",
   "import cms from 'vite-hub/cms'",
   "import * as v from 'valibot'",
   "",
-  "export const content = defineContent({",
+  "export default defineContent({",
   "  extends: cms,",
   "  collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: v.string() } }) },",
   "  logger: false,",
@@ -44,7 +45,7 @@ export const contentDefinition = [
 ].join("\n")
 
 export const server = [
-  "import { content } from '../server/content'",
+  "import content from '../server/content'",
   "",
   "export async function run(id: string) {",
   "  const posts = content.collection('posts')",

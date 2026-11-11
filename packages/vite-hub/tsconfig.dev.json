@@ -8,6 +8,7 @@
     "paths": {
       "#vitehub/agent/registry": ["../../packages/agent/src/runtime/registry.ts"],
       "#vitehub/agent/provider-agent": ["../../packages/agent/src/provider-agent.ts"],
+      "#vitehub/auth/abilities": ["../../packages/auth/src/runtime/empty-abilities.ts"],
       "#vitehub/auth/definition": ["../../packages/auth/src/runtime/empty-definition.ts"],
       "#vitehub/database/databases": ["../../packages/database/src/runtime/virtual-databases.ts"],
       "#vitehub/database/schema": ["../../packages/database/src/runtime/virtual-schema.ts"],
@@ -20,6 +21,7 @@
       "vite-hub": ["../../packages/vite-hub/src/index.ts"],
       "vite-hub/*": ["../../packages/vite-hub/src/*"],
       "@vite-hub/agent": ["../../packages/agent/src/index.ts"],
+      "@vite-hub/agent/invocations": ["../../packages/agent/src/invocations/index.ts"],
       "@vite-hub/agent/*": ["../../packages/agent/src/*"],
       "@vite-hub/auth": ["../../packages/auth/src/index.ts"],
       "@vite-hub/auth/*": ["../../packages/auth/src/*"],
@@ -45,6 +47,8 @@
       "@vite-hub/presets/*": ["../../packages/presets/src/*"],
       "@vite-hub/queue": ["../../packages/queue/src/index.ts"],
       "@vite-hub/queue/*": ["../../packages/queue/src/*"],
+      "@vite-hub/i18n": ["../../packages/i18n/src/index.ts"],
+      "@vite-hub/i18n/*": ["../../packages/i18n/src/*"],
       "@vite-hub/rate-limit": ["../../packages/rate-limit/src/index.ts"],
       "@vite-hub/rate-limit/*": ["../../packages/rate-limit/src/*"],
       "@vite-hub/runtime": ["../../packages/runtime/src/index.ts"],
@@ -72,26 +76,19 @@
   "include": [
     "src/**/*.ts",
     "../browser/src/registry-modules.d.ts",
-    "../database/src/runtime/definition-runtime.d.ts",
+    "../database/src/runtime/package-imports.d.ts",
+    "scripts/**/*.ts",
     "test/**/*.ts",
     "test/**/*.test-d.ts"
   ],
   "exclude": [
     "dist",
     "node_modules",
-    // Browser code of the Console's invocation views and page tool; tsconfig.console.json checks it with the DOM library.
+    // Browser code of the Console's invocation views; tsconfig.console.json checks it with the DOM library.
     "src/console/runtime/components/invocation",
-    "src/console/page",
-    "test/console-page-tool-client.test.ts",
     "src/console/ui.ts",
     "test/console-invocation-views",
     // Browser code of the comments overlay, also checked by tsconfig.console.json.
-    "src/comments-overlay/loader-core.ts",
-    "src/comments-overlay/loader.ts",
-    "src/comments-overlay/overlay.ts",
-    "src/comments-overlay/virtual.d.ts",
-    "test/comments-overlay-loader.test.ts",
-    "test/comments-overlay-mount.test.ts",
     "test/console-comment-thread-dismissal.test.ts",
     // The page pill script, also checked by tsconfig.console.json.
     "src/page"

@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { comarkContent } from "comark-content"
-import type { ContentGetOptions, ContentOptions, JsonSchema, Source as ComarkContentSource } from "comark-content"
+import { comarkContent, memory } from "comark-content"
+import type { ContentGetOptions, ContentOptions, JsonSchema, ParsedSource, Source as ComarkContentSource } from "comark-content"
 import { createSource, useSource } from "@vite-hub/source"
-import type { Source, SourceItem, SourceName } from "@vite-hub/source"
+import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { withContentSnapshot } from "./snapshots.ts"
@@ -24,8 +24,18 @@ export interface ContentSourceOptions {
 
 type ContentSourceItem = SourceItem<string, unknown, object>
 type RuntimeObject = Record<string, unknown>
+/** How each load of a Source definition reads one commit, such as the head commit of a `github()` Source. */
+export interface ContentSourceCommits {
+  /** The commit that the next load reads, or undefined to read the Source as it is. A read outside a load first syncs the head. */
+  revision(): Promise<SourceRevision | undefined>
+  /** The files of a commit, from the commit cache. */
+  files(revision: SourceRevision): Promise<ContentSourceItem[]>
+  /** The parsed documents of the commit that the instance serves, as a Comark parsed Source over `origin`. */
+  documents(origin: ComarkContentSource): ParsedSource
+}
+type ContentSourceFactoryOptions = Omit<ContentSourceOptions, "url"> & { commits?: ContentSourceCommits }
 type ContentSourceFactory = {
-  create(options?: ContentSourceOptions): ComarkContentSource
+  create(options?: ContentSourceFactoryOptions): ComarkContentSource
 }
 type ContentSourceState = {
   latestItems?: Map<string, ContentSourceItem>
@@ -45,8 +55,8 @@ export type ContentSourceInput =
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 const contentSourceUrlKey = Symbol("vitehub.contentSourceUrl")
-/** The `name` of the `@vite-hub/source` Source that each adapter reads, such as `glob` or `files`. */
-const contentSourceKinds = new WeakMap<ComarkContentSource, string>()
+/** The `@vite-hub/source` Source definition that each adapter reads. */
+const contentSourceDefinitions = new WeakMap<ComarkContentSource, Source<string, unknown, object>>()
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   Symbol.toStringTag,
@@ -174,18 +184,19 @@ function getContentSourceFactory(source: ComarkContentSource): ContentSourceFact
 }
 
 function contentSourceOptions(
-  defaults: ContentSourceOptions,
-  overrides: ContentSourceOptions,
-): ContentSourceOptions {
+  defaults: ContentSourceFactoryOptions,
+  overrides: ContentSourceFactoryOptions,
+): ContentSourceFactoryOptions {
   return {
     prefix: overrides.prefix ?? defaults.prefix,
     schema: overrides.schema ?? defaults.schema,
+    commits: overrides.commits ?? defaults.commits,
   }
 }
 
 function createContentSourceFactory(
   sourceInput: Source<string, unknown, object> | SourceName | ContentSourceReader | (() => ContentSourceReader),
-  defaults: ContentSourceOptions,
+  defaults: ContentSourceFactoryOptions,
 ): ContentSourceFactory {
   const state: ContentSourceState = { latestSequence: 0, nextSequence: 0 }
   const factory: ContentSourceFactory = {
@@ -198,14 +209,15 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
-            const currentReader = isSourceName(sourceInput)
+            const revision = await options.commits?.revision()
+            const currentReader = () => isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
                 ? createSource(sourceInput)
                 : isRuntimeFunction(sourceInput)
                   ? sourceInput()
                   : sourceInput
-            for (const item of await currentReader.items()) {
+            for (const item of revision ? await options.commits!.files(revision) : await currentReader().items()) {
               const path = contentPath(item)
               if (nextItems.has(path)) {
                 throw contentErrorDiagnostics.CONTENT_R0003({ message: `[vitehub] contentSource() received duplicate content path ${JSON.stringify(path)}.` })
@@ -252,7 +264,7 @@ function createContentSourceFactory(
       }
       if (options.prefix !== undefined) source.prefix = options.prefix
       if (options.schema !== undefined) source.schema = options.schema
-      if (isSourceDefinition(sourceInput)) contentSourceKinds.set(source, sourceInput.name)
+      if (isSourceDefinition(sourceInput)) contentSourceDefinitions.set(source, sourceInput)
       Object.defineProperty(source, contentSourceFactory, {
         value: {
           create: (overrides = {}) => factory.create(contentSourceOptions(options, overrides)),
@@ -269,15 +281,30 @@ export function contentSourceUrl(input: ContentSourceInput | undefined): Content
   return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
 }
 
+/** The `@vite-hub/source` Source definition behind an input, if any. */
+export function contentSourceDefinition(input: ContentSourceInput): Source<string, unknown, object> | undefined {
+  if (isSourceDefinition(input)) return input
+  return isComarkContentSource(input) ? contentSourceDefinitions.get(input) : undefined
+}
+
 /** The `name` of the `@vite-hub/source` Source behind an input, such as `glob` or `files`, or undefined for other inputs. */
 export function contentSourceKind(input: ContentSourceInput): string | undefined {
-  if (isSourceDefinition(input)) return input.name
-  return isComarkContentSource(input) ? contentSourceKinds.get(input) : undefined
+  return contentSourceDefinition(input)?.name
+}
+
+/**
+ * The keys of the `@vite-hub/source` Source behind an input. Unlike the Comark Source's `keys()`, it reads no file
+ * content. Inputs without a Source definition have no keys.
+ */
+export async function contentSourceKeys(input: ContentSourceInput): Promise<string[]> {
+  const definition = contentSourceDefinition(input)
+  return definition ? await createSource(definition).keys() : []
 }
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  const { url = contentSourceUrl(input), ...comarkOptions } = options
+  const { url = contentSourceUrl(input), prefix, schema } = options
+  const comarkOptions = { prefix, schema }
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
   }
@@ -297,12 +324,16 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
 
 /**
  * Create the Comark instance of one Source. With `snapshot`, the instance hydrates from the build-time snapshot on its
- * first read and keeps the Source as its origin.
+ * first read and keeps the Source as its origin. With `commits`, the instance serves one commit of a Source definition
+ * from the commit cache.
  */
-export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader): ReturnType<typeof comarkContent> {
-  const source = contentSource(input)
+export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader, commits?: ContentSourceCommits): ReturnType<typeof comarkContent> {
+  const adapted = contentSource(input)
+  const source = commits ? getContentSourceFactory(adapted)?.create({ commits }) ?? adapted : adapted
   options = {
     ...options,
+    // A persistent Comark cache has no commit identity. Keep managed GitHub caches local to this instance.
+    ...(commits && options.cache !== false ? { cache: { ...options.cache, driver: memory() } } : {}),
     plugins: options.plugins?.map(plugin => plugin && ({
       ...plugin,
       setup(context) {
@@ -312,7 +343,8 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
     })),
   }
   const factory = getContentSourceFactory(source)
-  if (!factory) return comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(source, snapshot) : source })
+  const keys = () => contentSourceKeys(input)
+  if (!factory) return comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(source, snapshot, keys) : source })
 
   // Each async load retains its own Source reader, including parsers that outlive a failed load.
   const loads = new AsyncLocalStorage<ComarkContentSource>()
@@ -322,7 +354,7 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
     getItem: key => (loads.getStore() ?? source).getItem(key),
     getItemRaw: key => (loads.getStore() ?? source).getItemRaw(key),
   }
-  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot) : scopedSource })
+  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot, keys) : commits ? commits.documents(scopedSource) : scopedSource })
   const init = instance.init.bind(instance)
   const refresh = instance.refresh.bind(instance)
   const get = instance.get.bind(instance)

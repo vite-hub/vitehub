@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { agentChannelOperations } from "@vite-hub/agent/operations"
+import { agentChannelOperations } from "../../agent/dist/operations.js"
 import { installChannelsConsoleHost } from "@vite-hub/agent/server/internal"
 
 import { consoleOperationCall } from "../src/console/runtime/client/request.ts"
@@ -9,6 +9,7 @@ import { consoleSectionDetails, resolveConsoleSectionIds } from "../src/console/
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const retention = { durable: false, maxMessages: 100, transcripts: false, ttlMs: 604_800_000 }
 const message = { attachments: [], author: { fullName: "Maxi", isMe: false, userId: "1" }, id: "1", metadata: { dateSent: "2026-06-10T12:00:00.000Z" }, role: "user", source: "provider", text: "hello", threadId: "telegram:1" }
@@ -28,8 +29,8 @@ function install() {
 }
 
 function rpc(operation: string, input: unknown = {}) {
-  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
@@ -62,14 +63,14 @@ describe("Channels section", () => {
     installConsoleAccess({ authorize: () => ({ sections: ["channels"] }), mode: "open" })
     const list = await rpc("channels.list")
     expect(list.status).toBe(200)
-    await expect(list.json()).resolves.toMatchObject({ ok: true, value: { channels: [{ agent: "support", channel: "telegram", provider: "telegram", retention: { mode: "provider-window", warning: expect.stringContaining("not durable") } }] } })
+    await expect(operationRpcResponseResult(list)).resolves.toMatchObject({ ok: true, value: { channels: [{ agent: "support", channel: "telegram", provider: "telegram", retention: { mode: "provider-window", warning: expect.stringContaining("not durable") } }] } })
     const threads = await rpc("channels.threads", { agent: "support", channel: "telegram" })
-    await expect(threads.json()).resolves.toMatchObject({ ok: true, value: { threads: [{ invocationCount: 2, participants: ["Maxi"], thread: "telegram:1" }] } })
+    await expect(operationRpcResponseResult(threads)).resolves.toMatchObject({ ok: true, value: { threads: [{ invocationCount: 2, participants: ["Maxi"], thread: "telegram:1" }] } })
     const conversation = await rpc("channels.conversation", { agent: "support", channel: "telegram", thread: "telegram:1" })
-    await expect(conversation.json()).resolves.toMatchObject({ ok: true, value: { messageCount: 1, messages: [{ at: "2026-06-10T12:00:00.000Z", author: { id: "1", name: "Maxi" }, text: "hello" }] } })
+    await expect(operationRpcResponseResult(conversation)).resolves.toMatchObject({ ok: true, value: { messageCount: 1, messages: [{ at: "2026-06-10T12:00:00.000Z", author: { id: "1", name: "Maxi" }, text: "hello" }] } })
     const exported = await rpc("conversations.export", { agent: "support", channel: "telegram", format: "markdown", thread: "telegram:1" })
     // SAFETY: The test reads the text of the export result.
-    const body = await exported.json() as unknown as { value: { text: string } }
+    const body = await operationRpcResponseResult(exported) as unknown as { value: { text: string } }
     expect(body.value.text).toContain("### Maxi · 2026-06-10 12:00:00 UTC")
   })
 
@@ -87,6 +88,6 @@ describe("Channels section", () => {
     Reflect.deleteProperty(globalThis, Symbol.for("vitehub.agent.channels-console"))
     const response = await rpc("channels.list")
     expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("libSQL") })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("libSQL") })
   })
 })

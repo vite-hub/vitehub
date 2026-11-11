@@ -4,17 +4,17 @@ import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
-import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-invocations"
 
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 
-import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
-import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
+import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations"
+import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/internal/default-invocations"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
@@ -79,7 +79,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     const query = db.select().from(schema.invocations).where(eq(schema.invocations.id, summary.id))
     await expect(query.all()).resolves.toMatchObject([{ id: summary.id, agentName: "labeller", status: "completed", record: { id: summary.id } }])
     await expect(query.get()).resolves.toMatchObject({ id: summary.id, status: "completed" })
-    await expect(db.query.invocations.findFirst({ where: eq(schema.invocations.id, summary.id) })).resolves.toMatchObject({ id: summary.id, status: "completed" })
+    await expect(db.query.invocations.findFirst({ where: { id: summary.id } })).resolves.toMatchObject({ id: summary.id, status: "completed" })
     expect(env).toHaveBeenCalled()
   })
 

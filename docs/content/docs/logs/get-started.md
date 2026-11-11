@@ -26,21 +26,59 @@ pnpm add evlog
 
 ::tutorial-step{title="Enable local capture"}
 
-Add `logs` and `console` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. `vitehub()` includes Nitro, so you do not add `nitro()`.
+Add `observability.logs` and `console` to the ViteHub options of your app. Keep the other options of your app. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+const isDev = process.env.NODE_ENV === 'development'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      nitro(),
+    ],
+  }
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false } }),
-  ],
+export default defineConfig(({ command }) => {
+  const isDev = command === 'serve'
+
+  return {
+    plugins: [
+      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+    ],
+  }
 })
 ```
+::::
+:::
 
-- `logs: true` saves the log events on your computer while the dev server runs.
-- `auth: false` lets you open the Console with no sign-in. Use it only on your computer. See [Console](/docs/development/console) before you deploy.
+- `observability: { logs: true }` saves the log events on your computer while the dev server runs.
+- `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/development/console) before you deploy.
 
 ::
 
@@ -72,10 +110,10 @@ pnpm dev
 ```
 
 1. Open `http://localhost:3000/api/status` in your browser. It shows `{"ok":true}`.
-2. Open `http://localhost:3000/_vitehub/logs`, and find the row `Status checked`. A row shows the `message` of the event. An event without a `message` shows its path, such as `/_vitehub/logs`.
-3. Select the row. The **Event details** panel shows your `message` and `deployment` fields, and the `path` `/api/status`.
-4. Switch between the **Explorer** and **Stream** views.
-5. Select **Follow**. The Console checks for new events every 2 seconds. Open `/api/status` again to see a new row.
+2. Open a second terminal, and run `pnpm vitehub logs list --json`. Find the event with the message `Status checked`. It has your `message` and `deployment` fields, and the `path` `/api/status`.
+3. Open `/api/status` again, and run the command again to see a new event.
+
+The Logs section of the [Console](/docs/development/console) reads the same events with the `logs.list` operation, in Explorer and Stream views.
 
 ::
 
@@ -83,7 +121,7 @@ pnpm dev
 
 Local capture works only in development. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
-Local capture requires Nitro 3.
+Local capture requires Nitro 3, in Vite or Nuxt 5.
 
 For a larger example, run `playground/logs` in the ViteHub repository. It shows a checkout request, redacted fields, and a diagnostic. Its README tells you how to start it.
 

@@ -10,7 +10,7 @@ import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref } from "vue";
+import { defineComponent, h, ref, type Component } from "vue";
 import {
   CommentComposer,
   CommentLayer,
@@ -22,6 +22,7 @@ import {
   type CommentRowSlotScope,
 } from "../src/index.ts";
 import { mentionQuery, rankPeople } from "../src/internal/comment-mentions.ts";
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
 const ben: CommentUser = { id: "ben", name: "Ben Soto" };
@@ -184,6 +185,54 @@ describe("composer mentions", () => {
     await flushPromises();
     expect(wrapper.find("[role=listbox]").exists()).toBe(false);
     expect(field.element).toHaveProperty("value", "@be");
+  });
+
+  it("warns again on Esc after the files change, and discards only on an Esc right after a warning", async () => {
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, attachments: true, files: [], modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    const status = () => wrapper.get("[data-slot=comment-composer-status]").text();
+    await field.trigger("keydown", { key: "Escape" });
+    expect(status()).toBe("Press Esc again to discard.");
+    await wrapper.setProps({ files: [file] });
+    expect(status()).toBe("");
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("keeps the text while Esc is held down", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    await field.trigger("keydown", { key: "Escape" });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("forgets the first Esc after two seconds, so a late Esc shakes again", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+      const field = wrapper.get("textarea");
+      await field.trigger("keydown", { key: "Escape" });
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("Press Esc again to discard.");
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("");
+      await field.trigger("keydown", { key: "Escape" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(wrapper.emitted("cancel")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders a mention-item slot with the person and whether it is active", async () => {
@@ -581,10 +630,10 @@ describe("layer draft uploads", () => {
 });
 
 describe("RPC attachments", () => {
-  it.each([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
+  it.each<Component>([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const { operation, input } = JSON.parse(String(init?.body));
-      return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
+      const { operation, input } = operationRpcRequest(init?.body) as { operation: string, input: { attachments: string[], body: string } };
+      return operationRpcResponse(init?.body, { ok: true, value: operation === "comments.list" ? [] : thread(1, {
         messages: [message("message-1", { attachments: input.attachments, body: input.body })],
       }) });
     });
@@ -611,8 +660,8 @@ describe("RPC attachments", () => {
     expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
   });
 
-  it.each([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
-    const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+  it.each<Component>([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
+    const transport = createRpcTransport({ fetch: async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: [] }) });
     transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });
     const upload = vi.fn(async () => ["uploads/shot.png"]);
@@ -942,5 +991,32 @@ describe("agent messages and replies since resolved", () => {
     expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
     expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
     expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
+});
+
+describe("composer layout", () => {
+  it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
+    const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
+    expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const comments = client([thread(1)]);
+    const panel = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(panel.get("[data-slot=comment-panel-composer] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const box = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get("[data-slot=comment-composer]").attributes("data-layout");
+    expect(box()).toBe("box");
+    expect(box("row")).toBe("row");
+  });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
   });
 });

@@ -10,9 +10,11 @@ import { transformWithOxc } from "vite"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { importOptionalKV, installAgentKV } from "../src/internal/optional-kv.ts"
-import { hubAgent } from "../src/vite.ts"
+import { agentRuntimeModule, hubAgent } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
+const registryModule = agentRuntimeModule("server/registry")
+const registryModuleUrl = pathToFileURL(registryModule).href
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true }))) })
@@ -31,11 +33,11 @@ describe("Agent package in vite dev", () => {
   it("reads the registry that the vite dev Nitro plugin installs when Node loads the package", async () => {
     // The package import `#vitehub/agent/registry` and the `server/registry` export must be one module in Node.
     const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
-      import { getAgentFromRegistry } from "@vite-hub/agent"
-      import { installAgentRegistry } from "@vite-hub/agent/server/registry"
+      import { loadAgent } from "@vite-hub/agent"
+      import { installAgentRegistry } from ${JSON.stringify(registryModuleUrl)}
       const agent = { description: "installed" }
       installAgentRegistry({ default: { echo: async () => ({ default: agent }) }, metadata: { echo: { name: "echo" } } })
-      process.stdout.write(String(await getAgentFromRegistry("echo") === agent))
+      process.stdout.write(String(await loadAgent("echo") === agent))
     `], { cwd: packageRoot })
     expect(stdout).toBe("true")
   })
@@ -43,7 +45,7 @@ describe("Agent package in vite dev", () => {
   it("loads the installed Channel host through the native registry and replaces it on reload", async () => {
     const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
       import { loadAgentHost } from "#vitehub/agent/registry"
-      import { installAgentRegistry } from "@vite-hub/agent/server/registry"
+      import { installAgentRegistry } from ${JSON.stringify(registryModuleUrl)}
       const calls = []
       await loadAgentHost()
       for (const name of ["first", "second"]) {
@@ -75,10 +77,10 @@ describe("Agent package in vite dev", () => {
         expect(await readFile(registryPlugin, "utf8")).toBe([
           'const appRoot = typeof __VITEHUB_AGENT_APP_ROOT__ === "undefined" ? undefined : __VITEHUB_AGENT_APP_ROOT__',
           'if (appRoot !== undefined) Reflect.set(globalThis, ["__VITEHUB_", "AGENT_APP_ROOT", "__"].join(""), appRoot)',
-          'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
+          `import { installAgentRegistry as viteHubInstall0 } from ${JSON.stringify(registryModule)}`,
           'import * as viteHubModule0 from "./registry.mjs"',
-          'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
-          'import { installAgentServerEnv as viteHubInstall2 } from "@vite-hub/agent/server/registry"',
+          `import { installAgentKV as viteHubInstall1 } from ${JSON.stringify(registryModule)}`,
+          `import { installAgentServerEnv as viteHubInstall2 } from ${JSON.stringify(registryModule)}`,
           "",
           "viteHubInstall0(viteHubModule0)",
           "viteHubInstall1(undefined)",
@@ -101,8 +103,8 @@ describe("Agent package in vite dev", () => {
     await (plugin.config as (config: unknown, env: unknown) => Promise<unknown>)(config, { command: "serve", mode: "development" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined })
     const installer = join(root, ".vitehub/agent/registry-dev-plugin.ts")
-    const source = (await readFile(installer, "utf8")).replaceAll("@vite-hub/agent/server/registry", import.meta.resolve("@vite-hub/agent/server/registry"))
-    await writeFile(consumer, `import { getAgentFromRegistry } from ${JSON.stringify(import.meta.resolve("@vite-hub/agent"))}\nprocess.stdout.write((await getAgentFromRegistry("echo")).description)\nexport default () => {}\n`)
+    const source = (await readFile(installer, "utf8")).replaceAll(JSON.stringify(registryModule), JSON.stringify(registryModuleUrl))
+    await writeFile(consumer, `import { loadAgent } from ${JSON.stringify(import.meta.resolve("@vite-hub/agent"))}\nprocess.stdout.write((await loadAgent("echo")).description)\nexport default () => {}\n`)
     for (const revision of ["first", "second"]) {
       await writeFile(join(root, ".vitehub/agent/registry.mjs"), `export default { echo: async () => ({ default: { description: ${JSON.stringify(revision)} } }) }\nexport const metadata = { echo: { name: "echo" } }\n`)
       await writeFile(installer.replace(".ts", `-${revision}.mjs`), source.replace("./registry.mjs", `./registry-${revision}.mjs`))
@@ -128,7 +130,7 @@ describe("Agent package in vite dev", () => {
     const result = await (plugin.config as (config: unknown, env: unknown) => Promise<{ define: Record<string, string> }>)(config, { command: "serve", mode: "development" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined })
     const installer = join(root, ".vitehub/agent/registry-dev-plugin.ts")
-    let source = (await readFile(installer, "utf8")).replaceAll("@vite-hub/agent/server/registry", import.meta.resolve("@vite-hub/agent/server/registry"))
+    let source = (await readFile(installer, "utf8")).replaceAll(JSON.stringify(registryModule), JSON.stringify(registryModuleUrl))
     if (transform === "vite") source = (await transformWithOxc(source, installer, { define: result.define })).code
     else {
       // Nitro also replaces define names inside strings, so the global's name must be constructed at runtime.
@@ -156,12 +158,12 @@ describe("Agent package in vite dev", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-native-dev-kv-"))
     roots.push(root)
     // SAFETY: `kvImport` is the internal option that `vitehub()` passes.
-    const plugin = hubAgent({ kvImport: "vite-hub/_internal/kv" } as never)
+    const plugin = hubAgent({ kvImport: "vite-hub/kv" } as never)
     const resolvedConfig = { root, command: "serve", plugins: [{ name: "@vite-hub/kv/vite" }], build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(resolvedConfig)
     expect(await readFile(join(root, ".vitehub/agent/registry-dev-plugin.ts"), "utf8")).toContain([
-      'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
-      'import * as viteHubModule1 from "vite-hub/_internal/kv"',
+      `import { installAgentKV as viteHubInstall1 } from ${JSON.stringify(registryModule)}`,
+      'import * as viteHubModule1 from "vite-hub/kv"',
     ].join("\n"))
 
     // SAFETY: Chat connectors read only `kv` from the installed module.

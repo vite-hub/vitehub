@@ -1,8 +1,6 @@
-import { fileURLToPath } from "node:url"
-
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { DeploymentPreset } from "./index.ts"
+import type { DeploymentPreset } from "./plugins.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */
@@ -16,10 +14,8 @@ export type CacheOptions =
 
 type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 
-/** Unstorage driver that `{ driver: "kv" }` mounts. It runs over `kv` from `vite-hub/kv`. */
-// Resolve before Nitro applies prefix aliases such as `vite-hub/_internal/kv` to a file.
-const kvCacheDriver: string = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
-type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
+/** `{ driver: "kv" }` mounts the KV package's unstorage driver by file path. It runs over `kv` from `vite-hub/kv`. */
+type KVCacheMount = { driver: string, base: string }
 
 export interface ResolvedCacheStorage {
   /** Nitro cache mount for production output. */
@@ -74,10 +70,10 @@ function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): 
 }
 
 /** Resolve `cache` into Nitro storage mounts for one deployment preset. */
-export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset, kvEnabled = false): ResolvedCacheStorage {
+export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset, kvCacheDriver?: string): ResolvedCacheStorage {
   // KV runs on every host, so this driver needs `kv` instead of a preset.
   if (isPlainObject(cache) && cache.driver === "kv") {
-    if (!kvEnabled) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
+    if (!kvCacheDriver) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
     const mount: KVCacheMount = { base: trimmed(cache.base) ?? "nitro-cache", driver: kvCacheDriver }
     return { devStorage: mount, storage: mount }
   }
@@ -106,24 +102,17 @@ export function resolveCacheStorage(cache: true | CacheOptions, preset: Deployme
 }
 
 /** Add the cache mounts to a Nitro config without replacing a `cache` mount that the application set. */
-export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage, nitroVersion: 2 | 3 = 3): Record<string, unknown> {
-  const key = nitroVersion === 2 ? "storage" : "kv"
-  const configured = nitro[key]
-  const storage = isPlainObject(configured) ? { ...configured } : {}
+export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage): Record<string, unknown> {
+  const storage = isPlainObject(nitro.kv) ? { ...nitro.kv } : {}
+  // Nitro 3 still reads the deprecated `storage` option, so keep a `cache` mount that the application set there.
   storage.cache ??= isPlainObject(nitro.storage) ? nitro.storage.cache : undefined
   storage.cache ??= cache.storage
-  const next: Record<string, unknown> = { ...nitro, [key]: storage }
-  if (nitroVersion === 2) {
-    const devStorage = isPlainObject(nitro.devStorage) ? { ...nitro.devStorage } : {}
-    devStorage.cache ??= cache.devStorage
-    next.devStorage = devStorage
-  } else {
-    for (const environment of ["$development", "$prerender"]) {
-      const config = isPlainObject(nitro[environment]) ? { ...nitro[environment] } : {}
-      const kv = isPlainObject(config.kv) ? { ...config.kv } : {}
-      kv.cache ??= cache.devStorage
-      next[environment] = { ...config, kv }
-    }
+  const next: Record<string, unknown> = { ...nitro, kv: storage }
+  for (const environment of ["$development", "$prerender"]) {
+    const config = isPlainObject(nitro[environment]) ? { ...nitro[environment] } : {}
+    const kv = isPlainObject(config.kv) ? { ...config.kv } : {}
+    kv.cache ??= cache.devStorage
+    next[environment] = { ...config, kv }
   }
   const namespace = cache.cloudflareNamespace
   if (!namespace || storage.cache !== cache.storage) return next

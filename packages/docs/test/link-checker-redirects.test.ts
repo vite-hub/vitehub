@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { build, loadNuxt } from "nuxt"
 import { expect, it } from "vitest"
 
-import type { NitroConfig } from "nitropack"
+import type { NitroConfig } from "nitro/types"
 import type { Nuxt, NuxtConfig } from "nuxt/schema"
 
 interface LinkReport { route: string, reports: Array<{ link: string, error: Array<{ name: string }>, warning: Array<{ name: string }> }> }
@@ -35,7 +35,7 @@ async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["rout
       linkChecker: { report: { json: true, storage: join(root, "report") } },
       routeRules,
     }
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true, nitro: { static: true } }), ready: true })
     if (buildApp) await build(nuxt)
     const report = join(root, "report/link-checker-report.json")
     return existsSync(report) ? JSON.parse(await readFile(report, "utf8")) as LinkReport[] : []

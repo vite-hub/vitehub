@@ -1,27 +1,35 @@
 ---
 title: Provider status
-description: Inspect provider authentication and subscription quota without running an Agent.
+description: Check provider sign-in and subscription quota without running an Agent.
 navigation.title: Provider status
 navigation.order: 53
 navigation.group: Inspect and evaluate
 navigation.kind: Reference
 ---
 
-Agent Definitions expose `status(context, { abortSignal })` for provider inspection. Built-in Codex and Claude Code Drivers reuse T3's account and quota probes. Inspection does not create an Agent Invocation, send a model prompt, or open a conversation.
+`status(context, { abortSignal })` on an Agent Definition tells you if its provider is signed in and has quota. The built-in Codex and Claude Code Drivers (model runners) reuse T3's account and quota probes. A check starts no Agent Invocation, prompt, or conversation.
 
-The Console shows this evidence on Usage and exposes it through its authenticated `status` RPC operation and `GET /_vitehub/api/status`. The optional `agent` query selects a discovered Agent Definition. Console access rules protect this endpoint in production, including when the application uses a custom base path. Inspection remains available when `console.invoke` is disabled; task execution still requires its explicit opt-in.
+The Console shows status on Usage, from the `status.get` operation of the Console endpoint. The optional `agent` input picks one Agent Definition. Console access rules protect it in production, also with a custom base path. Status works when `console.invoke` is off. Running tasks still needs that opt-in.
 
-A result includes `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. When the provider supplies authoritative evidence, it also includes `modelCompatibility` for the configured model and `workspaceCapacity` for workspace or project spending capacity. Each check is `ready`, `unavailable`, `unknown`, or `unsupported`. Quota windows contain percentages and reset times. They are separate from monetary usage costs.
+## Read the result
 
-- `ready` means the executable, authentication, and available quota evidence passed inspection.
-- `unavailable` means an executable is missing, authentication failed, the provider reported an error, or a quota window is exhausted.
-- `unknown` means inspection could not establish readiness, including when quota, configured model compatibility, or workspace capacity is unsupported or its probe failed.
-- `unsupported` means the Driver does not implement account inspection.
+A result has `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. When the provider gives authoritative evidence, it also has `modelCompatibility` for the configured model and `workspaceCapacity` for workspace or project spending capacity. Quota windows hold percentages and reset times, not money costs.
 
-Readiness is evidence at `checkedAt`, not a guarantee that a later model request succeeds. A definitive incompatible-model or workspace-capacity signal makes readiness `unavailable`; invocation preflight rejects before capability preparation or checkout. Missing provider evidence remains `unknown` and does not claim that the dimension is available. Console shares concurrent probes for each Agent Definition, caches results for 30 seconds, and aborts probes after 15 seconds. A failed refresh preserves previous evidence with `stale: true` and `readiness: "unknown"`.
+Each check is:
 
-The built-in Drivers also keep each probe result for 30 seconds per Agent Definition. Results are grouped by credential source when `driver.credentials` is set, and by the host account otherwise. An invocation preflight in that window reuses the result and does not start a second probe.
+- `ready`: the executable, authentication, and available quota passed.
+- `unavailable`: an executable is missing, authentication failed, the provider returned an error, or a quota window is used up.
+- `unknown`: readiness is not clear. This includes a quota, model compatibility, or workspace capacity check that is unsupported or failed.
+- `unsupported`: the Driver has no account inspection.
 
-Inspection resolves the same Driver credentials, credential profile, environment, and launcher as invocations. Provider resolvers receive `purpose: "inspection"` and no actor, invoker, or mounted Workspace. Resolvers that need those invocation fields must handle their absence. A custom launcher receives a temporary working directory and no tool environment requirements. Credential files and launcher files are released after the probe exits.
+Readiness holds at `checkedAt` only, not for later requests. A clear incompatible-model or workspace-capacity signal makes readiness `unavailable`, and invocation preflight rejects before capability preparation or checkout. Missing evidence stays `unknown` and does not claim the dimension is available.
 
-Raw provider diagnostics, account emails, and credentials are excluded from Console status responses. Operational liveness endpoints remain application-owned.
+## Caching
+
+- The Console shares concurrent probes per Agent Definition, caches results for 30 seconds, and aborts probes after 15 seconds.
+- A failed refresh keeps the previous evidence with `stale: true` and `readiness: "unknown"`.
+- The built-in Drivers also keep each result for 30 seconds per Agent Definition. They group results by credential source when `driver.credentials` is set, else by host account. A preflight in that window reuses it.
+
+A check uses the same Driver credentials, credential profile, environment, and launcher as an invocation. Provider resolvers get `purpose: "inspection"` and no invoker or mounted Workspace. Resolvers that need those fields must handle their absence. A custom launcher gets a temporary working directory and no tool environment requirements. The probe releases credential and launcher files after the probe exits.
+
+Console status responses never include raw provider diagnostics, account emails, or credentials. Liveness endpoints belong to your app.

@@ -26,7 +26,7 @@ describe("Schedule Console runtime records", () => {
     await writeFile(join(root, "server", "schedules", "reminder.ts"), "export default defineSchedule({ handler: () => {}, manual: true })\n")
     const records = await inspectScheduleConsoleRecords({ projectRoot: root, rootDir: root, serverRootDir: root })
     const reminder = records.find(record => record.id === "definition:reminder")
-    expect(reminder).toMatchObject({ cells: { manual: "No", timing: "Started by code" }, runnable: false })
+    expect(reminder).toMatchObject({ cells: { manual: "Disabled", timing: "Started by code" }, runnable: false })
     expect(reminder?.fields).not.toContainEqual({ label: "Manual", value: "Enabled" })
     expect(records.find(record => record.id === "definition:vitehub/started-schedules")?.runnable).toBe(true)
   })
@@ -211,6 +211,6 @@ describe("Schedule Console runtime records", () => {
   })
 
   it("names the runtime reader in the Console section", () => {
-    expect(scheduleConsoleSection).toMatchObject({ runtime: { export: "readScheduleConsoleRecords", module: "@vite-hub/schedule/runtime/console" } })
+    expect(scheduleConsoleSection).toMatchObject({ runtime: { export: "readScheduleConsoleRecords", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) } })
   })
 })

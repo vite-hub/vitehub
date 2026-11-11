@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises"
 
-import { createImportPath } from "@vite-hub/internal/build/paths"
+import { computePackageDir, createImportPath, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { dirname, isAbsolute, join, relative } from "pathe"
 
@@ -13,7 +13,8 @@ import type { ResolvedDatabaseContribution } from "../contributions.ts"
 import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-const reservedSchemaExports = new Set(["default", "schema"])
+const reservedSchemaExports = new Set(["default", "relations", "schema"])
+const packageDir = computePackageDir(import.meta.url)
 
 /** The generated registry types, relative to the project root. */
 export const generatedDatabaseTypesFile = ".vitehub/types/database.d.ts"
@@ -36,6 +37,20 @@ export function renderContributionImport(file: string, contribution: ResolvedDat
   return exportName === "default"
     ? `${keyword} ${variable} from ${from}`
     : `${keyword} { ${renderExportName(exportName)} as ${variable} } from ${from}`
+}
+
+/** Renders the import of the relations export of a contribution, when it names one. */
+export function renderContributionRelationsImport(file: string, contribution: ResolvedDatabaseContribution, variable: string, typeOnly = false) {
+  const keyword = typeOnly ? "import type" : "import"
+  return `${keyword} { ${renderExportName(contribution.relations!)} as ${variable} } from ${JSON.stringify(contributionImportPath(file, contribution))}`
+}
+
+/**
+ * Renders the merged relations of a Database: contributed relations first, then the Definition sources in layer order,
+ * so the application wins a relation field.
+ */
+export function renderMergedRelations(database: string, schemaExpression: string, contributionVariables: readonly string[], sourceExpressions: readonly string[]) {
+  return `mergeDatabaseRelations(${JSON.stringify(database)}, ${schemaExpression}, [${[...contributionVariables, ...sourceExpressions.map(source => `${source}.relations`)].join(", ")}])`
 }
 
 /** Variables of the schema sources of a Definition. One source keeps the `single` name. */
@@ -70,14 +85,18 @@ function createTableExports(parts: SchemaPart[]) {
 function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, parts: SchemaPart[], contributions: ResolvedDatabaseContribution[]) {
   const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   const layered = sourceVariables.length > 1
+  const relationContributions = contributions.flatMap((contribution, index) => contribution.relations ? [{ contribution, variable: `contributedRelations_${index}` }] : [])
   return [
+    `import { mergeDatabaseRelations } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(packageDir, "runtime/relations")))}`,
     ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
     ...contributions.map((contribution, index) => renderContributionImport(file, contribution, `contributedSchema_${index}`)),
+    ...relationContributions.map(({ contribution, variable }) => renderContributionRelationsImport(file, contribution, variable)),
     "",
     // Nuxt layers merge in order, so the application wins a key.
     ...layered ? [`const definitionSchema = { ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`] : [],
     ...createTableExports(parts),
     `export const schema = ${parts.length > 1 ? `{ ${parts.map(part => `...${part.expression}`).join(", ")} }` : parts[0]!.expression}`,
+    `export const relations = ${renderMergedRelations(definition.name, "schema", relationContributions.map(({ variable }) => variable), sourceVariables)}`,
     "export default schema",
     "",
   ].join("\n")
@@ -153,39 +172,40 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
 
 function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
   if (databaseNames.length > 1) {
-    // One Drizzle config has one set of credentials, one casing, and one migrations folder, so each Database needs its own.
+    // One Drizzle config has one set of credentials and one migrations folder, so each Database needs its own.
     const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
     return [
-      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub db generate\` and \`vitehub db migrate\`.`)})`,
+      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub database generate\` and \`vitehub database migrate\`.`)})`,
       "",
     ].join("\n")
   }
   const database = config.databases[databaseNames[0]!]!
-  const definition = config.definitions.find(item => item.name === database.name)!
   const sqlite = database.dialect === "sqlite" && !(database.cloudflare?.http && database.cloudflare.databaseId)
   const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
-  // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
-    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     ...(sqlite ? [
-      "",
       "const dbCredentials = {",
       `  authToken: ${renderConfigValueExpression(database.connection?.authToken) ?? "undefined"} || undefined,`,
       `  url: ${renderConfigValueExpression(database.connection?.url) ?? "undefined"} || ${JSON.stringify(defaultUrl)},`,
       "}",
+      "",
     ] : []),
-    "",
     "export default {",
     ...(sqlite ? [
       '  dialect: /^(?:libsql:|https?:\\/\\/|wss?:\\/\\/)/i.test(dbCredentials.url) || dbCredentials.authToken ? "turso" : "sqlite",',
       "  dbCredentials,",
     ] : [`  dialect: ${JSON.stringify(database.dialect)},`, ...renderDbCredentials(database)]),
-    "  casing: databaseDefinition.drizzle?.casing,",
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
     `  out: ${JSON.stringify(database.migrationsDir)},`,
     "}",
     "",
   ].join("\n")
+}
+
+// The registry lists the relation parts, and `@vite-hub/database/drizzle` merges them. A module augmentation cannot
+// reference the exports of its module, and an `import()` would fail when only one of the two package names resolves.
+function renderRelationsType(contributionTypes: readonly string[], variables: readonly string[]) {
+  return `[${[...contributionTypes, ...variables.map(variable => `typeof ${variable}.relations`)].join(", ")}]`
 }
 
 function renderSchemaType(variables: string[]) {
@@ -200,8 +220,10 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
   const imports = definitions.flatMap((definition, index) => [
     ...definition.schemaSources.map((source, sourceIndex) =>
       `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
-    ...(loadedContributions.get(definition.name) ?? []).map((contribution, contributionIndex) =>
-      renderContributionImport(file, contribution, `contribution_${index}_${contributionIndex}`, true)),
+    ...(loadedContributions.get(definition.name) ?? []).flatMap((contribution, contributionIndex) => [
+      renderContributionImport(file, contribution, `contribution_${index}_${contributionIndex}`, true),
+      ...contribution.relations ? [renderContributionRelationsImport(file, contribution, `contributionRelations_${index}_${contributionIndex}`, true)] : [],
+    ]),
   ])
   // A later layer source replaces a key. Contributed tables never share a key with the Definition, so the
   // intersection equals the merged schema.
@@ -209,10 +231,17 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
     renderSchemaType(variables[index]!),
     ...(loadedContributions.get(definition.name) ?? []).map((_, contributionIndex) => `typeof contribution_${index}_${contributionIndex}`),
   ].join(" & ")
+  // Contributed relations come first and the application last, as in the generated schema module.
+  const relationsType = (definition: DiscoveredDatabaseDefinition, index: number) => renderRelationsType(
+    (loadedContributions.get(definition.name) ?? []).flatMap((contribution, contributionIndex) =>
+      contribution.relations ? [`typeof contributionRelations_${index}_${contributionIndex}`] : []),
+    variables[index]!,
+  )
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
     ...(config.databases[definition.name]?.dialect === "postgresql" ? ["      dialect: \"postgresql\""] : []),
+    `      relations: ${relationsType(definition, index)}`,
     `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
@@ -246,13 +275,20 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
   await writeFileIfChanged(generatedTypesFile, "export {}\n")
 }
 
+async function finishArtifactWrites(writes: Promise<void>[]) {
+  // Callers serialize generations on this promise, so even a failed generation must finish its sibling writes.
+  for (const result of await Promise.allSettled(writes)) {
+    if (result.status === "rejected") throw result.reason
+  }
+}
+
 /**
  * Writes generated schemas, Drizzle configs, and types. Each Database Definition and each contribution is loaded to
  * list its tables. Contributed tables join the schema of their target Database.
  */
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
   const generatedTypesFile = join(config.rootDir, generatedDatabaseTypesFile)
-  await Promise.all(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
+  await finishArtifactWrites(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
   await Promise.all(config.definitions.map(async (definition) => {
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
@@ -265,7 +301,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   await writeFileIfChanged(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config))
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFileIfChanged(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions))
-  await Promise.all(config.databaseNames.map(async (name) => {
+  await finishArtifactWrites(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
     await writeFileIfChanged(file, renderGeneratedDrizzleConfig(file, config, [name]))

@@ -29,7 +29,7 @@ export function createAuthCliContributor(options: { fetch?: typeof fetch } = {})
           "Set this variable on the host, for example as a Worker secret:",
           `${adminClaimVariable}=${value}`,
           "",
-          "Then sign in to the app and open /_vitehub. The first signed-in user who enters the code gets the admin role, and the code stops working.",
+          "Then sign in to the app and send the code to POST <auth base>/vitehub/admin-claim as { \"code\": \"...\" }. The first signed-in user who sends it gets the admin role, and the code stops working.",
           "",
         ].join("\n"))
         return 0
@@ -39,6 +39,7 @@ export function createAuthCliContributor(options: { fetch?: typeof fetch } = {})
       description: "List auth events or daily aggregates as JSON.",
       usage,
       async run(args, context) {
+        // Internal invariant: the catch below prints only the message, which already says what to do.
         try {
           if (args.includes("--help") || args.includes("-h")) {
             context.stdout.write(`${usage}\n\nSet VITEHUB_AUTH_COOKIE to an authorized session cookie. VITEHUB_AUTH_URL supplies the default URL. Output is JSON.\n`)

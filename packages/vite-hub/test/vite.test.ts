@@ -17,7 +17,7 @@ vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   }
 })
 
-const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
+const kvCacheDriver = "/kv/dist/runtime/nitro-cache.js"
 
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
@@ -52,6 +52,7 @@ const integrationMocks = vi.hoisted(() => ({
       createServerEnvRegistry: () => ({}),
       getServerEnvRegistry: () => ({}),
       onServerEnvRegistry: () => {},
+      resolveDeclarations: () => undefined,
       resolveProjectRoot: (viteRoot: string) => options?.projectRoot ? join(viteRoot, options.projectRoot) : viteRoot,
     },
     name: "@vite-hub/env/vite",
@@ -61,7 +62,7 @@ const integrationMocks = vi.hoisted(() => ({
   resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
     kv: kv?.stores
       ? { stores: kv.stores }
-      : { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
+      : { store: kv?.driver ? { driver: kv.driver } : input?.hosting === "cloudflare-module" ? { driver: "cloudflare-kv-binding" } : { driver: "fs-lite", inferred: true } },
   })),
   resolveAuthViteConfig: vi.fn(),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
@@ -82,6 +83,7 @@ const integrationMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@vite-hub/agent/vite", () => ({
+  agentRuntimeModule: (entry: string) => `/agent/dist/${entry}.js`,
   discoverAgentDefinitionEntries: integrationMocks.discoverAgentDefinitionEntries,
   hubAgent: integrationMocks.hubAgent,
 }))
@@ -102,7 +104,10 @@ vi.mock("@vite-hub/blob/vite", () => ({
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
-vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
+vi.mock("@vite-hub/database/vite", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/database/vite")>(),
+  hubDb: integrationMocks.hubDb,
+}))
 vi.mock("@vite-hub/email/vite", () => ({
   emailConsoleSection: integrationMocks.consoleSection("email"),
   hubEmail: integrationMocks.hubEmail,
@@ -115,24 +120,24 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKv: integrationMocks.hubKv,
   hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
+  kvNitroCacheDriver: "/kv/dist/runtime/nitro-cache.js",
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit, rateLimitConsoleSection: integrationMocks.consoleSection("rate-limits") }))
-vi.mock("@vite-hub/sandbox/task/vite", () => ({ hubSandboxTask: integrationMocks.hubSandboxTask, sandboxTaskConsoleSection: integrationMocks.consoleSection("sandbox-tasks") }))
+vi.mock("@vite-hub/sandbox/task/vite", () => ({ hubSandboxTask: integrationMocks.hubSandboxTask, sandboxTaskConsoleSection: integrationMocks.consoleSection("sandbox-tasks"), sandboxTaskRuntimeStateModule: "/sandbox/dist/task/runtime/state.js" }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule, scheduleConsoleSection: integrationMocks.consoleSection("schedules") }))
 vi.mock("@vite-hub/workflow/vite", () => ({
   discoverWorkflowDefinitions: integrationMocks.discoverWorkflowDefinitions,
   hubWorkflow: integrationMocks.hubWorkflow,
   workflowConsoleSection: integrationMocks.consoleSection("workflows"),
+  workflowRuntimeModule: (entry: string) => `/workflow/dist/runtime/${entry}.js`,
 }))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace, workspaceConsoleSection: integrationMocks.consoleSection("workspaces") }))
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
-import type { KVModuleOptions } from "@vite-hub/kv"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
-import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub, type ViteHubOptions } from "../src/index.ts"
@@ -140,7 +145,7 @@ import { ownerModules } from "../src/internal/owner-modules.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/console-client", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -196,9 +201,23 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 }
 
 function dependencyResolver() {
-  const resolver = dependencyPlugin({ preset: "node", blob: true })
-  if (!resolver || !isCallable(resolver.resolveId)) throw new TypeError("Expected the framework dependency resolver.")
-  return resolver.resolveId
+  return filteredResolveId(dependencyPlugin({ preset: "node", blob: true }))
+}
+
+/** Skips the hook for an id that its filter rejects, as Rolldown and Vite do. */
+function matchesIdFilter(hook: unknown, id: unknown): boolean {
+  const filter = isRuntimeRecord(hook) ? hook.filter : undefined
+  if (!isRuntimeRecord(filter) || !("id" in filter)) return true
+  return typeof id === "string" && [filter.id].flat().some(pattern => pattern instanceof RegExp && pattern.test(id))
+}
+
+function filteredResolveId(plugin: Plugin) {
+  const hook = plugin.resolveId
+  const handler = isRuntimeRecord(hook) && "handler" in hook ? hook.handler : hook
+  if (!isCallable(handler)) throw new TypeError(`Expected the ${plugin.name} resolver.`)
+  return function (this: unknown, id: string, ...args: unknown[]): unknown {
+    return matchesIdFilter(hook, id) ? Reflect.apply(handler, this, [id, ...args]) : undefined
+  }
 }
 
 function callHook(hook: unknown, args: readonly unknown[]): unknown {
@@ -208,6 +227,7 @@ function callHook(hook: unknown, args: readonly unknown[]): unknown {
       ? hook.handler
       : undefined
   if (!isCallable(candidate)) throw new TypeError("Expected a callable plugin hook.")
+  if (!matchesIdFilter(hook, args[0])) return undefined
   return Reflect.apply(candidate, undefined, args)
 }
 
@@ -224,17 +244,22 @@ function providerAliasesFromCall(call: readonly unknown[] | undefined, index = 0
   return aliases as Record<string, string>
 }
 
-function pluginAliases(plugin: Plugin): Record<string, string> {
+function pluginAliasEntries(plugin: Plugin): { find: RegExp, replacement: string }[] {
   const config = callHook(plugin.config, [{}])
   if (!isRuntimeRecord(config) || !("resolve" in config)) throw new TypeError("Expected plugin resolve configuration.")
   const resolve = config.resolve
-  if (!isRuntimeRecord(resolve) || !("alias" in resolve)) throw new TypeError("Expected plugin aliases.")
-  const alias = resolve.alias
-  if (!isStringRecord(alias)) {
-    throw new TypeError("Expected plugin aliases to be a string record.")
-  }
-  // SAFETY: The preceding check validates every alias value.
-  return alias as Record<string, string>
+  if (!isRuntimeRecord(resolve) || !("alias" in resolve) || !Array.isArray(resolve.alias)) throw new TypeError("Expected plugin aliases.")
+  return resolve.alias.map((entry: unknown) => {
+    if (!isRuntimeRecord(entry) || !(entry.find instanceof RegExp) || typeof entry.replacement !== "string") {
+      throw new TypeError("Expected each plugin alias to be an exact pattern and a path.")
+    }
+    return { find: entry.find, replacement: entry.replacement }
+  })
+}
+
+/** The plugin's aliases by the one specifier each pattern matches. */
+function pluginAliases(plugin: Plugin): Record<string, string> {
+  return Object.fromEntries(pluginAliasEntries(plugin).map(({ find, replacement }) => [find.source.slice(1, -1).replace(/\\(.)/g, "$1"), replacement]))
 }
 
 type ProviderImportPlugin = Plugin & {
@@ -395,11 +420,11 @@ describe("vitehub", () => {
 
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+          expect.objectContaining({ route: "/_vitehub/rpc" }),
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","skills","usage","channels","workflows"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","workflows"])`,
       )
     }
     finally {
@@ -407,38 +432,13 @@ describe("vitehub", () => {
     }
   })
 
-  it("defers standalone Workflow discovery until config resolution", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-workflow-"))
-    try {
-      integrationMocks.discoverWorkflowDefinitions.mockClear()
-      integrationMocks.discoverWorkflowDefinitions.mockImplementation(() => {
-        throw new Error("unresolved Workflow discovery")
-      })
-      const plugin = dependencyPluginByName(
-        vitehub({ comments: false, console: { auth: false }, preset: "node", workflow: true }),
-        "vite-hub/console",
-      )
-      const config: Record<string, unknown> = { root }
+  it("takes no options", () => {
+    expect(pluginNames(vitehub())).toContain("vite-hub/deployment-preset")
+  })
 
-      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
-      config.workflow = false
-      await callHook(plugin.configResolved, [config])
-
-      expect(integrationMocks.discoverWorkflowDefinitions).not.toHaveBeenCalled()
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.not.toContain(
-        "installConsoleDefinitions",
-      )
-      expect(config.nitro).not.toMatchObject({
-        handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/api/definitions" }),
-        ]),
-      })
-    }
-    finally {
-      integrationMocks.discoverWorkflowDefinitions.mockReset()
-      integrationMocks.discoverWorkflowDefinitions.mockReturnValue([])
-      await rm(root, { force: true, recursive: true })
-    }
+  it("passes the Queue options of the app with the preset's provider to the deployment config", async () => {
+    const config = await applyDeploymentConfig({ name: "jobs-app", preset: "cloudflare", queue: { cache: true } })
+    expect(getResolvedFeatureOptions(config, "queue")).toEqual({ cache: true, namePrefix: "jobs-app-", provider: "cloudflare" })
   })
 
   it("does not install console plugins when explicitly disabled", () => {
@@ -448,13 +448,15 @@ describe("vitehub", () => {
     ]))
   })
 
-  it("allows a host-managed Console on Cloudflare", async () => {
+  it("refuses a host-managed Console in a production build on Cloudflare", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
+      .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+    await expect(callHook(plugin.config, [{}, { command: "serve", mode: "development" }]))
       .resolves.toBeUndefined()
   })
 
@@ -485,33 +487,17 @@ describe("vitehub", () => {
       const namedConfig: Record<string, unknown> = { root }
       await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
       })
-      namedConfig.kv = { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } }
       await callHook(named.configResolved, [namedConfig])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('"kv"')
       expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
       })
 
-      const disabledRoot = join(root, "disabled")
-      const disabled = dependencyPluginByName(
-        vitehub({ comments: false, console: { auth: false }, kv: true, preset: "node" }),
-        "vite-hub/console",
-      )
-      const config: Record<string, unknown> = { root: disabledRoot }
-      await callHook(disabled.config, [config, { command: "serve", mode: "development" }])
-      config.kv = false
-      await callHook(disabled.configResolved, [config])
-
-      const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(disabledGenerated).not.toContain('"kv"')
-      expect(config.nitro).not.toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/api/kv" })]),
-      })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -527,7 +513,7 @@ describe("vitehub", () => {
       )
       const config: Record<string, unknown> = { root }
       await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
-      config.blob = { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } }
+      config[VITEHUB_FEATURES] = { blob: { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } } }
       await callHook(plugin.configResolved, [config])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
@@ -539,16 +525,36 @@ describe("vitehub", () => {
     }
   })
 
-  it("adds the Console to the Vite DevTools dock outside static DevTools builds", () => {
+  it("keeps local operation runtime installers with Setup-only navigation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-setup-operations-"))
+    try {
+      await writeFile(join(root, "package.json"), '{"type":"module"}\n')
+      await mkdir(join(root, "server"), { recursive: true })
+      await writeFile(join(root, "server/content.ts"), [
+        "import { defineContent } from 'vite-hub/content'",
+        "import { documents } from 'vite-hub/content/collections'",
+        "import cms from 'vite-hub/cms'",
+        "export const content = defineContent({ extends: cms, collections: { posts: documents({ path: 'posts/*.md', fields: {} }) } })",
+        "export default content",
+      ].join("\n"))
+      const plugin = dependencyPluginByName(vitehub({ blob: true, database: true, preset: "node", workspace: true }), "vite-hub/console")
+      const config = { root, [VITEHUB_FEATURES]: { database: { connection: { url: "file::memory:" } } } }
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+      await callHook(plugin.configResolved, [config])
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
+      expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
+      expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
+      expect(generated).toMatch(/installConsoleSections\([^\n]+"blob"[^\n]+\["setup"\]\)/)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("adds no Vite DevTools dock, since apps serve no Console page", () => {
     const plugin = dependencyPluginByName(vitehub({ console: { auth: false }, preset: "node" }), "vite-hub/console")
-    // SAFETY: The Console plugin declares the `devtools` field that `@vitejs/devtools` reads.
-    const { devtools } = plugin as Plugin & { devtools: ConsoleViteDevTools }
-    const register = vi.fn()
-
-    devtools.setup({ docks: { register }, viteConfig: { base: "/portal/" } })
-
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({ id: "vitehub-console", type: "iframe", url: "/portal/_vitehub" }))
-    expect(devtools.capabilities).toEqual({ build: false })
+    expect(plugin).not.toHaveProperty("devtools")
   })
 
   it("keeps an application KV route beside the Console RPC route", async () => {
@@ -568,83 +574,33 @@ describe("vitehub", () => {
     await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
     expect(config.nitro.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({ route: "/_vitehub/api/kv" }),
-      expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+      expect.objectContaining({ route: "/_vitehub/rpc" }),
     ]))
   })
 
-  it("passes discovered Auth access policy to production Console builds", async () => {
+  it("adds the Auth section and its impersonation route to a production Console with app Auth", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
-        access: {
-          routes: [
-            { authorize: true, route: "/_vitehub/**" },
-            { authorize: true, method: "GET", route: "/_vitehub/api/**" },
-          ],
-        },
-      })
-      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { auth: "app" }, preset: "node" }), "vite-hub/console")
-      const config: Record<string, unknown> = { root }
+      integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({ access: { routes: [] } })
+      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: true, preset: "node" }), "vite-hub/console")
+      const config: { nitro?: { handlers?: Array<{ route?: string }> }, root: string } = { root }
 
       await callHook(plugin.config, [config, { command: "build", mode: "production" }])
 
-      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, {
-        serverDirs: undefined,
-      })
-      expect(config.nitro).toMatchObject({
-        handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/**" }),
-          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
-        ]),
-      })
+      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
+      const routes = config.nitro?.handlers?.map(handler => handler.route)
+      expect(routes).toContain("/_vitehub/rpc")
+      expect(routes).not.toContain("/_vitehub/auth/manage")
+      expect(routes).not.toContain("/_vitehub/sign-in")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
   })
 
-  it("installs the server Auth bridge for independent Console Auth without Primary Auth", () => {
-    const plugins = vitehub({
-      console: {
-        auth: {
-          provider: "github",
-          allowedEmails: ["maintainer@example.com"],
-          databasePath: "/data/console-auth.sqlite",
-        },
-      },
-      preset: "node",
-    })
-    expect(pluginNames(plugins)).toContain("@vite-hub/auth/vite")
-    expect(integrationMocks.hubAuth).toHaveBeenCalledWith(false, { importBase: "vite-hub/auth" })
-  })
-
-  it("keeps Cloudflare Access Console auth independent of the Auth owner", () => {
-    const plugins = vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
-    expect(pluginNames(plugins)).not.toContain("@vite-hub/auth/vite")
-  })
-
-  it("accepts production Auth policy whose /_vitehub/** rule covers the Console API", async () => {
-    integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
-      access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
-    })
-    const plugin = dependencyPluginByName(
-      vitehub({ agent: true, auth: true, console: { auth: "app" }, preset: "node" }),
-      "vite-hub/console",
-    )
-
-    await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }])).resolves.not.toThrow()
-  })
-
-  it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {
-    const plugin = dependencyPluginByName(
-      vitehub({ auth: true, console: { auth: "app" }, preset: "node" }),
-      "vite-hub/console",
-    )
-
-    await expect(callHook(plugin.config, [{ auth: false }, { command: "build", mode: "production" }]))
-      .rejects.toThrow("requires a discovered ViteHub Auth Definition")
-    expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(false, expect.any(String), { serverDirs: undefined })
+  it("adds no Auth owner for the Console alone", () => {
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).not.toContain("@vite-hub/auth/vite")
   })
 
   it("omits implicitly disabled Netlify Workflow from the standalone Console", async () => {
@@ -661,7 +617,7 @@ describe("vitehub", () => {
       expect(implicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+            expect.objectContaining({ route: "/_vitehub/rpc" }),
           ]),
         },
       })
@@ -681,7 +637,7 @@ describe("vitehub", () => {
       expect(explicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+            expect.objectContaining({ route: "/_vitehub/rpc" }),
           ]),
         },
       })
@@ -777,11 +733,13 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
+      "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/setup-dev",
       "vite-hub/operations",
       "vite-hub/console",
       "@vite-hub/auth/vite",
@@ -829,27 +787,26 @@ describe("vitehub", () => {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
-      cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
-      importBase: "vite-hub/_internal/agent",
-      kvImport: "vite-hub/_internal/kv",
+      kvImport: "vite-hub/kv",
       processDiscordGateway: true,
       providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
       runtimeCapabilityImports: {
         auth: "vite-hub/auth/agent",
-        blob: "vite-hub/_internal/blob",
+        blob: "vite-hub/blob",
         connections: false,
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
-        kv: "vite-hub/_internal/kv",
+        i18n: false,
+        kv: "vite-hub/kv",
       },
-      workflowImportBase: "vite-hub/_internal/workflow",
+      workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -857,19 +814,21 @@ describe("vitehub", () => {
       },
     }))
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({ driver: "fs" }, {
-      importBase: "vite-hub/_internal/blob",
+      importBase: "vite-hub/blob",
       presetDriver: expect.any(Function),
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
+    expect(integrationMocks.hubKv).toHaveBeenCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "cloudflare-module" })
+    // With `kv` unset, the list also has the KV case for a `github()` Content Source.
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -877,24 +836,24 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       databaseImport: "vite-hub/database/drizzle",
-      importBase: "vite-hub/_internal/schedule",
+      importBase: "vite-hub/schedule",
       providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
-      runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
-      agentImportBase: "vite-hub/_internal/agent",
       hosting: "node-server",
-      importBase: "vite-hub/_internal/workflow",
+      importBase: "vite-hub/workflow",
       providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
       includeUserAppEntry: true,
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
+      workspaceRuntimeModule: "/agent/dist/internal/workspace/runtime.js",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -915,7 +874,6 @@ describe("vitehub", () => {
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       hosting: "node-server",
-      importBase: "vite-hub/_internal/workspace",
     })
 
     vitehub({ agent: true, console: { auth: false }, preset: "node" })
@@ -943,16 +901,16 @@ describe("vitehub", () => {
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" }, { importBase: "vite-hub/queue" })
     expect(pluginNames(vitehub({ preset: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" }, { importBase: "vite-hub/queue" })
+    vitehub({ preset: "cloudflare", queue: { cache: true, binding: "JOBS" } })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ binding: "JOBS", cache: true, provider: "cloudflare" }, { importBase: "vite-hub/queue" })
 
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/rate-limit",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ preset: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/rate-limit",
       provider: "cloudflare",
     })
     expect(pluginNames(vitehub({
@@ -960,7 +918,6 @@ describe("vitehub", () => {
       rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
     }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
-      importBase: "vite-hub/_internal/rate-limit",
       projectRoot: "packages/policies",
       provider: "cloudflare",
       scanDirs: ["rules"],
@@ -1052,7 +1009,7 @@ describe("vitehub", () => {
       expect(integrationMocks.hubAgent).toHaveBeenCalledTimes(agentCallsBefore)
       expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
         workspaceDependencyRuntimeImports: {},
-        workspaceImportBase: "vite-hub/_internal/workspace",
+        workspaceRuntimeModule: "vite-hub/workspace/runtime",
       }))
     })
   })
@@ -1066,6 +1023,33 @@ describe("vitehub", () => {
     })
   })
 
+  it("keeps the Workspace Shell loader only when the app installs the Shell package", async () => {
+    // vite-hub resolves its own development dependencies here, so only the app root can tell the two apps apart.
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-shell-"))
+    try {
+      for (const installed of [false, true]) {
+        const appRoot = join(root, installed ? "with-shell" : "without-shell")
+        await mkdir(appRoot, { recursive: true })
+        await writeFile(join(appRoot, "package.json"), JSON.stringify({ name: "app", private: true, type: "module" }))
+        if (installed) {
+          const shellRoot = join(appRoot, "node_modules/@vite-hub/shell")
+          await mkdir(shellRoot, { recursive: true })
+          await writeFile(join(shellRoot, "package.json"), JSON.stringify({ name: "@vite-hub/shell", exports: { "./package.json": "./package.json" } }))
+        }
+
+        const shellPlugin = (vitehub({ preset: "cloudflare", agent: true }).flat() as Plugin[]).find(plugin => plugin.name === "vite-hub/workspace-shell")
+        if (shellPlugin) await callHook(shellPlugin.config, [{ root: appRoot }, { command: "build", mode: "production" }])
+
+        expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+          workspaceDependencyRuntimeImports: installed ? { shellWorkspace: "vite-hub/shell/workspace" } : {},
+        }))
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("passes configured Email drivers through the canonical integration", () => {
     const email = {
       driver: "resend" as const,
@@ -1077,7 +1061,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
 
@@ -1091,7 +1075,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
   })
@@ -1135,13 +1119,13 @@ describe("vitehub", () => {
     }))
   })
 
-  it("uses framework subpaths in generated Env modules", () => {
+  it("uses the Env owner runtime path in generated Env modules", () => {
     vitehub({ preset: "node" })
 
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       runtimeImports: {
-        secret: "vite-hub/env/secret",
-        server: "vite-hub/env/server",
+        secret: "vite-hub/env",
+        server: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       },
     })
 
@@ -1156,7 +1140,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       diagnostics: "trace",
       runtimeImports: {
-        secret: "vite-hub/env/secret",
+        secret: "vite-hub/env",
         server: "#app/env/server",
       },
     })
@@ -1168,14 +1152,14 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
@@ -1201,11 +1185,11 @@ describe("vitehub", () => {
     }))
 
     vitehub({
-      agent: { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } },
+      agent: { providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } },
       preset: "cloudflare",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+      providers: { state: { driver: "libsql", url: "libsql://state.example.test" } },
     }))
 
     vitehub({
@@ -1240,10 +1224,10 @@ describe("vitehub", () => {
     )).toMatch(/\/auth\/dist\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
-      "@vite-hub/env/server",
+      "@vite-hub/env/internal/server",
       "\0#vitehub/env/server",
       pluginResolveOptions,
-    )).toMatch(/\/env\/dist\/server\.js$/)
+    )).toMatch(/\/env\/dist\/internal\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
       "@vite-hub/schedule/runtime",
@@ -1264,10 +1248,10 @@ describe("vitehub", () => {
     )).toMatch(/\/vite-hub\/dist\/auth\/server\.js$/)
     expect(await resolveId.call(
       pluginContext,
-      "vite-hub/_internal/blob/runtime/state",
+      "vite-hub/blob",
       "/app/.vitehub/nitro/blob/plugin.ts",
       pluginResolveOptions,
-    )).toMatch(/\/vite-hub\/dist\/_internal\/blob\/runtime\/state\.js$/)
+    )).toMatch(/\/vite-hub\/dist\/blob\.js$/)
   })
 
   it("resolves generated Nitro and H3 imports from the app, then from vite-hub's Nitro", async () => {
@@ -1302,12 +1286,22 @@ describe("vitehub", () => {
     sandboxTaskAliases["@vite-hub/sandbox/task"] = providerSandboxTaskFacade
     sandboxTaskAliases["vite-hub/sandbox/task"] = providerSandboxTaskFacade
 
-    const resolveId = plugin.resolveId
-    if (!isCallable(resolveId)) throw new TypeError("Expected the framework dependency resolver.")
+    const resolveId = filteredResolveId(plugin)
     expect(await resolveId.call(pluginContext, "vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, frameworkSandboxTaskFacade, "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+  })
+
+  it("skips relative, virtual, and app file ids before the dependency resolver runs", () => {
+    const plugin = dependencyPlugin()
+    const frameworkKVFacade = pluginAliases(plugin)["vite-hub/kv"]
+    expect(matchesIdFilter(plugin.resolveId, "./server.ts")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "\0virtual:vitehub-agent-cloudflare-state-exports")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "/app/server/api.ts")).toBe(false)
+    expect(matchesIdFilter(plugin.resolveId, "#vitehub/env/server")).toBe(true)
+    expect(matchesIdFilter(plugin.resolveId, "nitro/app")).toBe(true)
+    expect(matchesIdFilter(plugin.resolveId, frameworkKVFacade)).toBe(true)
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
@@ -1326,19 +1320,25 @@ describe("vitehub", () => {
     expect(aliases).not.toHaveProperty("vite-hub")
     expect(aliases).not.toHaveProperty("unstorage/drivers/upstash")
     expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
-    expect(aliases["vite-hub/_internal/agent/server/registry"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/registry\.js$/)
-    expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
-    expect(aliases["vite-hub/_internal/sandbox/task/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/task\/runtime\/state\.js$/)
+    expect(Object.keys(aliases).filter(specifier => specifier.startsWith("vite-hub/_internal"))).toEqual([])
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
   })
 
-  it("aliases non-JavaScript exports before the JavaScript entry they sit under", () => {
+  it("aliases non-JavaScript exports, such as vite-hub/ui/styles.css, on their own", () => {
     const aliases = pluginAliases(dependencyPlugin())
-    const specifiers = Object.keys(aliases)
 
     expect(aliases["vite-hub/ui/styles.css"]).toMatch(/packages\/vite-hub\/dist\/ui\/styles\.css$/)
     expect(aliases["vite-hub/ui"]).toMatch(/packages\/vite-hub\/dist\/ui\.js$/)
-    expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
+  })
+
+  it("matches each facade alone, so a subpath the package doesn't export isn't rewritten into a facade's file", () => {
+    const entries = pluginAliasEntries(dependencyPlugin())
+    const matching = (id: string) => entries.filter(({ find }) => find.test(id)).map(({ replacement }) => replacement)
+
+    expect(matching("vite-hub/realtime")).toEqual([expect.stringMatching(/packages\/vite-hub\/dist\/realtime\.js$/)])
+    expect(matching("vite-hub/realtime/client")).toEqual([expect.stringMatching(/packages\/vite-hub\/dist\/realtime\/client\.js$/)])
+    expect(matching("vite-hub/realtime/nope")).toEqual([])
+    expect(matching("vite-hub/ui/styles.css")).toEqual([expect.stringMatching(/packages\/vite-hub\/dist\/ui\/styles\.css$/)])
   })
 
   it("leaves facades of an absent owner package unaliased so their import names the package to install", () => {
@@ -1353,20 +1353,35 @@ describe("vitehub", () => {
     expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 
-  it("passes the unused Upstash fallback only to provider bundlers", () => {
+  it("checks the packages of each owner facade once when it builds the aliases", () => {
+    const plugin = dependencyPlugin()
+    vi.mocked(isPackageInstalled).mockClear()
+    pluginAliases(plugin)
+    const checks = vi.mocked(isPackageInstalled).mock.calls.map(([name]) => name)
+    expect(checks.filter(name => name === "@vite-hub/ui")).toHaveLength(1)
+    expect(new Set(checks).size).toBe(checks.length)
+  })
+
+  it("passes the unused Upstash and Redis fallbacks only to provider bundlers", () => {
     vitehub({ agent: true, preset: "node", workflow: true })
     const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
     expect(defaultAliases).toEqual({
-      "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
+      "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
+      "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
     })
 
-    const upstashPlugins = vitehub({ agent: true, preset: "node", kv: true, workflow: true })
+    // Inferred Node stores keep their build-selected driver; Redis is explicit.
+    vitehub({ agent: true, preset: "node", kv: { driver: "redis" } })
+    expect(providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))).not.toHaveProperty("@vite-hub/kv/runtime/redis-driver")
+
+    const upstashPlugins = vitehub({ agent: true, preset: "node", kv: { driver: "upstash" }, workflow: true })
     const upstashAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
     // SAFETY: The dependency plugin is part of every vitehub() result.
     const dependency = upstashPlugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
-    callHook(dependency.configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
+    callHook(dependency.configResolved, [{}])
 
     expect(upstashAliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+    expect(upstashAliases["@vite-hub/kv/runtime/redis-driver"]).toMatch(/disabled-redis-driver\.(?:ts|js)$/)
     expect(providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)).toBe(upstashAliases)
   })
 
@@ -1374,7 +1389,7 @@ describe("vitehub", () => {
     const aliases = await providerOutputAliases(dependencyPlugin({ agent: true, preset: "vercel", schedule: true, workflow: true }))
 
     expect(aliases["@vite-hub/agent"]).toMatch(/packages\/agent\/dist\/index\.js$/)
-    expect(aliases["@vite-hub/agent/runtime/workflow"]).toMatch(/packages\/agent\/dist\/runtime\/workflow\.js$/)
+    expect(aliases["@vite-hub/agent/server/internal"]).toMatch(/packages\/agent\/dist\/server\/internal\.js$/)
     expect(aliases["@vite-hub/markdown-template"]).toMatch(/packages\/markdown-template\/dist\/index\.js$/)
     expect(aliases["@vite-hub/workflow/runtime/state"]).toMatch(/packages\/workflow\/dist\/runtime\/state\.js$/)
   })
@@ -1430,11 +1445,9 @@ describe("vitehub", () => {
   })
 
   it.each([
-    ["deno", false, 2, "deno-deploy"],
-    ["cloudflare", true, 2, "cloudflare-durable"],
-    ["deno", false, 3, "deno-server"],
-    ["cloudflare", true, 3, "cloudflare-module"],
-  ] as const)("selects the %s preset with realtime %s on Nitro %s during Nuxt config replay", async (preset, realtime, nitroMajorVersion, nitroPreset) => {
+    ["deno", false, "deno-server"],
+    ["cloudflare", true, "cloudflare-module"],
+  ] as const)("selects the %s preset with realtime %s during Nuxt config replay", async (preset, realtime, nitroPreset) => {
     const plugins = vitehub({ cache: { driver: "kv" }, kv: true, preset, realtime })
     const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
     const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
@@ -1445,7 +1458,6 @@ describe("vitehub", () => {
       for (const initialPreset of [undefined, nitroPreset]) {
         const config = {
           [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-          [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion,
           command: "build",
           nitro: { preset: initialPreset },
         }
@@ -1453,8 +1465,8 @@ describe("vitehub", () => {
         expect(config.nitro.preset).toBe(nitroPreset)
         await callHook(deployment.config, [config, { command: "build", mode: "production" }])
         expect(config.nitro.preset).toBe(nitroPreset)
-        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "storage.cache.driver" : "kv.cache.driver", kvCacheDriver)
-        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "devStorage.cache.driver" : "$development.kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty("kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty("$development.kv.cache.driver", kvCacheDriver)
         expect(() => callHook(output.configResolved, [config])).not.toThrow()
       }
     }
@@ -1501,25 +1513,11 @@ describe("vitehub", () => {
   })
 
   it.each(["build", "serve"] as const)("validates the effective KV cache configuration during %s", async (command) => {
-    const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
-    await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
-    await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
+    const options = { cache: { driver: "kv" as const }, preset: "node" as const }
+    await expect(applyDeploymentConfig({ ...options, kv: false }, {}, command)).rejects.toThrow("`kv` is not enabled")
+    await expect(applyDeploymentConfig({ ...options, kv: { driver: "fs-lite" } }, {}, command)).resolves.toHaveProperty(
       "nitro.kv.cache.driver", kvCacheDriver,
     )
-  })
-
-  it.each([undefined, false] as const)("installs KV for top-level cache configuration when module KV is %s", async (kv) => {
-    const plugins = vitehub({ agent: true, cache: { driver: "kv" }, kv, preset: "cloudflare" })
-    const config = { kv: { binding: "APP_KV", driver: "cloudflare-kv-binding" } satisfies KVModuleOptions }
-    await callHook(dependencyPluginByName(plugins, "vite-hub/deployment-preset").config, [config, { command: "build", mode: "production" }])
-
-    expect(config).toHaveProperty("nitro.kv.cache.driver", kvCacheDriver)
-    expect.soft(pluginNames(plugins)).toContain("@vite-hub/kv/vite")
-    expect.soft(pluginNames(plugins)).not.toContain("@vite-hub/kv/optional-peers")
-
-    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
-    callHook(dependencyPluginByName(plugins, "vite-hub/dependencies").configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
-    expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
   })
 
   it("stores the Node cache under dataDir", async () => {
@@ -1961,7 +1959,7 @@ describe("vitehub", () => {
     vitehub({ preset, blob: true })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver }),
-      { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) },
+      { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
   })
 
@@ -1970,10 +1968,10 @@ describe("vitehub", () => {
     ["vercel", false],
     ["cloudflare", true],
     ["cloudflare", false],
-  ] as const)("resolves an application-config Blob driver with the %s preset in development (explicit=%s)", async (preset, explicit) => {
+  ] as const)("resolves the Blob driver with the %s preset in development (explicit=%s)", async (preset, explicit) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-app-driver-"))
     try {
-      const plugins = vitehub({ preset, blob: true })
+      const plugins = vitehub({ preset, blob: explicit ? { driver: "vercel-blob", token: "app-token" } : true })
       const args = integrationMocks.hubBlob.mock.lastCall
       if (!args) throw new Error("Expected the Blob plugin to be installed.")
       const { hubBlob } = await import("../../blob/src/vite.ts")
@@ -1983,7 +1981,6 @@ describe("vitehub", () => {
         configFile: false,
         logLevel: "silent",
         plugins: [
-          { name: "app-blob-driver", config: () => ({ blob: explicit ? { driver: "vercel-blob" as const, token: "app-token" } : {} }) },
           dependencyPluginByName(plugins, "vite-hub/deployment-preset"),
           blob,
         ],
@@ -2008,7 +2005,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
       driver: "netlify-blobs",
       name: "assets",
-    }), { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) })
+    }), { importBase: "vite-hub/blob", presetDriver: expect.any(Function) })
   })
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
@@ -2016,19 +2013,18 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "node", blob: false }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
-    // Only the `cms` preset case of the default list builds Blob.
-    expect(integrationMocks.hubBlob).toHaveBeenCalledOnce()
+    // Only the `cms` preset case of the default list builds Blob, once without and once with KV for `github()` Sources.
+    expect(integrationMocks.hubBlob).toHaveBeenCalledTimes(2)
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
     expect(() => callHook(deployment.resolveId, [fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts"])).toThrow("cannot provide blob")
-    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/content-type", "/app/server/api.ts"])).not.toThrow()
+    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/client", "/app/server/api.ts"])).not.toThrow()
 
     const dependency = dependencyPlugin({ preset: "deno" })
-    // SAFETY: dependencyPlugin returns the concrete plugin whose config hook supplies this alias shape.
-    const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
-    expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
-    expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
+    const aliases = pluginAliases(dependency)
+    expect(aliases["vite-hub/blob"]).toBeUndefined()
+    expect(aliases["vite-hub/blob/client"]).toEqual(expect.any(String))
     expect(() => callHook(dependency.resolveId, ["@vite-hub/blob", "/app/.vitehub/agents.mjs"])).toThrow("Blob is unavailable")
   })
 
@@ -2047,10 +2043,10 @@ describe("vitehub", () => {
   it("keeps Rate Limit in memory on the dev server", async () => {
     const options = { name: "acme", preset: "cloudflare", rateLimit: true } as const
     await expect(applyDeploymentConfig(options, {}, "build")).resolves.toMatchObject({
-      rateLimit: { namespace: "acme", provider: "cloudflare" },
+      [VITEHUB_FEATURES]: { rateLimit: { namespace: "acme", provider: "cloudflare" } },
     })
     await expect(applyDeploymentConfig(options, {}, "serve")).resolves.toMatchObject({
-      rateLimit: { namespace: "acme", provider: "memory" },
+      [VITEHUB_FEATURES]: { rateLimit: { namespace: "acme", provider: "memory" } },
     })
   })
 
@@ -2066,11 +2062,8 @@ describe("vitehub", () => {
         { root: appRoot },
       )
       expect(config).toMatchObject({
-        blob: { bucketName: "acme-my-app", driver: "cloudflare-r2" },
+        [VITEHUB_FEATURES]: { blob: { bucketName: "acme-my-app", driver: "cloudflare-r2" }, queue: { namePrefix: "acme-my-app-", provider: "cloudflare" }, rateLimit: { namespace: "acme-my-app", provider: "cloudflare" }, sandboxTask: { name: "acme-my-app-sandbox", provider: "cloudflare" } },
         nitro: { cloudflare: { wrangler: { name: "acme-my-app" } } },
-        queue: { namePrefix: "acme-my-app-", provider: "cloudflare" },
-        rateLimit: { namespace: "acme-my-app", provider: "cloudflare" },
-        sandboxTask: { name: "acme-my-app-sandbox", provider: "cloudflare" },
       })
 
       const configuredRateLimit = await applyDeploymentConfig(
@@ -2080,7 +2073,7 @@ describe("vitehub", () => {
         },
         { root: appRoot },
       )
-      expect(configuredRateLimit.rateLimit).toEqual({
+      expect(getResolvedFeatureOptions(configuredRateLimit, "rateLimit")).toEqual({
         namespace: "acme-my-app",
         projectRoot: "packages/policies",
         provider: "cloudflare",
@@ -2092,7 +2085,7 @@ describe("vitehub", () => {
         { preset: "cloudflare", queue: true },
         { root: appRoot },
       )
-      expect(fallback.queue).toMatchObject({ namePrefix: "api-" })
+      expect(getResolvedFeatureOptions(fallback, "queue")).toMatchObject({ namePrefix: "api-" })
     }
     finally {
       await rm(root, { recursive: true })
@@ -2123,11 +2116,8 @@ describe("vitehub", () => {
       })
 
       expect(config).toMatchObject({
-        blob: { bucketName: "vitehub-drop-preview", driver: "cloudflare-r2" },
+        [VITEHUB_FEATURES]: { blob: { bucketName: "vitehub-drop-preview", driver: "cloudflare-r2" }, queue: { namePrefix: "vitehub-drop-preview-", provider: "cloudflare" }, rateLimit: { namespace: "vitehub-drop-preview", provider: "cloudflare" }, sandboxTask: { name: "vitehub-drop-preview-sandbox", provider: "cloudflare" } },
         nitro: { cloudflare: { wrangler: { name: "vitehub-drop-preview" } } },
-        queue: { namePrefix: "vitehub-drop-preview-", provider: "cloudflare" },
-        rateLimit: { namespace: "vitehub-drop-preview", provider: "cloudflare" },
-        sandboxTask: { name: "vitehub-drop-preview-sandbox", provider: "cloudflare" },
       })
     })
 
@@ -2170,7 +2160,7 @@ describe("vitehub", () => {
         rateLimit: true,
       })
 
-      expect(config.rateLimit).toEqual({
+      expect(getResolvedFeatureOptions(config, "rateLimit")).toEqual({
         namespace: "node-app",
         provider: "memory",
       })
@@ -2187,12 +2177,12 @@ describe("vitehub", () => {
       rateLimit: true,
       sandboxTask: true,
     })
-    expect(config.blob).toMatchObject({ bucketName: "a".repeat(48) })
+    expect(getResolvedFeatureOptions(config, "blob")).toMatchObject({ bucketName: "a".repeat(48) })
     expect(config.nitro).toMatchObject({ cloudflare: { wrangler: { name: "a".repeat(48) } } })
     // SAFETY: applyDeploymentConfig populated the enabled Queue integration with a string namePrefix.
-    expect((config.queue as { namePrefix: string }).namePrefix).toBe(`${"a".repeat(80)}-`)
-    expect(config.rateLimit).toMatchObject({ namespace: "a".repeat(80) })
-    expect(config.sandboxTask).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
+    expect(getResolvedFeatureOptions<{ namePrefix: string }>(config, "queue")?.namePrefix).toBe(`${"a".repeat(80)}-`)
+    expect(getResolvedFeatureOptions(config, "rateLimit")).toMatchObject({ namespace: "a".repeat(80) })
+    expect(getResolvedFeatureOptions(config, "sandboxTask")).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
   })
 
   it("derives valid R2 bucket defaults from short and truncated identities", async () => {
@@ -2201,14 +2191,14 @@ describe("vitehub", () => {
       name: "ui",
       preset: "cloudflare",
     })
-    expect(short.blob).toMatchObject({ bucketName: "ui-blob" })
+    expect(getResolvedFeatureOptions(short, "blob")).toMatchObject({ bucketName: "ui-blob" })
 
     const truncated = await applyDeploymentConfig({
       blob: true,
       name: `${"a".repeat(47)}-prod`,
       preset: "cloudflare",
     })
-    expect(truncated.blob).toMatchObject({ bucketName: "a".repeat(47) })
+    expect(getResolvedFeatureOptions(truncated, "blob")).toMatchObject({ bucketName: "a".repeat(47) })
     expect(truncated.nitro).toMatchObject({
       cloudflare: { wrangler: { name: "a".repeat(47) } },
     })
@@ -2225,16 +2215,15 @@ describe("vitehub", () => {
       { nitro: { cloudflare: { wrangler: { name: "physical-worker" } } } },
     )
     expect(config).toMatchObject({
-      blob: { bucketName: "explicit-bucket", driver: "cloudflare-r2" },
+      [VITEHUB_FEATURES]: { blob: { bucketName: "explicit-bucket", driver: "cloudflare-r2" }, queue: { namePrefix: "logical-app-" } },
       nitro: { cloudflare: { wrangler: { name: "physical-worker" } } },
-      queue: { namePrefix: "logical-app-" },
     })
 
     integrationMocks.hubBlob.mockClear()
     vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver: "fs" }),
-      { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) },
+      { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
   })
 
@@ -2266,7 +2255,7 @@ describe("vitehub", () => {
     const nodeQueue = vitehub({ preset: "node", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const nodeQueueConfig: Record<string, unknown> = {}
     callHook(nodeQueue.config, [nodeQueueConfig, { command: "build", mode: "production" }])
-    expect(nodeQueueConfig.queue).toEqual({ provider: "local" })
+    expect(getResolvedFeatureOptions(nodeQueueConfig, "queue")).toEqual({ provider: "local" })
 
     const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
       // SAFETY: The explicit Node preset installs the named deployment plugin.

@@ -32,7 +32,7 @@ export { createAgentWebhookWarmup } from "./webhook-warmup.ts"
 export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent } from "./webhook-warmup.ts"
 export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from "../internal/discovered-agent-name.ts"
 export { resolvePublicUrl } from "@vite-hub/runtime"
-export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
+export { markDiscoveredWorkspaceAgentDefinitionRegistered, resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions, withDeclaredAgentWorkspace } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
@@ -63,10 +63,7 @@ export type {
   AgentTelegramPollingRouteOptions,
 } from "./routes.ts"
 
-export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inheritAgentLayerOptions } from "../agent-layers.ts"
-export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
-export { activeProviderSandbox } from "../internal/provider-box.ts"
-export { forgeAccessKey } from "../internal/forge-access.ts"
+export { inheritAgentLayerOptions } from "../agent-layers.ts"
 export { decodeColocatedAgentSkills, inspectAgentSkillFiles, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -74,7 +71,6 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import "../index.ts"
 export { runAgentInline, runAgentWithContext, streamAgentInline } from "../internal/agent-run.ts"
 export type { RunAgentInlineOptions } from "../internal/agent-run.ts"
-import type { AgentInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../types.ts"
 
 type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
 
@@ -82,3 +78,4 @@ type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R08
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {
   return agentDiagnostics[code]({ message })
 }
+export { agentChannelNames, namedChannelHosts, registerAgentChannels } from "../internal/named-channels.ts"

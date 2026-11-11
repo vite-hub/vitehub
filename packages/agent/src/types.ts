@@ -4,9 +4,9 @@ import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
+import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
-import type { AgentRetentionPolicy } from "./retention.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -59,7 +59,6 @@ export interface AgentWorkflowRuntimeBinding {
   name?: string
 }
 export type AgentWaitUntil = RuntimeWaitUntil
-export type AgentIntegrationOption = "auto" | boolean
 export interface AgentHealthDescriptor {
   handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
 }
@@ -121,8 +120,6 @@ export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta>
   meta?: TMeta
 }
 
-export type AgentActor<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
-export type AgentInvokerProfile<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 
 export interface AgentAccessWorkspaceScopeContext<TScopeName extends string = string> {
   all: boolean
@@ -156,7 +153,6 @@ declare global {
 
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
-  actor: AgentActor
   "agent.errorHook": boolean
   "agent.finishHook": boolean
   "agent.inspection.configurationUpdated": () => Promise<void>
@@ -170,7 +166,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
 
 type AgentInvocationCallbackContextKey = {
   [Key in keyof ViteHubAgentInvocationContextValues]: Key extends string
-    ? Key extends "actor" | "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
+    ? Key extends "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
       ? never
       : Key
     : never
@@ -199,7 +195,7 @@ export interface AgentInvocationContextStore<TValues extends object = AgentInvoc
 export interface AgentInvokerResolveContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore<TContextValues>
@@ -213,7 +209,7 @@ export interface AgentInvokerResolveContext<
 export interface AgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
 > {
   profiles?: readonly TProfile[]
@@ -751,7 +747,7 @@ export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor?: AgentActor
+  invoker?: AgentInvoker
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   trigger: {
     capabilityId: string
@@ -895,7 +891,7 @@ export interface AgentChannelTriggerContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   /** The accepted Invocation when a durable webhook delivery is replayed for rehydration. */
   queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { agentName?: string }
-  actor?: AgentActor
+  invoker?: AgentInvoker
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
@@ -979,9 +975,10 @@ export interface AgentTriggerTask<
 > {
   /**
    * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * A resolver can return an Agent or its default-export module, such as `() => import('./agent')`, to avoid an import cycle.
    * An unset `run.origin` of the Invocation defaults to the task key.
    */
-  agent?: AgentInput
+  agent?: AgentInput | (() => MaybePromise<AgentInput | { default: AgentInput }>)
   /**
    * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
    * The trigger's `failed` stays the fallback for tasks without one.
@@ -1083,7 +1080,6 @@ export interface AgentRunCallbackContext<
   TContextValues extends object = AgentInvocationContextValues,
   TData = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, TData>
   invoker: AgentInvoker
@@ -1156,7 +1152,6 @@ export interface AgentFinishEvent<
   TOutput = unknown,
   TData = unknown,
 > {
-  actor: AgentActor
   error?: unknown
   errorMessage?: string
   extensions: AgentFinishExtensions
@@ -1276,7 +1271,6 @@ export interface AgentRunContext<
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
-  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
@@ -1590,7 +1584,6 @@ export type AgentCapabilityInput<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name>
 
-type AgentExtensionMount = object
 declare const agentStaticCapabilitiesListBrand: unique symbol
 
 export type AgentCapabilitiesList<
@@ -1601,7 +1594,7 @@ export type AgentCapabilitiesList<
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[] & {
+> = readonly AgentCapabilityInput<TRuntimeConfig, Name>[] & {
   readonly [agentStaticCapabilitiesListBrand]?: true
 }
 
@@ -1690,7 +1683,6 @@ export type AgentModelResolver<
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   context: AgentInvocationContextStore
   invoker: AgentInvoker
   model: unknown
@@ -1704,7 +1696,6 @@ export interface AgentCallSettingsInstrumentationContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   callSettings: Readonly<Record<string, unknown>>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
@@ -1878,10 +1869,9 @@ export type AgentProviderCredentialValue = string | AgentProviderSealedCredentia
 
 export interface AgentProviderCredentialContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "actor" | "invoker" | "workspace" | "fs"> {
-  /** Inspection has no invocation, actor, or mounted Workspace. */
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "invoker" | "workspace" | "fs"> {
+  /** Inspection has no invocation, Invoker, or mounted Workspace. */
   purpose?: "invocation" | "inspection"
-  actor?: AgentAdapterMetadataContext<TRuntimeConfig>["actor"]
   invoker?: AgentAdapterMetadataContext<TRuntimeConfig>["invoker"]
   workspace?: AgentAdapterMetadataContext<TRuntimeConfig>["workspace"]
   fs?: AgentAdapterMetadataContext<TRuntimeConfig>["fs"]
@@ -1945,13 +1935,6 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /**
-   * Limits for the Codex home: rollouts, logs, thread history, and temporary files that Codex keeps.
-   * The oldest data goes first until every limit holds. `maxAge` and `maxSize` count all of it; `maxRecords` counts sessions.
-   * Retention needs a persistent home: a credential profile, `providerSettings.homePath`, or `CODEX_HOME`.
-   * It runs in the background on the first invocation, then at most every 10 minutes.
-   */
-  retention?: AgentRetentionPolicy
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -2011,7 +1994,6 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2042,7 +2024,6 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -2106,7 +2087,6 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2169,20 +2149,10 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
-/**
- * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
- * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
- * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
- */
-export interface AgentInvocationsHostSettings {}
-
-/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
-export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
-
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -2196,7 +2166,11 @@ type AgentSharedSettings<
   budget?: AgentBudgetOptions
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
-  channels?: AgentChannelInputs<TRuntimeConfig>
+  /**
+   * The Channels whose messages this Agent answers: names of Channels in `server/channels`, such as `['slack']`, or
+   * Channels defined inline by name, such as `{ slack: defineChannel({ adapter: slack() }) }`.
+   */
+  channels?: AgentChannelInputs<TRuntimeConfig> | readonly string[]
   cli?: AgentDefinitionCliOptions
   /** Standard Schema for Invocation `data`. ViteHub validates `data` before Capabilities, hooks, and the Driver run. */
   data?: StandardSchemaV1<TDataInput, TData>
@@ -2205,7 +2179,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocationsInput
+  invocations?: AgentInvocationsSetting
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -2218,7 +2192,7 @@ type AgentSharedSettings<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -2257,7 +2231,7 @@ export interface AgentInterceptOutputCarrier<TOutput = unknown> {
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
   TDataInput = unknown,
@@ -2299,7 +2273,7 @@ export type AgentInput<
   TContext extends AgentRuntimeContext<any> = AgentRuntimeContext,
   TOutput = unknown,
   CALL_OPTIONS = any,
-  TInvokerProfile extends AgentInvokerProfile = any,
+  TInvokerProfile extends AgentInvoker = any,
 > = AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, CALL_OPTIONS, TInvokerProfile, any, TOutput, unknown, TOutput, unknown, unknown>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
@@ -2313,30 +2287,15 @@ export interface AgentStateProviderOptions {
   authToken?: string
   /** Persistent file databases default to WAL. Select delete for network-backed volumes. */
   journalMode?: "wal" | "delete"
-  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
+  driver?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
   tablePrefix?: string
   url?: string
 }
 
 export type ResolvedAgentStateProviderOptions =
-  Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
-
-export interface AgentSchedulerProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
-}
-
-export interface AgentSandboxProviderOptions {
-  provider?: "auto" | "cloudflare" | "vercel" | (string & {})
-}
-
-export interface AgentIntegrationsOptions {
-  sandbox?: AgentIntegrationOption
-  workflow?: AgentIntegrationOption
-}
+  Omit<AgentStateProviderOptions, "driver"> & { driver: NonNullable<AgentStateProviderOptions["driver"]> }
 
 export interface AgentProvidersOptions {
-  sandbox?: AgentSandboxProviderOptions
-  scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
 }
 
@@ -2403,7 +2362,7 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
-export interface AgentModuleOptions {
+export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
@@ -2411,7 +2370,6 @@ export interface AgentModuleOptions {
   execution?: AgentExecution
   eval?: AgentEvalOptions
   imports?: boolean
-  integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
@@ -2427,10 +2385,7 @@ export interface ResolvedAgentModuleOptions {
   execution: AgentExecution
   shutdown: false | AgentShutdownOptions
   imports: boolean
-  integrations: Required<AgentIntegrationsOptions>
   providers: {
-    sandbox: Required<AgentSandboxProviderOptions>
-    scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
   routes: ResolvedAgentRoutesOptions
@@ -3083,8 +3038,6 @@ export interface AgentInspectionProviderMetadata {
   requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /** Codex home retention. maxAge is milliseconds; maxSize is bytes or a percent such as "45%". Only set limits appear. */
-  retention?: { maxAge?: number, maxRecords?: number, maxSize?: number | string }
   sessionStore?: "sqlite"
   toolchain?: SandboxToolchain
 }
@@ -3114,7 +3067,7 @@ export interface AgentInspectionMetadata {
   config?: AgentInspectionConfigMetadata
   files?: AgentInspectionFileTreeItem[]
   instructions?: string[]
-  invokerProfiles?: AgentInvokerProfile[]
+  invokerProfiles?: AgentInvoker[]
   name?: string
   tools?: AgentInspectionToolDefinition[]
   version?: string
@@ -3237,7 +3190,6 @@ export interface AgentAdapterMetadataContext<
 > extends AgentCallbackContext<TRuntimeConfig>, AgentInvocationCallbackContextValues {
   /** Present after a provider Workspace is prepared; omitted during static inspection. */
   sourceProvenance?: readonly AgentSourceProvenance[]
-  actor: AgentActor
   context: AgentInvocationContextStore
   driver?: {
     kind: AgentDriverKind
@@ -3252,7 +3204,6 @@ export interface AgentAdapterRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */

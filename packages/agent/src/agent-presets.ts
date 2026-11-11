@@ -1,6 +1,6 @@
 import { assertKnownPresetOptions, isPresetOptionsRecord, readPresetSelection } from "@vite-hub/internal/presets"
 
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type { AgentDefinition } from "./types.ts"
 
@@ -22,23 +22,6 @@ export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = Age
   readonly options: Readonly<TOptions>
 } & ([TConfigKey] extends [never] ? {} : { readonly configKey: TConfigKey })
 
-/** Resolve a local name before the normal Agent layer composition. */
-function resolveNamedAgentPresetOptions(input: unknown): unknown {
-  if (!isRuntimeRecord(input)) return input
-  if (!("presets" in input) && !("preset" in input)) return input
-  const { preset, presets, ...options } = input
-  if ("extends" in options) {
-    throw new TypeError("[vitehub] Select one Agent parent with preset or extends, not both.")
-  }
-  if (!hasRuntimeType(preset, "string") || !preset.trim()) {
-    throw new TypeError("[vitehub] defineAgent({ presets }) requires a non-empty preset name.")
-  }
-  if (!presets || !hasRuntimeType(presets, "object") || Array.isArray(presets) || !Object.hasOwn(presets, preset)) {
-    throw new TypeError(`[vitehub] Agent preset "${preset}" is not defined in presets.`)
-  }
-  return { ...options, extends: Reflect.get(presets, preset) }
-}
-
 /** The named configuration block declared by a configured preset. */
 export type AgentPresetConfig<TDefinition> = TDefinition extends { configKey: infer TKey extends string, options: infer TOptions extends object }
   ? { [K in TKey]?: AgentPresetOptions<TOptions> }
@@ -50,16 +33,18 @@ export function resolveAgentPresetExtension(
   resolve: (name: string) => unknown,
   mergeOptions: (parent: Record<string, unknown>, child?: Record<string, unknown>) => Record<string, unknown>,
 ): unknown {
-  const selected = resolveNamedAgentPresetOptions(input)
-  if (!isRuntimeRecord(selected) || !("extends" in selected)) return selected
-  const { extends: extension, ...overrides } = selected
+  if (isRuntimeRecord(input) && ("preset" in input || "presets" in input)) {
+    throw new TypeError("[vitehub] defineAgent() has no preset or presets option. Pass the parent Agent Definition as extends, such as defineAgent({ extends: babysitter }).")
+  }
+  if (!isRuntimeRecord(input) || !("extends" in input)) return input
+  const { extends: extension, ...overrides } = input
   const selection = readPresetSelection(extension, "Agent")
   const tupleOptions = selection.options
   let parent = selection.preset
-  if (hasRuntimeType(parent, "string")) parent = resolve(parent)
-  const configKey: unknown = parent && hasRuntimeType(parent, "object") ? Reflect.get(parent, "configKey") : undefined
+  if (typeof parent === "string") parent = resolve(parent)
+  const configKey: unknown = parent && typeof parent === "object" ? Reflect.get(parent, "configKey") : undefined
   let namedOptions: Record<string, unknown> | undefined
-  if (hasRuntimeType(configKey, "string") && Object.hasOwn(overrides, configKey)) {
+  if (typeof configKey === "string" && Object.hasOwn(overrides, configKey)) {
     const value = overrides[configKey]
     if (value !== undefined && !isPresetOptionsRecord(value)) throw new TypeError(`[vitehub] Agent ${configKey} options must be an object.`)
     namedOptions = value
@@ -70,8 +55,8 @@ export function resolveAgentPresetExtension(
   }
   const supplied = tupleOptions ? mergeOptions(namedOptions ?? {}, tupleOptions) : namedOptions
   if (supplied) {
-    const defaults: unknown = parent && hasRuntimeType(parent, "object") ? Reflect.get(parent, "options") : undefined
-    assertKnownPresetOptions(defaults, supplied, `Agent ${hasRuntimeType(configKey, "string") ? configKey : "preset"}`)
+    const defaults: unknown = parent && typeof parent === "object" ? Reflect.get(parent, "options") : undefined
+    assertKnownPresetOptions(defaults, supplied, `Agent ${typeof configKey === "string" ? configKey : "preset"}`)
     overrides.options = supplied
   }
   return { ...overrides, extends: parent }

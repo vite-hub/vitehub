@@ -3,6 +3,8 @@ export { scheduleLeaseStoreFromDatabase } from "./database-leases.ts"
 
 import { hostname } from "node:os"
 
+import { isRecordOrFunction as isObject } from "@vite-hub/internal/object"
+
 import { createMemoryLeaseStore } from "@vite-hub/runtime"
 
 import { createProcessWakeDriver, DEFAULT_CATCH_UP_MS } from "../internal/process-wake-runtime.ts"
@@ -50,6 +52,11 @@ export interface ProcessScheduleRuntimeOptions {
   prefix?: string
   /** Static Schedule Definitions that this process runs on their cron. */
   registry: ScheduleDefinitionRegistry
+  /**
+   * The cron and time zone that the build read from the source of each Schedule in `registry`. The runtime loads the
+   * module of a Schedule listed here when it is due, not at startup. It loads the other Schedules at startup.
+   */
+  timings?: Readonly<Record<string, ProcessScheduleTiming>>
   /** Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. */
   scheduleRunStore: ScheduleRunStore
 }
@@ -58,23 +65,25 @@ export interface ScheduleRuntimeController {
   close(): Promise<void>
 }
 
+/** The cron of a Schedule and its time zone, UTC when not set. */
+export interface ProcessScheduleTiming {
+  cron: string
+  timeZone?: string
+}
+
 /** A Definition with its own cron. Definitions without `cron` run only through started Schedules. */
 type CronScheduleDefinition = ScheduleDefinition & { cron: string }
 
-interface StaticScheduleEntry {
-  definition: CronScheduleDefinition
+interface StaticScheduleEntry extends ProcessScheduleTiming {
+  /** The Definition, loaded at startup or on the first wake. */
+  definition: () => Promise<CronScheduleDefinition>
   name: string
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function isStaticScheduleDefinition(value: unknown): value is CronScheduleDefinition {
   return isObject(value)
     && Object.hasOwn(value, "cron")
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
 }
 
@@ -83,19 +92,45 @@ function unwrapDefinition(loaded: unknown): CronScheduleDefinition | undefined {
   return isStaticScheduleDefinition(loaded) ? loaded : undefined
 }
 
-async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry): Promise<Map<string, StaticScheduleEntry>> {
-  const entries = await Promise.all(Object.entries(registry).map(async ([name, load]) => {
+function isTiming(value: unknown): value is ProcessScheduleTiming {
+  return isObject(value) && String(value.cron) === value.cron && (value.timeZone === undefined || String(value.timeZone) === value.timeZone)
+}
+
+/** Loads a Definition once, and again only after the load fails. */
+function lazyDefinition(name: string, load: ScheduleDefinitionRegistry[string]): () => Promise<CronScheduleDefinition> {
+  let loading: Promise<CronScheduleDefinition> | undefined
+  return () => loading ??= load().then((loaded) => {
+    const definition = unwrapDefinition(loaded)
+    if (!definition) throw new TypeError(`Schedule "${name}" has no default export of defineSchedule() with a cron and a handler.`)
+    return definition
+  }).catch((error: unknown) => {
+    loading = undefined
+    throw error
+  })
+}
+
+/**
+ * Loads the Definitions without a build timing now and keeps the others lazy. A Definition without a cron and a handler
+ * is skipped.
+ */
+async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry, timings: ProcessScheduleRuntimeOptions["timings"] = {}): Promise<Map<string, StaticScheduleEntry>> {
+  const entries = await Promise.all(Object.entries(registry).map(async ([name, load]): Promise<StaticScheduleEntry | undefined> => {
+    const timing = Object.hasOwn(timings, name) ? timings[name] : undefined
+    if (isTiming(timing)) {
+      return { cron: timing.cron, definition: lazyDefinition(name, load), name, ...(timing.timeZone ? { timeZone: timing.timeZone } : {}) }
+    }
     const definition = unwrapDefinition(await load())
-    return definition ? { definition, name } : undefined
+    if (!definition) return undefined
+    return { cron: definition.cron, definition: async () => definition, name, ...(definition.timeZone ? { timeZone: definition.timeZone } : {}) }
   }))
   return new Map(entries.flatMap(entry => entry ? [[entry.name, entry] as const] : []))
 }
 
 function scheduleCronRecord(entry: StaticScheduleEntry): ScheduleCronRecord {
   return {
-    cron: entry.definition.cron,
+    cron: entry.cron,
     id: entry.name,
-    ...(entry.definition.timeZone ? { timeZone: entry.definition.timeZone } : {}),
+    ...(entry.timeZone ? { timeZone: entry.timeZone } : {}),
   }
 }
 
@@ -190,7 +225,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         if (!entry || !isScheduleDue(scheduleCronRecord(entry), input.scheduledAt)) {
           throw createScheduleError("SCHEDULE_NOT_DUE")
         }
-        if (entry.definition.handler === runStartedSchedules) {
+        const definition = await entry.definition()
+        if (definition.handler === runStartedSchedules) {
           // The tick of started Schedules records no run: it would add one each minute. Each started Schedule records its own.
           await runStartedSchedules({
             id: `tick_${input.scheduledAt.toISOString()}`,
@@ -206,8 +242,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         try {
           const result = await claims.run(runId, () => executeStaticSchedule({
             claimed: true,
-            cron: entry.definition.cron,
-            definition: entry.definition,
+            cron: entry.cron,
+            definition,
             name: entry.name,
             scheduledAt: input.scheduledAt,
             waitUntil,
@@ -239,7 +275,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
     const since = currentMinute - catchUpMs
     for (const entry of definitions.values()) {
-      if (entry.definition.handler === runStartedSchedules) continue
       try {
         // Read only as many runs as the cron has occurrences in the window, so a daily Schedule reads none at most starts.
         let due = 0
@@ -264,7 +299,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   setScheduleRunStore(options.scheduleRunStore)
   setScheduleOccurrenceClaims(claims)
   try {
-    definitions = await loadStaticDefinitions(options.registry)
+    definitions = await loadStaticDefinitions(options.registry, options.timings)
     await recoverUnfinishedOccurrences()
     await driver.reconcile([...definitions.values()].map(scheduleCronRecord))
   }
@@ -281,7 +316,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     throw error
   }
 
-  const processDefinitions = new Map([...definitions].map(([name, entry]) => [name, entry.definition]))
+  const processDefinitions = new Map([...definitions].map(([name, entry]) => [name, { cron: entry.cron, ...(entry.timeZone ? { timeZone: entry.timeZone } : {}) }]))
   const unregisterDefinitions = registerProcessScheduleDefinitions(processDefinitions)
 
   let closePromise: Promise<void> | undefined

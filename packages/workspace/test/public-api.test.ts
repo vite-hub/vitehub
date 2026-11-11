@@ -13,7 +13,6 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
 const tempDirs: string[] = []
@@ -139,12 +138,12 @@ describe("workspace public API", () => {
   it("keeps shell as a lazy workspace tools dependency", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const distDir = new URL("../dist/", import.meta.url)
-    const aiFiles = (await readdir(distDir)).filter(file => file === "ai.js" || /^ai-.*\.js$/.test(file))
-    const dependencyLoaderFiles = (await readdir(distDir)).filter(file => file === "dependency-loaders.js" || /^dependency-loaders-.*\.js$/.test(file))
-    const aiDeclarationFiles = (await readdir(distDir)).filter(file => file === "ai.d.ts" || /^ai-.*\.d\.ts$/.test(file))
-    const builtAi = (await Promise.all(aiFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const builtDependencyLoaders = (await Promise.all(dependencyLoaderFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const builtAiDeclarations = (await Promise.all(aiDeclarationFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+    const builtAi = await readBuiltSourceModule("src/ai.ts")
+    const builtDependencyLoaders = await readBuiltSourceModule("src/runtime/dependency-loaders.ts")
+    const declarationFiles = (await readdir(distDir)).filter(file => file.endsWith(".d.ts"))
+    const builtAiDeclarations = (await Promise.all(declarationFiles.map(file => readFile(new URL(file, distDir), "utf8"))))
+      .filter(declaration => declaration.includes("declare function createWorkspaceTools"))
+      .join("\n")
     const runtimeFiles = (await readdir(distDir)).filter(file => file === "runtime.js" || file === "runtime/state.js" || /^use-.*\.js$/.test(file))
     const builtRuntime = (await Promise.all(runtimeFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
@@ -152,6 +151,7 @@ describe("workspace public API", () => {
     expect(packageJson.version).toEqual(expect.any(String))
     expect(["workspace:*", packageJson.version]).toContain(packageJson.peerDependencies?.["@vite-hub/shell"])
     expect(packageJson.peerDependenciesMeta?.["@vite-hub/shell"]).toEqual({ optional: true })
+    expect(builtAiDeclarations).not.toBe("")
     expect(builtAiDeclarations).not.toContain("@vite-hub/shell")
     expect(builtAi).not.toContain("from\"@vite-hub/shell")
     expect(builtAi).not.toContain("from \"@vite-hub/shell")
@@ -170,7 +170,6 @@ describe("workspace public API", () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
     const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
-    const builtMountx = await readFile(new URL("../dist/mountx.js", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
     const declarations = (await Promise.all(distFiles
@@ -187,7 +186,8 @@ describe("workspace public API", () => {
     const vueFreeBundles = (await Promise.all(["index.js", "server.js"]
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
-    expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
+    // The server helpers return Fetchable routes and do not import h3.
+    expect(packageJson.dependencies?.h3).toBeUndefined()
     expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
     expect(packageJson.dependencies?.vite).toBeUndefined()
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
@@ -195,7 +195,6 @@ describe("workspace public API", () => {
     expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
     expect(packageJson.exports).not.toHaveProperty("./collections")
     expect(packageJson.exports).not.toHaveProperty("./collections/client")
-    expect(packageJson.exports).toHaveProperty("./mountx")
     expect(packageJson.peerDependencies?.vue).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.vue).toBeUndefined()
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
@@ -207,15 +206,13 @@ describe("workspace public API", () => {
     expect(packageJson.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["@vercel/blob"]).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toBeUndefined()
-    expect(builtServer).toContain("from \"h3\"")
+    expect(builtServer).not.toContain("from \"h3\"")
     expect(declarations).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vercel/blob")
     expect(declarations).not.toContain("@vite-hub/sandbox/task")
     expect(declarations).not.toMatch(effectImport)
     expect(effectFreeBundles).not.toMatch(effectImport)
     expect(builtCloudflareArtifactsStore).not.toMatch(effectImport)
-    expect(builtMountx).toContain('from "mountx/drivers/unstorage"')
-    expect(vueFreeBundles).not.toContain('from "mountx')
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
   })
 
@@ -354,7 +351,7 @@ describe("workspace public API", () => {
     expect(load).toHaveBeenCalledOnce()
   })
 
-  it("serves allowlisted workspace files as H3-compatible responses", async () => {
+  it("serves allowlisted workspace files as Responses", async () => {
     registerWorkspace("files", defineWorkspace({
       store: { provider: "memory" },
     }))
@@ -372,12 +369,79 @@ describe("workspace public API", () => {
     expect(response.headers.get("content-type")).toBe("application/json")
     expect(response.headers.get("x-content-type-options")).toBe("nosniff")
     await expect(response.text()).resolves.toBe("{\"ok\":true}")
-    await expect(readWorkspaceFileResponse({
+    const missing = await readWorkspaceFileResponse({
       allow: ["tasks/**/*.json"],
       path: "secret.txt",
       root: "tasks",
       workspace: "files",
-    })).rejects.toMatchObject({ statusCode: 404 })
+    })
+    expect(missing.status).toBe(404)
+    await expect(missing.json()).resolves.toEqual({ status: 404, message: "Workspace file not found." })
+  })
+
+  it("serves files from a Fetchable route below its base path", async () => {
+    registerWorkspace("fetchable-files", defineWorkspace({
+      store: { provider: "memory" },
+    }))
+    const workspace = useWorkspace("fetchable-files", { mode: "write" })
+    await workspace.fs.writeFile("data/a.json", "{\"a\":1}")
+    await workspace.fs.writeFile("data/nested/b.md", "# B")
+    await workspace.fs.writeFile("data/my file.json", "{\"encoded\":true}")
+    await workspace.fs.writeFile("data/nested/c d.md", "# C D")
+    await workspace.fs.writeFile("secret.json", "{}")
+
+    const { defineWorkspaceFileHandler } = await import("../src/server.ts")
+    const handler = defineWorkspaceFileHandler({
+      allow: ["data/**"],
+      base: "/api/data",
+      root: "data",
+      workspace: "fetchable-files",
+    })
+    const get = (path: string) => handler.fetch(new Request(`https://example.test${path}`))
+
+    const file = await get("/api/data/a.json")
+    expect(file.status).toBe(200)
+    expect(file.headers.get("content-type")).toBe("application/json")
+    await expect(file.text()).resolves.toBe("{\"a\":1}")
+    await expect((await get("/api/data/nested/b.md")).text()).resolves.toBe("# B")
+    // A Nitro baseURL stays in the request URL.
+    await expect((await get("/app/api/data/nested/b.md")).text()).resolves.toBe("# B")
+    // The file path is percent-decoded, so a file name with a space is reachable.
+    await expect((await get("/api/data/my%20file.json")).text()).resolves.toBe("{\"encoded\":true}")
+    await expect((await get("/api/data/nested%2Fc%20d.md")).text()).resolves.toBe("# C D")
+    const malformed = await get("/api/data/%E0%A4%A.json")
+    expect(malformed.status).toBe(400)
+    await expect(malformed.json()).resolves.toEqual({ status: 400, message: "Workspace file path is not valid percent-encoding." })
+    for (const path of ["/api/data/missing.json", "/api/data/", "/api/data", "/api/other/a.json", "/api/data/..%2Fsecret.json", "/api/data/nested/..%2F..%2Fsecret.json", "/api/data/%2E%2E%2Fsecret.json", "/api/data/my%2520file.json"]) {
+      const response = await get(path)
+      expect(response.status, path).toBe(404)
+      await expect(response.json()).resolves.toEqual({ status: 404, message: "Workspace file not found." })
+    }
+  })
+
+  it.each([
+    { base: "/api/data/", baseURL: "/api/data/", pathname: "/api/data/api/data/" },
+    { base: "/api/data/", baseURL: "/app/api/data/", pathname: "/app/api/data/api/data/" },
+    { base: "/", baseURL: "/app/", pathname: "/app/" },
+    { base: "/", baseURL: "/", pathname: "/" },
+    { base: "/api/data", baseURL: "/app", pathname: "/app/api/data/" },
+  ])("serves route $base under application base $baseURL", async ({ base, baseURL, pathname }) => {
+    registerWorkspace("application-base-files", defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace("application-base-files", { mode: "write" })
+    await workspace.fs.writeFile("a.json", "{\"a\":1}")
+    await workspace.fs.writeFile("api/data/my file.json", "{\"nested\":true}")
+
+    const { defineWorkspaceFileHandler } = await import("../src/server.ts")
+    const options = { base, baseURL, workspace: "application-base-files" }
+    const handler = defineWorkspaceFileHandler(options)
+    const get = (path: string) => handler.fetch(new Request(`https://example.test${path}`))
+    await expect((await get(`${pathname}a.json`)).text()).resolves.toBe("{\"a\":1}")
+    // A repeated route base in the file path must remain part of the file name.
+    await expect((await get(`${pathname}api/data/my%20file.json`)).text()).resolves.toBe("{\"nested\":true}")
+    expect((await get(`/wrong${pathname}a.json`)).status).toBe(404)
+    if (pathname !== "/") {
+      expect((await get(`${pathname.slice(0, -1)}-other/a.json`)).status).toBe(404)
+    }
   })
 
   it("mounts inline files at the workspace root", async () => {
@@ -505,7 +569,7 @@ describe("workspace public API", () => {
         "/docs/**/*.md": {
           mediaType: "text/markdown",
           validate(input) {
-            if (hasRuntimeType(input.content, "string") && input.content.includes("<script")) return false
+            if (typeof input.content === "string" && input.content.includes("<script")) return false
           },
           write: true,
         },

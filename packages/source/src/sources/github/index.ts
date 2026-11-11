@@ -9,13 +9,10 @@ import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache }
 import { createGitHubClient, githubEnvToken, githubErrorStatus } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
-import type { FileSource, SourceContext, SourceRevision } from "../../core/types.ts"
-import type { GitHubFile, GitHubSourceOptions } from "./types.ts"
+import { normalizeGitHubRoot } from "./root.ts"
 
-function normalizeGitHubRoot(path = "") {
-  const root = path.replace(/\\/g, "/").split("/").filter(part => part !== ".").join("/")
-  return normalizeSafeSourcePath(root, { allowEmpty: true, allowReserved: true }).split("/").filter(Boolean).join("/")
-}
+import type { SourceContext, SourceRevision } from "../../core/types.ts"
+import type { GitHubFile, GitHubSource, GitHubSourceOptions } from "./types.ts"
 
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
@@ -42,7 +39,7 @@ async function waitForCachedGitHubResult<TResult>(load: () => Promise<TResult>, 
   })
 }
 
-export function github(options: GitHubSourceOptions): FileSource<string> {
+export function github(options: GitHubSourceOptions): GitHubSource {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
@@ -319,6 +316,9 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       root,
     },
     name: "github",
+    async authenticated() {
+      return Boolean(await resolveAuth())
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)

@@ -1,9 +1,10 @@
 import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/inspect"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 
 import { resolveWorkflowOperationSupport } from "../results.ts"
-import { cancelWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "./client.ts"
+import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./client.ts"
 import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from "./state.ts"
 
@@ -30,21 +31,20 @@ export class WorkflowOperationError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
+/**
+ * Checks the Fetch Response fields, not one realm's constructor, so a Response from another Fetch implementation also
+ * matches. `status` and `headers` alone also match an HTTP client result, such as an Axios response, so the body fields
+ * are checked too. The Agent package has the same check.
+ */
 function isResponse(value: unknown): value is Response {
-  if (value instanceof Response) return true
-  const statusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-  if (!statusGetter) return false
-  try {
-    statusGetter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  if (typeof value !== "object" || value === null) return false
+  // SAFETY: each field is checked before the value is narrowed.
+  const response = value as { bodyUsed?: unknown, clone?: unknown, headers?: { get?: unknown } | null, status?: unknown, text?: unknown }
+  return typeof response.status === "number"
+    && typeof response.headers?.get === "function"
+    && typeof response.bodyUsed === "boolean"
+    && typeof response.clone === "function"
+    && typeof response.text === "function"
 }
 
 function jsonReplacer(_key: string, value: unknown): unknown {
@@ -220,13 +220,13 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
       const available = workflows.length ? ` Available Workflows: ${workflows.join(", ")}.` : " The Workflow registry of the runtime is empty."
       throw new WorkflowOperationError(`Unknown Workflow: ${workflow}.${available}`, 404, "WORKFLOW_DEFINITION_NOT_FOUND")
     }
-    const started = await runWorkflow(workflow, payload)
+    const started = await startWorkflow(workflow, payload)
     rememberRun(started.id, workflow)
     return { run: await toWorkflowRunView(started, workflow) }
   }
   if (operation === "resume") {
     const { payload, token } = input as WorkflowOperationInputs["resume"]
-    const signal = await resumeWorkflowSignal(token, payload)
+    const signal = await resumeWorkflow(token, payload)
     return { signal: { id: signal.id, provider: signal.provider } }
   }
   const { runId, workflow: named } = input as WorkflowOperationInputs["get"]

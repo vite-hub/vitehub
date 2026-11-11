@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { docsAppPath, docsRawPath, normalizeDocsPath } from "#docs/navigation"
+import { ownsApp } from "#docs/shell"
 
 import type { DocsPageResponse } from "@vite-hub/docs"
 
@@ -14,15 +15,17 @@ const response = data.value
 const { page } = response
 
 const isRoot = page.path === manifest.root?.path
+// A page that `start.links` lists opens inside the start section, like the pages of a section.
+const isStartLink = isDocsStartLink(useDocsConfig(), page.path)
 // Content previews can change a page's layout or add a home page after the manifest was built.
-const layout = page.layout !== "home" && (response.section || isRoot) ? "docs" : "default"
+const layout = page.layout !== "home" && (response.section || isRoot || isStartLink) ? "docs" : ownsApp ? "default" : "docs-article"
 if (import.meta.client && route.meta.layout !== layout) {
   // The server has already rendered the manifest's layout. Finish hydrating it before switching shells.
   if (useNuxtApp().isHydrating) onNuxtReady(() => setPageLayout(layout))
   else setPageLayout(layout)
 }
 // A page outside the docs base has no section. It reads as a plain article under the site header.
-const isStandalone = !response.section && !isRoot && page.layout !== "home"
+const isStandalone = !response.section && !isRoot && !isStartLink && page.layout !== "home"
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
@@ -46,11 +49,11 @@ useDocsSeo({
       :headline="page.eyebrow ?? undefined"
       :title="page.sourceTitle"
       :description="page.tagline ?? undefined"
-      :ui="{
+      :ui="withDocsTheme('pageHeader', {
         root: 'border-b border-default px-0 pb-10 pt-0',
         title: 'text-balance text-[38px] leading-[46px] sm:text-[46px] sm:leading-[54px]',
         description: 'max-w-2xl text-pretty text-lg leading-8',
-      }"
+      })"
     />
 
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">

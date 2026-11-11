@@ -179,8 +179,8 @@ export function createMemoryLeaseStore(): LeaseStore {
  *
  * - `postgresql`: the SQL text uses `$1`, `$2`, and so on, like postgres.js `sql.unsafe(text, params)`.
  * - `sqlite`: the SQL text uses `?`, like libSQL `client.execute({ sql, args })`. The store runs a statement that fails
- *   with `SQLITE_BUSY` again. Create a libSQL client with `timeout`, such as `createClient({ url, timeout: 30_000 })`,
- *   because libSQL can lose writes when it runs again after `SQLITE_BUSY`.
+ *   with `SQLITE_BUSY` again. Across several processes, use Postgres, remote libSQL, or `node:sqlite`. A local libSQL
+ *   `file:` client is for one process only: after `SQLITE_BUSY` it can lose writes that it reported as done.
  */
 export interface LeaseSqlClient {
   dialect: "postgresql" | "sqlite"
@@ -272,18 +272,28 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
       }
       // One statement: a free key inserts, an expired lease is replaced, and a live lease returns no row. A run again
       // after SQLITE_BUSY finds its own ID when the first run committed, and gets its lease back.
+      // Compute the conflict expiry after locking the row: Postgres evaluates the proposed insert before the wait.
       const [row] = await query(
         `insert into ${table} ("key", id, owner, expires_at) values (?, ?, ?, ${now} + cast(? as bigint))
-         on conflict ("key") do update set id = excluded.id, owner = excluded.owner, expires_at = excluded.expires_at
+         on conflict ("key") do update set id = excluded.id, owner = excluded.owner, expires_at = ${now} + cast(? as bigint)
          where ${table}.expires_at <= ${now} or ${table}.id = excluded.id
          returning id, expires_at`,
-        [key, id, owner ?? null, ttlMs],
+        [key, id, owner ?? null, ttlMs, ttlMs],
       )
       return row?.id === id ? end(row.expires_at) : undefined
     },
     async renew(key, id, ttlMs) {
       await ensureTable()
-      const [row] = await query(`update ${table} set expires_at = ${now} + cast(? as bigint) where "key" = ? and id = ? returning expires_at`, [ttlMs, key, id])
+      // Postgres can project an UPDATE's expiry before waiting on its row lock. FOR UPDATE keeps the CTE from
+      // being inlined and locks the matching holder before the outer UPDATE evaluates the Database clock.
+      const [row] = client.dialect === "postgresql"
+        ? await query(
+            `with held as (select "key", id from ${table} where "key" = ? and id = ? for update)
+             update ${table} set expires_at = ${now} + cast(? as bigint) from held
+             where ${table}."key" = held."key" and ${table}.id = held.id returning ${table}.expires_at`,
+            [key, id, ttlMs],
+          )
+        : await query(`update ${table} set expires_at = ${now} + cast(? as bigint) where "key" = ? and id = ? returning expires_at`, [ttlMs, key, id])
       return row ? end(row.expires_at) : undefined
     },
     async release(key, id) {

@@ -2,8 +2,9 @@
 
 Use this for Agent Channels and Triggers: GitHub, Gmail, Teams, Telegram,
 Discord, web chat, custom webhooks, message history, admission, concurrency,
-or Agent delivery effects. Outbound application message delivery uses the
-separate [`@vite-hub/channels`](primitives/channels.md) primitive.
+or Agent delivery effects. Every Channel is one file in `server/channels` with
+`defineChannel()` from [`vite-hub/channels`](primitives/channels.md), for both
+directions; an Agent lists it by name with `defineAgent({ channels: ['name'] })`.
 
 ## Select one current page
 
@@ -11,7 +12,7 @@ Open [Channels](https://vitehub.dev/raw/docs/agents/channels.md) for conversatio
 
 ## Composition
 
-A Channel adapts an external conversation surface; a Trigger admits an external event into an Agent Invocation. Keep webhook verification, actor/admission rules, history/session identity, concurrency, input commands, and delivery behavior explicit.
+A Channel adapts an external conversation surface; a Trigger admits an external event into an Agent Invocation. Keep webhook verification, invoker/admission rules, history/session identity, concurrency, input commands, and delivery behavior explicit.
 
 Use official Channel helpers when the installed contract provides them. Create a custom Trigger only when the external event is not a conversation adapter or the official boundary cannot represent the source.
 

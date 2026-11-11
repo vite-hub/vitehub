@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { agentInvocationRerunInput, defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
+import { agentInvocationRerunInput, defineAgent, startAgentInvocation, agentWorkflow } from "../src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { runAgentWorkflowDefinition, type AgentWorkflowInvocationPayload } from "../src/runtime/workflow.ts"
@@ -10,6 +10,9 @@ import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../
 import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { useWorkspace } from "@vite-hub/workspace"
+
+// Recovery Workflows get a handle without `start`, so dispatching recovery fails and the test follows the main run only.
+const recoveryWorkflowPrefix = "vitehub-agent-invocation-recovery-"
 
 vi.mock("@vite-hub/workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
@@ -30,7 +33,7 @@ describe("durable Agent data handoff", () => {
     [false, true].map(resolvedInvoker => ({ source, resolvedInvoker })),
   ))("preserves $source signal provenance through durable dispatch with resolved invoker $resolvedInvoker", async ({ source, resolvedInvoker }) => {
     const invocations = defineAgentInvocations({ metadataContent: ["input.prompt"], store: createMemoryAgentInvocationStore() })
-    const createAgent = () => defineAgent({ driver: { run: () => "completed" }, invocations, runtime: workflow(`signal-${source}`) })
+    const createAgent = () => defineAgent({ driver: { run: () => "completed" }, invocations, runtime: agentWorkflow(`signal-${source}`) })
     let payload: AgentWorkflowInvocationPayload | undefined
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
@@ -40,8 +43,8 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
-        createWorkflow: () => ({
-          run: async (input: AgentWorkflowInvocationPayload) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: AgentWorkflowInvocationPayload) => {
             payload = JSON.parse(JSON.stringify(input))
             return { id: `signal-${source}`, provider: "openworkflow", status: "queued" }
           },
@@ -84,17 +87,17 @@ describe("durable Agent data handoff", () => {
         : { available: true, prompt: "Original request." })
   })
 
-  it.each(["profile", "invoker", "actor", "custom", "legacy"])("preserves prepared %s caller provenance through serialized Workflow dispatch", async source => {
+  it.each(["profile", "invoker", "custom", "legacy"])("preserves prepared %s caller provenance through serialized Workflow dispatch", async source => {
     const invocations = defineAgentInvocations({ metadataContent: ["input.prompt"], store: createMemoryAgentInvocationStore() })
     const createAgent = () => defineAgent({
       driver: { run: () => "completed" }, invocations,
-      invoker: { profiles: [{ id: "reviewer", kind: "user" }] }, runtime: workflow("prepared-profile"),
+      invoker: { profiles: [{ id: "reviewer", kind: "user" }] }, runtime: agentWorkflow("prepared-profile"),
     })
     let payload: AgentWorkflowInvocationPayload | undefined
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }) }),
-      workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: () => ({
-        run: async (input: AgentWorkflowInvocationPayload) => {
+      workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+        start: async (input: AgentWorkflowInvocationPayload) => {
           payload = JSON.parse(JSON.stringify(input))
           return { id: "prepared-profile", provider: "openworkflow", status: "queued" }
         },
@@ -102,7 +105,7 @@ describe("durable Agent data handoff", () => {
     })
     const input = withResolvedAgentInvokerInput({ prompt: "Hi", context: {
       invokerProfileId: "reviewer",
-      ...(source === "invoker" || source === "actor" ? { [source]: { id: "caller", kind: "user" } } : {}),
+      ...(source === "invoker" ? { invoker: { id: "caller", kind: "user" } } : {}),
       ...(source === "custom" ? { tenant: "acme" } : {}),
     } }, { id: "request-owner", kind: "user" })
     await startAgentInvocation(createAgent(), { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
@@ -117,7 +120,7 @@ describe("durable Agent data handoff", () => {
     if (!record) throw new Error("Expected the worker record.")
     expect(record.observations.find(observation => observation.name === "agent.invocation.start")?.attributes).toMatchObject({
       "agent.invoker.profile.id": "reviewer",
-      "input.hasInvoker": ["invoker", "actor", "legacy"].includes(source),
+      "input.hasInvoker": ["invoker", "legacy"].includes(source),
       "input.hasContext": source !== "profile",
       "input.hasResolvedInvoker": false,
     })
@@ -131,7 +134,7 @@ describe("durable Agent data handoff", () => {
 
   it.each([false, true])("preserves caller cancellation provenance across remote dispatch: %s", async (supplied) => {
     const invocations = defineAgentInvocations({ metadataContent: ["input.prompt"], store: createMemoryAgentInvocationStore() })
-    const createAgent = () => defineAgent({ driver: { run: () => "completed" }, invocations, runtime: workflow("replay-cancellation") })
+    const createAgent = () => defineAgent({ driver: { run: () => "completed" }, invocations, runtime: agentWorkflow("replay-cancellation") })
     let payload: unknown
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
@@ -141,8 +144,8 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = JSON.parse(JSON.stringify(input))
             return { id: "replay-cancellation-run", provider: "openworkflow", status: "queued" }
           },
@@ -171,7 +174,7 @@ describe("durable Agent data handoff", () => {
   it.each([undefined, "host-agent"])("preserves the invocation name across remote Workflow dispatch with host %s", async (hostName) => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const run = vi.fn(() => "completed")
-    const createAgent = () => defineAgent({ driver: { run }, workspace: {}, invocations, runtime: workflow("discovered-workflow") })
+    const createAgent = () => defineAgent({ driver: { run }, workspace: {}, invocations, runtime: agentWorkflow("discovered-workflow") })
     const agent = createAgent()
     markDiscoveredAgentName(agent, "discovered-agent")
     const runtime = {
@@ -191,8 +194,8 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = input
             return { id: "discovered-run", provider: "openworkflow", status: "queued" }
           },
@@ -222,7 +225,7 @@ describe("durable Agent data handoff", () => {
     const validate = vi.fn((value: string) => Number(value))
     const data = v.object({ count: v.pipe(v.string(), v.transform(validate)) })
     const run = vi.fn(({ input }: { input: { data?: unknown } }) => input.data)
-    const agent = defineAgent({ data, driver: { run }, runtime: workflow("parsed-data-preflight") })
+    const agent = defineAgent({ data, driver: { run }, runtime: agentWorkflow("parsed-data-preflight") })
     let payload: unknown
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
@@ -231,8 +234,8 @@ describe("durable Agent data handoff", () => {
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = input
             return { id: "parsed-data-preflight", provider: "openworkflow", status: "queued" }
           },
@@ -280,7 +283,7 @@ describe("durable Agent data handoff", () => {
   it("hands off raw data when the transformed value is not portable", async () => {
     const data = v.object({ date: v.pipe(v.string(), v.transform(value => new Date(value))) })
     const run = vi.fn(({ input }: { input: { data?: unknown } }) => ({ isDate: input.data && typeof input.data === "object" && "date" in input.data && input.data.date instanceof Date }))
-    const agent = defineAgent({ data, driver: { run }, runtime: workflow("nonportable-data") })
+    const agent = defineAgent({ data, driver: { run }, runtime: agentWorkflow("nonportable-data") })
     let payload: unknown
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
@@ -289,8 +292,8 @@ describe("durable Agent data handoff", () => {
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
-        createWorkflow: () => ({
-          run: async (input: unknown) => {
+        createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
+          start: async (input: unknown) => {
             payload = input
             return { id: "nonportable-data", provider: "openworkflow", status: "queued" }
           },

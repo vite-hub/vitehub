@@ -8,7 +8,7 @@ import { commentsTables } from "../src/tables.ts"
 import type { CommentsDatabase } from "../src/operations-core/store.ts"
 import type { DefineCommentsOptions, ElementAnchor } from "../src/types.ts"
 
-/** The SQL of the live-site model, as `vitehub db generate` wrote it before one model, for migration fixtures. */
+/** The SQL of the live-site model, as `vitehub database generate` wrote it before one model, for migration fixtures. */
 export const liveCommentsMigration = `
 CREATE TABLE \`vitehub_comment_scope_counters\` (\`scope\` text PRIMARY KEY NOT NULL, \`last_number\` integer NOT NULL);
 CREATE TABLE \`vitehub_comment_threads\` (\`id\` text PRIMARY KEY NOT NULL, \`scope\` text DEFAULT 'pages' NOT NULL, \`number\` integer DEFAULT 0 NOT NULL, \`page\` text NOT NULL, \`anchor\` text NOT NULL, \`context\` text, \`metadata\` text, \`status\` text NOT NULL, \`created_by\` text NOT NULL, \`resolved_by\` text, \`resolved_at\` integer, \`created_at\` integer NOT NULL, \`updated_at\` integer NOT NULL);
@@ -29,7 +29,7 @@ export async function createDatabase(): Promise<CommentsDatabase> {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(commentsMigration)
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  return drizzle(client) as unknown as CommentsDatabase
+  return drizzle({ client }) as unknown as CommentsDatabase
 }
 
 /** Comments on an in-memory Database. Tests name their own policy; `{ authorize: undefined }` tests the default one. */

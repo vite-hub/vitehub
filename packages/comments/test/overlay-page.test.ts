@@ -3,8 +3,9 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import * as page from "../src/page.ts"
+import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { api } from "../src/overlay/api.ts"
-import { pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
+import { commentsButton, openList, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { ElementAnchor } from "../src/types.ts"
 
@@ -73,6 +74,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   Reflect.deleteProperty(document, "elementsFromPoint")
+  getSelection()?.removeAllRanges()
 })
 
 async function startEdit() {
@@ -85,6 +87,20 @@ async function startEdit() {
 }
 
 describe("the Comments overlay on a page", () => {
+  it("joins the new page's room when two pages map to the same subject", async () => {
+    await serveComments({
+      identify: () => ada,
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "one" }),
+    }, { realtime: true })
+    tools = pageTools()
+    document.documentElement.append(tools.pill)
+    ;({ shadow, overlay } = await startOverlay(tools))
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/"), expect.anything()))
+    history.pushState(null, "", "/v2")
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/v2"), expect.objectContaining({ params: { page: "/v2" } })))
+  })
+
   it("shares changes only through the authorized page room and ignores cursor-only updates", async () => {
     const { comments, requests } = await open({ content: false })
     await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalled())
@@ -106,7 +122,7 @@ describe("the Comments overlay on a page", () => {
     update()
     expect(count()).toBe(refreshed)
     // A local write announces to this page's readers through awareness, too.
-    tool(tools.bar, "Comments on this page")!.click()
+    await openList(tools.bar)
     const panel = tools.panel()!
     await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
     panel.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
@@ -116,6 +132,93 @@ describe("the Comments overlay on a page", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
     await vi.waitFor(() => expect(room.setLocal).toHaveBeenCalledWith("commentsChange", expect.any(String)))
     expect(room.notify).not.toHaveBeenCalled()
+  })
+
+  it("ends edit mode when comment mode, pressed while the new page loads, comes back", async () => {
+    await open()
+    await startEdit()
+    const session = vi.mocked(api.session).getMockImplementation()!
+    const held = deferred<void>()
+    vi.mocked(api.session).mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/next"))
+    press(document.body, "c")
+    held.resolve()
+    await vi.waitFor(() => expect(commentsButton(tools.bar)!.getAttribute("aria-pressed")).toBe("true"))
+    expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it("keeps edit mode when edit mode, pressed after comment mode while the new page loads, came last", async () => {
+    await open()
+    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
+    const session = vi.mocked(api.session).getMockImplementation()!
+    const held = deferred<void>()
+    vi.mocked(api.session).mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/next"))
+    press(document.body, "c")
+    tool(tools.bar, "Edit text (E)")!.click()
+    held.resolve()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer']")).not.toBeNull())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("true")
+    expect(commentsButton(tools.bar)!.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it("ends edit mode on Esc while the new page loads", async () => {
+    await open()
+    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
+    const session = vi.mocked(api.session).getMockImplementation()!
+    const held = deferred<void>()
+    vi.mocked(api.session).mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/next"))
+    tool(tools.bar, "Edit text (E)")!.click()
+    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("true"))
+    press(document.body, "Escape")
+    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("false"))
+    held.resolve()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer']")).not.toBeNull())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it.each([["another subject", false], ["the same subject", true]])("opens the composer on text selected while a page of %s loads", async (_, shared) => {
+    await serveComments({
+      identify: () => ada,
+      ...(shared ? { subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })], page: () => ({ kind: "drop", id: "same" }) } : {}),
+    })
+    tools = pageTools()
+    document.documentElement.append(tools.pill)
+    ;({ shadow, overlay } = await startOverlay(tools))
+    await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
+    vi.spyOn(Range.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 100, 20))
+    const session = api.session
+    const held = deferred<void>()
+    vi.spyOn(api, "session").mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(api.session).toHaveBeenCalledWith("/next"))
+    const range = document.createRange()
+    range.selectNodeContents(document.querySelector("h1")!)
+    getSelection()!.removeAllRanges()
+    getSelection()!.addRange(range)
+    press(document.body, "c")
+    held.resolve()
+    await vi.waitFor(() => expect(shadow.querySelector("textarea[aria-label='Comment']")).not.toBeNull())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(shadow.querySelector("textarea[aria-label='Comment']")).not.toBeNull()
   })
 
   it("ignores an older inline field lookup after a new selection", async () => {
@@ -150,7 +253,7 @@ describe("the Comments overlay on a page", () => {
     title.dispatchEvent(new MouseEvent("click", { bubbles: true }))
     await vi.waitFor(() => expect(api.field).toHaveBeenCalledOnce())
     if (action === "teardown") overlay.remove()
-    else tool(tools.bar, "Comment (C)")!.click()
+    else tool(tools.bar, "Comment on the page (C)")!.click()
     pending.resolve([undefined, { field: "settings#title", value: "Stale draft", editable: true, digest: "old", collection: "settings", id: "settings" }])
     await pending.promise
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -194,7 +297,7 @@ describe("the Comments overlay on a page", () => {
   it.each(["comment", "edit"])("restores %s styling after an Astro root, head, and body swap", async (mode) => {
     await open()
     const button = await vi.waitFor(() => {
-      const found = tool(tools.bar, mode === "comment" ? "Comment (C)" : "Edit text (E)")
+      const found = tool(tools.bar, mode === "comment" ? "Comment on the page (C)" : "Edit text (E)")
       expect(found).not.toBeNull()
       return found!
     })
@@ -283,22 +386,24 @@ describe("the Comments overlay on a page", () => {
     expect(shadow.querySelector(".cursor image, .cursor [onerror]")).toBeNull()
   })
 
-  it("links a saved draft to Content below the app base", async () => {
-    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+  it("names the hosted Console for a saved draft, without a link", async () => {
     await open()
     const title = await startEdit()
     title.textContent = "Updated"
     title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Review and publish"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("console.vitehub.dev"))
+    expect(shadow.querySelector(".toast a")).toBeNull()
   })
 
-  it("links a field that is not plain text to Content", async () => {
-    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "settings" }])
+  it("names the hosted Console for a field that is not plain text, and opens no page tool", async () => {
+    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "home/hero" }])
     await open()
     await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
     tool(tools.bar, "Edit text (E)")!.click()
     document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/_vitehub/content"]')?.textContent).toBe("Open Content"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Edit it in the Console at console.vitehub.dev."))
+    expect(shadow.querySelector(".toast a")).toBeNull()
+    expect(tools.context.openTool).not.toHaveBeenCalled()
   })
 
   it("restores the published text on Escape and leaves an unchanged draft unsaved", async () => {
@@ -316,9 +421,9 @@ describe("the Comments overlay on a page", () => {
     vi.spyOn(api, "session").mockResolvedValue([undefined, { user: ada, can: { read: true, comment: false, resolve: false }, realtime: false, content: true }])
     tools = pageTools()
     ;({ shadow } = await startOverlay(tools))
-    await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")).not.toBeNull())
+    await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
     expect(tool(tools.bar, "Edit text (E)")).toBeNull()
-    expect(tool(tools.bar, "Comment (C)")).toBeNull()
+    expect(tool(tools.bar, "Comment on the page (C)")).toBeNull()
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }))
     expect(document.documentElement.classList.contains("vitehub-edit-mode")).toBe(false)
   })

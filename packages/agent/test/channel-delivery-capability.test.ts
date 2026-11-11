@@ -4,10 +4,12 @@ import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
 import { runAgentInline, runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { replayChannel } from "../src/channel-replay.ts"
 import { channelDelivery, inputCommands } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createMessage, getMessageText } from "../src/messages.ts"
 
@@ -149,7 +151,7 @@ describe("channelDelivery()", () => {
         await expect(tools.send_message!.execute!({ message: "Draft reply" })).resolves.toMatchObject({ sent: true })
       }),
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" } })],
-      channels: { mailbox: defineChannel("mailbox", {
+      channels: { mailbox: channelAdapter("mailbox", {
         history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
         triggers: { received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "Write" } }) }) },
       }) },

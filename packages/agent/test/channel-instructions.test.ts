@@ -2,8 +2,9 @@ import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handle
 import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
-import { defineChannel, discord, teams, telegram } from "../src/channels.ts"
-import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgentTrigger } from "../src/index.ts"
+import { channelAdapter, discord, teams, telegram } from "../src/channels.ts"
+import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { createAgentInspectionMetadata, resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -433,7 +434,6 @@ describe("Channel instructions", () => {
 
     // SAFETY: The test supplies every invocation field read by the adapter path under test.
     await adapter.generate({
-      actor: invoker,
       context: createAgentInvocationContextStore({
         "agent.channelInstructions": "Injected Channel instructions.",
       }),
@@ -469,7 +469,6 @@ describe("Channel instructions", () => {
       const invoker = { id: "budget-test", kind: "user" }
 
       const request = {
-        actor: invoker,
         context: createAgentInvocationContextStore(),
         input: {},
         invoker,
@@ -507,7 +506,6 @@ describe("Channel instructions", () => {
 
     // SAFETY: The test supplies every invocation field read by the auxiliary adapter path.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext({
-      actor: invoker,
       context,
       input: {},
       invoker,
@@ -530,7 +528,7 @@ describe("Channel instructions option", () => {
     const model = createModel()
     const agent = defineAgent({
       channels: {
-        tickets: defineChannel("tickets", {
+        tickets: channelAdapter("tickets", {
           instructions: ticketRules,
           messages: false,
           triggers: {
@@ -556,7 +554,7 @@ describe("Channel instructions option", () => {
   it("does not add Channel instructions to direct runs", async () => {
     const model = createModel()
     const agent = defineAgent({
-      channels: { tickets: defineChannel("tickets", { instructions: ticketRules, messages: false }) },
+      channels: { tickets: channelAdapter("tickets", { instructions: ticketRules, messages: false }) },
       // SAFETY: createModel implements the AI SDK methods exercised by this test.
       driver: { instructions: agentInstructions, model: model as never },
     })
@@ -578,7 +576,7 @@ describe("Channel instructions option", () => {
 
   it.each(["", "  ", 1])("rejects the instructions value %j", (instructions) => {
     // SAFETY: The test passes invalid runtime values on purpose.
-    expect(() => defineChannel("tickets", { instructions: instructions as never })).toThrow("instructions must be a non-empty string")
+    expect(() => channelAdapter("tickets", { instructions: instructions as never })).toThrow("instructions must be a non-empty string")
   })
 })
 

@@ -1,4 +1,4 @@
-import type { DocsSection } from "@vite-hub/docs";
+import type { DocsAppPage, DocsSection } from "@vite-hub/docs";
 
 export interface LearnFacts {
   steps: number;
@@ -36,7 +36,7 @@ export interface LearnCatalog {
 
 /** Sorts the tutorial pages of the docs into the groups of the Learn page. */
 export function buildLearnCatalog(input: {
-  sections: readonly DocsSection[]
+  sections: readonly DocsSection<DocsAppPage>[]
   runnable: readonly { slug: string, page: string }[]
   facts: Readonly<Record<string, LearnFacts>>
 }): LearnCatalog {

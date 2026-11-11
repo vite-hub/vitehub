@@ -4,25 +4,23 @@ import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
-import { GitHubDependencyConflictError } from "@vite-hub/agent/server/github";
+import { GitHubDependencyConflictError } from "../github/index.ts";
 import * as v from "valibot";
 import { join } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
-import { prepareGitHubRepairBase } from "@vite-hub/agent/server/github";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "@vite-hub/agent/server/github";
+import { prepareGitHubRepairBase } from "../github/index.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
-import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
-import { forgeAccessKey } from "@vite-hub/agent/server/internal";
-import { activeProviderSandbox, resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
   createGitHubPullRequestOperations,
-} from "@vite-hub/agent/server/github";
-import type { GitHubHost } from "@vite-hub/agent/server/github";
+} from "../github/index.ts";
+import type { GitHubHost } from "../github/index.ts";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
@@ -34,14 +32,13 @@ import { parseEvidence } from "./inbox/types.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
-import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "@vite-hub/agent/server/internal";
 import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
 import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
-import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
+import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../github/index.ts";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
 import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
@@ -55,6 +52,22 @@ import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
+export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
+export type {
+  GitHubAppEnvironment,
+  GitHubHost,
+  GitHubHostAccess,
+  GitHubHostAccessOptions,
+  GitHubHostCheckout,
+  GitHubHostCheckoutOptions,
+  GitHubHostCredentialContext,
+  GitHubHostCredentials,
+  GitHubHostForgeOptions,
+  GitHubHostOptions,
+  GitHubHostPullRequest,
+  GitHubHostRateLimit,
+  GitHubHostSecret,
+} from "../github/host.ts";
 
 declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
@@ -1530,17 +1543,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 },
               });
               const resolveThread = operations.resolveThread;
-              operations.resolveThread = id => repairOperation.run(true, async () => {
+              operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
                 const reopens = current.threadReopens?.[id] ?? 0;
-                await resolveThread(id);
+                await resolveThread(id, answer);
                 await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
                 // Record only a successful, PR-owned resolution. New comments
                 // remain in the evidence hash; any external reopen revokes it.
                 ownedResolutions.set(id, reopens);
               });
-              const settings = getAgentLayerOptions(baseAgent);
-              const driver = settings?.driver;
+              const baseSettings = agentSettings(baseAgent);
+              const driver = baseSettings?.driver;
               if (
                 !driver ||
                 typeof driver !== "object" ||
@@ -1556,7 +1569,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 | ClaudeCodeDriver<unknown, BabysitterPassResult>;
               const activityEnabled = !!verifiedHostIdentity;
               const workerName = `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`;
-              const baseSettings = getAgentLayerOptions(baseAgent);
               if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
               // Build the worker from the base settings while replacing only
               // its GitHub Channel. Extending the base Agent would preserve
@@ -1572,11 +1584,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               if (workerSettings.sandbox) providerDirectory = checkout;
               const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
               const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-                if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
-                const sanitized = { ...channel };
                 // A GitHub channel under any key can otherwise reintroduce host credentials.
-                Reflect.deleteProperty(sanitized, forgeAccessKey);
-                return [name, sanitized];
+                if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
+                return [name, withoutForgeAccess(channel)];
               }));
               const baseCapabilities = workerSettings.capabilities;
               const repair = repairCapability(operations, merge.mode === "auto", presetOptions.mentionAllowlist, async (context) => {
@@ -1625,21 +1635,19 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               });
               const workerCapabilities = typeof baseCapabilities === "function"
                 ? async (context: Parameters<AgentCapabilitiesResolver>[0]) => [
-                  ...(await resolveAgentCapabilityDefinitions(baseCapabilities, context)).filter(capability => capability.id !== "babysitter.github"),
+                  ...(await baseCapabilities(context)).filter(capability => capability.id !== "babysitter.github"),
                   repair,
                 ]
                 : [
                   ...(Array.isArray(baseCapabilities) ? baseCapabilities : []).filter(capability => capability.id !== "babysitter.github"),
                   repair,
                 ];
-              copyDefinitionDecorations(asMetadataTarget(baseAgent), asMetadataTarget(workerSettings));
-              const workerChannel = { ...github.channel({
-                activity: activityEnabled,
-                pullRequest: { filter, workspace: false },
-              }) };
               // Preserve host-owned activity and delivery closures without
               // exposing their forge access to provider credential resolution.
-              Reflect.deleteProperty(workerChannel, forgeAccessKey);
+              const workerChannel = withoutForgeAccess(github.channel({
+                activity: activityEnabled,
+                pullRequest: { filter, workspace: false },
+              }));
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
               let baseWorkspace: Record<string, unknown> = {};
@@ -1883,7 +1891,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             schedulerEvent("babysitter.owner.deferred", { reason: "provider-rate-limit", ...owner });
           } else {
             outcome = "failed";
-            if (/AGENT_R0767|head.*(?:mismatch|changed)|expected.*head/i.test(String(error))) {
+            if (/head.*(?:mismatch|changed)|expected.*head/i.test(String(error))) {
               await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
             }
             await pullRequestInbox.finish(inboxClaim, {
@@ -1948,7 +1956,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
 function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAgent {
   if (
-    !getAgentLayerOptions(agent) ||
+    !agentSettings(agent) ||
     !("options" in agent) ||
     !agent.options ||
     !hasRuntimeType(agent.options, "object") ||
