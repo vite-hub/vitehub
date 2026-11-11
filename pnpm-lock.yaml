@@ -2031,6 +2031,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../kv
       '@vite-hub/realtime':
         specifier: workspace:*
         version: link:../realtime
