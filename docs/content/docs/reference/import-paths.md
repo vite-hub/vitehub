@@ -18,8 +18,7 @@ the same behavior.
 
 | Import path | Use |
 | --- | --- |
-| `vite-hub` | `vitehub()`, the framework Vite plugin. |
-| `vite-hub/deployment` | `detectPreset()`: the preset `vitehub()` detects when `preset` is omitted. Use it for host-specific config. |
+| `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
@@ -65,6 +64,7 @@ the same behavior.
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
 | `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
+| `vite-hub/content/sqlite` | In-memory SQLite database for full-text search on Node and Cloudflare Workers. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
 | `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` preset's Workspace, its tables, and a Database when the app has none. `vitehub()` registers it. |
@@ -118,7 +118,7 @@ the same behavior.
 | `vite-hub/rate-limit/drivers/cloudflare` | `cloudflareRateLimitDriver()`: direct access to a Cloudflare Rate Limiting binding. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
-| `vite-hub/runtime` | Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
+| `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
@@ -142,6 +142,7 @@ the same behavior.
 | `vite-hub/ui/tool-list`, `vite-hub/ui/trace-run` | Focused imports for tool contract and trace run components. |
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
 | `vite-hub/ui/file-tree` | Focused import for the file tree component. |
+| `vite-hub/ui/device-frame` | Focused import for the device frame, which shows a page at a device's size. |
 | `vite-hub/ui/avatar-stack`, `vite-hub/ui/comments`, `vite-hub/ui/connection-status`, `vite-hub/ui/sync-status` | Focused imports for collaboration components. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |

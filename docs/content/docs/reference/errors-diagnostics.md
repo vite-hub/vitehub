@@ -176,7 +176,7 @@ Keep the raw error in protected diagnostics. Provider payloads and causes can co
 | `APPROVAL_REQUIRED` | A Capability needs approval to continue. `requestId` names the approval request, if there is one. |
 | `HOST_RESTARTED` | The host restarted during an inline Chat invocation. `details.retry` is `pending` when ViteHub will retry the message, or `exhausted` after a second restart. |
 | `TIMEOUT` | A Chat or queued webhook invocation hit its `timeout`. Chat replies say the Agent ran out of time, not the generic `INTERNAL` text. |
-| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | A known public app or Capability failure. |
+| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `CAPABILITY_*`, `TRANSCRIPTION_*` | A known public app or Capability failure. |
 | `INTERNAL` | No approved public mapping. The message stays generic. |
 
 `PROVIDER_QUOTA_EXHAUSTED` carries the reset time when the provider text says `try again at <time>.` with a timestamp ViteHub can parse.

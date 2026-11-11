@@ -120,15 +120,15 @@
       "import": "./dist/invocations/drizzle.js",
       "default": "./dist/invocations/drizzle.js"
     },
-    "./messages": {
-      "types": "./dist/messages.d.ts",
-      "import": "./dist/messages.js",
-      "default": "./dist/messages.js"
-    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
+    },
+    "./messages": {
+      "types": "./dist/messages.d.ts",
+      "import": "./dist/messages.js",
+      "default": "./dist/messages.js"
     },
     "./observability": {
       "types": "./dist/observability.d.ts",
@@ -201,7 +201,6 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/channels": "workspace:*",
-    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
@@ -217,7 +216,6 @@
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.19.1",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"

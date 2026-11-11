@@ -343,11 +343,8 @@ const capabilityOptions = [
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
   { code: "openapi({ spec, operations })", icon: "i-lucide-braces", key: "openapi", label: "OpenAPI tools" },
   { code: "transcribe({ model: transcriptionModel })", icon: "i-lucide-audio-lines", key: "transcribe", label: "Transcription" },
-  { code: "llmRoute({ choices, model: decisionModel })", icon: "i-lucide-route", key: "llm-route", label: "LLM routing" },
-  { code: "llmGate({ allow, reject, model: decisionModel })", icon: "i-lucide-shield", key: "llm-gate", label: "LLM gate" },
   { code: "rateLimit({ limiter: messages })", icon: "i-lucide-gauge", key: "rate-limit", label: "Rate limit" },
   { code: "title()", icon: "i-lucide-heading", key: "title", label: "Title" },
-  { code: "chatSummary()", icon: "i-lucide-message-square-text", key: "chat-summary", label: "Chat summary" },
   { code: "progressSummary()", icon: "i-lucide-list-collapse", key: "progress-summary", label: "Progress summary" },
   { code: "usage()", icon: "i-lucide-chart-no-axes-column", key: "usage", label: "Usage" },
 ] satisfies PlaygroundOption[]

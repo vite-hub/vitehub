@@ -173,7 +173,6 @@ Returned text becomes model input. Treat `args` as untrusted.
 
 ## Related pages
 
-- [chatSummary()](/docs/agents/capabilities/chat-summary)
 - [Agent Invocations](/docs/agents/invocations)
 - [Channels](/docs/agents/channels)
 - [Official Capabilities](/docs/agents/capabilities/official)
