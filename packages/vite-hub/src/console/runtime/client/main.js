@@ -11,8 +11,6 @@ const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleChannels = () => import("../components/console-channels.vue");
-const ConsoleConnect = () => import("../components/console-connect.vue");
-const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
 const ConsoleOperationView = () => import("../components/console-operation-view.vue");
@@ -34,22 +32,17 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { takeConsoleOAuthCallback } from "./oauth";
-import { continueConsoleOpen, startConsoleOpen } from "./open-link";
-import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, openConsoleProject, startConsoleAccount, startConsoleLink, startConsoleNewProject, startConsoleProjects, useConsoleProjects } from "./project-session";
-import { takeConsoleLinkHash } from "./pending-links";
-import { browserProjectStorage, openConsoleStorage } from "./projects";
+import { consoleProjectReady, openConsoleProject, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
+import { memoryProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
-// The hosted build marks its static page. There the Console opens the projects that this browser linked. The Console
-// app marks its page `account`: people sign in, and the Console server forwards the calls of their team's projects.
-// Otherwise the app serves the page, and the Console reads that app. The Console API paths below are app paths;
-// `projectUrl()` adds the origin and the mount of the project.
+// The Console app marks its page `account`: people sign in, and the Console server signs and forwards the calls of
+// their team's projects. Otherwise the page and the app share one origin, as in the Console playground, and the Console
+// reads that app. The Console API paths below are app paths; `projectUrl()` adds the origin and the mount of the project.
 const pageMode = document.querySelector('meta[name="vitehub-console-mode"]')?.getAttribute("content");
 const account = pageMode === "account";
-const hosted = pageMode === "hosted";
-const hostBase = hosted || account ? "" : consoleMountBase(window.location.pathname);
-const consoleBase = hosted || account ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
+const hostBase = account ? "" : consoleMountBase(window.location.pathname);
+const consoleBase = account ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
 // Apply the stored appearance before the first render so the page does not flash the other scheme. An `account`
 // Console waits for its account before it renders, so the scheme comes first.
@@ -103,36 +96,14 @@ if (account) {
   });
 }
 else {
-  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
-  const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
-  // The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
-  const session = openConsoleStorage(() => window.sessionStorage);
-
-  // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
-  const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
-  // The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
-  const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
-  // A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
-  // a linked project opens at the path.
-  const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
-
   startConsoleProjects({
     base: hostBase,
     home: consoleBase,
-    mode: hosted ? "hosted" : "embedded",
+    mode: "embedded",
     navigate: (url) => window.location.assign(url),
     pageOrigin: window.location.origin,
-    storage,
-    storagePersistent: storage.persistent !== false,
-    sessionStorage: session.durable ? session.storage : undefined,
-    durableStorage: storage.persistent !== false,
-    pendingLinkLocks: navigator.locks,
+    storage: memoryProjectStorage(),
   });
-  if (linkHash !== undefined) startConsoleLink(linkHash);
-  // The /new page opens no project, so it works before the first link.
-  else if (hosted && isConsoleNewProjectPath(window.location.pathname, consoleBase)) startConsoleNewProject();
-  else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
-  else if (openRequest) continueConsoleOpen(openRequest);
 }
 const sectionsBase = "/_vitehub/api/sections";
 const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
@@ -141,21 +112,7 @@ const router = createRouter({
   history: createWebHistory(consoleBase),
   routes: [
     { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: "/_vitehub/api/logs", sectionsBase } },
-    { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/_vitehub/api/agents", definitionsBase: "/_vitehub/api/definitions", kvBase: "/_vitehub/api/kv", envBase: "/_vitehub/api/env", managementBase: "/_vitehub/env/manage", searchBase: "/_vitehub/api/search", sectionsBase } },
-    {
-      component: ConsoleConnections,
-      name: "vitehub-console-connections",
-      path: "/connections",
-      meta: { consoleSection: "connections", title: "Connections · ViteHub Console" },
-      props: {
-        agentsBase: "/_vitehub/api/agents",
-        definitionsBase: "/_vitehub/api/definitions",
-        kvBase: "/_vitehub/api/kv",
-        managementBase: "/_vitehub/connections",
-        searchBase: "/_vitehub/api/search",
-        sectionsBase,
-      },
-    },
+    { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/_vitehub/api/agents", definitionsBase: "/_vitehub/api/definitions", kvBase: "/_vitehub/api/kv", envBase: "/_vitehub/api/env", searchBase: "/_vitehub/api/search", sectionsBase } },
     {
       component: ConsoleMcpClient,
       name: "vitehub-console-mcp-client",
@@ -195,19 +152,6 @@ const router = createRouter({
         sectionsBase,
       },
       meta: { title: "ViteHub Console" },
-    },
-    {
-      component: ConsoleConnect,
-      name: "vitehub-console-connect",
-      path: "/connect",
-      meta: { title: "Connect an agent · ViteHub Console" },
-      props: {
-        agentsBase: "/_vitehub/api/agents",
-        definitionsBase: "/_vitehub/api/definitions",
-        kvBase: "/_vitehub/api/kv",
-        searchBase: "/_vitehub/api/search",
-        sectionsBase,
-      },
     },
     {
       component: ConsoleApp,
@@ -441,7 +385,7 @@ function addContributedRoutes(navigation) {
 subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
 
 router.beforeEach(async (to) => {
-  // The first page waits until the project opens, so its requests carry the token and go to the linked project.
+  // The first page waits until the project opens, so its requests go to the open project.
   await consoleProjectReady();
   if (to.matched.length === 0) {
     // Contributed section routes exist only after the navigation response arrives.

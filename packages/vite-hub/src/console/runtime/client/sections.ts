@@ -6,7 +6,6 @@ import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSection
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
-  auth: false | true | "cloudflare-access"
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
   /** Names of the registered operations that run app code and that this access may run, such as `workflow.start`. */
@@ -25,7 +24,7 @@ const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
+  const response = value as { contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -36,7 +35,6 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
         isConsoleBuiltinSectionId(section) || (isConsoleSectionId(section) && Object.hasOwn(contributions, section)))
     : []
   return {
-    auth: response?.auth === true || response?.auth === "cloudflare-access" ? response.auth : false,
     contributions,
     operations: Array.isArray(response?.operations) ? response.operations.filter((name): name is string => typeof name === "string") : [],
     ...(typeof response?.projectName === "string" && response.projectName.trim()
