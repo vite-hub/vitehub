@@ -14,11 +14,12 @@ function isMaskedValue(value: string | undefined) {
 function assertRuntimeValue(value: string | undefined, envNames: readonly string[]) {
   if (isMaskedValue(value)) {
     const names = envNames.map(name => `\`${name}\``).join(" or ")
-    throw kvErrorDiagnostics.KV_MISSING_ENV({ names })
+    throw kvErrorDiagnostics.KV_MISSING_ENV({ driver: "upstash", names })
   }
 }
 
-function resolveRuntimeUpstashStore(
+/** Fills credentials without validating them, so development still reports missing env on the first operation. */
+export function resolveUpstashRuntimeValues(
   config: ResolvedUpstashKVStoreConfig,
   env: Record<string, string | undefined>,
 ): ResolvedUpstashKVStoreConfig {
@@ -31,16 +32,11 @@ function resolveRuntimeUpstashStore(
   const resolveMaskedValue = (value: string | undefined, pairValue: string | undefined, fallback: string | undefined) =>
     isMaskedValue(value) ? (pairValue || fallback || value || "********") : (value ?? "********")
 
-  const resolved = {
+  return {
     ...config,
     token: resolveMaskedValue(config.token, completeEnvPair?.[1], hasMaskedPair ? undefined : envToken),
     url: resolveMaskedValue(config.url, completeEnvPair?.[0], hasMaskedPair ? undefined : envUrl),
   }
-
-  assertRuntimeValue(resolved.url, upstashUrlEnvNames)
-  assertRuntimeValue(resolved.token, upstashTokenEnvNames)
-
-  return resolved
 }
 
 export function resolveRuntimeKVOptions(
@@ -51,8 +47,11 @@ export function resolveRuntimeKVOptions(
     return config
   }
 
+  const store = resolveUpstashRuntimeValues(config.store, env)
+  assertRuntimeValue(store.url, upstashUrlEnvNames)
+  assertRuntimeValue(store.token, upstashTokenEnvNames)
   return {
     ...config,
-    store: resolveRuntimeUpstashStore(config.store, env),
+    store,
   } satisfies ResolvedKVModuleOptions
 }

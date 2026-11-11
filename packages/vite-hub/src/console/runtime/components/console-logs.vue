@@ -6,12 +6,14 @@ import { logPageSchema, logSourceInfoSchema } from "../../../logs/source";
 import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
 import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
-import { consoleClockTime, exactTimestamps } from "../client/time";
+import { consoleClockTime, exactTimestamps } from "../client/format";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
+import ConsolePropertyList from "./console-property-list.vue";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
@@ -24,7 +26,17 @@ const { entry: selectedId, level, q: text, view: mode } = useConsoleQuery({
   q: queryText(),
   view: queryChoice(["explorer", "stream"], "explorer", { history: "push" }),
 });
-const logDateFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium" });
+const selectedProperties = computed(() => (selected.value ? [
+  { label: "Time", mono: true, value: selected.value.timestamp },
+  { label: "Service", value: selected.value.service },
+  { label: "Event ID", mono: true, value: selected.value.id },
+] : []));
+function clearFilters(): void {
+  text.value = "";
+  level.value = "all";
+}
+// The row shows the day without the year; the title of the time shows the exact timestamp.
+const logDateFormat = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" });
 function logDate(timestamp: string) {
   const time = Date.parse(timestamp);
   return Number.isFinite(time) ? logDateFormat.format(time) : "";
@@ -66,6 +78,10 @@ const levels = [
   { label: "Error", value: "error" },
 ];
 /** The color of a level in the event list and in the event details. */
+const modeItems = [
+  { label: "Explorer", value: "explorer" },
+  { label: "Stream", value: "stream" },
+];
 function levelClass(value: string): string {
   return value === "error" ? "text-error" : value === "warn" ? "text-warning" : "text-muted";
 }
@@ -159,12 +175,11 @@ onBeforeUnmount(() => {
 
 <template>
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
-    <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="logs">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>
           <UTooltip text="Refresh logs">
             <UButton
-              size="sm"
               variant="ghost"
               icon="i-lucide-refresh-cw"
               aria-label="Refresh logs"
@@ -172,33 +187,19 @@ onBeforeUnmount(() => {
               @click="load()"
             />
           </UTooltip>
+          <!-- The label names the next action, so the button is not a pressed toggle. -->
           <UButton
-            size="sm"
-            :variant="following ? 'soft' : 'ghost'"
+            variant="ghost"
             :icon="following ? 'i-lucide-pause' : 'i-lucide-play'"
-            :aria-pressed="following"
             @click="following = !following"
             >{{ following ? "Pause" : "Follow" }}</UButton
           >
         </template>
       </ConsolePageHeader>
       <ConsolePageToolbar>
-        <div class="flex gap-1" aria-label="Log view">
-          <UButton
-            size="sm"
-            :variant="mode === 'explorer' ? 'soft' : 'ghost'"
-            :aria-pressed="mode === 'explorer'"
-            @click="mode = 'explorer'"
-            >Explorer</UButton
-          >
-          <UButton
-            size="sm"
-            :variant="mode === 'stream' ? 'soft' : 'ghost'"
-            :aria-pressed="mode === 'stream'"
-            @click="mode = 'stream'"
-            >Stream</UButton
-          >
-        </div>
+        <template #tabs>
+          <UTabs v-model="mode" :items="modeItems" :content="false" aria-label="Log view" />
+        </template>
         <UInput
           v-model="text"
           icon="i-lucide-search"
@@ -222,7 +223,7 @@ onBeforeUnmount(() => {
       <ConsoleState v-if="error && !entries.length" :error="error" title="Could not load logs" :retry="() => load()" />
       <ConsoleState v-else-if="!source && !loading" section="logs" icon="i-vitehub-logs" title="Connect a log source">
         <p class="max-w-sm text-xs leading-5 text-pretty text-muted">
-          <ConsoleSetupHint :hint="{ message: 'Set `logs: true` to capture events in development, or set `logs.source` to a server module that reads your log backend.' }" />
+          <ConsoleSetupHint :hint="{ message: 'Set `observability: { logs: true }` to capture events in development, or set `observability.logs.source` to a server module that reads your log backend.' }" />
         </p>
       </ConsoleState>
       <div v-else class="logs-workspace min-h-0 flex-1">
@@ -236,27 +237,35 @@ onBeforeUnmount(() => {
           <p v-if="loading && !entries.length" role="status" class="p-6 text-sm text-muted">
             Loading events…
           </p>
-          <p v-else-if="!entries.length" role="status" class="p-6 text-sm text-muted">
-            No events match these filters.
-          </p>
+          <UEmpty
+            v-else-if="!entries.length"
+            role="status"
+            variant="naked"
+            size="sm"
+            icon="i-lucide-search"
+            :title="text || level !== 'all' ? 'No events match these filters' : 'No events yet'"
+            :description="text || level !== 'all' ? 'Change the search or the level.' : 'Events show here when the application logs them.'"
+            :actions="text || level !== 'all' ? [{ label: 'Clear filters', variant: 'ghost', onClick: clearFilters }] : undefined"
+          />
           <div v-bind="containerProps" class="min-h-0 flex-1 overflow-auto">
-            <div v-bind="wrapperProps">
+            <!-- The inset keeps the hover fill off the edges; data-focus-inset keeps the focus ring inside the scroller. -->
+            <div v-bind="wrapperProps" class="px-1">
               <button
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
-                class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-(--vitehub-console-focus)"
+                class="log-row w-full rounded-md text-left hover:bg-elevated"
                 :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
+                data-focus-inset
                 :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"
               >
                 <time
-                  class="font-mono text-xs text-muted tabular-nums"
+                  class="whitespace-nowrap font-mono text-xs text-muted tabular-nums"
                   :datetime="entry.timestamp"
                   :title="exactTitle(entry.timestamp)"
-                  ><span class="block text-[10px] leading-3">{{ logDate(entry.timestamp) }}</span>
-                  <span class="block leading-4">{{ consoleClockTime(entry.timestamp) }}</span></time
+                  ><span class="text-dimmed">{{ logDate(entry.timestamp) }}</span> {{ consoleClockTime(entry.timestamp) }}</time
                 >
-                <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
+                <span class="font-mono text-xs uppercase" :class="levelClass(entry.level)">{{
                   entry.level
                 }}</span>
                 <span v-if="mode === 'explorer'" class="truncate text-xs text-muted">{{
@@ -267,7 +276,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div v-if="cursor && !following" class="p-3">
-            <UButton variant="ghost" size="sm" :loading="loading" @click="load(true)"
+            <UButton variant="ghost" :loading="loading" @click="load(true)"
               >Load older events</UButton
             >
           </div>
@@ -276,28 +285,21 @@ onBeforeUnmount(() => {
           aria-label="Event details"
           class="min-h-0 min-w-0 overflow-auto border-l border-default p-5"
         >
-          <template v-if="selected">
-            <div class="mb-5 flex items-center justify-between gap-3">
-              <h2 class="text-sm font-medium">Event details</h2>
-              <span class="font-mono text-[11px] uppercase" :class="levelClass(selected.level)">{{
-                selected.level
-              }}</span>
-            </div>
-            <h3 class="break-words text-sm font-medium">{{ selected.message }}</h3>
-            <dl class="my-5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">
-              <dt class="text-muted">Time</dt>
-              <dd class="break-all font-mono">{{ selected.timestamp }}</dd>
-              <dt class="text-muted">Service</dt>
-              <dd>{{ selected.service }}</dd>
-              <dt class="text-muted">Event ID</dt>
-              <dd class="break-all font-mono">{{ selected.id }}</dd>
-            </dl>
+          <ConsoleSection v-if="selected" title="Event details" class="gap-5">
+            <template #actions>
+              <span class="font-mono text-xs uppercase" :class="levelClass(selected.level)">{{ selected.level }}</span>
+            </template>
+            <p class="break-words text-sm font-medium text-highlighted">{{ selected.message }}</p>
+            <!-- The exact timestamp, not a relative time: a log is read next to other logs. -->
+            <ConsolePropertyList :items="selectedProperties">
+              <template #value="{ item }">{{ item.value }}</template>
+            </ConsolePropertyList>
             <div
               v-if="
                 diagnostic &&
                 (diagnostic.code || diagnostic.name || diagnostic.why || diagnostic.fix)
               "
-              class="mb-6 space-y-3 text-sm"
+              class="space-y-3 text-sm"
             >
               <p v-if="diagnostic.code || diagnostic.name" class="font-mono text-xs text-error">
                 {{ field(diagnostic.code ?? diagnostic.name) }}
@@ -315,17 +317,18 @@ onBeforeUnmount(() => {
                 >Documentation</a
               >
             </div>
-            <h3 class="mb-3 text-xs font-medium text-muted">Structured data</h3>
-            <pre class="whitespace-pre-wrap break-all font-mono text-xs leading-6">{{
-              JSON.stringify(selected.data, null, 2)
-            }}</pre>
-          </template>
-          <p v-else class="text-sm text-muted">Select an event to inspect its data.</p>
+            <ConsoleSection :level="3" title="Structured data">
+              <pre class="whitespace-pre-wrap break-all font-mono text-xs leading-6">{{
+                JSON.stringify(selected.data, null, 2)
+              }}</pre>
+            </ConsoleSection>
+          </ConsoleSection>
+          <UEmpty v-else variant="naked" size="sm" icon="i-lucide-mouse-pointer-click" title="No event selected" description="Select an event to inspect its data." />
         </aside>
       </div>
       <footer
         v-if="source"
-        class="flex flex-wrap justify-between gap-2 border-t border-default px-4 py-2 text-[11px] text-muted"
+        class="flex flex-wrap justify-between gap-2 border-t border-default px-4 py-2 text-xs text-muted"
       >
         <span>{{ retention }}</span
         ><span v-if="dropped">{{ dropped }} dropped or evicted</span><span>Read-only</span>
@@ -347,14 +350,14 @@ onBeforeUnmount(() => {
   padding: 0 16px;
 }
 .log-row.explorer {
-  grid-template-columns: 84px 40px 90px minmax(0, 1fr);
+  grid-template-columns: 140px 40px 90px minmax(0, 1fr);
 }
 .log-row.stream {
-  grid-template-columns: 84px 40px minmax(0, 1fr);
+  grid-template-columns: 140px 40px minmax(0, 1fr);
 }
 @media (max-width: 900px) {
   .log-row.explorer {
-    grid-template-columns: 84px 40px minmax(0, 1fr);
+    grid-template-columns: 140px 40px minmax(0, 1fr);
   }
   .log-row.explorer > :nth-child(3) {
     display: none;

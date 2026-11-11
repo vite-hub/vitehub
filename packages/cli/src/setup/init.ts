@@ -11,7 +11,7 @@ import { minVersion, Range, subset, validRange } from "semver"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { consolePendingIdPattern, formatSetupLinkFile, gitignoreWithViteHub, readSetupConsoleLink, readSetupLink, SETUP_LINK_FILE } from "./link.ts"
+import { gitignoreWithViteHub } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
 import { installArgs, installCommand, setupStatus } from "./status.ts"
 
@@ -21,10 +21,9 @@ import type { DeploymentPreset } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddArgs, SetupChange, SetupOptions, SetupRerun } from "./add.ts"
 import type { SetupMissing } from "./envelope.ts"
-import type { SetupConsoleLink } from "./link.ts"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
 
-const usage = "vitehub init <dir> --host <preset> --features <id,id,...> [--option <feature.key=value>]... [--console <pendingId>:sha256:<hex>] [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
+const usage = "vitehub init <dir> --host <preset> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
 /** The command that starts a project. It runs from the `vite-hub` package, so it needs no install. */
 const initCommandPrefix = "pnpm dlx vite-hub init"
@@ -37,11 +36,12 @@ const packageManagers: readonly SetupPackageManager[] = ["pnpm", "npm", "yarn", 
 
 /**
  * The packages of a new app, as `getting-started/installation.md` installs them. The Nitro and H3 versions match the
- * server integration of ViteHub. Nuxt supplies Nitro, and its tutorials import H3 1.
+ * server integration of ViteHub. Nuxt 5 supplies Nitro 3, and its tutorials import H3 2. Valibot validates request
+ * bodies in the docs' route examples.
  */
 export const initPackages: Readonly<Record<InitFramework, { prod: readonly string[], dev: readonly string[] }>> = {
-  nuxt: { dev: [], prod: ["vite-hub", "h3@^1.15.11"] },
-  vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261102-rc", "h3@2.0.8"] },
+  nuxt: { dev: [], prod: ["vite-hub", "h3@^2.0.8", "valibot"] },
+  vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261102-rc", "h3@2.0.8", "valibot"] },
 }
 
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
@@ -61,7 +61,6 @@ export interface SetupInitArgs {
   features?: FeatureId[]
   /** Raw `--option` values, such as `email.driver=resend`. */
   options: string[]
-  console?: SetupConsoleLink
   framework?: InitFramework
   pm?: SetupPackageManager
   install: boolean
@@ -86,10 +85,8 @@ export interface SetupInitPlan {
   scaffold?: { command: string }
   changes: readonly SetupChange[]
   install: { packages: readonly string[], devPackages: readonly string[], command?: string }
-  /** The command that creates the same stack. README.md keeps it. It never includes the `--console` value. */
+  /** The command that creates the same stack. README.md keeps it. */
   stack: { command: string }
-  /** The pending Console link, without the hash. */
-  console: { pendingId: string } | null
   nextSteps: readonly string[]
 }
 
@@ -107,14 +104,7 @@ function oneOf<T extends string>(flag: string, value: string, choices: readonly 
   return found
 }
 
-/** Reads `<pendingId>:sha256:<hex>`. The error never repeats the value, because a person can paste a secret by mistake. */
-function readConsole(value: string): SetupConsoleLink {
-  const match = /^([^:]+):sha256:([0-9a-f]{64})$/iu.exec(value)
-  if (!match || !consolePendingIdPattern.test(match[1]!)) throw new SetupFailure(cliErrorDiagnostics.SETUP_CONSOLE_INVALID(), setupExitCodes.error)
-  return { pendingId: match[1]!, tokenSha256: match[2]!.toLowerCase() }
-}
-
-/** Reads the arguments. Throws `CLI_R0003` for an unknown flag or value, and `SETUP_CONSOLE_INVALID` for a bad `--console`. */
+/** Reads the arguments. Throws `CLI_R0003` for an unknown flag or value. */
 export function readInitArgs(args: readonly string[]): SetupInitArgs {
   const parsed: SetupInitArgs = { dryRun: false, help: false, install: true, json: false, options: [], yes: false }
   let features: string | undefined
@@ -134,7 +124,6 @@ export function readInitArgs(args: readonly string[]): SetupInitArgs {
     else if (flag === "--host") parsed.host = oneOf("--host", value(), initHosts)
     else if (flag === "--features") features = value()
     else if (flag === "--option") parsed.options.push(value())
-    else if (flag === "--console") parsed.console = readConsole(value())
     else if (flag === "--framework") parsed.framework = oneOf("--framework", value(), frameworks)
     else if (flag === "--pm") parsed.pm = oneOf("--pm", value(), packageManagers)
     else if (arg.startsWith("-")) throw invalid(`Unknown argument ${JSON.stringify(arg)}.`)
@@ -176,15 +165,14 @@ function initCommand(parts: InitCommandParts, extra: readonly string[]): string 
   ].join(" ")
 }
 
-/** The command that creates the same stack, for README.md and `vitehub status`. It never includes `--console`. */
+/** The command that creates the same stack, for README.md and `vitehub status`. */
 function stackCommand(parts: InitCommandParts): string {
   return initCommand(parts, ["--yes"])
 }
 
-/** The `rerun` command: the same request with `--yes`, including the `--console` value, which is a hash and not a secret. */
+/** The `rerun` command: the same request with `--yes`. */
 function rerunInit(args: SetupInitArgs, parts: InitCommandParts): string {
   return initCommand(parts, [
-    ...(args.console ? ["--console", `${args.console.pendingId}:sha256:${args.console.tokenSha256}`] : []),
     ...(args.install ? [] : ["--no-install"]),
     "--yes",
     ...(args.json ? ["--json"] : []),
@@ -426,22 +414,13 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   for (const file of added.files) base.set(file.path, { after: file.content })
   if (added.configFile) base.set(configFile, { ...base.get(configFile), after: added.configFile.after })
 
-  // README.md, .gitignore, and the Console link.
+  // README.md and .gitignore.
   const stack = stackCommand(parts())
   const readme = state.kind === "create" ? undefined : await readOptional(join(root, "README.md"))
   base.set("README.md", { ...(readme === undefined ? {} : { before: readme }), after: readmeWithStack(readme, name, stack) })
   if (state.kind === "adopt") {
     const gitignore = await readOptional(join(root, ".gitignore"))
     base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
-  }
-  if (args.console) {
-    const linkFile = join(root, SETUP_LINK_FILE)
-    const before = state.kind === "adopt" ? await readOptional(linkFile) : undefined
-    const link = state.kind === "adopt" ? await readSetupLink(root) : undefined
-    const after = formatSetupLinkFile({ schemaVersion: 1, ...link, console: args.console })
-    const current = state.kind === "adopt" ? await readSetupConsoleLink(root) : undefined
-    const same = current?.pendingId === args.console.pendingId && current.tokenSha256 === args.console.tokenSha256
-    base.set(SETUP_LINK_FILE, { ...(before === undefined ? {} : { before }), after: same && before !== undefined ? before : after })
   }
 
   // Config last, so the app turns ViteHub on only after the other files are written.
@@ -460,12 +439,10 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     ...(root === resolve(context.rootDir) ? [] : [`cd ${shellQuote(args.dir)}`]),
     ...(command && !args.install ? [`Install the packages: ${command}`] : []),
     `Start the dev server: ${runScript(packageManager, "dev")}`,
-    ...(args.console ? ["The Console link waits for the first deploy of this app."] : []),
     ...added.plan.nextSteps,
   ]
   const plan: SetupInitPlan = {
     changes: writes.map(write => changeOf(write.path, write.before, write.after)),
-    console: args.console ? { pendingId: args.console.pendingId } : null,
     features: added.plan.features,
     framework,
     host: args.host,

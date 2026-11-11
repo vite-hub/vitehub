@@ -18,8 +18,9 @@ export const featureIds = [
   "database",
   "email",
   "env",
+  "i18n",
   "kv",
-  "logs",
+  "mcp",
   "observability",
   "queue",
   "rateLimit",
@@ -79,6 +80,11 @@ export interface FeatureStarter {
   file: (name: string) => string
   /** The source of a minimal Definition named `name`. */
   template: (name: string) => string
+  /**
+   * Earlier versions of `template`. `vitehub remove` deletes a file only when it equals the current or an earlier
+   * starter, so keep the old template here when you change one.
+   */
+  previousTemplates?: readonly ((name: string) => string)[]
   /**
    * Other files, relative to the project root, that already define the Definition `name` or that the owner rejects
    * next to it. The starter is not written when one exists.
@@ -198,6 +204,7 @@ export default defineAgent({
       vercel: native("vercel-blob", "Vercel Blob", "Vercel Blob through the vercel-blob driver."),
     },
     id: "blob",
+    packages: ["@vite-hub/blob"],
     providerPackages: { driver: { s3: ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] } },
     service: "blob",
     summary: "Object storage for files and uploads, with one API on every host.",
@@ -214,6 +221,7 @@ export default defineAgent({
       vercel: unsupported("Browser Definitions do not have a Vercel provider."),
     },
     id: "browser",
+    packages: ["@vite-hub/browser"],
     service: "browser",
     summary: "Headless browser sessions for Agents and server code.",
     title: "Browser",
@@ -237,6 +245,7 @@ export default defineAgent({
     docs: "/docs/channels",
     hosts: everywhere("nitro", "Nitro"),
     id: "channels",
+    packages: ["@vite-hub/channels"],
     summary: "Chat channels such as Slack, Discord, and GitHub that deliver messages to Agents.",
     title: "Channels",
   }),
@@ -255,7 +264,7 @@ export default defineAgent({
     hosts: everywhere("database", "Database"),
     id: "connections",
     implies: [{ feature: "database" }],
-    packages: ["@vite-hub/database", "drizzle-orm"],
+    packages: ["@vite-hub/connections", "@vite-hub/database", "drizzle-orm"],
     summary: "OAuth and API key Connections in `server/connections/`, with grants stored in a Database.",
     title: "Connections",
   }),
@@ -263,22 +272,26 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
+    // The Console app is hosted at console.vitehub.dev. The app serves only its Operations endpoint and MCP.
+    packages: [],
+    summary: "The Operations endpoint and MCP at `/_vitehub`, which the hosted Console at console.vitehub.dev and the CLI call.",
     title: "Console",
   }),
   database: feature({
     definition: {
-      // A Default Definition also comes from `src/database.ts`, and the owner rejects Default and Named Definitions together.
-      conflicts: name => name === "default"
-        ? [...sourceFiles("server/databases/config").slice(1), "src/database.ts"]
-        : [...sourceFiles(`server/databases/${name}/config`).slice(1), ...sourceFiles(`src/${name}.database`), ...sourceFiles("server/databases/config"), "src/database.ts"],
+      // `src/database.ts` is also the Default Definition, and the owner rejects it beside Named Definitions.
+      conflicts: name => [
+        ...sourceFiles(`server/databases/${name}`).slice(1),
+        ...sourceFiles(`server/databases/${name}/index`),
+        ...(name === "default" ? ["src/database.ts"] : [...sourceFiles(`src/${name}.database`), "src/database.ts"]),
+      ],
       dir: "server/databases",
-      file: name => name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`,
-      template: () => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+      file: name => `server/databases/${name}.ts`,
+      template: name => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { defineDatabase } from "vite-hub/database"
 
 export default defineDatabase({
-  schema: {
+${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     notes: sqliteTable("notes", {
       id: integer("id").primaryKey(),
       title: text("title").notNull(),
@@ -314,6 +327,7 @@ export default defineDatabase({
       vercel: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
     },
     id: "email",
+    packages: ["@vite-hub/email"],
     summary: "Send email from server code and Agents, with a development outbox.",
     title: "Email",
   }),
@@ -325,6 +339,14 @@ export default defineDatabase({
     summary: "Typed environment variables and secrets, validated at build and at runtime.",
     title: "Env",
   }),
+  i18n: feature({
+    docs: "/docs/i18n",
+    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
+    id: "i18n",
+    packages: ["@vite-hub/i18n"],
+    summary: "Messages with translation records for each locale and a locale for each request.",
+    title: "I18n",
+  }),
   kv: feature({
     developmentOverrides: ["netlify"],
     docs: "/docs/kv",
@@ -333,26 +355,28 @@ export default defineDatabase({
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
       netlify: explicit("kv.driver", "Upstash", "Configure a remote Upstash store. No Netlify-native KV output is provided."),
-      node: native("fs-lite", "fs-lite / Upstash", "Filesystem-backed KV or remote Upstash Redis.", "single-host"),
+      node: native("fs-lite", "Redis / Postgres / fs-lite", "A table in a Postgres Default Database, else local files. Redis requires kv: { driver: 'redis' }; REDIS_URL supplies its URL on every server. Upstash with REST credentials at build time.", "single-host"),
       vercel: native("upstash", "Upstash", "Upstash Redis with KV REST credentials."),
     },
     id: "kv",
+    packages: ["@vite-hub/kv"],
     summary: "Key-value storage with one API on every host.",
     title: "KV",
   }),
-  logs: feature({
-    docs: "/docs/logs",
+  mcp: feature({
+    docs: "/docs/development/app-mcp",
     hosts: everywhere("nitro", "Nitro"),
-    id: "logs",
-    summary: "Read an existing log source, or inspect a bounded Evlog buffer during development.",
-    title: "Logs",
+    id: "mcp",
+    packages: ["@vite-hub/mcp"],
+    summary: "The app's own MCP server, with one tool per file in `server/mcp/tools/`.",
+    title: "MCP server",
   }),
   observability: feature({
     docs: "/docs/agents/observability",
     hosts: everywhere("evlog", "Evlog"),
     id: "observability",
-    packages: ["@vite-hub/agent", "evlog"],
-    summary: "Agent telemetry, request logs, and papercut reports through Evlog.",
+    packages: ["evlog"],
+    summary: "Request logs through Evlog, the logs that the Console reads, and Agent telemetry with a service name.",
     title: "Observability",
   }),
   queue: feature({
@@ -367,11 +391,12 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
       deno: unsupported("No Deno Queue provider is provided."),
       dev: native("local", "Local provider", "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.", "single-host"),
-      netlify: unsupported("`vitehub({ queue: true })` has no provider option and fails on Netlify. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider."),
+      netlify: unsupported("Netlify has no Queue provider, so `vitehub({ queue })` fails on Netlify."),
       node: native("local", "Local provider", "The local provider runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "single-host"),
       vercel: native("vercel", "Vercel Queues", "Vercel Queues callbacks and runtime client."),
     },
     id: "queue",
+    packages: ["@vite-hub/queue"],
     service: "queue",
     summary: "Background jobs in `server/queues/` with retries and delivery on every supported host.",
     title: "Queue",
@@ -388,6 +413,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
       vercel: unsupported("ViteHub has no native Vercel Rate Limit driver."),
     },
     id: "rateLimit",
+    packages: ["@vite-hub/rate-limit"],
     service: "rateLimit",
     summary: "Rate limits in `server/rate-limits/` that protect routes and Agent tools.",
     title: "Rate Limit",
@@ -426,6 +452,7 @@ export default defineRealtime({
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
+    packages: ["@vite-hub/sandbox"],
     service: "sandbox",
     summary: "Sandbox Tasks in `server/sandbox-tasks/`. Each run starts an isolated Cloudflare or Vercel Sandbox.",
     title: "Sandbox",
@@ -472,6 +499,7 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
+    packages: ["@vite-hub/workflow"],
     providerPackages: { provider: { openworkflow: ["openworkflow"] } },
     summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
     title: "Workflow",
@@ -514,8 +542,8 @@ function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean
   })
 }
 
-/** Packages needed by a feature and its statically selected provider. */
-export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown"): string[] {
+/** Packages needed by a feature, its provider, and its enabled feature integrations. */
+export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown", enabled: readonly FeatureId[] = []): string[] {
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
@@ -526,15 +554,18 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
     const choice: unknown = value && typeof value === "object" && !Array.isArray(value) ? Reflect.get(value, key) : undefined
     return typeof choice === "string" ? choices[choice] ?? [] : []
   }))
+  // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
+  if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
 
-/** Additional Console owners selected by its access policy and enabled Agent integration. */
+/** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {
   agents: ["@libsql/client", "drizzle-orm"],
-  signIn: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
 } as const
 
 /** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */
@@ -549,7 +580,7 @@ export function featureSupport(id: FeatureId, host: FeatureHost, preset?: Deploy
 
 /**
  * The features that `enabled` turn on through implications on `preset`, without the ones already in `enabled`.
- * Implications chain, so Console turns on Comments, which turns on Database.
+ * This follows implications transitively.
  * `disabled` lists features that the app sets to `false`; an implication never turns them on.
  */
 export function impliedFeatures(enabled: readonly FeatureId[], preset: DeploymentPreset, disabled: readonly FeatureId[] = []): FeatureId[] {

@@ -14,6 +14,8 @@ The `Review image attachments` session covers persisted input and output images 
 
 `meal-logger` is a retired Agent. Its session stays in invocation history, so search lists it under Invocation history and the Agents list does not show it.
 
+`channels-fixture.ts` answers the `channels.*` operations. `release-engineer` has simulated Slack and Discord Channels, as `agent.channels.simulate` gives them in `vite dev`, and `product-reviewer` has a real Telegram Channel with a durable State. The simulated Channels serve the real chat page of `@vite-hub/agent` on their webhook route, but no Agent answers a message sent there.
+
 The `Inspect MCP tools and title` session provides synthetic server groups, tool contracts, skipped and empty servers, and a completed Title view for the Capabilities tab.
 
 The `Share one empty state across primitive pages` session is the happy path: a configured Agent, a prepared workspace, reasoning, file reads, commands with output, a file change with diffs, commentary, a Markdown answer, a GitHub reply, and usage with cost. The `Sync docs for the 0.0.5 release` session fails while it prepares the workspace, so the preparation group shows a failed step.
@@ -22,7 +24,7 @@ The Agent Invocation records live in `console.fixture.json`. `mock-api.ts` adds
 the read-only Usage, KV, Workflow, Queue, and search responses needed by the
 Console. `rpc.ts` connects the Console's SSE RPC transport to those local fixture
 routes. It also serves a synthetic Connections management API
-with three OAuth Connections, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
+with three OAuth Connections, one of them with setup docs, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
 Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. Comments answers the `comments.*` operations from three synthetic threads in `comments.ts`, in memory, as a signed-in Maxi who may write, so its rows open the thread panel with replies, resolve, and `@` mentions. A restart resets the threads. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader.
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
@@ -40,7 +42,7 @@ The check uses installed Playwright Chromium, the real Console components, and i
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
-`/api/_vitehub/console/`, and it also matches the paths under it:
+`/_vitehub/api/`, and it also matches the paths under it:
 
 ```js
 document.cookie = "playground-fail=agents=401,invocations=401" // Sign-in on the Agents page
@@ -58,7 +60,7 @@ cloudflared tunnel --url http://127.0.0.1:5173
 Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
 
-The MCP client section answers from `mcp-client-fixture.ts`, which keeps its connections in the playground process. Northwind Ledger, the app's own `/mcp`, has Maxi and Lucía through OAuth, Lucía's API key, and Sam, who is signed out. ViteHub MCP runs on the Console session, and `docs.example.com/mcp` needs no sign-in. Run `get_finances` with the `household` scope as Maxi and Lucía to compare their accounts. **Connect** with OAuth goes through the real callback page, and **Sign in as someone else** finishes as Sam. Set `document.cookie = "playground-mcp=shared"` to see the `auth: "app"` case, where signing in as someone else on this origin is off. Restart the playground to reset the connections.
+The MCP client section answers from `mcp-client-fixture.ts`, which keeps its connections in the playground process. Northwind Ledger, the app's own `/mcp`, has Maxi and Lucía through OAuth, Lucía's API key, and Sam, who is signed out. `docs.example.com/mcp` needs no sign-in. Run `get_finances` with the `household` scope as Maxi and Lucía to compare their accounts. **Connect** with OAuth goes through the real callback page, and **Sign in as someone else** finishes as Sam. Restart the playground to reset the connections.
 
 Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Impersonate is on: start it from a non-admin user, and the playground root returns to the Console, where the Auth section shows the banner and **Stop impersonating**. Admins and the banned user show Better Auth's refusal. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
 

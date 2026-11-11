@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
 import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
+import { isRecord } from "@vite-hub/internal/object"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
@@ -24,10 +25,6 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 import type { EnvSource } from "./config-edit.ts"
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
 import type { StaticOptions } from "./nuxt-config.ts"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 interface ResolvedOptions {
   envSchema?: { file: string, paths: Record<string, string> }
@@ -204,7 +201,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (runtimeProperty && !runtime.object) {
       planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
     }
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: runtime.values })
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema, cwd), issues: schemaIssues(schema), runtimeConfig: runtime.values })
     fields = plan.fields
     unmigrated = plan.unmigrated
     planned.push(...plan.followUps)

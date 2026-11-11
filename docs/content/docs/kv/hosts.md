@@ -1,6 +1,6 @@
 ---
 title: KV hosts
-description: Keep KV code portable across providers, read keys during development, and know production limits.
+description: Keep KV code the same on every provider, read keys during development, and know the production limits.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
@@ -8,38 +8,54 @@ icon: i-lucide-cloud-cog
 
 ## Provider output
 
-The KV package selects the default or named store and generates store-name types. Put provider namespaces, bindings, and credentials in integration configuration or deployment setup.
+KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
 
-Application code keeps importing `kv` from `@vite-hub/kv` when you switch between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
+`vite dev` keeps every store local unless it sets `remote: true`, also when `.env` has Upstash credentials. Read [Development stays local](/docs/kv/configure#development-stays-local).
 
 ## Read and write keys during development
 
-`hubKv()` contributes the `vitehub kv` CLI namespace. Start the Vite Development Server, then read and write keys from another terminal.
+`hubKv()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users:
 pnpm vitehub kv get settings --json
 pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
-pnpm vitehub kv del settings
+pnpm vitehub kv delete settings
 ```
 
-The commands call the same KV storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. There is no `clear` command. The commands run the `kv.*` [operations](/docs/development/operations) of the app, on the dev server of this project or, with `--url`, on a deployed app that enables the [Console](/docs/development/console). The operations run in the Nitro runtime, which owns the stores. `kv set` and `kv del` refuse keys that start with `vitehub:` (`KV_RESERVED_KEY`), because ViteHub keeps its own state there; reads stay open. Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
+- They run the app's `kv.*` [operations](/docs/development/operations) in the Nitro runtime, on the same storage. They target the dev server or, with `--url`, a deployed app with the [Console](/docs/development/console) on. `--store <name>` picks a named store.
+- Each write prints what it changed. There is no `clear` command.
+- `kv set` and `kv delete` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
 
-KV inspection represents `bigint` values, including nested values, as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`. Cloudflare write results report the effective TTL after rounding. The drivers cannot report how long a key has left, so `kv get` reports `expiry: "unknown"` (or `"none"` for `fs-lite`, which never expires keys). A write without `--ttl` removes an existing expiry, and the Console editor warns about it and has an **Expires in seconds** field.
+Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
+
+- `bigint` values, also nested, show as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`.
+- Cloudflare writes report the TTL after rounding.
+- Drivers cannot tell a key's time left, so `kv get` shows `expiry: "unknown"` (`"none"` on `fs-lite`, which never expires keys).
+- A write without `--ttl` removes the old expiry. The Console editor warns and has an **Expires in seconds** field.
 
 ## Preview deployments
 
-A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production keys ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same namespace `id` share its data ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview namespace in `previews.kv_namespaces` of the project Wrangler config, because ViteHub does not write that block.
+::warning
+A Cloudflare Version URL reads and writes production keys ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)).
+::
 
-For a preview Worker of its own, set `KV_NAMESPACE_ID` in its build with `namespaceId` unset, or configure `namespaceId` with the preview id. A configured `namespaceId` takes precedence over `KV_NAMESPACE_ID`. Alternatively, set a separate `namespaceName` with both `namespaceId` and `KV_NAMESPACE_ID` unset and provision it before building. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and Previews that bind the same namespace `id` share data ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). ViteHub does not write that block. Declare a namespace in `previews.kv_namespaces` yourself.
+
+To give a preview Worker its own namespace:
+
+- Set `KV_NAMESPACE_ID` in its build and leave `namespaceId` unset.
+- Set `namespaceId` to the preview id. It wins over `KV_NAMESPACE_ID`.
+- Set a separate `namespaceName`, leave `namespaceId` and `KV_NAMESPACE_ID` unset, and provision it before the build.
+
+Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Production checks
 
-KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.
+Key prefixes are not tables. Use Database for constraints, joins, migrations, history, or complex queries.
 
-Do not build coordination locks on top of basic `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, and counters; they are not a general compare-and-swap API.
+Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 
-Use [Upstash Redis for ViteHub KV](/docs/guides/upstash-redis) for hosted REST
-configuration and a persistence check.
+Read [Upstash Redis for ViteHub KV](/docs/guides/upstash-redis) for hosted setup and a persistence check.

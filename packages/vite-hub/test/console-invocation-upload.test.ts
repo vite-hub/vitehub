@@ -17,7 +17,8 @@ vi.mock("@vite-hub/agent", () => ({
   deserializeMessages: mocks.history,
   isAttachmentPart: () => false,
 }))
-vi.mock("@vite-hub/runtime", () => ({
+vi.mock("@vite-hub/runtime", async importOriginal => ({
+  resolvePublicUrl: (await importOriginal<typeof import("@vite-hub/runtime")>()).resolvePublicUrl,
   createExecutionContext: (context: unknown) => context,
   createRuntimeWaitUntilController: () => ({ waitUntil: () => {} }),
   encodeRouteSegment: (value: string) => value,
@@ -36,9 +37,10 @@ vi.mock("../src/console/runtime/server/attachments.ts", () => ({
 
 import handlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 import { consoleEvent } from "./console-event.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
 
 const files = [{ url: "data:image/png;base64,YQ==", filename: "test.png" }]
-const invoke = (body: unknown, request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { method: "POST" })) => handler(consoleEvent({ body, context: { params: { agent: "bot" } }, headers: request.headers, method: request.method, url: request.url }))
+const invoke = (body: unknown, request = new Request("https://console.test/_vitehub/api/agents/bot/invocations", { method: "POST" })) => handler(consoleEvent({ body, context: { params: { agent: "bot" } }, headers: request.headers, method: request.method, url: request.url }))
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.store.mockImplementation(async (_prompt, _body, consume) => consume({ role: "user", parts: [{ type: "image", id: "image-id" }] }, () => {}))
@@ -93,20 +95,22 @@ it("forwards the rollback boundary to Agent startup", async () => {
 })
 
 it("passes configured capabilities and the Console request to Agent startup", async () => {
-  const request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { headers: { cookie: "session=verified" }, method: "POST" })
+  const request = new Request("https://console.test/_vitehub/api/agents/bot/invocations", { headers: { cookie: "session=verified" }, method: "POST" })
   await invoke({ prompt: "test" }, request)
   const context = mocks.start.mock.calls[0]?.[1]
   expect(context).toMatchObject({ capabilities: { blob: { kind: "blob" }, console: {} } })
   expect(context.request.headers.get("cookie")).toBe("session=verified")
 })
 
-it("uses the verified Console user as the Agent Actor", async () => {
-  installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "console-user", email: "user@example.com" }) })
+it("uses the person that the Console signed as the Agent Actor", async () => {
+  const signer = await signedConsoleAccess()
   try {
-    await invoke({ prompt: "test" })
+    const request = await signer.sign(new Request("https://console.test/_vitehub/rpc", { body: "{}", method: "POST" }), { email: "user@example.com", id: "console-user" })
+    await invoke({ prompt: "test" }, request)
     expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ context: { actor: { id: "console-user", kind: "authUser", meta: { authUserId: "console-user" } } } })
   }
   finally {
+    signer.restore()
     installConsoleAccess({ mode: "open" })
   }
 })

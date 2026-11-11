@@ -2,10 +2,11 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
 import { expect, it } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts";
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts";
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts";
 import { allowed } from "./support/console-access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { consoleEvent } from "./console-event.ts";
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const usageHandler = allowed(usageHandlerRoute);
 
@@ -44,7 +45,7 @@ it("validates session history filters and keeps filtered responses separate in t
     { projectRoot: process.cwd(), invoke: false },
   );
   const request = (query: string) =>
-    usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?${query}` }));
+    usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?${query}` }));
   expect(await request("status=failed")).toMatchObject({
     sessionCount: 1,
     sessions: [{ id: "failed" }],
@@ -62,12 +63,12 @@ it("validates session history filters and keeps filtered responses separate in t
     statusCode: 400,
     statusMessage: "Invalid usage status",
   });
-  const rpcResponse = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input: { status: "running" }, operation: "usage.get" }),
+  const rpcResponse = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody("usage.get", { status: "running" }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }));
-  await expect(rpcResponse.json()).resolves.toMatchObject({ message: "Invalid usage status", ok: false, status: 400 });
+  await expect(operationRpcResponseResult(rpcResponse)).resolves.toMatchObject({ message: "Invalid usage status", ok: false, status: 400 });
   await expect(request(`search=${"x".repeat(513)}`)).rejects.toMatchObject({ statusCode: 400, statusMessage: "Invalid usage search" });
 });
 
@@ -94,7 +95,7 @@ it.each(["100%_", "%41", "雪% &+?#"])(
       fallbackName: filter,
     }], { projectRoot: process.cwd(), invoke: false });
     const query = { agent: filter, search: filter };
-    const request = (queryString: string) => usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?${queryString}` }));
+    const request = (queryString: string) => usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?${queryString}` }));
     const first = await request(new URLSearchParams(query).toString());
     expect(first.sessions).toHaveLength(50);
     expect(first.cursor).toEqual(expect.any(String));
@@ -102,11 +103,11 @@ it.each(["100%_", "%41", "雪% &+?#"])(
     const expected = { sessions: [{ id: "session-00" }], from: first.from, to: first.to };
     // Direct HTTP callers paste the returned opaque token into the raw URL.
     expect(await request(`${new URLSearchParams(query)}&cursor=${cursor}`)).toMatchObject(expected);
-    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: { ...query, cursor }, operation: "usage.get" }),
+    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+      body: operationRpcBody("usage.get", { ...query, cursor }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }));
-    expect(await response.json()).toMatchObject({ ok: true, value: expected });
+    expect(await operationRpcResponseResult(response)).toMatchObject({ ok: true, value: expected });
   },
 );

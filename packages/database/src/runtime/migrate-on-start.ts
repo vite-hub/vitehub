@@ -1,16 +1,19 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
+import type { LedgerMatch } from "../internal/migration-ledger.ts"
 import type { DataLossStatement } from "../internal/migration-sql.ts"
 
 /** A Drizzle Kit migration, read at build time so the server output does not need the migrations folder. */
 export interface StartMigration {
   dataLoss: DataLossStatement[]
-  /** SHA-256 of the `.sql` file, the hash that Drizzle Kit's ledger stores. */
+  /** SHA-256 of `migration.sql`, the hash that Drizzle's ledger stores. */
   hash: string
+  /** The migration folder name, which Drizzle's ledger stores in `name`. */
   name: string
   statements: string[]
-  /** The journal `when`, which Drizzle Kit's ledger stores as `created_at`. */
+  /** The folder timestamp in milliseconds, which Drizzle's ledger stores as `created_at`. */
   when: number
 }
 
@@ -29,7 +32,7 @@ export interface MigrateOnStartOptions {
 type LibsqlStatement = string | { args: unknown[], sql: string }
 
 interface LibsqlMigrationClient {
-  execute: (statement: LibsqlStatement) => Promise<{ rows: ArrayLike<ArrayLike<unknown>> }>
+  execute: (statement: LibsqlStatement) => Promise<{ rows: ArrayLike<ArrayLike<unknown> & Record<string, unknown>> }>
   migrate: (statements: LibsqlStatement[]) => Promise<unknown>
   protocol: string
 }
@@ -37,13 +40,15 @@ interface LibsqlMigrationClient {
 interface StartMigrationPlan {
   client: LibsqlMigrationClient
   databases: StartMigrationDatabase[]
-  pending: Map<string, { migration: StartMigration, name: string }>
+  /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
+  upgrade: LibsqlStatement[]
+  pending: Array<{ migration: StartMigration, name: string }>
 }
 
-// Drizzle Kit's ledger, created with the same statement as `drizzle-orm/libsql/migrator`, so `vitehub db migrate`
-// and the server agree on what is applied.
+// Drizzle's ledger, created and upgraded with the same statements as `drizzle-orm/libsql/migrator` 1.0, so
+// `vitehub database migrate` and the server agree on what is applied.
 const migrationsTable = "__drizzle_migrations"
-const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`
+const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`
 
 function isLibsqlClient(value: unknown): value is LibsqlMigrationClient {
   return typeof value === "object" && value !== null
@@ -52,25 +57,43 @@ function isLibsqlClient(value: unknown): value is LibsqlMigrationClient {
     && typeof Reflect.get(value, "protocol") === "string"
 }
 
-async function readApplied(client: LibsqlMigrationClient): Promise<{ keys: Set<string>, lastApplied: number | undefined }> {
-  const keys = new Set<string>()
-  let lastApplied: number | undefined
+/**
+ * Reads the ledger and matches it to the migrations of every database on the file. A ledger of Drizzle Kit 0.x has no
+ * `name` column; `upgrade` adds it and writes the name of each row, as Drizzle 1.0 does before it migrates.
+ */
+async function readLedger(client: LibsqlMigrationClient, databases: readonly StartMigrationDatabase[]): Promise<LedgerMatch & { hashes: Map<string, Set<string>>, upgrade: LibsqlStatement[] }> {
+  const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
   const table = await client.execute({ args: [migrationsTable], sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?" })
-  if (!table.rows.length) return { keys, lastApplied }
-  const result = await client.execute(`SELECT hash, created_at FROM "${migrationsTable}"`)
-  for (const row of Array.from(result.rows)) {
-    if (row[1] === null || row[1] === undefined) continue
-    const millis = Number(row[1])
-    if (!Number.isFinite(millis)) continue
-    keys.add(`${millis}:${row[0]}`)
-    lastApplied = Math.max(lastApplied ?? millis, millis)
+  if (!table.rows.length) return { ...matchLedger([], migrations), hashes: new Map(), upgrade: [] }
+  const columns = await client.execute(`PRAGMA table_info("${migrationsTable}")`)
+  const named = Array.from(columns.rows).some(column => column.name === "name")
+  const result = await client.execute(`SELECT * FROM "${migrationsTable}"`)
+  const rows = Array.from(result.rows).map(row => toLedgerRow({ ...row }))
+  const match = matchLedger(rows, migrations)
+  const problem = ledgerUpgradeProblem(match)
+  if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
+  // The hashes that the ledger stores for each applied folder name, including the names that the upgrade writes.
+  const hashes = new Map<string, Set<string>>()
+  const backfilled = new Map(match.backfill.map(({ row, name }) => [row, name]))
+  for (const row of rows) {
+    const name = row.name ?? backfilled.get(row)
+    if (name) hashes.set(name, (hashes.get(name) ?? new Set()).add(row.hash))
   }
-  return { keys, lastApplied }
+  if (named) return { ...match, hashes, upgrade: [] }
+  return {
+    ...match,
+    hashes,
+    upgrade: [
+      `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
+      `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
+      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
+    ],
+  }
 }
 
 /**
  * Applies the pending migrations of each local SQLite database before the server handles requests. It uses Drizzle
- * Kit's ledger and refuses migrations that lose data, like `vitehub db migrate`. It checks every database before the
+ * Kit's ledger and refuses migrations that lose data, like `vitehub database migrate`. It checks every database before the
  * first one changes, so a refusal leaves all of them as they were. All pending migrations of one SQLite file run in one
  * transaction, so a failure keeps none of them.
  */
@@ -88,47 +111,64 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: new Map<string, { migration: StartMigration, name: string }>() }
+    const plan = plans.get(target) ?? { client, databases: [], pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
   for (const plan of plans.values()) {
-    const { keys, lastApplied } = await readApplied(plan.client)
+    const { applied, hashes, unmatched, upgrade } = await readLedger(plan.client, plan.databases)
+    if (upgrade.length && unmatched.length) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+        database: plan.databases[0]!.name,
+        problem: `Its Drizzle Kit 0.x ledger has ${unmatched.length} applied migration(s) that match no migration folder, so Drizzle 1.0 cannot upgrade it. Restore the missing migration folders.`,
+      })
+    }
+    plan.upgrade = upgrade
+    // Drizzle's ledger keys a migration by folder name only. Definitions on one file must not use one name for
+    // different SQL, or the ledger row of one would hide the other forever.
+    const shared = plan.databases.length > 1
+    const seen = new Map<string, { hash: string, name: string }>()
+    const pending = new Map<string, { migration: StartMigration, name: string }>()
     for (const database of plan.databases) {
-      // Keep Drizzle's timestamp selection, but a shared ledger cannot prove another journal's history by time alone.
-      if (plan.databases.length > 1 && lastApplied !== undefined) {
-        const missing = database.migrations.find(migration => migration.when <= lastApplied && !keys.has(`${migration.when}:${migration.hash}`))
-        if (missing) {
+      for (const migration of database.migrations) {
+        const other = seen.get(migration.name)
+        if (other && other.hash !== migration.hash) {
           throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
             database: database.name,
-            problem: `Its shared SQLite file has no ledger entry for migration "${missing.name}" at or below the latest applied timestamp. Use compatible migration histories or separate SQLite files.`,
+            problem: `It and the Database "${other.name}" share one SQLite file, and both have the migration "${migration.name}" with different SQL. Drizzle's migrations table keys migrations by folder name, so one of them would never run. Regenerate one of them with another name, or use separate SQLite files.`,
           })
         }
-      }
-      for (const migration of database.migrations) {
-        const key = `${migration.when}:${migration.hash}`
-        if ((lastApplied === undefined || lastApplied < migration.when) && !plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
+        seen.set(migration.name, { hash: migration.hash, name: database.name })
+        const recorded = hashes.get(migration.name)
+        if (shared && recorded && !recorded.has(migration.hash)) {
+          throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+            database: database.name,
+            problem: `Its shared SQLite file has already applied a migration "${migration.name}" with other SQL, so this one would never run. Regenerate it with another name, or use separate SQLite files.`,
+          })
+        }
+        // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
+        if (!applied.has(migration.name) && !pending.has(migration.name)) pending.set(migration.name, { migration, name: database.name })
       }
     }
-    if (options.allowDataLoss) continue
     // Check the migrations in the order they run on the file, so a table that this run creates can lose its rows.
-    const pending = [...plan.pending.values()].sort((a, b) => a.migration.when - b.migration.when)
-    const checked = withoutNewTableDataLoss(pending.map(({ migration }) => migration))
+    plan.pending = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
+    if (options.allowDataLoss) continue
+    const checked = withoutNewTableDataLoss(plan.pending.map(({ migration }) => migration))
     for (const database of plan.databases) {
-      const losses = checked.flatMap((migration, index) => pending[index]!.name === database.name
+      const losses = checked.flatMap((migration, index) => plan.pending[index]!.name === database.name
         ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
         : [])
       if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
     }
   }
-  for (const { client, pending: migrations } of plans.values()) {
-    if (!migrations.size) continue
-    const pending = [...migrations.values()].sort((a, b) => a.migration.when - b.migration.when)
+  for (const { client, pending, upgrade } of plans.values()) {
+    if (!pending.length && !upgrade.length) continue
     await client.migrate([
       createMigrationsTable,
+      ...upgrade,
       ...pending.flatMap(({ migration }) => [
         ...migration.statements,
-        { args: [migration.hash, migration.when], sql: `INSERT INTO "${migrationsTable}" ("hash", "created_at") VALUES (?, ?)` },
+        { args: [migration.hash, migration.when, migration.name, new Date().toISOString()], sql: `INSERT INTO "${migrationsTable}" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)` },
       ]),
     ])
     for (const { migration, name } of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)

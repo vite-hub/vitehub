@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -39,7 +40,7 @@ async function historyWorkspace(options: { sessions?: boolean } = {}): Promise<s
   const root = await temporaryRoot()
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of (options.sessions ? `${migration};${sessionsMigration}` : migration).split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `console-site-${++workspaces}`
@@ -69,7 +70,7 @@ async function setup(workspace?: string, title: z.ZodType = z.string().min(1)) {
     logger: false,
   })
   cleanup.push(() => content.dispose())
-  return { actions: createContentConsoleActions({ content }), content }
+  return { actions: createContentConsoleActions({ default: content }), content }
 }
 
 type Actions = ReturnType<typeof createContentConsoleActions>
@@ -101,7 +102,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
   it("keeps setup available for a read-only runtime without collections", async () => {
     const content = defineContent({ source: { items: async () => [] }, logger: false })
     cleanup.push(() => content.dispose())
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
 
     await expect(actions.collections(anonymous)).resolves.toEqual([])
     const setup = await actions.setup!(anonymous)
@@ -312,7 +313,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => postsOnly.dispose())
-    const scoped = await createContentConsoleActions({ content: postsOnly }).overview({}, reader)
+    const scoped = await createContentConsoleActions({ default: postsOnly }).overview({}, reader)
     expect(scoped.collections.map(collection => collection.name)).toEqual(["posts"])
     expect(scoped.activity.flatMap(entry => entry.documents.map(document => document.collection))).not.toContain("notes")
   })
@@ -333,7 +334,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     // Without options, the label is the name in title case, and the title field is found by its name.
     expect(content.collection("posts")).toMatchObject({ label: "Posts", titleField: "title" })
     expect(content.collection("posts").singularLabel).toBeUndefined()
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     expect(await actions.collections(editor)).toEqual([
       expect.objectContaining({ name: "people", label: "People", singularLabel: "Person", titleField: "name" }),
       expect.objectContaining({ name: "settings", label: "Site settings", kind: "singleton", titleField: "title" }),
@@ -365,7 +366,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const open = defineContent({ workspace: await historyWorkspace(), collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }, logger: false })
     cleanup.push(() => open.dispose())
     expect(open.hasPolicy).toBe(false)
-    const withoutPolicy = createContentConsoleActions({ content: open })
+    const withoutPolicy = createContentConsoleActions({ default: open })
     await expect(withoutPolicy.collections(editor)).resolves.toEqual([])
     expect(await withoutPolicy.setup?.(editor)).toEqual({
       access: { message: expect.stringContaining("Add `authorize` to `defineContent()`"), docs: "https://vitehub.dev/docs/content/configure#access" },
@@ -420,7 +421,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => scoped.dispose())
-    const actions = createContentConsoleActions({ content: scoped })
+    const actions = createContentConsoleActions({ default: scoped })
 
     const listed = await actions.list({ collection: "posts" }, reader)
     expect(listed.items.map(item => item.id)).toEqual(["hello"])
@@ -449,7 +450,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => content.dispose())
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     const posts = content.collection("posts")
     const save = async (id: string, title: string) => await posts.save(id, { data: { title } })
     await save("hello", "Hello")
@@ -490,7 +491,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => content.dispose())
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     const cover = { pathname: "heroes/launch.jpg", contentType: "image/jpeg" }
     const launch = await actions.save({ collection: "posts", id: "launch", data: { title: "Launch", cover }, body: "Text\n", ifDigest: null }, editor)
     await actions.publish({ collection: "posts", expect: [{ id: "launch", digest: launch.digest }] }, editor)
@@ -532,7 +533,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => content.dispose())
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     await actions.save({ collection: "posts", id: "launch", data: { title: "Launch", cover }, body: "", ifDigest: null }, editor)
     await actions.save({ collection: "posts", id: "secret", data: { title: "Secret plan", cover }, body: "", ifDigest: null }, editor)
     await actions.save({ collection: "posts", id: "aside", data: { title: "Hidden aside" }, body: "![Launch](heroes/launch.jpg)\n", ifDigest: null }, editor)
@@ -556,9 +557,9 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(actions.mediaAccess(anonymous)).resolves.toEqual({ read: false, write: false, manage: false })
   })
 
-  it("requires the defineContent() runtime as `content`", () => {
-    expect(() => createContentConsoleActions({})).toThrow("must export the defineContent() runtime as `content`")
-    expect(() => createContentConsoleActions({ content: { collection: () => undefined } })).toThrow(TypeError)
+  it("requires the defineContent() runtime as the default export", () => {
+    expect(() => createContentConsoleActions({})).toThrow("must default-export the defineContent() runtime")
+    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(TypeError)
   })
 })
 
@@ -641,7 +642,7 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
       logger: false,
     })
     cleanup.push(() => scoped.dispose())
-    const actions = createContentConsoleActions({ content: scoped })
+    const actions = createContentConsoleActions({ default: scoped })
     for (const input of [{}, { collection: "posts" }]) {
       const listed = await actions.sessions(input, reader)
       expect(listed.sessions.map(entry => entry.id)).toEqual(["hello"])
@@ -659,6 +660,109 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
   })
 })
 
+describe("Content Console locales", { timeout: 30_000 }, () => {
+  async function localized() {
+    const content = defineContent({
+      workspace: await historyWorkspace({ sessions: true }),
+      collections: {
+        docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], url: "/docs/:id", fields: { title: z.string().min(1) } }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() } }),
+      },
+      authorize: roles,
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    return { actions: createContentConsoleActions({ default: content }), content }
+  }
+  const guide = { collection: "docs", id: "guide", data: { title: "Guide" }, body: "Hello.\n", ifDigest: null }
+
+  it("opens a missing translation as the source version and saves it in its locale", async () => {
+    const { actions, content } = await localized()
+    const collections = await actions.collections(editor)
+    expect(collections.find(entry => entry.name === "docs")).toMatchObject({ locales: ["en", "es"], paths: ["docs/en/**/*.md"] })
+    expect(collections.find(entry => entry.name === "posts")).not.toHaveProperty("locales")
+
+    const source = await actions.save(guide, editor)
+    expect(source).toMatchObject({ locale: "en", state: "draft", translations: { es: "missing" } })
+    const missing = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    expect(missing).toMatchObject({ locale: "en", fallback: true, digest: source.digest, data: { title: "Guide" }, translations: { es: "missing" } })
+    expect(missing).not.toHaveProperty("state")
+    expect(await actions.raw({ collection: "docs", id: "guide", locale: "es" }, editor)).toBeNull()
+
+    // The first save of the translation creates its file, records the source version, and needs no source lease.
+    await actions.session({ collection: "docs", id: "guide", session: "console-tab-source", action: "acquire" }, editor)
+    const translated = await actions.save({ ...guide, data: { title: "Guía" }, body: "Hola.\n", locale: "es", session: "console-tab-es" }, writer)
+    expect(translated).toMatchObject({ locale: "es", path: "docs/es/guide.md", state: "draft", url: "/es/docs/guide", translations: { es: "current" } })
+    expect(translated).not.toHaveProperty("fallback")
+    expect((await content.collection("docs").get("guide", { ref: "draft", locale: "es" }))?.derivedFrom).toEqual({ path: "docs/en/guide.md", digest: expect.stringMatching(/^sha256-/) })
+    expect((await actions.raw({ collection: "docs", id: "guide", locale: "es" }, editor))?.text).toContain("Hola.")
+    await expect(actions.get({ collection: "docs", id: "guide" }, editor)).resolves.toMatchObject({ data: { title: "Guide" }, translations: { es: "current" } })
+
+    // A source save makes the translation stale, in the editor and in the list.
+    await actions.save({ ...guide, data: { title: "Guide v2" }, ifDigest: source.digest, session: "console-tab-source" }, editor)
+    await expect(actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)).resolves.toMatchObject({ data: { title: "Guía" }, translations: { es: "stale" } })
+    expect((await actions.list({ collection: "docs" }, editor)).items).toMatchObject([{ id: "guide", translations: { es: "stale" } }])
+    expect((await actions.revisions({ collection: "docs", id: "guide", locale: "es" }, editor)).revisions.map(revision => revision.action)).toEqual(["save"])
+  })
+
+  it("records the source version the editor showed, keeps a stale translation stale, and marks it up to date on request", async () => {
+    const { actions } = await localized()
+    const a = await actions.save(guide, editor)
+    // The editor opens the missing translation with source A.
+    const shown = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    expect(shown).toMatchObject({ fallback: true, source: { path: "docs/en/guide.md", digest: expect.stringMatching(/^sha256-[0-9a-f]{64}$/) } })
+    // Someone saves source B before the first autosave of the translation.
+    await actions.save({ ...guide, data: { title: "Guide B" }, ifDigest: a.digest }, editor)
+    const first = await actions.save({ ...guide, data: { title: "Guía A" }, locale: "es", sourceDigest: shown!.source!.digest }, editor)
+    expect(first).toMatchObject({ locale: "es", translations: { es: "stale" } })
+
+    // A normal autosave keeps the recorded source version.
+    const edited = await actions.save({ ...guide, data: { title: "Guía A, sin errata" }, ifDigest: first.digest, locale: "es" }, editor)
+    expect(edited).toMatchObject({ translations: { es: "stale" } })
+
+    // Mark as up to date shows the current source, then saves with its digest.
+    const current = await actions.get({ collection: "docs", id: "guide" }, editor)
+    expect(current).toMatchObject({ data: { title: "Guide B" }, source: { path: "docs/en/guide.md" } })
+    const marked = await actions.save({ ...guide, data: { title: "Guía B" }, ifDigest: edited.digest, locale: "es", sourceDigest: current!.source!.digest }, editor)
+    expect(marked).toMatchObject({ translations: { es: "current" } })
+    expect(await failure(actions.save({ ...guide, ifDigest: current!.digest, sourceDigest: current!.source!.digest }, editor))).toMatchObject({ status: 400 })
+  })
+
+  it("publishes, restores, and removes a translation in its locale", async () => {
+    const { actions, content } = await localized()
+    const source = await actions.save(guide, editor)
+    const translated = await actions.save({ ...guide, data: { title: "Guía" }, locale: "es" }, editor)
+    await actions.publish({ collection: "docs", expect: [{ id: "guide", digest: translated.digest, locale: "es" }] }, editor)
+    expect(await content.collection("docs").status("guide", { locale: "es" })).toMatchObject({ state: "published" })
+    expect(await content.collection("docs").status("guide")).toMatchObject({ state: "draft", draft: source.digest })
+
+    const edited = await actions.save({ ...guide, data: { title: "Guía 2" }, ifDigest: translated.digest, locale: "es" }, editor)
+    const { revisions } = await actions.revisions({ collection: "docs", id: "guide", locale: "es" }, editor)
+    const first = revisions.find(revision => revision.ref === "draft" && revision.id !== edited.revision)!
+    await expect(actions.restore({ collection: "docs", id: "guide", revision: first.id, ifDigest: edited.digest, locale: "es" }, editor)).resolves.toMatchObject({ locale: "es", data: { title: "Guía" } })
+    const restored = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    await actions.remove({ collection: "docs", id: "guide", ifDigest: restored!.digest, locale: "es" }, editor)
+    // The source stays, and the translation still on the site shows as deleted.
+    await expect(actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)).resolves.toMatchObject({ fallback: true, state: "deleted" })
+    await expect(actions.get({ collection: "docs", id: "guide" }, editor)).resolves.toMatchObject({ digest: source.digest })
+  })
+
+  it("keeps edit leases on the source locale and checks the locale", async () => {
+    const { actions } = await localized()
+    await actions.save(guide, editor)
+    const presence = await actions.session({ collection: "docs", id: "guide", session: "console-tab-es", action: "acquire", locale: "es" }, editor)
+    expect(presence).toMatchObject({ available: false, editing: true, holder: null })
+    // The translation tab took no lease, so the source stays free for another tab.
+    await expect(actions.session({ collection: "docs", id: "guide", session: "console-tab-en", action: "acquire" }, writer)).resolves.toMatchObject({ editing: true })
+    await expect(actions.session({ collection: "docs", id: "guide", session: "console-tab-en", action: "acquire", locale: "en" }, writer)).resolves.toMatchObject({ available: true, editing: true })
+
+    expect(await failure(actions.session({ collection: "docs", id: "guide", session: "console-tab-fr", action: "report", locale: "fr" }, editor))).toMatchObject({ status: 400 })
+    expect(await failure(actions.get({ collection: "docs", id: "guide", locale: "fr" }, editor))).toMatchObject({ status: 400 })
+    expect(await failure(actions.get({ collection: "posts", id: "hello", locale: "es" }, editor))).toMatchObject({ status: 400 })
+    expect(await failure(actions.schedule({ collection: "docs", at: new Date(Date.now() + 60_000).toISOString(), expect: [{ id: "guide", digest: null, locale: "es" }] }, editor))).toMatchObject({ status: 400 })
+  })
+})
+
 describe("Content Console section", () => {
   async function entryFor(source: string): Promise<boolean> {
     const root = await temporaryRoot()
@@ -671,14 +775,14 @@ describe("Content Console section", () => {
 
   it("names the fix for scheduled publishes when no Schedule Definition calls publishDue()", async () => {
     const root = await temporaryRoot()
-    await writeFile(join(root, "content.ts"), `import { defineContent } from "vite-hub/content"\nimport cms from "vite-hub/cms"\nexport const content = defineContent({ extends: cms })\n`)
+    await writeFile(join(root, "content.ts"), `import { defineContent } from "vite-hub/content"\nimport cms from "vite-hub/cms"\nexport default defineContent({ extends: cms })\n`)
     const schedule = async (name: string, source: string) => {
       const file = join(root, `${name}.ts`)
       await writeFile(file, source)
       return file
     }
-    const runner = await schedule("publish", `import { defineSchedule } from "vite-hub/schedule"\nimport { content } from "../content"\nexport default defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })\n`)
-    const optional = await schedule("optional", `import { content as site } from "~~/server/content"\nexport default defineSchedule({ cron: "* * * * *", async handler() { await site?.["publishDue"]({ now: new Date() }) } })\n`)
+    const runner = await schedule("publish", `import { defineSchedule } from "vite-hub/schedule"\nimport content from "../content"\nexport default defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })\n`)
+    const optional = await schedule("optional", `import site from "~~/server/content"\nexport default defineSchedule({ cron: "* * * * *", async handler() { await site?.["publishDue"]({ now: new Date() }) } })\n`)
     const comment = await schedule("comment", `// TODO: call content.publishDue() here\nexport default defineSchedule({ cron: "0 * * * *", handler: () => "publishDue" })\n`)
     const other = await schedule("other", `export default defineSchedule({ cron: "0 * * * *", handler: () => cleanup() })\n`)
     await expect(findContentPublishRunner([other, comment, runner])).resolves.toBe(runner)
@@ -698,7 +802,7 @@ describe("Content Console section", () => {
   it("does not ask for a schedule runner when the caller says the store cannot schedule", async () => {
     const root = await temporaryRoot()
     const file = join(root, "content.ts")
-    await writeFile(file, `import { defineContent } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site" })\n`)
+    await writeFile(file, `import { defineContent } from "vite-hub/content"\nexport default defineContent({ workspace: "site" })\n`)
 
     const inspect = contentConsoleSection.inspect!
     await expect(inspect({ projectRoot: root, scheduling: false }, file)).resolves.toEqual({})
@@ -708,19 +812,19 @@ describe("Content Console section", () => {
 
   it("shows the section only when server/content.ts defines document collections", async () => {
     await expect(contentConsoleSection.entry({ projectRoot: await temporaryRoot() })).resolves.toBeUndefined()
-    const imports = `import { defineContent, documents } from "vite-hub/content"\n`
-    await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)).resolves.toBe(true)
+    const imports = `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\n`
+    await expect(entryFor(`${imports}export default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)).resolves.toBe(true)
     // Read-only Sources, or no collections, leave nothing to edit.
-    await expect(entryFor(`${imports}export const content = defineContent({ source: "content" })\n`)).resolves.toBe(false)
-    await expect(entryFor(`${imports}export const content = defineContent()\n`)).resolves.toBe(false)
-    await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: {} })\n`)).resolves.toBe(false)
-    await expect(entryFor(`import { defineContent as define } from "@vite-hub/content"\nconst options = { sources: {} }\nconst content = define(options)\nexport { content }\n`)).resolves.toBe(false)
+    await expect(entryFor(`${imports}export default defineContent({ source: "content" })\n`)).resolves.toBe(false)
+    await expect(entryFor(`${imports}export default defineContent()\n`)).resolves.toBe(false)
+    await expect(entryFor(`${imports}export default defineContent({ workspace: "site", collections: {} })\n`)).resolves.toBe(false)
+    await expect(entryFor(`import { defineContent as define } from "@vite-hub/content"\nconst options = { sources: {} }\nconst content = define(options)\nexport default content\n`)).resolves.toBe(false)
     // Collections that discovery cannot follow keep the section; the editor lists what the runtime has.
-    await expect(entryFor(`${imports}const collections = { posts: documents({ path: "posts/*.md", fields: {} }) }\nexport const content = defineContent({ workspace: "site", collections } satisfies object)\n`)).resolves.toBe(true)
-    await expect(entryFor(`${imports}import { collections } from "./collections"\nexport const content = defineContent({ workspace: "site", collections })\n`)).resolves.toBe(true)
-    await expect(entryFor(`${imports}import { options } from "./options"\nexport const content = defineContent({ ...options })\n`)).resolves.toBe(true)
-    await expect(entryFor(`import { createContent } from "./create"\nexport const content = createContent()\n`)).resolves.toBe(true)
-    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: "@vite-hub/content/runtime/console", export: "createContentConsoleActions" } })
+    await expect(entryFor(`${imports}const collections = { posts: documents({ path: "posts/*.md", fields: {} }) }\nexport default defineContent({ workspace: "site", collections } satisfies object)\n`)).resolves.toBe(true)
+    await expect(entryFor(`${imports}import { collections } from "./collections"\nexport default defineContent({ workspace: "site", collections })\n`)).resolves.toBe(true)
+    await expect(entryFor(`${imports}import { options } from "./options"\nexport default defineContent({ ...options })\n`)).resolves.toBe(true)
+    await expect(entryFor(`import { createContent } from "./create"\nexport default createContent()\n`)).resolves.toBe(true)
+    expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: ownModule(import.meta.url, "runtime/console"), export: "createContentConsoleActions" } })
     // The dashboard opens at /_vitehub/content; Media shows only when the project enables Blob.
     expect(contentConsoleSection.pages).toEqual([
       { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },

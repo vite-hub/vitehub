@@ -30,7 +30,7 @@ function setup(context: EnvAccessContext | null = admin) {
   const client = createClient({ url: ":memory:" })
   cleanup.push(() => client.close())
   const store = createDatabaseEnvStore({
-    db: drizzle(client),
+    db: drizzle({ client: client }),
     encryptionKey: new Uint8Array(32).fill(9),
     previews: true,
   })
@@ -194,7 +194,7 @@ describe("Env management HTTP", () => {
     expect(conflict.status).toBe(409)
     expect(await conflict.json()).toEqual({
       code: "ENV_BRIDGE_CONFLICT",
-      docs: "https://vitehub.dev/docs/env/bridge#structured-errors",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_bridge_conflict",
       fix: "Reload the credential details, then replace it again.",
       message: "The credential changed. Refresh before replacing it.",
     })
@@ -272,7 +272,7 @@ describe("Env management HTTP", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({
       code: "ENV_BRIDGE_OPERATION_FAILED",
-      docs: "https://vitehub.dev/docs/env/bridge#structured-errors",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_bridge_operation_failed",
       fix: "Try again. If this continues, read the server logs for this request.",
       message: "Env operation failed.",
     })

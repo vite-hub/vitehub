@@ -37,12 +37,21 @@ describe("diagnostic catalogs", () => {
   })
 
   it("reads the production shorthand catalogs", () => {
-    expect(code("CONNECTIONS_STATE_MISMATCH")).toMatchObject({ pkg: "connections", file: "packages/connections/src/error-diagnostics.ts", why: "The callback has no `state` cookie of this browser, or the cookie does not match.", docsBase: "https://vitehub.dev/docs/connections/limits-and-errors" })
+    expect(code("CONNECTIONS_STATE_MISMATCH")).toMatchObject({ pkg: "connections", file: "packages/connections/src/error-diagnostics.ts", why: "The callback has no `state` cookie of this browser, or the cookie does not match.", docsBase: "https://vitehub.dev/docs/connections/diagnostics" })
     expect(code("RUNTIME_R0001").file).toBe("packages/runtime/src/error-diagnostics.ts")
   })
 
   it("gives the package that the code prefix names a code that two catalogs declare", () => {
     expect(code("CONTENT_R0006").pkg).toBe("content")
+  })
+
+  it("keeps Agent MCP errors in their existing section alongside the new app MCP catalog", () => {
+    for (const name of ["MCP_SERVER_FAILED", "MCP_TOOL_CALL_FAILED", "MCP_TOOL_CANCELLED", "MCP_TOOL_NOT_FOUND", "MCP_TOOL_TIMEOUT"]) {
+      expect(code(name)).toMatchObject({ pkg: "agent", docsBase: "https://vitehub.dev/docs/agents/diagnostics" })
+    }
+    for (const name of ["MCP_B0001", "MCP_B0002"]) {
+      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/development/diagnostics" })
+    }
   })
 })
 
@@ -74,6 +83,21 @@ describe("catalog object references", () => {
     expect(() => readFixture(`const cycle = cycle; defineDiagnostics({ codes: ${expression} });`))
       .toThrow("Cannot read diagnostic codes in packages/example/src/diagnostics.ts:1")
   })
+
+  it.each(['docs: "https://example.com/guide#failed"', "docs"])("reads per-code URL overrides: %s", (property) => {
+    const found = readFixture(`
+      const docs = "https://example.com/guide#failed";
+      const definition = { why: "Failed.", ${property} };
+      defineDiagnostics({ docsBase: "https://example.com/diagnostics", codes: {
+        EXAMPLE_FAILED: definition,
+        EXAMPLE_OTHER: { why: "Other." },
+      } });
+    `)
+    expect(found).toEqual([
+      expect.objectContaining({ code: "EXAMPLE_FAILED", docsBase: "https://example.com/diagnostics", docs: "https://example.com/guide#failed" }),
+      expect.objectContaining({ code: "EXAMPLE_OTHER", docsBase: "https://example.com/diagnostics", docs: null }),
+    ])
+  })
 })
 
 describe("diagnostic pages", () => {
@@ -90,7 +114,7 @@ describe("diagnostic pages", () => {
     expect(overview).toContain("navigation.panel: true")
     expect(overview).not.toContain("seo.index")
     expect(overview).toContain("title: \"Queue diagnostics\"")
-    expect(overview).toContain("Its `docs` link can open a shared index or a limits and errors page.")
+    expect(overview).toContain("Its `docs` link opens the page of that code.")
     for (const queueCode of codes.filter(candidate => candidate.pkg === "queue")) expect(overview).toContain(`(${diagnosticPath("queue", queueCode.code)})`)
   })
 

@@ -4,14 +4,15 @@ import { pathToFileURL } from "node:url"
 import { createExecutionContext } from "@vite-hub/runtime"
 
 import { agentWithColocatedInstructions } from "../index.ts"
+import { agentInvocationsFallbackKey } from "../invocations/app.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import {
   workspaceAgentWithSourceRoot,
 } from "../workspace-agent.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -23,7 +24,6 @@ import type {
   AgentRuntimeContext,
   ResolvedAgentRuntimeContext,
   DiscoveredAgentDefinition,
-  DefineAgent,
 } from "../index.ts"
 
 export interface ViteAgentRuntimeContext extends ResolvedAgentRuntimeContext {
@@ -36,10 +36,6 @@ interface LoadedViteAgent {
   agent: AgentInput<ViteAgentRuntimeContext>
   definition: DiscoveredAgentDefinition
   identity: AgentHostIdentity
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function resolveAgentModule(module: unknown): AgentInput<ViteAgentRuntimeContext> | undefined {
@@ -60,8 +56,11 @@ function colocatedSkills(file: string) {
   return decodeColocatedAgentSkills(readColocatedAgentSkills(file))
 }
 
+/** The part of a Vite dev server that loads an Agent module. */
+export type ViteAgentModuleServer = Pick<ViteDevServer, "config" | "ssrLoadModule">
+
 export async function loadViteAgent(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ): Promise<LoadedViteAgent | undefined> {
   const module = await createViteWorkspaceAgentLoader(server, definition)()
@@ -78,16 +77,13 @@ export async function loadViteAgent(
 }
 
 export function createViteWorkspaceAgentLoader(
-  server: ViteDevServer,
+  server: ViteAgentModuleServer,
   definition: DiscoveredAgentDefinition,
 ) {
   return async () => {
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-    // Use the host facade so definitions authored with the primitive package also inherit
-    // the app-wide Agent journal. The facade keeps journal selection lazy and scoped.
+    // defineAgent() keeps the journal lazy, so the definition reads the app-wide journal that the generated plugin installs.
     const authored = module.default
-    let journalSource = authored
-    const invocations = Object.getOwnPropertyDescriptor(authored, "invocations")
     const hostPlugins = server.config.plugins ?? []
     const usesJournal = hostPlugins.some(plugin => plugin.name === "vite-hub/agent-invocations")
     const usesConsole = hostPlugins.some(plugin => plugin.name === "vite-hub/console")
@@ -96,18 +92,11 @@ export function createViteWorkspaceAgentLoader(
       // journal and Console configuration in this runner before resolving the journal.
       // SAFETY: Nitro extends Vite's open config with its registered runtime plugins.
       const nitro = (server.config as typeof server.config & { nitro?: { plugins?: unknown[] } }).nitro
-      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => hasRuntimeType(plugin, "string") && pattern.test(plugin))
+      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => typeof plugin === "string" && pattern.test(plugin))
       const journal = usesJournal ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]agent[\\/]invocations\.mjs$/) : undefined
       const bootstrap = usesConsole ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]console[\\/]plugin(?:-[^\\/]+)?\.mjs$/) : undefined
       if (journal) await server.ssrLoadModule(journal)
       if (bootstrap) await server.ssrLoadModule(bootstrap)
-      // SAFETY: These generated plugins belong to vite-hub, whose Agent facade exports DefineAgent.
-      const framework = await server.ssrLoadModule("vite-hub/agent") as { defineAgent: DefineAgent }
-      if (!invocations?.get && authored.invocations === undefined) {
-        // Only obtain the lazy journal binding; extending authored would rerun preset configuration.
-        // The facade requires a valid Driver, but this descriptor carrier is never invoked.
-        journalSource = framework.defineAgent({ driver: { run: () => "" }, runtime: false })
-      }
     }
     const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
     const agent = workspaceAgentWithSourceRoot(
@@ -118,10 +107,10 @@ export function createViteWorkspaceAgentLoader(
       workspaceSourceRoot(definition.handler),
       colocatedInstructions,
     )
-    // Workspace decoration spreads values and can drop the facade's non-enumerable getter.
+    // Workspace decoration spreads values and can drop the non-enumerable journal getter.
     // Keep that binding, including an explicitly authored journal, on the loaded definition.
-    for (const key of ["invocations", Symbol.for("vitehub.console.invocations.fallback")]) {
-      const descriptor = Object.getOwnPropertyDescriptor(journalSource, key)
+    for (const key of ["invocations", agentInvocationsFallbackKey]) {
+      const descriptor = Object.getOwnPropertyDescriptor(authored, key)
       if (descriptor) Object.defineProperty(agent, key, descriptor)
     }
     return {

@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
-import { computed, shallowRef } from "vue";
+import { computed, defineAsyncComponent, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleProjectStatus } from "../client/project-session";
 import type { ConsoleLinkedProject } from "../client/projects";
 import { checkConsoleProjects, forgetConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
-import ConsoleProjectLink from "./console-project-link.vue";
+import ConsoleConfirm from "./console-confirm.vue";
+
+// Only an `account` Console shows it, so it loads with the Better Auth client.
+const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
 
 const projects = useConsoleProjects();
 const forgetting = shallowRef<ConsoleLinkedProject>();
+// Only an `account` Console shows the switcher. It lists the projects of the active team, and unlinks them for the whole team.
+const teamName = computed(() => projects.account.value?.teams.find(team => team.id === projects.account.value?.teamId)?.name);
 
 const current = computed(() => projects.current.value);
 const name = computed(() => projects.info.value?.name || (current.value ? consoleProjectName(current.value) : "Project"));
@@ -33,7 +38,7 @@ function status(project: ConsoleLinkedProject): ConsoleProjectStatus {
 // label, and the pointerup would select the project under it.
 const items = computed<DropdownMenuItem[][]>(() => [
   [
-    { type: "label", label: "Projects" },
+    { type: "label", label: teamName.value ? `${teamName.value} projects` : "Projects" },
     ...projects.projects.value.map((project): DropdownMenuItem => ({
       description: `${consoleProjectHost(project)}${status(project) === "ready" ? "" : ` · ${statusLabels[status(project)]}`}`,
       label: consoleProjectName(project),
@@ -45,7 +50,7 @@ const items = computed<DropdownMenuItem[][]>(() => [
     })),
   ],
   [
-    { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
+    { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
     {
       children: projects.projects.value.map((project): DropdownMenuItem => ({
         description: consoleProjectHost(project),
@@ -53,7 +58,7 @@ const items = computed<DropdownMenuItem[][]>(() => [
         onSelect: () => { forgetting.value = project; },
       })),
       icon: "i-lucide-trash-2",
-      label: "Forget project",
+      label: "Unlink project",
     },
   ],
 ]);
@@ -75,7 +80,7 @@ function itemStatus(item: DropdownMenuItem): ConsoleProjectStatus {
 function forget(): void {
   const project = forgetting.value;
   forgetting.value = undefined;
-  if (project) forgetConsoleProject(project.id);
+  if (project) void forgetConsoleProject(project.id);
 }
 </script>
 
@@ -108,27 +113,17 @@ function forget(): void {
     </template>
   </UDropdownMenu>
 
-  <UModal
+  <ConsoleConfirm
     :open="Boolean(forgetting)"
-    :title="forgetting ? `Forget ${consoleProjectName(forgetting)}?` : 'Forget project?'"
-    :content="{ role: 'alertdialog' }"
-    :ui="{ content: 'sm:max-w-[440px]' }"
+    :title="`Unlink ${forgetting ? consoleProjectName(forgetting) : 'project'}?`"
+    :description="`The Console deletes the key of ${forgetting ? consoleProjectHost(forgetting) : 'the project'} for everyone in ${teamName ?? 'this team'}. Remove its variable from the app as well. To open it again, link it again.`"
+    confirm-label="Unlink project"
+    destructive
     @update:open="(value: boolean) => { if (!value) forgetting = undefined; }"
-  >
-    <template #body>
-      <p class="text-pretty text-[13px] text-muted">
-        This browser removes the URL and the Console token of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}. The project does not change. To open it again, link it with its token.
-      </p>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" label="Cancel" @click="forgetting = undefined" />
-        <UButton color="error" label="Forget project" @click="forget" />
-      </div>
-    </template>
-  </UModal>
+    @confirm="forget"
+  />
 
-  <ConsoleProjectLink v-model:open="projects.linkOpen.value" />
+  <ConsoleAccountLink v-model:open="projects.linkOpen.value" />
 </template>
 
 <style>
@@ -140,7 +135,7 @@ function forget(): void {
 .vitehub-project-switcher__mark {
   align-items: center;
   border: 1px solid var(--ui-border-accented);
-  border-radius: 0.3125rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   color: var(--ui-text-highlighted);
   display: inline-flex;
   font-size: 0.6875rem;
@@ -159,7 +154,7 @@ function forget(): void {
 
 .vitehub-project-switcher__host {
   color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;

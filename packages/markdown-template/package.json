@@ -61,13 +61,12 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/markdown-template#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/markdown-template#build && vp test"
+    "test": "vp run --cache -t @vite-hub/markdown-template#build && vp test"
   },
   "dependencies": {
     "character-entities-legacy": "3.0.0",
     "comark": "catalog:markdown",
     "entities": "8.1.0",
-    "katex": "^0.18.7",
     "nostics": "catalog:runtime"
   },
   "peerDependencies": {

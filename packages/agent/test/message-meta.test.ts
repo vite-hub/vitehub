@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createChatMessageTriggerInput, markDerivedChatTriggerInvoker } from "../src/chat-message-input.ts"
-import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/index.ts"
+import { defineAgent, portableAgentWorkflowInput } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -15,13 +16,13 @@ import {
   withParsedAgentMessageMeta,
 } from "../src/internal/message-meta.ts"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const metaSchema = {
   "~standard": {
     validate(input: unknown) {
       const meta = isRuntimeRecord(input) && !Array.isArray(input) ? input : undefined
-      if (!meta || ![undefined, "support", "technical"].includes(hasRuntimeType(meta.audience, "string") ? meta.audience : undefined)) {
+      if (!meta || ![undefined, "support", "technical"].includes(typeof meta.audience === "string" ? meta.audience : undefined)) {
         return { issues: [{ message: "audience must be support or technical" }] }
       }
       return { value: { audience: meta.audience ?? "support" } }

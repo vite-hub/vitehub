@@ -1,28 +1,54 @@
 ---
 title: Publish your first CMS post
-description: Select the cms preset in server/content.ts, create its tables, then write and publish a post in the Console editor.
+description: Select the cms preset in server/content.ts, create its tables, then write and publish a post from the terminal.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Add a `posts` collection to a Vite app with the `cms` preset. Create its tables, write a post in the Console, and publish it. You write no Workspace, no Database Definition, and no schema.
+A CMS lets you write and publish content, such as blog posts, from an editor in your app. ViteHub's CMS keeps each post as a Markdown file and saves every draft.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root.
+In this tutorial, you add a `posts` collection, write a post with the `vitehub` CLI, and publish it. You set up no storage and no database schema yourself. In production, editors use the Console at [console.vitehub.dev](https://console.vitehub.dev).
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. Everything runs on your computer.
 
 ::tutorial-step{title="Install and turn on ViteHub"}
 ## Install and turn on ViteHub
 
-The `cms` preset uses Content, Database, and Workspace, so install their packages too.
+Install the CMS. The CMS uses the Content, Database, and Workspace packages, so install them too.
 
-```bash [commands/install]
-pnpm add vite-hub @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm zod
+```bash pm [commands/install]
+pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm zod
 pnpm add -D drizzle-kit
 ```
 
-Add `vitehub()` to the Vite config. The preset needs no feature settings. `console: { auth: false }` turns on the [Console](/docs/development/console) for anyone who can reach the dev server. Use it only on your own machine.
+Add `console: { auth: false }` to `vitehub()` in `vite.config.ts`:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', console: { auth: false } },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -31,18 +57,25 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', console: { auth: false } })],
 })
 ```
+::::
+:::
+
+`console: { auth: false }` turns on the [Console](/docs/development/console) endpoint without signed calls, so the `vitehub` commands can call the dev server. Use it only on your own computer.
 
 ::
 
 ::tutorial-step{title="Define the collections"}
 ## Define the collections
 
+A collection is a group of documents of the same kind. Create `server/content.ts` and add a `posts` collection:
+
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string(), date: z.coerce.date() } }),
@@ -52,49 +85,87 @@ export const content = defineContent({
 })
 ```
 
-When `server/content.ts` selects the preset, `vitehub()` turns on `workspace`, `database`, and `blob` if you left them unset. The preset sets `workspace`, so do not pass it.
-
-`authorize` decides who may read drafts, write, and publish in the Console editor and the [Content Agent Capability](/docs/content/agent-capability). Without it, nobody can. This policy allows everyone, because the Console has no signed-in user with `auth: false`. See [Access](/docs/cms/configure#access) for a policy for production.
+- `extends: cms` makes this content a CMS. `vitehub()` then turns on `workspace`, `database`, and `blob` for you. Do not set `workspace` yourself.
+- `posts` keeps each post as a Markdown file under `posts/`. Each post has a `title` and a `date`.
+- `authorize` decides who may read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the dev server has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
 
 ::
 
 ::tutorial-step{title="Create the tables"}
 ## Create the tables
 
+Create the database tables that keep the drafts and their history:
+
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-`db generate` writes a migration with the five `workspace_history_*` tables and the editor sessions table to `server/databases/migrations/`. `db migrate` applies it to the local Database, `.vitehub/data/database/sqlite.db` by default.
+- `database generate` writes a migration file to `server/databases/default/migrations/`. A migration is a file that creates or changes tables.
+- `database migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
 
-The app has no Database Definition, so the tables go to the implicit `default` Database. To configure it yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
+You did not define a database, so ViteHub uses one named `default`. To set it up yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
 
 ::
 
 ::tutorial-step{title="Write and publish a post"}
 ## Write and publish a post
 
+Start the dev server:
+
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Open `http://localhost:5173/_vitehub/content`, using your app's actual origin and port. The Content section of the Console lists the `posts` collection.
+Keep the server running. Open a second terminal, and create `hello-world.md` with the post:
 
-1. Select **New** next to **posts**, and type a title. The id follows the title.
-2. Select **Create**. The post is a draft now.
-3. Write some text in the body. Drafts save one second after typing stops.
-4. Select **Publish**.
+```md [hello-world.md]
+---
+title: Hello world
+date: 2026-01-31
+---
 
-Keep the server running. In another terminal, check the state of the post, then read it as a visitor does:
+My first post.
+```
+
+`date` is a field of the collection, so a post without a date cannot be published. Save the file as a draft, then publish it:
+
+```bash [commands/publish]
+pnpm vitehub content edit posts hello-world --file ./hello-world.md
+pnpm vitehub content publish --collection posts --id hello-world
+```
+
+`publish` lists the draft and asks you to confirm. Check the state of the post, then read it as a visitor does:
 
 ```bash [commands/status]
 pnpm vitehub content status posts
-curl http://localhost:5173/api/content/get/posts/<id>
+curl http://localhost:3000/api/content/get/posts/hello-world
 ```
 
-`status` shows the post as `published`. `/api/content/**` serves only published documents, so a change that you save but do not publish stays out of the response.
+`status` shows the post as `published`:
 
-The [Console editor](/docs/content/console) page describes every task in the editor. Next, choose [who may edit and publish](/docs/cms/configure#access), keep the posts [in a GitHub repository](/docs/cms/configure#github-store), or [deploy the app](/docs/cms/hosts).
+```text [output/status.txt]
+published  posts/hello-world
+```
 
+The `curl` request returns the post as JSON, with its `title` and `date` in `data`. Visitors see only published posts. A change that you save but do not publish stays hidden.
+
+In production, editors write and publish in the Console editor. The [Console editor](/docs/content/console) page shows every task in it, and [Content CLI](/docs/content/cli) shows every command.
+
+::
+
+## Next steps
+
+::card-group
+:::card{title="Access" icon="i-lucide-shield" to="/docs/cms/configure#access"}
+Choose who may edit and publish in production.
+:::
+
+:::card{title="GitHub store" icon="i-lucide-github" to="/docs/cms/configure#github-store"}
+Keep the posts in a GitHub repository.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/cms/hosts"}
+Deploy the app and create its resources.
+:::
 ::

@@ -1,28 +1,55 @@
 ---
 title: Channels server API
-description: Send messages through a named Channel from an H3 or Nitro handler, add connectors, and read the delivery receipt.
+description: Define a Channel, send messages through it from server code, and receive webhooks with signature checks, dedupe, and retry.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-## Send from an H3 or Nitro handler
+## Define a Channel
 
-`useChannel()` returns immediately. `send()` performs the connector call and returns a `Result` from `vite-hub/runtime`: `[undefined, receipt]` on success or `[error, undefined]` on failure. The receipt has the Channel name, connector name, ViteHub delivery id, and optional provider message id. Check the error before using the receipt. See [Errors](#errors) for each code.
+A Channel is one connection to a platform, in `server/channels/<name>.ts`. The file name is the Channel name. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder, and its other files are helpers.
 
-The optional provider `id` must be a string. Unreadable or non-string IDs are omitted from successful receipts and delivery logs.
+```ts [server/channels/alerts.ts]
+import { defineChannel } from 'vite-hub/channels'
 
-Named clients share one definition load for the active runtime registry. A failed load can retry on a later send. Replacing the runtime registry invalidates the cached definition for existing clients.
+export default defineChannel({
+  adapter: {
+    kind: 'telegram',
+    async send(text: string, { chatId }: { chatId: string }) {
+      const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      })
+      if (!response.ok) throw new Error(`Telegram answered ${response.status}`)
+      const { result } = await response.json() as { result: { message_id: number } }
+      return { id: String(result.message_id) }
+    },
+  },
+})
+```
+
+| Option | Value |
+| --- | --- |
+| `adapter` | The connection. `stripe()` and `webhook()` from `vite-hub/channels` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/agent/channels` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(text, options)`. |
+| `on` | Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. See [Receive webhooks](#receive-webhooks). |
+| `instructions`, `capabilities`, `history` | Read by the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. |
+
+## Send a message
+
+`useChannel()` returns immediately. `send()` calls the adapter's `send` and returns a `Result` from `vite-hub/runtime`: `[undefined, receipt]` on success or `[error, undefined]` on failure. The options are the adapter's own send options. The receipt has the Channel name, a ViteHub delivery ID, and the optional provider message ID. Check the error before you use the receipt. See [Errors](#errors) for each code.
+
+The optional provider `id` must be a string. Unreadable or non-string IDs are left out of the receipt and the delivery log.
+
+Clients share one definition load per runtime registry. A failed load retries on the next send. A new registry clears the cache.
 
 ```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
 
 export default defineEventHandler(async () => {
-  const [error, receipt] = await useChannel('alerts').send('Build finished.', {
-    connector: 'telegram',
-    chatId: 'build-room',
-  })
+  const [error, receipt] = await useChannel('alerts').send('Build finished.', { chatId: '@build_room' })
   if (error) throw error
   return receipt
 })
@@ -33,57 +60,131 @@ The handler returns a result like this:
 ```json
 {
   "channel": "alerts",
-  "connector": "telegram",
   "deliveryId": "e4875238-2922-4787-9f7f-b13e2e7839be",
   "id": "1730000000000"
 }
 ```
 
-For each connector delivery, Channels attempts to write `outbound.started` and either `outbound.completed` or `outbound.failed` JSON events under the `vitehub.channel.send` scope. Input validation and definition-loading failures return before delivery logging starts. Logging is best effort. A logging failure does not change the send result.
+For each send, Channels tries to write `outbound.started` and either `outbound.completed` or `outbound.failed` JSON events under the `vitehub.channel.send` scope. Input checks and definition loading return before logging starts. Logging is best effort, and a logging failure does not change the result.
 
-The events include `deliveryId`, Channel, connector, and, when available, a provider message id or error message. ViteHub omits message text and connector options. Failed events include up to 2,000 characters of the thrown error message, so connectors must redact credentials and message content before throwing provider errors.
+The events include `deliveryId`, the Channel, the adapter `kind`, and, when available, the provider message ID or the error message. ViteHub leaves out the message text and the options. Failed events include up to 2,000 characters of the thrown error message, so adapters must remove credentials and message content from provider errors before they throw.
 
-Configure the application's log drain to retain received events. This outbound-only package has no State Adapter. Use Agent Channels when inbound custody and recovery are required.
+Channels passes the original options object to the adapter. It keeps object identity, methods, and private state.
 
-Channels passes the original options object to the selected connector, including the `connector` selector when supplied. It preserves object identity, methods, and private state.
+## Receive webhooks
 
-## Add another connector
+A Channel with `webhook()` or `stripe()` receives webhooks at `/api/_vitehub/channels/<name>`, and at `path` when you set it. ViteHub checks the signature, stores the delivery, drops a delivery whose ID it already has, and runs the target of the event. Inbound Channels run on the Agent webhook route, so set `agent: true` next to `channels: true` in `vitehub()`.
 
-Add another entry to `connectors` when the same logical destination can deliver through more than one provider. Each entry defines its own options, so Telegram can require `chatId` while Slack requires `channelId` and optionally accepts `threadTs`.
+```ts [server/queues/fulfil.ts]
+import type { StripeEvent } from 'vite-hub/channels'
+import { defineQueue } from 'vite-hub/queue'
 
-```ts
-const [error] = await useChannel('alerts').send('Build finished.', {
-  connector: 'slack',
-  channelId: 'builds',
-  threadTs: '1730000000.000100',
+export default defineQueue<StripeEvent>(async ({ payload }) => {
+  console.log('fulfil', payload.data.object.id)
 })
-if (error) throw error
 ```
 
-Keep `connector` explicit when a Channel has more than one delivery path. This makes the delivery choice visible at each call site.
+```ts [server/channels/stripe.ts] fragment
+import { defineChannel, stripe } from 'vite-hub/channels'
+import { sendQueue } from 'vite-hub/queue'
 
-## Send through a Chat channel
+export default defineChannel({
+  adapter: stripe(),
+  on: {
+    'checkout.session.completed': event => sendQueue('fulfil', event.data),
+  },
+})
+```
 
-Every Chat channel in `vite-hub/agent/channels` has a ready connector with the same `send()` contract: `teams.connector()`, `slack.connector()`, `discord.connector()`, and `telegram.connector()`. Each connector sends Markdown through one Chat SDK adapter. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
+A handler gets the event, `{ name, id, data }`, where `data` is the parsed body, and `{ channel }`. With a queue-capable Agent State, such as the default SQLite State on Node, the webhook answers when the delivery is stored, and the handler runs from the webhook queue. A handler that throws or returns a failed `Result` runs again, also after a restart. Deliveries of one event run one at a time. Without a queue-capable State, the handler runs before the webhook answers, and a failure answers 500 so that the provider retries.
 
-```ts [server/channels/teams/index.ts]
+An event without a target answers 200 with `{ accepted: false, reason }`, so the provider does not retry it.
+
+| `webhook()` option | Value |
+| --- | --- |
+| `signature` | `'bearer'`, `'github-sha256'`, `'stripe-sha256'`, `{ preset: 'hmac-sha256', prefix, encoding, secretEncoding }`, or `{ verify }`. |
+| `secret` | A string, a sealed Server Env secret, or a function that returns one. `false` turns verification off. |
+| `header` | The header with the signature. `bearer` reads `authorization`, `github-sha256` reads `x-hub-signature-256`, and `stripe-sha256` reads `stripe-signature`. |
+| `event` | `(payload, request) => name`. The name selects the `on` target. Defaults to `'webhook'`. |
+| `id` | `(payload, request) => id`. The delivery ID that drops repeats. Defaults to the SHA-256 of the body. |
+| `path`, `aliases` | More routes. String literals, because ViteHub reads them without running the module. |
+| `kind` | The provider name in logs and the Console. Defaults to `'webhook'`. |
+| `stateScope`, `durableState`, `ackTimeoutMs` | Delivery State options. See [Triggers](/docs/agents/triggers). |
+
+`stripe({ secret, path, toleranceSeconds })` is `webhook()` with the `stripe-sha256` signature, the event type as the event name, and the event ID as the delivery ID. `secret` defaults to `STRIPE_WEBHOOK_SECRET`.
+
+### Choose the delivery rules with a trigger
+
+A trigger that selects no task runs the Agent that lists the Channel. Use `defineChannelTrigger()` from `vite-hub/agent/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
+
+```ts [server/channels/prefect.ts]
+import { defineChannelTrigger } from 'vite-hub/agent/channels'
+import { defineChannel, webhook } from 'vite-hub/channels'
+
+export default defineChannel({
+  adapter: webhook({ kind: 'prefect', signature: 'bearer', secret: () => process.env.PREFECT_WEBHOOK_SECRET }),
+  on: {
+    webhook: defineChannelTrigger({
+      tasks: {
+        triage: {
+          // The task runs from the stored input, so `invoke` stays fast.
+          // A task can also set `agent` to start an Agent instead.
+          run: (_context, { input }) => console.log('triage', input.data),
+        },
+      },
+      invoke: (_context, input: { payload: { flow_run_id: string } }) => ({
+        task: 'triage',
+        // One delivery per flow run, one triage at a time.
+        webhook: { deliveryId: `prefect:${input.payload.flow_run_id}`, serialize: 'prefect' },
+        input: { data: input.payload },
+      }),
+    }),
+  },
+})
+```
+
+Next to `on` handlers, a trigger must set `webhooks: []`, because the handlers receive the webhook. It then runs through `context.dispatch()` and `context.pull()`.
+
+## Start a trigger from code
+
+`sendChannelTrigger(channel, trigger, input)` starts a trigger or an `on` handler of a Channel from server code, such as a Schedule that reconciles a webhook that a provider lost. The trigger's `invoke` gets `input` as it gets a verified webhook body, and ViteHub admits the result to the webhook queue with the same delivery ID, `serialize`, `debounce`, and Channel State rules. A delivery ID that the queue already has is a duplicate, so the reconcile and the real webhook run the work once.
+
+```ts [server/schedules/payments-reconcile.ts]
+import { sendChannelTrigger } from 'vite-hub/channels'
+import { defineSchedule } from 'vite-hub/schedule'
+
+export default defineSchedule({
+  cron: '0 * * * *',
+  async handler() {
+    const event = { id: 'evt_missed', object: 'event', type: 'checkout.session.completed', created: 0, livemode: false, pending_webhooks: 0, data: { object: { id: 'cs_missed' } } }
+    const [error, receipt] = await sendChannelTrigger('stripe', 'checkout.session.completed', event)
+    if (error) throw error
+    console.log(receipt.queued ? 'queued' : 'already queued', receipt.deliveryId)
+  },
+})
+```
+
+`sendChannelTrigger()` returns `[undefined, { deliveryId, queued }]` or `[error, undefined]` with `CHANNEL_TRIGGER_FAILED`. `queued` is `false` when the queue already had the delivery or the trigger answered without one, such as `ignored()`. The trigger's `context.dispatch()`, `context.pull()`, and `channelState.transaction()` work as on the webhook route. It needs the persistent server that hosts the Channel, with SQLite or libSQL Agent State, like `enqueueChannelTask()`.
+
+## Send through a chat adapter
+
+The chat adapters in `vite-hub/agent/channels` also send: `teams()`, `slack()`, `discord()`, and `telegram()`. Each one sends Markdown through one Chat SDK adapter, which it builds on the first send. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
+
+```ts [server/channels/teams.ts]
 import { teams } from 'vite-hub/agent/channels'
-import { defineOutboundChannel } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
 
-export default defineOutboundChannel({
-  connectors: { teams: teams.connector() },
-  defaultConnector: 'teams',
-})
+export default defineChannel({ adapter: teams() })
 ```
 
-| Connector | Adapter | `thread` | `replace` |
+| Adapter | Chat SDK adapter for sends | `thread` | `replace` |
 | --- | --- | --- | --- |
-| `teams.connector()` | Built like the `teams()` Agent Channel, from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
-| `slack.connector({ adapter })` | Required. Pass your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
-| `discord.connector()` | Built like `discord({ adapter: true })`, from `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY`. Install `@chat-adapter/discord`. | No | Yes |
-| `telegram.connector()` | Built from `TELEGRAM_BOT_TOKEN` and `TELEGRAM_API_BASE_URL`. | No | Yes |
+| `teams()` | Built from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
+| `slack({ adapter })` | Required. Pass your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
+| `discord()` | Built from `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY`. Install `@chat-adapter/discord`. | No | Yes |
+| `telegram()` | Built from `TELEGRAM_BOT_TOKEN` and `TELEGRAM_API_BASE_URL`, or the `botToken` and `apiBaseUrl` options. | No | Yes |
 
-Each connector also accepts `{ adapter }` with your own adapter or a function that returns it. A connector without `thread` support throws a `TypeError` for a send with `thread`.
+Each adapter also accepts `{ adapter }` with your own Chat SDK adapter or a function that returns it. An adapter without `thread` support throws a `TypeError` for a send with `thread`, and `send()` returns it as `CHANNEL_SEND_FAILED`.
 
 ```ts fragment
 const [error] = await useChannel('teams').send('**Build failed**', {
@@ -96,13 +197,13 @@ if (error) throw error
 
 | Option | Value |
 | --- | --- |
-| `recipient` | A Chat SDK thread ID that the bot received a message in, or `user:<id>` for a direct message. |
-| `thread` | Optional. Every send with the same `key` replies under one root message in a channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
+| `recipient` | A Chat SDK thread ID where the bot got a message, or `user:<id>` for a direct message. |
+| `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first text, and stores it in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
-| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message to the new text and returns the same receipt. Without a stored receipt, ViteHub posts as usual. |
-| `replace` | Optional. Requires `idempotencyKey`. The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its message, ViteHub deletes the message stored for that key and removes its receipt. Without a stored receipt, ViteHub deletes nothing. It must not equal the `idempotencyKey` of this send. |
+| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message and returns the same receipt. Without a stored receipt, it posts as usual. |
+| `replace` | Optional. Needs `idempotencyKey`. Set it to the `idempotencyKey` of an earlier send to the same `recipient` and `thread`, not this send's key. After this send posts or edits, ViteHub deletes that message and its receipt. Without a stored receipt, it deletes nothing. |
 
-Use `update` to keep one message current, such as a status card that changes as work progresses:
+Use `update` to keep one message current, such as a status card:
 
 ```ts fragment
 const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
@@ -113,7 +214,7 @@ const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
 if (error) throw error
 ```
 
-Use `replace` to remove a temporary message when the final message must be new. Teams and Slack do not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
+Teams and Slack do not notify users of edits. To notify, post the result as new and use `replace` to delete the temporary message:
 
 ```ts fragment
 const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}`, root: `Ticket ${ticketId}` } }
@@ -127,24 +228,28 @@ const [error] = await useChannel('teams').send(suggestion, {
 if (error) throw error
 ```
 
-For a channel thread, set `thread.root` on the first send so the temporary message is a reply under a stable root. Without `thread.root`, the first text becomes the root. Replacing that root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
+Set `thread.root` on the first send so the temporary message is a reply, not the root. Replacing the root throws a `TypeError` before any post or edit, so the thread and receipts stay.
 
-ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that the platform no longer has counts as deleted.
+ViteHub stores the new receipt, then deletes the old message. A failed delete returns the error, and a retry with the same options deletes again. A message the platform no longer has counts as deleted.
 
 ViteHub stores roots and receipts in KV under the channel name, such as `teams:` or `slack:`, and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.
 
 ## Errors
 
-`send()` returns these errors. Each one has `code`, `why`, `fix`, and `docs`. `error.cause` keeps the lower-level error. `JSON.stringify(error)` does not include `cause`, so a connector error that contains private data does not leave the server.
+`send()` returns these errors. Each one has `code`, `why`, `fix`, and `docs`. `error.cause` keeps the lower-level error. `JSON.stringify(error)` does not include `cause`, so an adapter error that contains private data does not leave the server.
 
 ### CHANNEL_DEFINITION_FAILED
 
-No Channel Definition has this name, or its file failed to load. Add `server/channels/<name>.ts` with a default export from `defineOutboundChannel()`, and read `error.cause` for the load error. A later `send()` loads the definition again.
+No Channel Definition has this name, or its file failed to load. Add `server/channels/<name>.ts` with a default export from `defineChannel()`, and read `error.cause` for the load error. A later `send()` loads the definition again.
 
 ### CHANNEL_INVALID_SEND
 
-The text is empty, the options are not an object, no connector is selected, or the Channel Definition does not declare the selected connector. `error.why` names the problem. Pass non-empty text and a `connector` that the definition declares, or set `defaultConnector`.
+The text is empty, the options are not an object, or the adapter has no `send`, such as `stripe()`. `error.why` names the problem. Pass non-empty text and an options object, and send through a Channel whose adapter sends.
+
+### CHANNEL_TRIGGER_FAILED
+
+`sendChannelTrigger()` could not start the trigger. The Channel has no trigger or `on` handler with that name, no Agent webhook queue runs in this process, the State cannot queue, or the trigger threw. `error.cause` keeps the reason.
 
 ### CHANNEL_SEND_FAILED
 
-The connector threw, or it returned a value that is not an object. `error.cause` keeps the connector error. The message can still have reached the recipient, so check before you send it again.
+The adapter threw, or it returned a value that is not an object. `error.cause` keeps the adapter error. The message can still have reached the recipient, so check before you send it again.

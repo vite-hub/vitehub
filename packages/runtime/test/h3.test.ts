@@ -178,6 +178,7 @@ describe("@vite-hub/runtime/h3", () => {
       method: "GET",
       originalUrl: "/portal/_vitehub/connections/callback?code=test",
       url: "/_vitehub/connections/callback?code=test",
+      async *[Symbol.asyncIterator]() {},
     }
     expect(toH3V1Request({ node: { req: nodeRequest } }).url).toBe("https://docs.example/portal/_vitehub/connections/callback?code=test")
     const slashes = { ...nodeRequest, originalUrl: "//other.example/portal" }

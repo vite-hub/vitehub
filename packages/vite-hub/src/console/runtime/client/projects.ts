@@ -1,9 +1,9 @@
 /**
- * The projects that one Console links: their URLs, labels, and Console tokens. They stay in the browser, in
- * `localStorage` of the Console origin. No server keeps a copy.
+ * The projects that the Console page opens: the app of an embedded page, or the projects of the team that an `account`
+ * Console reads from its server. The page keeps them in memory.
  */
 
-/** The `localStorage` key of the project list. */
+/** The storage key of the project list. */
 export const consoleProjectsStorageKey = "vitehub-console:projects"
 
 /** One linked project. `url` is the app origin and its application mount, such as `https://app.example.com/portal`. */
@@ -12,8 +12,6 @@ export interface ConsoleLinkedProject {
   url: string
   /** The project name that `project.get` returned when the project was linked or last opened. */
   label?: string
-  /** The Console token that this browser sends as `Authorization: Bearer`. The server keeps only its SHA-256 hash. */
-  token?: string
 }
 
 /** Where the Console sends the requests of a project. */
@@ -26,12 +24,10 @@ export interface ConsoleProjectTarget {
   url: string
 }
 
-/** The members of `localStorage` that the store uses, so tests can pass a map. */
+/** The members of a storage that the store uses, so tests can pass a map. */
 export interface ConsoleProjectStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
-  /** `false` when the list lives only in memory and ends with the page. */
-  readonly persistent?: boolean
 }
 
 interface StoredProjects {
@@ -87,16 +83,6 @@ export function consoleProjectName(project: Pick<ConsoleLinkedProject, "label" |
   return project.label || consoleProjectHost(project)
 }
 
-/**
- * Whether a page on `pageProtocol` can call a project on `target`. A browser blocks calls from an `https:` page to an
- * `http:` origin, except on loopback hosts.
- */
-export function isMixedContentProject(target: ConsoleProjectTarget, pageProtocol: string): boolean {
-  const url = new URL(target.origin)
-  return pageProtocol === "https:" && url.protocol === "http:" && !loopbackHosts.has(url.hostname)
-}
-
-// doctor-disable-next-line typescript/strict/no-runtime-typeof -- Stored JSON is untrusted.
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined
 
 function parseStoredProjects(raw: string | null): StoredProjects {
@@ -117,15 +103,14 @@ function parseStoredProjects(raw: string | null): StoredProjects {
     const normalized = stored ? normalizeProjectUrl(stored) : undefined
     if (!id || !normalized || !("target" in normalized) || projects.some(project => project.id === id || project.url === normalized.target.url)) continue
     const label = text(Reflect.get(entry, "label"))
-    const token = text(Reflect.get(entry, "token"))
-    projects.push({ id, url: normalized.target.url, ...(label ? { label } : {}), ...(token ? { token } : {}) })
+    projects.push({ id, url: normalized.target.url, ...(label ? { label } : {}) })
   }
   const active = record ? text(Reflect.get(record, "active")) : undefined
   return { projects, ...(active && projects.some(project => project.id === active) ? { active } : {}) }
 }
 
 function newProjectId(): string {
-  // Unlike randomUUID(), getRandomValues() is available on an HTTP app's embedded Console.
+  // Unlike randomUUID(), getRandomValues() is available on an HTTP page.
   return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
@@ -137,13 +122,10 @@ export interface ConsoleProjectStore {
   find(url: string): ConsoleLinkedProject | undefined
   /** The project that the Console opens. */
   active(): ConsoleLinkedProject | undefined
-  /**
-   * Add a project, or update the one with the same URL. A `token` of `undefined` keeps the stored token; `null` removes
-   * it. Returns the saved project.
-   */
-  save(input: { url: string, label?: string, token?: string | null }): ConsoleLinkedProject
+  /** Add a project, or update the one with the same URL. Returns the saved project. */
+  save(input: { url: string, label?: string }): ConsoleLinkedProject
   select(id: string | undefined): void
-  /** Remove a project and its token. When it was active, the first other project becomes active. */
+  /** Remove a project. When it was active, the first other project becomes active. */
   forget(id: string): void
 }
 
@@ -171,8 +153,7 @@ export function createConsoleProjectStore(storage: ConsoleProjectStorage): Conso
       const stored = read()
       const existing = stored.projects.find(project => project.url === input.url)
       const label = text(input.label) ?? existing?.label
-      const token = input.token === null ? undefined : text(input.token) ?? existing?.token
-      const project: ConsoleLinkedProject = { id: existing?.id ?? newProjectId(), url: input.url, ...(label ? { label } : {}), ...(token ? { token } : {}) }
+      const project: ConsoleLinkedProject = { id: existing?.id ?? newProjectId(), url: input.url, ...(label ? { label } : {}) }
       write({ ...stored, projects: existing ? stored.projects.map(entry => entry.id === existing.id ? project : entry) : [...stored.projects, project] })
       return project
     },
@@ -190,75 +171,11 @@ export function createConsoleProjectStore(storage: ConsoleProjectStorage): Conso
   }
 }
 
-/** A storage that keeps the list in memory, for a browser that blocks `localStorage`. The list then ends with the page. */
+/** A storage that keeps the list in memory. The list ends with the page. */
 export function memoryProjectStorage(): ConsoleProjectStorage {
   const values = new Map<string, string>()
   return {
     getItem: key => values.get(key) ?? null,
-    persistent: false,
     setItem: (key, value) => void values.set(key, value),
-  }
-}
-
-/** The members of `localStorage` that `browserProjectStorage()` uses. */
-export interface ConsoleBrowserStorage extends ConsoleProjectStorage {
-  removeItem(key: string): void
-}
-
-/**
- * `localStorage` with a fallback to memory. A browser can block storage, or let the Console read it and refuse writes
- * when it is full or restricted. The first write that fails moves the list to memory and calls `onFallback`, so the
- * Console can say that the list ends with the page.
- */
-export function browserProjectStorage(open: () => ConsoleBrowserStorage, onFallback: () => void = () => {}): ConsoleProjectStorage {
-  const memory = memoryProjectStorage()
-  let primary: ConsoleBrowserStorage | undefined
-  try {
-    const storage = open()
-    const probe = `${consoleProjectsStorageKey}:probe`
-    storage.setItem(probe, "1")
-    storage.removeItem(probe)
-    primary = storage
-  }
-  catch {}
-  const fallback = (key: string, value?: string): void => {
-    let current: string | null = null
-    try {
-      current = primary?.getItem(key) ?? null
-    }
-    catch {}
-    primary = undefined
-    const next = value ?? current
-    if (next !== null) memory.setItem(key, next)
-    onFallback()
-  }
-  return {
-    get persistent() {
-      return primary !== undefined
-    },
-    getItem: (key) => {
-      if (primary) {
-        try {
-          return primary.getItem(key)
-        }
-        catch {
-          fallback(key)
-        }
-      }
-      return memory.getItem(key)
-    },
-    setItem: (key, value) => {
-      if (primary) {
-        try {
-          primary.setItem(key, value)
-          return
-        }
-        catch {
-          fallback(key, value)
-          return
-        }
-      }
-      memory.setItem(key, value)
-    },
   }
 }

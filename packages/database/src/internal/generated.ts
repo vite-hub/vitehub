@@ -153,34 +153,29 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
 
 function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
   if (databaseNames.length > 1) {
-    // One Drizzle config has one set of credentials, one casing, and one migrations folder, so each Database needs its own.
+    // One Drizzle config has one set of credentials and one migrations folder, so each Database needs its own.
     const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
     return [
-      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub db generate\` and \`vitehub db migrate\`.`)})`,
+      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub database generate\` and \`vitehub database migrate\`.`)})`,
       "",
     ].join("\n")
   }
   const database = config.databases[databaseNames[0]!]!
-  const definition = config.definitions.find(item => item.name === database.name)!
   const sqlite = database.dialect === "sqlite" && !(database.cloudflare?.http && database.cloudflare.databaseId)
   const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
-  // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
-    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     ...(sqlite ? [
-      "",
       "const dbCredentials = {",
       `  authToken: ${renderConfigValueExpression(database.connection?.authToken) ?? "undefined"} || undefined,`,
       `  url: ${renderConfigValueExpression(database.connection?.url) ?? "undefined"} || ${JSON.stringify(defaultUrl)},`,
       "}",
+      "",
     ] : []),
-    "",
     "export default {",
     ...(sqlite ? [
       '  dialect: /^(?:libsql:|https?:\\/\\/|wss?:\\/\\/)/i.test(dbCredentials.url) || dbCredentials.authToken ? "turso" : "sqlite",',
       "  dbCredentials,",
     ] : [`  dialect: ${JSON.stringify(database.dialect)},`, ...renderDbCredentials(database)]),
-    "  casing: databaseDefinition.drizzle?.casing,",
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
     `  out: ${JSON.stringify(database.migrationsDir)},`,
     "}",
@@ -246,13 +241,20 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
   await writeFileIfChanged(generatedTypesFile, "export {}\n")
 }
 
+async function finishArtifactWrites(writes: Promise<void>[]) {
+  // Callers serialize generations on this promise, so even a failed generation must finish its sibling writes.
+  for (const result of await Promise.allSettled(writes)) {
+    if (result.status === "rejected") throw result.reason
+  }
+}
+
 /**
  * Writes generated schemas, Drizzle configs, and types. Each Database Definition and each contribution is loaded to
  * list its tables. Contributed tables join the schema of their target Database.
  */
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
   const generatedTypesFile = join(config.rootDir, generatedDatabaseTypesFile)
-  await Promise.all(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
+  await finishArtifactWrites(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
   await Promise.all(config.definitions.map(async (definition) => {
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
@@ -265,7 +267,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   await writeFileIfChanged(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config))
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFileIfChanged(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions))
-  await Promise.all(config.databaseNames.map(async (name) => {
+  await finishArtifactWrites(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
     await writeFileIfChanged(file, renderGeneratedDrizzleConfig(file, config, [name]))

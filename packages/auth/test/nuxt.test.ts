@@ -10,10 +10,13 @@ import hubAuthNuxt from "../src/nuxt.ts"
 
 function createNuxt() {
   const hooks: Array<((config: Record<string, unknown>) => Promise<void>) | (() => void)> = []
+  const hookNames: string[] = []
   return {
     hook(name: "modules:done" | "nitro:config", handler: ((config: Record<string, unknown>) => Promise<void>) | (() => void)) {
       hooks.push(handler)
+      hookNames.push(name)
     },
+    hookNames,
     hooks,
     options: {
       alias: { "#existing": "/tmp/existing.mjs" },
@@ -45,6 +48,32 @@ describe("Auth Nuxt integration", () => {
     nuxt.hooks[1]({} as never)
     expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
   })
+  it("passes the page guard redirects to the app and types definePageMeta({ auth })", () => {
+    const hooks = new Map<string, (input: { declarations: string[] }) => void>()
+    const nuxt = { ...createNuxt(), hook: (name: string, handler: (input: { declarations: string[] }) => void) => hooks.set(name, handler) }
+    hubAuthNuxt({ env: false, auth: { redirects: { login: "/sign-in" } } }, nuxt as never)
+    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", redirects: { login: "/sign-in", guest: "/" } } } })
+    const declarations: string[] = []
+    hooks.get("prepare:types")?.({ declarations })
+    expect(declarations.join("\n")).toContain('auth?: import("@vite-hub/auth/nuxt").AuthPageMeta')
+  })
+
+  it.each([false, { redirects: { login: "/module-login", guest: "/module-home" } }] as const)("uses module Auth options and ignores top-level Vite Auth %j", (auth) => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt", auth: { redirects: { login: "/sign-in", guest: "/home" } } }, runtimeConfig: {} } }
+
+    hubAuthNuxt({ env: false, auth }, nuxt)
+
+    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: auth === false ? false : { basePath: "/api/auth", redirects: auth.redirects } } })
+  })
+
+  it("disables the session bridge and guard through module Auth options", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", runtimeConfig: {} } }
+
+    hubAuthNuxt({ env: false, auth: false }, nuxt)
+
+    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: false } })
+  })
+
   it("registers the Env resolver for the generated Auth Definition", async () => {
     const runtime = await readFile(new URL("../src/runtime/nuxt.ts", import.meta.url), "utf8")
 
@@ -63,9 +92,8 @@ describe("Auth Nuxt integration", () => {
 
     expect(nuxt.options.imports.imports).toEqual([
       { from: "app/composables", name: "useSession" },
+      { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
-      { from: "vite-hub/auth/vue", name: "useSignIn" },
-      { from: "vite-hub/auth/vue", name: "useSignUp" },
       { from: "vite-hub/auth/vue", name: "useUserSession" },
     ])
     expect(nuxt.options.alias).toEqual({
@@ -87,7 +115,51 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    expect(nuxt.hooks).toHaveLength(2)
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and components:extend for <Can>.
+    expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "components:extend"])
+  })
+
+  it("registers <Can> from the Vue entry, unless the app has its own Can component", () => {
+    const nuxt = createNuxt()
+    hubAuthNuxt({ importsFrom: "vite-hub/auth/vue" }, nuxt)
+    const extend = nuxt.hooks[nuxt.hookNames.indexOf("components:extend")] as unknown as (components: Array<Record<string, unknown>>) => void
+
+    const components: Array<Record<string, unknown>> = []
+    extend(components)
+    expect(components).toEqual([expect.objectContaining({ export: "Can", filePath: "vite-hub/auth/vue", kebabName: "can", pascalName: "Can", mode: "all" })])
+
+    const own = [{ pascalName: "Can", filePath: "/app/components/Can.vue" }]
+    extend(own)
+    expect(own).toHaveLength(1)
+  })
+
+  it("restarts Nuxt when app or layer abilities are added or removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-auth-nuxt-watch-"))
+    try {
+      const hooks = new Map<string, (event: string, path: string) => Promise<void>>()
+      const nuxt = {
+        callHook: vi.fn(async (_name: "restart") => {}),
+        hook: (name: string, handler: (event: string, path: string) => Promise<void>) => hooks.set(name, handler),
+        options: {
+          dev: true,
+          rootDir: root,
+          _layers: [{ cwd: join(root, "layers/base"), config: { rootDir: join(root, "layers/base") } }],
+        },
+      }
+      hubAuthNuxt({ env: false }, nuxt as never)
+      expect(Reflect.get(nuxt.options, "watch")).toEqual([join(root, "shared"), join(root, "layers/base/shared")])
+      const watch = hooks.get("builder:watch")!
+      await watch("change", "shared/abilities.ts")
+      await watch("add", "shared/other.ts")
+      expect(nuxt.callHook).not.toHaveBeenCalled()
+
+      await watch("add", "shared/abilities.ts")
+      await watch("unlink", join(root, "layers/base/shared/abilities.mjs"))
+      expect(nuxt.callHook.mock.calls).toEqual([["restart"], ["restart"]])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("keeps Auth enabled when Env is disabled", () => {
@@ -106,7 +178,7 @@ describe("Auth Nuxt integration", () => {
     expect(options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     )
-    expect(options.imports.imports).toHaveLength(5)
+    expect(options.imports.imports).toHaveLength(4)
     expect(options).not.toHaveProperty("alias")
     expect(options).not.toHaveProperty("nitro")
   })
@@ -125,7 +197,8 @@ describe("Auth Nuxt integration", () => {
     authPlugin.config = authConfig
     await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    expect(nuxt.hooks).toHaveLength(2)
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, and components:extend for <Can>.
+    expect(nuxt.hooks).toHaveLength(4)
   })
 
   it("resolves relative Env roots from the Vite root", () => {
@@ -183,7 +256,7 @@ describe("Auth Nuxt integration", () => {
     )
   })
 
-  it("preserves the Vite Auth switch during Nitro replay", async () => {
+  it("ignores the top-level Vite Auth switch during Nitro replay", async () => {
     const nuxt = createNuxt()
     ;(nuxt.options as typeof nuxt.options & { vite: { auth: false } }).vite = { auth: false }
 
@@ -194,7 +267,7 @@ describe("Auth Nuxt integration", () => {
     const authConfig = vi.fn(() => ({ nitro: {} }))
     authPlugin.config = authConfig
     await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
-    expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ auth: false }), expect.anything())
+    expect(authConfig).toHaveBeenCalledWith(expect.not.objectContaining({ auth: false }), expect.anything())
   })
 
   it("does nothing before Nuxt initializes", () => {

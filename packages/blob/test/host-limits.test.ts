@@ -1,3 +1,4 @@
+import { VITEHUB_DEPLOYMENT_PRESET } from "@vite-hub/internal/build/vite"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -49,7 +50,7 @@ describe("Cloudflare R2 object keys", () => {
     const [error] = await storage.put("k".repeat(1025), "x")
     expect(error).toMatchObject({
       code: "BLOB_PATHNAME_TOO_LONG",
-      docs: "https://vitehub.dev/docs/blob/limits-and-errors#blob_pathname_too_long",
+      docs: "https://vitehub.dev/docs/blob/diagnostics/blob_pathname_too_long",
       name: "BLOB_PATHNAME_TOO_LONG",
       why: "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.",
     })
@@ -127,9 +128,9 @@ describe("generated Nitro plugin", () => {
   }
 
   it("sets the Vercel request body limit only in a dev server for Vercel", async () => {
-    expect(await nitroPlugin({ command: "serve", vitehub: { preset: "vercel" } })).toContain("setBlobRequestBodyLimit(4500000)")
+    expect(await nitroPlugin({ command: "serve", [VITEHUB_DEPLOYMENT_PRESET]: "vercel" })).toContain("setBlobRequestBodyLimit(4500000)")
     expect(await nitroPlugin({ command: "serve", nitro: { preset: "vercel" } })).toContain("setBlobRequestBodyLimit(4500000)")
-    expect(await nitroPlugin({ command: "serve", vitehub: { preset: "node" } })).not.toContain("setBlobRequestBodyLimit")
-    expect(await nitroPlugin({ command: "build", vitehub: { preset: "vercel" } })).not.toContain("setBlobRequestBodyLimit")
+    expect(await nitroPlugin({ command: "serve", [VITEHUB_DEPLOYMENT_PRESET]: "node" })).not.toContain("setBlobRequestBodyLimit")
+    expect(await nitroPlugin({ command: "build", [VITEHUB_DEPLOYMENT_PRESET]: "vercel" })).not.toContain("setBlobRequestBodyLimit")
   })
 })

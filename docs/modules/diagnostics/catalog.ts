@@ -16,8 +16,10 @@ export interface DiagnosticCode {
   fix: string | null
   /** The comment above the code in the catalog, such as `Runtime errors`. */
   group: string | null
-  /** The catalog's `docsBase` or `docs` URL when it is a string. The `docs` URL of the code is `<base>/<code in lowercase>`. */
+  /** The catalog's `docsBase` or `docs` URL when it is a string. */
   docsBase: string | null
+  /** A per-code `docs` URL that overrides the catalog base. */
+  docs: string | null
   /** Where the code is raised, and the message that each call site passes. */
   sites: DiagnosticSite[]
 }
@@ -30,18 +32,21 @@ export interface DiagnosticSite {
 
 const catalogCalls = new Set(["defineErrors", "defineDiagnostics", "defineProdDiagnostics"])
 const codePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
+const declaresCatalog = /define(?:Errors|Diagnostics|ProdDiagnostics)\(/
 const mayHoldDiagnostics = /define(?:Errors|Diagnostics|ProdDiagnostics)\(|[.["'][A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+["\]]?\s*\(/
 
 /** Every code of every catalog under `packages/*\/src`, with its call sites. */
 export function readDiagnosticCodes(root: string): DiagnosticCode[] {
   const files = packageSources(root)
-  const packages = new Set(readdirSync(join(root, "packages"), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name))
   const codes = new Map<string, DiagnosticCode>()
   // Most files neither define a catalog nor raise a code. Parse only those that can.
-  const sources = files
+  const texts = files
     .map(file => ({ file, text: readFileSync(file, "utf8") }))
     .filter(({ text }) => mayHoldDiagnostics.test(text))
-    .map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
+  // A code prefix names its owner only when that package declares a catalog, so a package such as the Console app
+  // does not take the `CONSOLE_*` codes of vite-hub.
+  const packages = new Set(texts.filter(({ text }) => declaresCatalog.test(text)).map(({ file }) => relative(join(root, "packages"), file).split(/[\\/]/)[0]!))
+  const sources = texts.map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
   for (const { file, source } of sources) {
     for (const code of catalogCodes(root, file, source, packages)) {
       const existing = codes.get(code.code)
@@ -75,8 +80,9 @@ function owns(code: DiagnosticCode): boolean {
   return code.file.startsWith(`packages/${code.pkg}/`)
 }
 
-/** The package that the code prefix names, such as `rate-limit` for `RATE_LIMIT_C0001`. The longest prefix wins. */
+/** Numbered diagnostics name their owner package; named runtime errors belong to their declaring catalog. */
 function ownerPackage(code: string, packages: ReadonlySet<string>): string | null {
+  if (!/_[A-Z]\d{4}$/.test(code)) return null
   const parts = code.toLowerCase().split("_").slice(0, -1)
   for (let length = parts.length; length > 0; length--) {
     const name = parts.slice(0, length).join("-")
@@ -129,7 +135,7 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
       const code = propertyName(property)
       if (!code || !codePattern.test(code) || !ts.isPropertyAssignment(property)) continue
       group = commentGroup(source, property) ?? group
-      const definition = ts.isObjectLiteralExpression(property.initializer) ? property.initializer : null
+      const definition = objectValue(property.initializer)
       found.push({
         code,
         pkg: ownerPackage(code, packages) ?? declaring,
@@ -140,6 +146,7 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
         fix: definition ? textOf(definition, "fix") : helperFix(property.initializer),
         group,
         docsBase,
+        docs: definition ? stringValue(source, definition.properties.find(property => propertyName(property) === "docs")) : null,
         sites: [],
       })
     }

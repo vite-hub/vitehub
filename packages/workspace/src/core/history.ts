@@ -1,5 +1,5 @@
 import { lookup } from "mrmime"
-import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
+import { isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 import { workspaceConflict, workspaceError } from "./errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "./file-metadata.ts"
@@ -8,7 +8,7 @@ import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -35,6 +35,12 @@ export function forwardWorkspaceHistoryFiles(options: WorkspaceStoreHistoryCommi
     : { ...base, files: forwardFiles(options.files) }
   forwardedHistoryCommits.add(forwarded)
   return forwarded
+}
+
+function deepFreeze<T>(value: T): T {
+  if (Object(value) !== value) return value
+  for (const child of Object.values(Object(value))) deepFreeze(child)
+  return Object.freeze(value)
 }
 
 export function requireWorkspaceHistory(workspace: Pick<Workspace, "history">): WorkspaceRetainedHistory {
@@ -66,14 +72,14 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | u
 }
 
 export function validateHistoryMessage(message: unknown): asserts message is string | undefined {
-  if (message !== undefined && !hasRuntimeType(message, "string")) throw workspaceError("[vitehub] History revision message must be a string.")
+  if (message !== undefined && typeof message !== "string") throw workspaceError("[vitehub] History revision message must be a string.")
 }
 
 /** Resolve an optional ref name. Names use letters, numbers, `_` and `-`, joined by single `.` or `/`. */
 export function normalizeHistoryRef(ref: unknown): string {
   if (ref === undefined) return defaultWorkspaceHistoryRef
-  if (!hasRuntimeType(ref, "string") || ref.length > 128 || !historyRefPattern.test(ref)) {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0071({ message: `[vitehub] Invalid history ref${hasRuntimeType(ref, "string") ? ` ${JSON.stringify(ref.slice(0, 128))}` : ""}. Use up to 128 letters, numbers, underscores, and dashes, separated by single dots or slashes.` })
+  if (typeof ref !== "string" || ref.length > 128 || !historyRefPattern.test(ref)) {
+    throw workspaceErrorDiagnostics.WORKSPACE_R0071({ message: `[vitehub] Invalid history ref${typeof ref === "string" ? ` ${JSON.stringify(ref.slice(0, 128))}` : ""}. Use up to 128 letters, numbers, underscores, and dashes, separated by single dots or slashes.` })
   }
   return ref
 }
@@ -106,10 +112,10 @@ function readHistoryFiles(files: unknown, label: string): Map<string, HistoryFil
     const normalized = normalizeHistoryPath(path)
     if (result.has(normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
     // SAFETY: Non-byte objects are file inputs; their content and attributes are validated below.
-    const input = !hasRuntimeType(value, "string") && !isWorkspaceBytes(value) && isRuntimeObject(value) ? value as WorkspaceHistoryFileInput : undefined
+    const input = typeof value !== "string" && !isWorkspaceBytes(value) && isRuntimeObject(value) ? value as WorkspaceHistoryFileInput : undefined
     const content: unknown = input ? input.content : value
-    if (!hasRuntimeType(content, "string") && !isWorkspaceBytes(content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
-    if (input?.mediaType !== undefined && (!hasRuntimeType(input.mediaType, "string") || !input.mediaType)) throw workspaceError(`[vitehub] Invalid history file media type: ${normalized}.`)
+    if (typeof content !== "string" && !isWorkspaceBytes(content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
+    if (input?.mediaType !== undefined && (typeof input.mediaType !== "string" || !input.mediaType)) throw workspaceError(`[vitehub] Invalid history file media type: ${normalized}.`)
     result.set(normalized, {
       file: {
         path: normalized,
@@ -135,7 +141,7 @@ function readHistoryCommit(options: WorkspaceHistoryCommitOptions): HistoryCommi
   if (remove !== undefined && !Array.isArray(remove)) throw workspaceError("[vitehub] History changes.delete must be an array of file paths.")
   const deletes = new Set<string>()
   for (const path of remove ?? []) {
-    if (!hasRuntimeType(path, "string")) throw workspaceError("[vitehub] History changes.delete must be an array of file paths.")
+    if (typeof path !== "string") throw workspaceError("[vitehub] History changes.delete must be an array of file paths.")
     const normalized = normalizeHistoryPath(path)
     if (deletes.has(normalized) || puts.has(normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
     deletes.add(normalized)
@@ -157,7 +163,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     const retained = history()
     validateHistoryMessage(options.message)
     const ref = normalizeHistoryRef(options.ref)
-    if (options.ifHead !== null && (!hasRuntimeType(options.ifHead, "string") || !options.ifHead)) {
+    if (options.ifHead !== null && (typeof options.ifHead !== "string" || !options.ifHead)) {
       throw workspaceError("[vitehub] History commit requires ifHead to be a revision id or null.")
     }
     const forwarded = forwardedHistoryCommits.has(options)
@@ -167,7 +173,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     const current = await retained.head({ ref })
     if ((current?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, current?.id ?? null)
     // A missing ref that the Store starts from another ref begins with the files of that ref.
-    if (options.startFrom !== undefined && (!hasRuntimeType(options.startFrom, "string") || !options.startFrom || options.ifHead !== null || !store.history?.forksFrom)) {
+    if (options.startFrom !== undefined && (typeof options.startFrom !== "string" || !options.startFrom || options.ifHead !== null || !store.history?.forksFrom)) {
       throw workspaceError("[vitehub] History commit startFrom needs a revision id, ifHead null, and a Store that starts missing refs from another ref.")
     }
     const forkRef = current || options.startFrom ? undefined : await store.history?.forksFrom?.(ref)
@@ -188,6 +194,8 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     const deleted: string[] = []
     const inputs: WorkspaceWriteInput[] = []
     const grants: WorkspaceSourceWriteGrant[] = []
+    // Find every path that the commit changes first, so each hook sees the whole commit.
+    const writes: Array<{ path: string, file: WorkspaceFile | undefined, before: WorkspaceEntry | undefined }> = []
     for (const path of [...candidates].sort()) {
       const put = commit.puts.get(path)
       const file = put?.file
@@ -199,8 +207,18 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
         desired[path] = { ...file, mediaType: before.mediaType, metadata: before.metadata }
         continue
       }
+      writes.push({ path, file, before })
+    }
+    const writeCommit: WorkspaceWriteCommit = Object.freeze({
+      ...(options.message === undefined ? {} : { message: options.message }),
+      // A separate copy: a hook cannot change the metadata that the Store records.
+      metadata: deepFreeze(copyJsonWorkspaceMetadata("history revision", metadata) ?? {}),
+      paths: Object.freeze(writes.map(write => write.path)),
+    })
+    for (const { path, file, before } of writes) {
       const requested = await files.assertWritable(path)
       const input = await beforeWrite({
+        commit: writeCommit,
         content: file?.content,
         mediaType: file?.mediaType,
         metadata: file?.metadata,

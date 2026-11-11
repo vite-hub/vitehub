@@ -4,7 +4,8 @@ import { APIError, createAuthMiddleware } from "better-auth/api"
 import { verifyJwsAccessToken } from "better-auth/oauth2"
 import { jwt } from "better-auth/plugins"
 
-import { getAuthForRequest } from "./server.ts"
+import { authForRequest } from "./auth-instance.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Result } from "@vite-hub/runtime"
 import type { BetterAuthPlugin } from "better-auth"
@@ -17,7 +18,7 @@ import type { BetterAuthPlugin } from "better-auth"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 const mcpErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/auth/limits-and-errors",
+  docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     // Config errors. They throw because the Auth must change.
     AUTH_MCP_OAUTH_MISSING: {
@@ -77,10 +78,6 @@ export type McpOAuthPlugins = [ReturnType<typeof jwt>, ReturnType<typeof oauthPr
 
 const baseScopes = ["openid", "profile", "email", "offline_access"]
 const registerPath = "/oauth2/register"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 /** Bounds RFC 7591 client metadata without restricting the private-use redirect schemes of native MCP clients. */
 function registrationProblem(body: unknown, maxBytes: number): string | undefined {
@@ -179,7 +176,7 @@ export function mcpOAuth(options: McpOAuthOptions): McpOAuthPlugins {
   ]
 }
 
-/** What the MCP helpers read from a Better Auth instance. `getAuthForRequest()` returns one. */
+/** What the MCP helpers read from a Better Auth instance. `useAuth()` returns one. */
 export interface McpOAuthAuth {
   $context: Promise<{
     baseURL: string
@@ -221,8 +218,8 @@ async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 
 const pathOf = (url: string) => new URL(url).pathname.replace(/\/+$/, "")
 
-// SAFETY: `getAuthForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-const appAuth = (request: Pick<Request, "headers" | "url">) => getAuthForRequest(request) as unknown as McpOAuthAuth
+// SAFETY: `authForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
+const appAuth = (request: Pick<Request, "headers" | "url">) => authForRequest(request) as unknown as McpOAuthAuth
 
 /** Options of {@link serveMcpOAuthDiscovery}. */
 export interface McpOAuthDiscoveryOptions {
@@ -313,9 +310,9 @@ function banned(user: Record<string, unknown>): boolean {
  * session, that session must still exist and be unexpired, unless the person granted `offline_access`: that grant is for
  * use while they are signed out, and Better Auth's refresh grant copies the session of the first sign-in into every
  * access token it mints. Sender-constrained tokens, including DPoP-bound tokens, are rejected even when presented as
- * bearer tokens. It reads only the URL and the headers, so pass H3's `event.req` or any value with `url` and `headers`,
- * and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
- * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
+ * bearer tokens. It reads only the URL and the headers, so pass the Request of a Fetchable route, H3's `event.req`, or
+ * any value with `url` and `headers`, and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a
+ * bearer token and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
 export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]

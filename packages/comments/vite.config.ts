@@ -1,11 +1,11 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: [
     {
-      tsconfig: "tsconfig.build.json",
+      ...packDefaults,
       deps: {
         alwaysBundle: [/^@vite-hub\/internal/],
         neverBundle: ["nostics"],
@@ -30,14 +30,11 @@ export default defineConfig({
         "src/vite.ts",
       ],
       exports: {
+        // Generated code imports these modules by path. They are not public API.
+        exclude: ["operations", "runtime/console"],
         customExports: normalizePackageExports,
         inlinedDependencies: false,
       },
-      outExtensions: () => ({
-        dts: ".d.ts",
-        js: ".js",
-      }),
-      publint: true,
     },
     {
       // The page tools loader at `/_vitehub/page/assets/loader.js`. It has its own build, so it shares no chunk with the overlay.

@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { claudeCodeDriver, codexDriver, defineAgent, runAgentInline, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentRuntimeContext, type BuiltInAgentDriver } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentRuntimeContext, type BuiltInAgentDriver } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -17,17 +18,6 @@ describe("provider Agent Driver types", () => {
 
     codexDriver({ env, launch })
     claudeCodeDriver({ env, launch })
-  })
-
-  it("accepts retention only on the Codex Driver", () => {
-    codexDriver({ retention: { maxAge: "14d", maxRecords: 500, maxSize: "45%" } })
-    defineAgent({ driver: codexDriver({ retention: { maxSize: "2 GB" } }) })
-    // @ts-expect-error Claude Code keeps no Codex home.
-    defineAgent({ driver: claudeCodeDriver({ retention: { maxSize: "45%" } }) })
-    // @ts-expect-error A size needs a unit or a percent.
-    codexDriver({ retention: { maxSize: "45" } })
-    // @ts-expect-error A model Driver has no provider home.
-    defineAgent({ driver: { model: "openai/gpt-5", retention: { maxAge: "14d" } } })
   })
 
   it("accepts omitted permissions and explicit full access for both built-in providers", () => {
