@@ -307,6 +307,8 @@ export function registerContentKV(store: ContentKV | undefined, build?: string):
 interface ContentSourceHeadsRuntime {
   /** `content.sources`. */
   api: ContentSourceHeads
+  /** Resolve heads before hub reads, including Comark's internal cache and index paths. */
+  sync(): Promise<void>
   /** How the instance of a `github()` Source reads its head commit, for `createContentInstance()`. Undefined for other Sources. */
   commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined
   /** Give a `github()` Source its Comark instance, so a moved head reloads it. */
@@ -935,6 +937,9 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       views.clear()
       await Promise.all([...allViews].map(close))
     },
+    async sync() {
+      await Promise.all([...states.values()].map(state => sync(state)))
+    },
     commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)
       if (!isGitHubDefinition(definition)) return
@@ -985,7 +990,8 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
               return result
             })
       }
-      // All index/body entry points share this boundary. Nested init/get calls and the serving reload bypass it.
+      // Guard direct instance reads too. The hub boundary covers its internal cache/index paths that skip these methods.
+      // Nested init/get calls and the serving reload bypass this guard.
       for (const key of ["init", "get", "refresh", "list", "navigation", "manifest", "snapshot", "handler", "search"]) {
         const method: unknown = Reflect.get(instance, key)
         if (isFunction(method)) Object.defineProperty(instance, key, { value: guard(method, instance, key === "search") })
