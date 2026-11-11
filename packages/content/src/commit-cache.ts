@@ -127,7 +127,7 @@ export function commitKey(hash: string, sha: string, source: string): string {
 /** A small least-recently-used map. */
 export class CommitMemory<T> {
   readonly #entries = new Map<string, T>()
-  constructor(readonly max = MEMORY_COMMITS) {}
+  constructor(readonly max: number = MEMORY_COMMITS) {}
 
   get size(): number {
     return this.#entries.size
