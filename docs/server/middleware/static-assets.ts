@@ -20,11 +20,11 @@ function isCloudflareAssets(value: unknown): value is CloudflareAssets {
   return typeof value === "object" && value !== null && "fetch" in value && typeof value.fetch === "function";
 }
 
-// Nitro keeps the Worker request in `event.context.cloudflare`.
-function getCloudflareAssetRequest(value: unknown) {
-  if (!isRecord(value) || !isRecord(value.env) || !(value.request instanceof Request)) return;
+// Nitro 3 attaches Worker bindings to the incoming request runtime.
+function getCloudflareAssets(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.env)) return;
   const assets = value.env.ASSETS;
-  return isCloudflareAssets(assets) ? { assets, request: value.request } : undefined;
+  return isCloudflareAssets(assets) ? assets : undefined;
 }
 
 function acceptsMarkdown(accept: string | undefined) {
@@ -78,17 +78,17 @@ export default defineEventHandler(async (event) => {
     if (getCookie(event, docsTutorialNavigationCookie) === "true") return;
   }
 
-  const cloudflare = getCloudflareAssetRequest(event.context.cloudflare);
+  const assets = getCloudflareAssets(event.req.runtime?.cloudflare);
   const agentDiscovery = useRuntimeConfig(event).agentDiscovery;
   const userAgents = isRecord(agentDiscovery) ? agentDiscovery.userAgents : undefined;
-  if (!cloudflare || !shouldServePrerenderedAsset({
+  if (!assets || !shouldServePrerenderedAsset({
     accept: getRequestHeader(event, "accept"),
     method: event.method,
     userAgent: getRequestHeader(event, "user-agent"),
     userAgents,
   })) return;
 
-  const response = await cloudflare.assets.fetch(cloudflare.request);
+  const response = await assets.fetch(event.req);
   if (response.status !== 404) {
     const headers = new Headers(response.headers);
     // Same as the Vary that Markdown negotiation sends, since this choice also reads both headers.
