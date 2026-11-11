@@ -8,6 +8,7 @@ import { allowPrivateVariable } from "../../src/project-url.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../src/token-box.ts"
 
 import type { AuthAuthorization } from "@vite-hub/auth"
+import type { ConsoleCaller } from "@vite-hub/internal/console-signature"
 import type { ConsoleProjectStore } from "../../src/projects.ts"
 
 const { member } = authSqliteSchema
@@ -27,6 +28,21 @@ export interface ConsoleTeamCaller {
   /** Better Auth roles, such as `owner`, `admin`, or `member`. A member can have several, with commas between them. */
   roles: string[]
   projects: ConsoleProjectStore
+}
+
+/**
+ * The person that the Console signs into each call to a project: the signed-in user, the team, and the role. The app's
+ * `console.authorize` receives them with `via: "console"`.
+ */
+export function consoleCallerOf(caller: ConsoleTeamCaller): ConsoleCaller {
+  const { user } = caller.authorization
+  const name: unknown = Reflect.get(user, "name")
+  const email: unknown = Reflect.get(user, "email")
+  return {
+    team: { id: caller.teamId, role: caller.roles.join(",") },
+    user: { id: user.id, ...(typeof name === "string" && name ? { name } : {}), ...(typeof email === "string" && email ? { email } : {}) },
+    via: "console",
+  }
 }
 
 /** Owners and admins link and unlink projects. Every member opens them. */
