@@ -8,14 +8,14 @@ import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 // Every app with Console access serves the operation RPC and the MCP endpoint.
-const consoleRoutes = ["/_vitehub/rpc/**", "/_vitehub/mcp"]
+const consoleRoutes = ["/_vitehub/rpc", "/_vitehub/mcp"]
 
 it.each([
   ["no primitives", { env: false }, []],
   ["only Server Env", { env: true }, ["/_vitehub/env/manage"]],
   ["only KV", { env: false, kv: true }, []],
-  ["Agents", { agent: true, env: false }, ["/_vitehub/channels/replay"]],
-  ["only Schedules", { schedule: true, env: false }, ["/_vitehub/schedules/run"]],
+  ["Agents", { agent: true, env: false }, []],
+  ["only Schedules", { schedule: true, env: false }, []],
 ] as const)("builds only the Console routes of enabled sections: %s", async (_name, features, sectionRoutes) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-section-routes-"))
   try {

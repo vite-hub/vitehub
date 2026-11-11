@@ -12,6 +12,7 @@ import { createProject, path, runCli, serverBuild } from "./support/content-cms.
 
 import type { CommentThread } from "@vite-hub/comments/client"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Comments in a built Nitro 3 app", () => {
@@ -53,7 +54,8 @@ describe("Comments in a built Nitro 3 app", () => {
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrations = join(root, "server/databases/default/migrations")
-    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
+    const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `vitehub_comment_counters`", "CREATE TABLE `vitehub_comment_forge`", "CREATE TABLE `vitehub_comment_messages`", "CREATE TABLE `vitehub_comment_threads`"])
     const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
@@ -71,20 +73,20 @@ describe("Comments in a built Nitro 3 app", () => {
 
     const server = await startBuiltServer(root, { NODE_ENV: "development" })
     try {
-      const unsigned = await server.fetch("/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }, operation: "comments.create" }),
+      const unsigned = await server.fetch("/_vitehub/rpc", {
+        body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       })
       expect(unsigned.status).toBe(401)
-      expect(await unsigned.json()).toMatchObject({ code: "COMMENTS_R0012" })
+      expect(await operationRpcResponseResult(unsigned)).toMatchObject({ code: "COMMENTS_R0012" })
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const response = await server.fetch("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ input, operation }),
+        const response = await server.fetch("/_vitehub/rpc", {
+          body: operationRpcBody(operation, input),
           headers: { "content-type": "application/json", "x-test-user": "ana", [consoleRpcHeader]: "1" },
           method: "POST",
         })
-        const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
+        const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
         return body.value
       }

@@ -777,7 +777,7 @@ export default defineContent({ route: publicRoute, source: { async items() { ret
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
   })
 
-  it("adds the Content preview plugin only when defineContent() can have collections", async () => {
+  it("keeps cache isolation for Source-only Content and removes it with the Content entry", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server"), { recursive: true })
     const file = join(root, "server/content.ts")
@@ -785,13 +785,14 @@ export default defineContent({ route: publicRoute, source: { async items() { ret
     const write = async (options: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
 export default defineContent(${options})
 `)
-    // Previews read drafts of collections. A plugin without them would only load Content when the server starts.
+    // Signed Source links need cache isolation even without collection previews.
     await write("{ sources: { docs: { async items() { return [] } } } }")
-    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).not.toContainEqual(preview)
-    await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual(preview)
     await write(`{ workspace: "content", collections: { posts } }`)
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual(preview)
-    await write("{ sources: { docs: { async items() { return [] } } } }")
+    await write("{ sources: { docs: { async items() { return [] } } }, route: false }")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual(preview)
+    await rm(file)
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).not.toContainEqual(preview)
     await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })

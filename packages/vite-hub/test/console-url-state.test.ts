@@ -165,7 +165,7 @@ describe("Auth", async () => {
   const description = { access: [], actions: {}, events: { enabled: true }, fields: [], pages: ["overview", "users", "organizations"], storage: { enabled: true } }
 
   it("restores an organization across Auth pages without changing Back or Forward history", async () => {
-    mocks.auth.mockImplementation(async (_base: string, kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 0 })
+    mocks.auth.mockImplementation(async (kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 0 })
     const { push, replace, router, state } = await mountPage<{ navigate(page: "users"): void, selectedOrg?: { id: string }, selectedOrgId: string | undefined }>(
       Auth, { managementBase: "/manage", sectionsBase: "/sections" }, "/auth/organizations?org=o1", routes,
     )
@@ -195,11 +195,11 @@ describe("Auth", async () => {
   })
 
   it("restores the user search, filter, page, and open user and organization", async () => {
-    mocks.auth.mockImplementation(async (_base: string, kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 80 })
+    mocks.auth.mockImplementation(async (kind: string) => kind === "describe" ? description : kind === "organization" ? { id: "o1", invitations: [], invitationsTotal: 0, members: [], membersTotal: 0, name: "Acme" } : { items: [], total: 80 })
     const { push, replace, router, state } = await mountPage<{ filter: string, offset: number, search: string, selectedOrg?: { id: string }, selectedOrgId: string | undefined, selectedUser: string | undefined }>(
       Auth, { managementBase: "/manage", sectionsBase: "/sections" }, "/auth/users?q=ann&filter=admins&offset=25&user=u1", routes,
     )
-    await vi.waitFor(() => expect(mocks.auth).toHaveBeenCalledWith("/manage", "users", { query: { filter: "admins", limit: 25, offset: 25, search: "ann" } }, expect.anything()))
+    await vi.waitFor(() => expect(mocks.auth).toHaveBeenCalledWith("users", { query: { filter: "admins", limit: 25, offset: 25, search: "ann" } }, expect.anything()))
     expect(state.selectedUser).toBe("u1")
     state.offset = 50
     await settle(router, { filter: "admins", offset: "50", q: "ann", user: "u1" })
