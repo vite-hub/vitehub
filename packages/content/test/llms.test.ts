@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { H3, HTTPError } from "h3"
+import { H3, HTTPError, HTTPResponse } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
@@ -24,6 +24,7 @@ async function site(seoOptions: DefineContentSeoOptions = { site: "https://examp
       settings: singleton({ path: "settings.json", fields: { title: z.string() }, url: "/settings" }),
       home: singleton({ path: "home.md", fields: { title: z.string() }, url: "/" }),
       posts: documents({ path: "posts/*.md", label: "Blog", fields: { title: z.string(), description: z.string().optional(), seo: seo() }, url: "/blog/:id" }),
+      articles: documents({ path: "articles/*.md", fields: { title: z.string(), slug: z.string() }, url: "/articles/:slug" }),
       guides: documents({ path: "guides/{locale}/*.md", locales: ["en", "es"], fields: { title: z.string() }, url: "/guides/:id" }),
       notes: documents({ path: "notes/*.md", fields: { title: z.string() } }),
     },
@@ -133,12 +134,104 @@ describe("llms files", { timeout: 30_000 }, () => {
     expect(() => defineContent({ seo: { llms: true, markdown: false }, logger: false })).toThrow(/Remove markdown: false/)
     expect(() => defineContent({ seo: { llms: { title: 1 } as never }, logger: false })).toThrow(/llms.title must be text/)
   })
+
+  it.each(["configured", "call", "request"] as const)("keeps absolute self-canonicals with the %s site", async (origin) => {
+    const content = await site({ llms: true, ...(origin === "configured" ? { site: "https://example.com" } : {}) })
+    const posts = content.collection("posts")
+    await posts.save("self", { data: { title: "Self", seo: { canonical: "https://example.com/blog/self" } }, body: "Self body." })
+    await posts.save("elsewhere", { data: { title: "Elsewhere", seo: { canonical: "https://other.test/blog/elsewhere" } }, body: "Elsewhere body." })
+    await content.publish({ ids: ["self", "elsewhere"], collection: "posts" })
+    expect((await content.sitemap({ site: "https://example.com" })).map(entry => entry.loc)).toContain("https://example.com/blog/self")
+    const handler = defineContentLlmsHandler(content)
+    const app = new H3().all("/**", handler)
+    for (const file of ["llms.txt", "llms-full.txt", "sitemap.md"] as const) {
+      const text = origin === "request"
+        ? await (await app.request(`https://example.com/${file}`)).text()
+        : await content.llms({ file, ...(origin === "call" ? { site: "https://example.com" } : {}) })
+      expect(text).toContain(file === "llms-full.txt" ? "# Self\n" : "[Self](https://example.com/blog/self.md)")
+      expect(text).not.toContain("Elsewhere")
+    }
+  })
 })
 
 describe("Markdown negotiation", { timeout: 30_000 }, () => {
   function app(content: Parameters<typeof defineContentMarkdownHandler>[0], page: () => unknown = () => "page") {
     return new H3().use(defineContentMarkdownHandler(content)).all("/**", page)
   }
+
+  it("preserves downstream and prepared Vary fields, including the wildcard", async () => {
+    const content = await site({ markdown: true })
+    for (const prepared of ["Cookie", "*"]) {
+      for (const vary of ["Accept-Language, Origin", "Accept-Encoding", "*", "accept"]) {
+        for (const response of [new Response("page", { headers: { vary } }), new HTTPResponse("page", { headers: { vary } })]) {
+          const handler = new H3().use((event) => { event.res.headers.set("vary", prepared) })
+            .use(defineContentMarkdownHandler(content))
+            .all("/**", () => response)
+          const result = await handler.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })
+          const fields = result.headers.get("vary")!.toLowerCase().split(/,\s*/)
+          if (vary === "*" || prepared === "*") expect(fields).toEqual(["*"])
+          else expect(new Set(fields)).toEqual(new Set([...vary.toLowerCase().split(/,\s*/), "cookie", "accept"]))
+          expect(await result.text()).toBe("page")
+        }
+      }
+    }
+  })
+
+  it("negotiates dotted page URLs for GET and HEAD while passing assets through", async () => {
+    const content = await site({ markdown: true })
+    await content.collection("posts").save("v1.0", { data: { title: "Version 1.0" }, body: "Version body." })
+    await content.publish({ ids: ["v1.0"], collection: "posts" })
+    await content.collection("articles").save("release", { data: { title: "Version 1.0", slug: "release.v1" }, body: "Version body." })
+    await content.publish({ collection: "articles" })
+    for (const path of ["/blog/v1.0", "/articles/release.v1"]) {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await app(content).request(`https://example.com${path}`, { method, headers: { accept: "text/markdown" } })
+        expect(response.status).toBe(200)
+        expect(response.headers.get("vary")).toBe("Accept")
+        expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+        expect(await response.text()).toBe(method === "HEAD" ? "" : "# Version 1.0\n\nVersion body.\n")
+      }
+      const browser = await app(content).request(`https://example.com${path}`, { headers: { accept: "text/html" } })
+      expect(browser.headers.get("vary")).toBe("Accept")
+    }
+    const missing = app(content, () => new Response("gone", { status: 404 }))
+    const response = await missing.request("https://example.com/blog/nope.1", { headers: { accept: "text/markdown" } })
+    expect(await response.text()).toContain("# 404 Page Not Found")
+    const asset = await app(content, () => new Response("body {}", { headers: { "content-type": "text/css" } }))
+      .request("https://example.com/style.css", { headers: { accept: "text/markdown" } })
+    expect(asset.headers.get("content-type")).toBe("text/css")
+    expect(await asset.text()).toBe("body {}")
+  })
+
+  it("converts effective H3 404 responses and respects explicit response statuses", async () => {
+    const content = await site({ markdown: true })
+    const handlers = [
+      (event: { res: { status?: number } }) => { event.res.status = 404; return "gone" },
+      () => new HTTPResponse("gone", { status: 404 }),
+      () => new HTTPError({ status: 404 }),
+      (event: { res: { status?: number } }) => { event.res.status = 404; return new HTTPResponse("gone") },
+    ]
+    for (const handler of handlers) {
+      const server = new H3().use(defineContentMarkdownHandler(content)).all("/**", handler)
+      for (const path of ["/nope.md", "/nope"]) {
+        for (const method of ["GET", "HEAD"]) {
+          const response = await server.request(`https://example.com${path}`, { method, headers: { accept: "text/markdown" } })
+          expect(response.status).toBe(404)
+          expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+          expect(await response.text()).toBe(method === "HEAD" ? "" : renderContentMarkdownNotFound({ path, site: "https://example.com", links: [] }))
+        }
+      }
+    }
+    for (const result of [new Response("ok"), new HTTPResponse("ok", { status: 200 }), new Response("unavailable", { status: 503 })]) {
+      const server = new H3().use(defineContentMarkdownHandler(content)).all("/**", (event) => {
+        event.res.status = 404
+        return result
+      })
+      const response = await server.request("https://example.com/nope.md")
+      expect(response.status).toBe(result.status)
+      expect(await response.text()).toBe(result.status === 503 ? "unavailable" : "ok")
+    }
+  })
 
   it("serves the copy at the page URL for Accept: text/markdown, and at the .md twin", async () => {
     const content = await site({ site: "https://example.com", markdown: true })

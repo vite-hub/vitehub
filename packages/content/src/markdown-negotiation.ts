@@ -109,7 +109,7 @@ export function renderContentMarkdownNotFound(options: { path: string, site: str
  * H3 middleware: it returns nothing to pass the request on to the next handler. With `next`, it may also read or replace
  * the response of the handlers after it.
  */
-export type ContentMiddleware = (event: { req: Request, res?: { headers: Headers } }, next?: () => unknown) => Promise<unknown>
+export type ContentMiddleware = (event: { req: Request, res?: { status?: number, headers: Headers, errHeaders?: Headers } }, next?: () => unknown) => Promise<unknown>
 
 /** The part of a Content runtime that Markdown copies need. */
 export interface ContentMarkdownRuntime {
@@ -119,22 +119,38 @@ export interface ContentMarkdownRuntime {
 
 const notFound = Symbol.for("h3.notFound")
 
-function hasFileExtension(pathname: string): boolean {
-  return pathname.slice(pathname.lastIndexOf("/") + 1).includes(".")
+/**
+ * Fetch Responses (including srvx's Response class) and H3's branded HTTPResponse. Keep plain JSON status fields
+ * separate from response metadata, and use H3's shared brand without loading its server runtime here.
+ */
+function isResponse(value: unknown): value is { status?: unknown } {
+  return value !== null && typeof value === "object"
+    && (Reflect.get(value, Symbol.for("h3.HTTPResponse")) === true || ("ok" in value && "status" in value && "headers" in value))
 }
 
-/**
- * The status of a Response. Node servers such as srvx return their own Response class, which fails `instanceof Response`,
- * so this reads any object with the Response `status`, `ok`, and `headers` members.
- */
 function responseStatus(value: unknown): number | undefined {
-  if (value === null || typeof value !== "object" || !("ok" in value) || !("headers" in value) || !("status" in value)) return
-  return typeof value.status === "number" ? value.status : undefined
+  if (isResponse(value)) return typeof value.status === "number" ? value.status : undefined
+  if (value instanceof Error) {
+    const status = errorStatus(value)
+    return typeof status === "number" ? status : 500
+  }
 }
 
 function errorStatus(error: unknown): unknown {
   if (error === null || typeof error !== "object") return
   return Reflect.get(error, "status") ?? Reflect.get(error, "statusCode")
+}
+
+function markdownVary(...values: (string | null | undefined)[]): string {
+  const fields = new Map<string, string>()
+  for (const value of [...values, contentMarkdownVary]) {
+    for (const field of value?.split(",") ?? []) {
+      const name = field.trim()
+      if (name === "*") return "*"
+      if (name) fields.set(name.toLowerCase(), name)
+    }
+  }
+  return [...fields.values()].join(", ")
 }
 
 /**
@@ -154,11 +170,29 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     if (request.method !== "GET" && request.method !== "HEAD") return
     const url = new URL(request.url)
     const copy = url.pathname.endsWith(".md")
-    const page = !copy && !hasFileExtension(url.pathname)
+    // A dot can belong to a document ID or configured URL. Only Content can decide whether a copy exists.
+    const page = !copy
     const negotiated = page && acceptsMarkdown(request.headers.get("accept"))
-    // The page may also have a Markdown body, so caches must keep the two apart.
-    if (page) event.res?.headers.append("vary", contentMarkdownVary)
-    if (!copy && !negotiated) return
+    const vary = (result: unknown) => {
+      if (page && event.res) {
+        const headers: unknown = isResponse(result) || result instanceof Error ? Reflect.get(result, "headers") : undefined
+        const value = markdownVary(event.res.headers.get("vary"), event.res.errHeaders?.get("vary"), headers instanceof Headers ? headers.get("vary") : undefined)
+        // H3 overwrites returned Response headers with prepared headers. Merge after downstream handlers finish.
+        event.res.headers.set("vary", value)
+        event.res.errHeaders?.set("vary", value)
+      }
+      return result
+    }
+    const downstream = async () => {
+      try {
+        return vary(await next?.())
+      }
+      catch (error) {
+        vary(error)
+        throw error
+      }
+    }
+    if (!copy && !negotiated) return await downstream()
     const runtime = typeof content === "function" ? await content() : content
     const seo = runtime.seo
     if (seo?.markdown !== true) return
@@ -172,18 +206,18 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
       },
     })
     const markdown = await runtime.markdown(copy ? url.pathname : markdownCopyUrl(url.pathname), { site })
-    if (markdown !== null) return respond(markdown)
+    if (markdown !== null) return vary(respond(markdown))
     if (!next) return
-    const missing = () => respond(renderContentMarkdownNotFound({ path: url.pathname, site, links: contentMarkdownErrorLinks(seo) }), 404)
+    const missing = () => vary(respond(renderContentMarkdownNotFound({ path: url.pathname, site, links: contentMarkdownErrorLinks(seo) }), 404))
     let result: unknown
     try {
-      result = await next()
+      result = await downstream()
     }
     catch (error) {
       if (errorStatus(error) === 404) return missing()
       throw error
     }
-    if (result === notFound || responseStatus(result) === 404) return missing()
+    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return missing()
     return result
   }
 }

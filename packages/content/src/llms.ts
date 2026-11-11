@@ -51,9 +51,9 @@ interface AgentDocument {
 }
 
 /** Published Markdown documents with a URL that search engines may index, in definition order. */
-async function agentDocuments(collections: readonly AnyContentCollection[]): Promise<AgentDocument[]> {
+async function agentDocuments(collections: readonly AnyContentCollection[], site: string | undefined): Promise<AgentDocument[]> {
   const documents: AgentDocument[] = []
-  for await (const { collection, document, url } of contentIndexedDocuments(collections, undefined)) {
+  for await (const { collection, document, url } of contentIndexedDocuments(collections, site)) {
     if (collection.format !== "markdown") continue
     documents.push({ collection, document, url, ...contentDocumentSummary(collection, document.data) })
   }
@@ -127,7 +127,7 @@ export function renderContentSitemapMarkdown(options: { title: string, host: str
 
 /** One file of `defineContent({ seo: { llms } })`, from the published Markdown documents with a URL. */
 export async function contentLlmsFile(collections: readonly AnyContentCollection[], options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile): Promise<string> {
-  const documents = await agentDocuments(collections)
+  const documents = await agentDocuments(collections, site)
   const title = llmsTitle(options, site)
   const { home, groups } = sections(documents)
   if (file === "sitemap.md") {
