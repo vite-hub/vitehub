@@ -4,12 +4,12 @@ import { resolve } from "node:path"
 import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
-import { detectPreset } from "vite-hub/deployment"
 import { env } from "vite-hub/env"
+import { detectHost } from "vite-hub/runtime"
 
 // The Console is a ViteHub app: Auth signs people in, and the Database keeps the linked projects. The host comes from
 // VITEHUB_HOSTING or the build variables of the host, and is `node` without them.
-const host = detectPreset() ?? "node"
+const host = detectHost() ?? "node"
 
 // The Console page is the Console client of vite-hub in `account` mode. Build it first with
 // `pnpm --filter vite-hub build:console-account`.
@@ -28,7 +28,7 @@ function database() {
       },
     }
   }
-  // Cloudflare uses the D1 binding of server/databases/config.ts.
+  // Cloudflare uses the D1 binding of server/databases/default.ts.
   return true
 }
 

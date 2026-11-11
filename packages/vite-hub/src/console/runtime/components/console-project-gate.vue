@@ -102,11 +102,11 @@ onMounted(() => {
       <template v-else-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Add your first project</h1>
-          <p class="vitehub-project-gate__text">Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>. The project list and tokens stay in this browser.</p>
+          <p class="vitehub-project-gate__text"><ConsoleCodeText text="Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in `console.origins`. The project list and tokens stay in this browser." /></p>
         </div>
         <div class="flex flex-wrap gap-2">
           <UButton icon="i-lucide-plus" label="New project" @click="openConsoleNewProject" />
-          <UButton color="neutral" variant="outline" icon="i-lucide-link" label="Link project" @click="projects.linkOpen.value = true" />
+          <UButton variant="outline" icon="i-lucide-link" label="Link project" @click="projects.linkOpen.value = true" />
         </div>
       </template>
 
@@ -115,7 +115,7 @@ onMounted(() => {
           <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
             <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
-            <template v-else>{{ host }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+            <ConsoleCodeText v-else :text="`${host} uses \`auth: &quot;token&quot;\`.`" />
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
@@ -154,7 +154,7 @@ onMounted(() => {
       <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'link' && gate.kind !== 'account'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
-          <UButton color="neutral" variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
+          <UButton variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
         </UDropdownMenu>
       </div>
     </div>
@@ -211,10 +211,6 @@ onMounted(() => {
   gap: 0.375rem;
   line-height: 1rem;
   text-wrap: pretty;
-}
-
-.vitehub-project-gate :is(button, a[href]):focus-visible {
-  outline-offset: 2px;
 }
 
 @media (pointer: coarse) {

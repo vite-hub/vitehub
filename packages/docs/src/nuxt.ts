@@ -12,6 +12,7 @@ import {
   addRouteMiddleware,
   addServerHandler,
   addTemplate,
+  addTypeTemplate,
   createResolver,
   defineNuxtModule,
   extendPages,
@@ -19,6 +20,7 @@ import {
   useLogger,
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
+import { vitehubTheme } from "@vite-hub/ui/theme"
 import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
@@ -247,6 +249,7 @@ interface DocsNuxtOptions {
   agentDiscovery?: AgentDiscoveryOptions
   llms?: LlmsOptions
   linkChecker?: { excludeLinks?: Array<string | RegExp> }
+  fonts?: { families?: Array<{ name: string, global?: boolean }> }
 }
 
 export interface DocsNuxtModule {
@@ -321,6 +324,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
+    // Nuxt types runtime config from its value, and that type has no fields for objects in arrays, such as `socials`.
+    addTypeTemplate({ filename: "types/vite-hub-docs.d.ts", getContents: () => docsRuntimeConfigTypes })
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
     addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
@@ -359,6 +364,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
     moduleOptions.appConfig.ui = docsAppConfigUi(docsUi(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    // The design system lists "Geist Variable" first, the font that the Console bundles. @nuxt/fonts, which Nuxt UI
+    // installs, serves only the first family of a declaration, so it served no Geist. The docs ask for both families.
+    const fonts = moduleOptions.fonts ??= {}
+    const families = fonts.families ??= []
+    for (const name of ["Geist", "Geist Mono"]) {
+      if (!families.some(family => family.name === name)) families.push({ name, global: true })
+    }
 
     // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
     const head = nuxt.options.app.head
@@ -430,7 +442,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const contentFile = addTemplate({
       filename: "docs/content.mjs",
       write: true,
-      getContents: () => contentEntry ? `export { content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
+      getContents: () => contentEntry ? `export { default as content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
     }).dst
 
     // The page route and search import the parser options. Without `parser` they parse with the built-in plugins only.
@@ -445,6 +457,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
+    // An app page in the docs layout picks its sidebar in `definePageMeta`, like the `sidebar` frontmatter of a docs page.
+    addTypeTemplate({
+      filename: "types/docs-page-meta.d.ts",
+      getContents: () => `declare module "#app" {\n  interface PageMeta {\n    /** \`false\` hides the docs sidebar. \`"collapsed"\` shows a narrow strip with a button that opens it. */\n    sidebar?: boolean | "collapsed"\n  }\n}\nexport {}\n`,
+    })
 
     // `::example{name}` shows a Vue file of the examples folder. The page loads the component, and the parser reads
     // its source, so the server bundle carries every source as a string.
@@ -510,7 +527,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       })
     }
 
-    // Tailwind scans the app; the docs components and the Markdown pages live outside it.
+    // Tailwind scans the app; the docs components and the Markdown pages live outside it. The ViteHub design system
+    // resolves from this package, so a site gets its tokens and focus rule without listing @vite-hub/ui itself.
     nuxt.options.css.unshift(addTemplate({
       filename: "docs/docs.css",
       write: true,
@@ -519,6 +537,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         `@layer theme, base, comark, components, utilities;`,
         `@import "tailwindcss";`,
         `@import "@nuxt/ui";`,
+        `@import "${dependency("@vite-hub/ui/theme.css")}";`,
         `@source "${join(runtime, "app")}";`,
         `@source "${resolver.resolve("./theme.js")}";`,
         ...contentDirsToWatch.map(dir => `@source "${dir}";`),
@@ -531,6 +550,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     Reflect.apply(nuxt.hook, nuxt, ["icon:clientBundleIcons", (icons: Set<string>) => {
       const names = [
         ...shellIcons,
+        ...Object.values(vitehubTheme.icons),
         config.icons.page,
         config.icons.section,
         ...[...config.start?.links ?? [], ...config.socials].map(link => link.icon),
@@ -576,6 +596,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
+    addPlugin({ src: join(runtime, "app/plugins/icon-stroke.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
@@ -724,11 +745,11 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: strin
   }
 }
 
-/** Icons of the shell components and the theme. */
+/** Icons of the shell components. The icons of the theme come from `vitehubTheme`. */
 const shellIcons = [
   "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
-  "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
+  "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
   "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
   "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",
@@ -736,7 +757,7 @@ const shellIcons = [
 ]
 
 /**
- * `i-ph-sun-light` as @nuxt/icon bundles it: `ph:sun-light`. Collection names with one hyphen end in `-icons`, such as
+ * `i-lucide-sun` as @nuxt/icon bundles it: `lucide:sun`. Collection names with one hyphen end in `-icons`, such as
  * `simple-icons`. Rail icon names such as `kv` are not Iconify names and return `null`.
  */
 function iconifyName(icon: string): string | null {
@@ -754,6 +775,18 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
+
+const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
+
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "@nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+
+export {}
+`
 
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
@@ -778,7 +811,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
-    icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", ...options.icons },
+    icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", stroke: 1.5, ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },

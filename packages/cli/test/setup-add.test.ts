@@ -132,7 +132,7 @@ describe("vitehub add", () => {
       expect(result.json.install.packages).not.toContain("@vite-hub/database")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.database).toMatchObject({ value: false })
-      expect(config.ok && config.site.keys.comments?.value).toBe(comments)
+      expect(config.ok && config.site.keys.comments).toEqual(comments === false ? { kind: "literal", value: false } : undefined)
     }
   })
 
@@ -226,8 +226,8 @@ describe("vitehub add", () => {
 
     const second = await add(["console", "--option", "console.auth=false", "--no-install", "--yes"], root)
     expect(second.exitCode, second.stdout).toBe(0)
-    // The prebuilt Console app is an optional peer of `vite-hub`.
-    expect(second.json.install.packages).toContain("@vite-hub/console-client")
+    // The Console app is hosted, so the app installs no Console package.
+    expect(second.json.install.packages).not.toContain("@vite-hub/console-client")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("console: { auth: false }")
     expect((await add(["console", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })
@@ -526,7 +526,7 @@ describe("vitehub add", () => {
     expect(result.exitCode, result.stdout).toBe(0)
     const files = Object.keys(await snapshot(root))
     expect(files).toContain(`${serverDir}/queues/jobs.ts`)
-    expect(files).toContain(`${serverDir}/databases/jobs/config.ts`)
+    expect(files).toContain(`${serverDir}/databases/jobs.ts`)
     expect(files.some(file => file.startsWith("server/"))).toBe(false)
     expect((await add(args, root)).json.status).toBe("unchanged")
   })
@@ -861,7 +861,7 @@ describe("vitehub add", () => {
     expect(await readFile(join(root, "package.json"), "utf8")).not.toBe(pnpmManifest)
     expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe("install 2")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(config)
-    expect(Object.keys(await snapshot(root))).not.toContain("server/databases/main/config.ts")
+    expect(Object.keys(await snapshot(root))).not.toContain("server/databases/main.ts")
   })
 
   it("changes no file when the install fails", async () => {
@@ -977,26 +977,24 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    ["vite", "", "server/databases/main/config.ts", "main"],
-    ["vite", "", "server/databases/team/main/config.cjs", "team/main"],
-    ["vite", "", "src/main.database.ts", "main"],
-    ["vite", "", "main.database.mts", "main"],
-    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/backend/databases/main/config.cts", "main"],
-    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/src/main.database.mjs", "main"],
-  ])("rejects a default Database beside a named Definition without writing: %s %s %s", async (framework, options, definition, name) => {
+    ["server/databases/main/index.ts", "main"],
+    ["server/databases/team/main.ts", "team/main"],
+  ])("writes the default Database beside the named Definition %s", async (definition, name) => {
     const root = await createProject({
       [definition]: `export default { name: ${JSON.stringify(name)} }\n`,
       "package.json": pnpmManifest,
-      ...(framework === "nuxt"
-        ? { "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })` }
-        : { "vite.config.ts": viteConfig('{ preset: "node" }') }),
+      "vite.config.ts": viteConfig('{ preset: "node" }'),
     })
-    const before = await snapshot(root)
-    const { exitCode, json } = await add(["database", "--name", "default", "--no-install", "--yes"], root)
+    const { exitCode } = await add(["database", "--name", "default", "--no-install", "--yes"], root)
 
-    expect(exitCode).toBe(3)
-    expect(json.error).toMatchObject({ code: "SETUP_FILE_EXISTS", message: expect.stringContaining(`${definition} already defines a Database Definition`) })
-    expect(await snapshot(root)).toEqual(before)
+    expect(exitCode).toBe(0)
+    expect(await readFile(join(root, "server/databases/default.ts"), "utf8")).toContain("defineDatabase({\n  schema: {")
+  })
+
+  it("names a named starter Database after its file", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node" }') })
+    expect((await add(["database", "--name", "analytics", "--no-install", "--yes"], root)).exitCode).toBe(0)
+    expect(await readFile(join(root, "server/databases/analytics.ts"), "utf8")).toContain('defineDatabase({\n  name: "analytics",\n  schema: {')
   })
 
   it("refuses a starter that would be a second Definition of the same name", async () => {
@@ -1005,9 +1003,9 @@ describe("vitehub add", () => {
     const before = await snapshot(root)
 
     for (const [args, file, starter] of [
-      [["database", "--name", "default"], "src/database.ts", "server/databases/config.ts"],
+      [["database", "--name", "default"], "src/database.ts", "server/databases/default.ts"],
       // The owner rejects a Named Database next to the Default one.
-      [["database", "--name", "main"], "src/database.ts", "server/databases/main/config.ts"],
+      [["database", "--name", "main"], "src/database.ts", "server/databases/main.ts"],
       [["queue", "--name", "welcome-email"], "src/welcome-email.queue.ts", "server/queues/welcome-email.ts"],
     ] as const) {
       const { exitCode, json } = await add([...args, "--no-install", "--yes"], root)

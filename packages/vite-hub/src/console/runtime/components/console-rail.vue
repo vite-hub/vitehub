@@ -9,7 +9,6 @@ import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
-import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { isRemoteProject, projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
 import { signOutConsoleProject, useConsoleProjects } from "../client/project-session";
@@ -34,7 +33,6 @@ const props = defineProps<{
 const route = useRoute();
 const router = useRouter();
 const navigation = shallowRef<ConsoleNavigation>();
-const updateReady = useConsoleUpdate();
 const navigationFailed = ref(false);
 // Loading again cannot help without a session, so the rail offers no retry then. The page says how to sign in.
 const signedOut = ref(false);
@@ -107,10 +105,6 @@ const userMenuItems = computed<DropdownMenuItem[]>(() => {
   }
   return items;
 });
-
-function reload(): void {
-  window.location.reload();
-}
 
 async function open(routeName: string): Promise<void> {
   const name = resolveConsoleRouteName(route.name, routeName);
@@ -256,7 +250,6 @@ onMounted(() => {
   window.addEventListener("blur", invalidateGoToStart);
   unsubscribe = subscribeConsoleNavigation(props.sectionsBase, showNavigation);
   void loadNavigation();
-  if (!remote) watchConsoleBuild(props.sectionsBase);
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", trackGoToStart, true);
@@ -313,16 +306,6 @@ onBeforeUnmount(() => {
     </template>
 
     <template #footer="{ expanded }">
-      <!-- A newer Console is deployed. The item stays until a reload, and the status region announces it once. -->
-      <UTooltip v-if="updateReady" text="Update ready. Reload to use the new Console." :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem class="vitehub-console__rail-update" label="Update ready, reload" @click="reload">
-          <UIcon name="i-lucide-rotate-cw" class="size-[1.125rem]" />
-          <template #label>
-            Update ready <span class="vitehub-console__rail-update-action">Reload</span>
-          </template>
-        </PrimitiveRailItem>
-      </UTooltip>
-      <span role="status" class="sr-only">{{ updateReady ? "A new Console version is ready. Reload to use it." : "" }}</span>
       <UTooltip text="Connect an agent" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem
           :current="route.name === 'vitehub-console-connect'"
@@ -372,43 +355,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-.vh-primitive-rail .vitehub-console__rail-update {
-  color: var(--ui-text-highlighted);
-}
-
-/* A dot in the corner of the icon box marks the update while the rail is collapsed. The ring cuts it from the icon. */
-.vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon {
-  position: relative;
-}
-
-.vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: var(--vh-bg-muted);
-  background: var(--ui-info);
-  border-radius: 9999px;
-  box-shadow: 0 0 0 2px var(--vitehub-console-rail-update-ring);
-  content: "";
-  inset-block-start: 0.375rem;
-  inset-inline-end: 0.375rem;
-  position: absolute;
-  height: 0.375rem;
-  width: 0.375rem;
-}
-
-.dark .vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: #000;
-}
-
-@media (hover: hover) {
-  .vh-primitive-rail .vitehub-console__rail-update:hover .vh-primitive-rail__icon::after {
-    --vitehub-console-rail-update-ring: var(--vh-bg-elevated);
-  }
-}
-
-.vh-primitive-rail .vitehub-console__rail-update-action {
-  color: var(--ui-text-dimmed);
-  margin-inline-start: 0.25rem;
-}
-
 .vh-primitive-rail .vitehub-console__rail-home {
   color: var(--ui-text-highlighted);
 }

@@ -35,7 +35,7 @@ For each `POST`, `handleFormRequest()`:
 9. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
 10. Answers 201 with `{ id }`.
 
-A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=sent` or `?form=error`.
+A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=<name>.sent` or `?form=<name>.error`, such as `?form=contact.sent`.
 
 For Valibot object schemas, form data is decoded before validation: number inputs and numeric select choices become numbers, checked boolean fields become `true`, and omitted boolean fields become `false`. Empty number inputs and select placeholders become `undefined`. JSON keeps its input types.
 

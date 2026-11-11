@@ -2,7 +2,7 @@ import { renameSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig, type UserConfig } from "vite";
 
-import consoleConfig from "./console.vite.config";
+import consoleConfig from "./console.hosted.vite.config";
 import { consoleDocumentMetadata } from "./src/console/document-metadata";
 
 // The page of the Console app (`@vite-hub/console`): the hosted page in `account` mode. People sign in to the Console,
@@ -18,7 +18,7 @@ export default defineConfig({
   base: "/",
   publicDir: false,
   plugins: [
-    ...(base.plugins ?? []),
+    ...(base.plugins ?? []).filter(plugin => !(plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vitehub-console-hosted")),
     {
       name: "vitehub-console-account",
       transformIndexHtml: html => html

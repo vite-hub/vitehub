@@ -4,7 +4,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it } from "vitest"
 import { operationCliPath } from "@vite-hub/internal/operations"
 
-import { consoleDatabaseKey, consoleDatabaseRegistryKey, consoleDatabaseRootKey } from "../src/console/internal.ts"
+import { consoleState } from "../src/console/internal.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
@@ -45,9 +45,7 @@ function call(operation: string, input: unknown = {}, headers: Record<string, st
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close()
-  for (const scope of [globalThis, process]) {
-    for (const key of [consoleDatabaseKey, consoleDatabaseRegistryKey, consoleDatabaseRootKey]) Reflect.deleteProperty(scope, key)
-  }
+  delete consoleState().database
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
 })

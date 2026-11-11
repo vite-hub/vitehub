@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
+import { mergeNitroExternal as mergeRollupExternal } from '@vite-hub/internal/nitro-kit'
 import { resolvePathSync } from 'mlly'
 import { dirname, join, relative, resolve } from 'pathe'
 import type { Plugin } from 'rollup'
@@ -59,20 +60,6 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
     migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
     name: options.name || undefined,
   }
-}
-
-function mergeRollupExternal(value: unknown, addition: string): unknown {
-  if (typeof value === 'undefined')
-    return [addition]
-  if (Array.isArray(value))
-    return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === 'string' || value instanceof RegExp)
-    return [value, addition]
-  if (typeof value === 'function') {
-    return (source: string, importer?: string, isResolved?: boolean) =>
-      source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {

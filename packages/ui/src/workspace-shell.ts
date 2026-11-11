@@ -1,1 +1,1 @@
-export { WorkspaceShell, type WorkspaceLayout, type WorkspaceSplits, type WorkspaceTab } from "./workspace/workspace-shell.ts";
+export { WorkspaceShell, type WorkspaceLayout, type WorkspaceSplits, type WorkspaceTab, type WorkspaceTabItem } from "./workspace/workspace-shell.ts";

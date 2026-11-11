@@ -135,7 +135,7 @@ describe("document urls", () => {
     expect((await content.collection("posts").list({ ref: "draft" })).items.map(item => item.url)).toEqual(["/blog/news/2026/hello%20world", null])
     expect(content.collections().map(collection => [collection.name, collection.routable])).toEqual([["posts", true], ["pages", true], ["home", true], ["notes", false]])
     // The Console editor gets the URL for canonical placeholders and previews.
-    const actions = createContentConsoleActions({ content: { ...content, can: async () => true } })
+    const actions = createContentConsoleActions({ default: { ...content, can: async () => true } })
     expect(await actions.get({ collection: "home", id: "home" }, { user: null })).toMatchObject({ url: "/" })
     expect(await actions.get({ collection: "notes", id: "a" }, { user: null })).not.toHaveProperty("url")
   })

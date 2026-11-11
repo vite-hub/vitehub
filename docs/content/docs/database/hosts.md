@@ -19,8 +19,8 @@ icon: i-lucide-cloud-cog
 
 `vite dev` uses local SQLite for every Database by default. Set `remote: true` on a Definition to query its real D1 database instead. The development server sends each query over HTTP to Cloudflare's D1 API, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env, like `cloudflare.http: true`. A local D1 binding does not replace it.
 
-```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+```ts [server/databases/default/index.ts] fragment
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -45,8 +45,8 @@ The database id comes from `cloudflare.databaseId` or from `vitehub provision ru
 
 Use one D1 database in local development and on other hosts. Cloudflare output still prefers the binding. Set `cloudflare.http: true` to call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
 
-```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+```ts [server/databases/default/index.ts] fragment
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -62,8 +62,8 @@ export default defineDatabase({
 
 Set `cloudflare.http: { url, authToken }` to send the same raw queries to an authenticated HTTP(S) proxy. Both values are required at runtime. The proxy never falls back to `CLOUDFLARE_API_TOKEN`.
 
-```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+```ts [server/databases/default/index.ts] fragment
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -93,8 +93,8 @@ Outside Cloudflare output, ViteHub keeps local SQLite and hosted libSQL without 
 
 D1 keeps one primary database in one region, so a far-away Worker waits on each query. Set `readReplication: true` to read from [D1 read replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/) near the Worker.
 
-```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+```ts [server/databases/default/index.ts] fragment
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
@@ -138,8 +138,8 @@ ViteHub finds the request through a request scope:
 - Vite Cloudflare output runs each request in its own scope.
 - Nitro 3 apps, Nuxt on Nitro 3 too, get a generated middleware that does the same.
 
-```ts [server/databases/config.ts] fragment
-import { defineDatabase } from '@vite-hub/database'
+```ts [server/databases/default/index.ts] fragment
+import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'
 
