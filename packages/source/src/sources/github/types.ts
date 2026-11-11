@@ -1,4 +1,4 @@
-import type { SourceCacheOptions } from "../../core/types.ts"
+import type { FileSource, SourceCacheOptions } from "../../core/types.ts"
 
 export interface GitHubSourceOptions {
   repo: string
@@ -26,3 +26,6 @@ export interface GitHubArchiveFile {
   content: Uint8Array
   path: string
 }
+
+/** What github() returns: a File Source with every optional method. */
+export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>, "getItems" | "getMeta" | "resolveRevision">>

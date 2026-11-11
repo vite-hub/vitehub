@@ -2,17 +2,17 @@
 // The end of every docs page: every documented area by category, with the current one marked.
 import { docsCatalog, docsSectionHome } from "#docs/navigation"
 
-import type { DocsSection } from "@vite-hub/docs"
+import type { DocsAppPage, DocsSection } from "@vite-hub/docs"
 
 const props = defineProps<{
-  current?: DocsSection | null
+  current?: DocsSection<DocsAppPage> | null
 }>()
 
 const { categories, footer, site } = useDocsConfig()
 const icons = useDocsIcons()
 const groups = docsCatalog(useDocsManifest(), categories)
 
-function isCurrent(section: DocsSection) {
+function isCurrent(section: DocsSection<DocsAppPage>) {
   return section.id === props.current?.id
 }
 </script>

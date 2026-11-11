@@ -14,6 +14,12 @@ Use the app's SQLite Drizzle database or another one. Like the Env and Connectio
 
 Here, users and events share the `auth` Database. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
+
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'
@@ -153,4 +159,4 @@ The log records only operations through the supported Better Auth hooks and endp
 
 ## Console runtime exports
 
-`@vite-hub/auth/runtime/console` exports `readAuthEventConsoleRecords`, a no-argument reader that follows `@vite-hub/internal/console`. It returns up to 50 recent records, or an empty array when the log is off. `listAuthEvents` and `aggregateAuthEvents` are exported too, for pages that need cursors or metrics. This package adds no Console UI.
+`@vite-hub/auth/runtime/console` exports `listAuthEvents` and `aggregateAuthEvents`, for Console pages that need cursors or metrics. This package adds no Console UI.

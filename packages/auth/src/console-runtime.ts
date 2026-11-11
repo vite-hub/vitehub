@@ -501,6 +501,7 @@ export function createAuthConsole(
     let input: AuthEventListInput;
     try {
       if (query.group !== undefined && !Object.hasOwn(authConsoleEventGroups, query.group))
+        // Internal invariant: the catch below returns a 400 for it.
         throw new TypeError("Unknown auth event group.");
       input = parseAuthEventList({
         type: query.group ? authConsoleEventGroups[query.group] : undefined,
@@ -1081,7 +1082,7 @@ export function createAuthConsole(
 }
 
 /** A short device label. The full user agent is never returned to the browser. */
-export function authConsoleDevice(userAgent: string): string {
+function authConsoleDevice(userAgent: string): string {
   const browser = /Edg\//.test(userAgent)
     ? "Edge"
     : /Firefox\//.test(userAgent)

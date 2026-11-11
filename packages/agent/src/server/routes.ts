@@ -37,14 +37,14 @@ import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-r
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
 import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { getAgentChannelStatusDefinition } from "../internal/channel-status.ts"
 import type { AgentChannelStatus } from "../internal/channel-status.ts"
-import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
@@ -102,6 +102,7 @@ import {
 } from "../internal/runtime-value.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
+import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
@@ -1533,7 +1534,7 @@ async function queuedWebhookInvocationCancelled(
 
 /** The name that identifies this Agent's Invocations. It matches the name of the Invocation journal. */
 function routeAgentInvocationName(agent: AgentInput<ViteAgentRouteRuntimeContext>, identity: AgentHostIdentity | undefined): string | undefined {
-  return (isRuntimeRecord(agent) && hasRuntimeType(agent.name, "string") && agent.name) || identity?.name
+  return (isRuntimeRecord(agent) && typeof agent.name === "string" && agent.name) || identity?.name
 }
 
 async function notifyQueuedWebhookFailure(
@@ -4502,7 +4503,7 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isAttachmentBlob(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
+  if (isAttachmentBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4549,12 +4550,12 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     } catch {
       return undefined
     }
-    if (isAttachmentBlob(data) && blobSize(data) > chatTextAttachmentMaxBytes) {
+    if (isAttachmentBlob(data) && data.size > chatTextAttachmentMaxBytes) {
       if (!options.rejectOversizedTextAttachments) return
       throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
     }
     try {
-      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(data)), options)
+      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await data.arrayBuffer()), options)
       return checkedTextAttachmentBytes(data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
@@ -4562,11 +4563,11 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     }
   }
   if (isAttachmentBlob(attachment.data)) {
-    if (blobSize(attachment.data) > chatTextAttachmentMaxBytes) {
+    if (attachment.data.size > chatTextAttachmentMaxBytes) {
       if (!options.rejectOversizedTextAttachments) return
       throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
     }
-    return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(attachment.data)), options)
+    return checkedTextAttachmentBytes(new Uint8Array(await attachment.data.arrayBuffer()), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -7996,10 +7997,10 @@ async function channelHistoryAttachment(
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
   if (isAttachmentBlob(data)) {
     const blob = isAttachmentBlob(data) ? data : undefined
-    if (blob && blobSize(blob) <= maxBytes) {
+    if (blob && blob.size <= maxBytes) {
       try {
         // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -8013,10 +8014,10 @@ async function channelHistoryAttachment(
   }
   if (isAttachmentBlob(data)) {
     const blob = isAttachmentBlob(data) ? data : undefined
-    if (blob && blobSize(blob) <= maxBytes) {
+    if (blob && blob.size <= maxBytes) {
       try {
         // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -9366,6 +9367,40 @@ function createChannelTaskQueue(
       await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId })
       return { deliveryId, notBefore: options.notBefore, runId }
     }),
+    trigger: (channel, triggerName, input) => withContext(async (context) => {
+      // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
+      const triggers = await resolveAgentTriggers(agent as never, context as never)
+      const handlerEvent = !Object.hasOwn(triggers, `${channel}.${triggerName}`) && Object.hasOwn(triggers, `${channel}.${channelHandlerTriggerName}`)
+        && Object.hasOwn(triggers[`${channel}.${channelHandlerTriggerName}`]!.tasks ?? {}, triggerName)
+      const triggerId = `${channel}.${handlerEvent ? channelHandlerTriggerName : triggerName}`
+      const trigger = triggers[triggerId]
+      if (!trigger) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" has no trigger or \`on\` handler "${triggerName}".` })
+      const registrations = (await agentWebhookRegistrations(agent, context)).filter(match => match.registration.channelId === channel)
+      const match = registrations.find(candidate => candidate.trigger.id === triggerId) ?? registrations[0]
+      if (!match) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" declares no webhook, so it has no queue for trigger "${triggerName}".` })
+      const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+      if (!webhookState || !hasAgentWebhookQueue(webhookState.state)) {
+        throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot queue triggers. Use durable SQLite or libSQL Agent State.` })
+      }
+      const queueState = { keyPrefix: webhookState.keyPrefix, state: webhookState.state }
+      // The trigger gets the same State and queue as on its webhook route, so its dispatch(), pull(), and
+      // channelState.transaction() work, and its result is admitted like a webhook delivery.
+      const request = context.request!
+      const admit = createQueuedChannelDispatch(agent, request, match.registration, match.registration.id || match.registration.provider, queueState, handlerOptions, webhookQueue)
+      bindAgentChannelTriggerState(request, channel, { keyPrefix: `${webhookState.keyPrefix}channel-state:`, state: webhookState.state })
+      bindAgentChannelWebhookState(request, channel)
+      bindAgentChannelTriggerQueue(request, channel, admit)
+      // A trigger that receives webhooks reads the body as `payload`, as from its route.
+      const receivesWebhooks = trigger.webhooks === undefined || trigger.webhooks.length > 0
+      const body = JSON.stringify(input ?? null)
+      const triggerInput = handlerEvent || receivesWebhooks
+        ? { body, payload: input, request: { headers: {}, method: "POST", url: request.url }, ...(handlerEvent ? { event: triggerName } : {}) }
+        : input
+      const key = globalThis.crypto.randomUUID()
+      const result = await admit(createExecutionContext(context as never) as never, [{ input: triggerInput, key }], { queue: true, rawBody: new TextEncoder().encode(body), trigger: triggerId.slice(channel.length + 1) })
+      const item = result.items[0]
+      return { deliveryId: item?.status === "queued" ? item.id : item?.id ?? key, queued: item?.status === "queued" }
+    }),
     cancel: (channel, task, options) => withContext(async (context) => {
       const { trigger, webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
       if (!webhookState.state.cancelWebhookDeliveries) {
@@ -9439,7 +9474,7 @@ function createQueuedChannelDispatch(
           context as never,
           triggerId,
           item.input,
-          { channelStateCommit: commit, verifyWebhook: false },
+          { channelStateCommit: commit, rawBody: options?.rawBody, verifyWebhook: false },
         )
         if (isResolvedAgentTriggerHandledInvocation(invocation)) {
           await invocation.response.body?.cancel()
@@ -9498,7 +9533,7 @@ function createQueuedChannelDispatch(
 function simulatedChannels(agent: unknown): Array<{ id: string, kind: string }> {
   if (!isRecord(agent) || !isRecord(agent.channels)) return []
   return Object.entries(agent.channels).flatMap(([id, channel]) =>
-    isRuntimeRecord(channel) && hasRuntimeType(channel.kind, "string") && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
+    isRuntimeRecord(channel) && typeof channel.kind === "string" && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
 }
 
 /**
@@ -9526,7 +9561,7 @@ async function simulatedChannelPageResponse(
   const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, webhookId))
   const channelId = match?.registration.channelId
   const channel = channelId ? channels[channelId] : undefined
-  if (!match || !channelId || !isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  if (!match || !channelId || !isRuntimeRecord(channel) || typeof channel.kind !== "string" || !isChannelSimulated(channel.kind)) return undefined
   const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
   const route = new URL(request.url).pathname
   // The other Channels share the route and differ in the webhook selector. Declared paths and aliases need not share

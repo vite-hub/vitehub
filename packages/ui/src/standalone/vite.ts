@@ -8,6 +8,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, "..");
 const virtualIcons = "virtual:vitehub-ui-icons";
 const nuxtUI = "\0vitehub-ui-standalone:";
+// The stylesheet imports of the Chat, KaTeX, and WorkspaceTerminal styles.
+const unusedStyles = /@import\s+["'](?:katex\/dist\/katex\.min\.css|comark-chat\/style\.css|@xterm\/xterm\/css\/xterm\.css)["']/;
 
 // The Nuxt UI components that the parts import, and the stand-in of `nuxt-ui.ts` that each one becomes. The parts load
 // them on first render (see `internal/nuxt-ui.ts`), so the others, such as the Chat ones, render nothing.
@@ -66,7 +68,7 @@ function shapes(name: string, body: string): Array<[string, Record<string, strin
  *   renders nothing;
  * - the Markdown part becomes `standalone/markdown.ts`, which has no parser, highlighter, or KaTeX;
  * - `UIcon` gets its icons as shapes;
- * - the stylesheet loses its Chat and KaTeX imports, which the comment parts do not use.
+ * - the stylesheet loses its Chat, KaTeX, and terminal imports, which the comment parts do not use.
  */
 export function standaloneUI(): Plugin {
   return {
@@ -103,10 +105,11 @@ export function standaloneUI(): Plugin {
       },
     },
     transform: {
-      // The handler changes only the stylesheet's Chat and KaTeX imports and the parts' dynamic Nuxt UI imports.
-      filter: { code: [/@import\s+["'](?:katex\/dist\/katex\.min\.css|comark-chat\/style\.css)["']/, /\bimport\(\s*["']@nuxt\/ui\//] },
+      // The handler changes only the stylesheet's Chat, KaTeX, and terminal imports and the parts' dynamic Nuxt UI imports.
+      filter: { code: [unusedStyles, /\bimport\(\s*["']@nuxt\/ui\//] },
       handler(code, id) {
-        if (/[\\/]ui[\\/]styles\.css$/.test(id)) return code.replace(/^@import\s+["'](?:katex\/dist\/katex\.min\.css|comark-chat\/style\.css)["'];?\s*$/gm, "");
+        // An overlay imports the stylesheet with `?inline`.
+        if (/[\\/]ui[\\/]styles\.css(?:\?.*)?$/.test(id)) return code.replace(new RegExp(`^${unusedStyles.source}[^;\\n]*;?\\s*$`, "gm"), "");
         // The parts load Nuxt UI on first render with `import()`. Its stand-ins are small, so they come along at once, and
         // the build does not split the page's bundle around them.
         if (!/\bimport\(\s*["']@nuxt\/ui\//.test(code)) return undefined;

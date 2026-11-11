@@ -25,6 +25,9 @@ const bundledFilesSdkDrivers = new Set([
   "uploadthing",
 ]);
 
+// Generated code imports these modules by path. They are not public API.
+const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./storage"]);
+
 const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
 // `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
@@ -68,9 +71,7 @@ export default defineConfig({
       "src/cli.ts",
       "src/client.ts",
       "src/config.ts",
-      "src/content-type.ts",
       "src/errors.ts",
-      "src/ensure.ts",
       "src/storage.ts",
       "src/drivers/akamai.ts",
       "src/drivers/azure.ts",
@@ -93,9 +94,9 @@ export default defineConfig({
       "src/drivers/vercel.ts",
       "src/drivers/vercel-bundled.ts",
       "src/index.ts",
+      "src/internal/vercel-blob.ts",
       "src/media.ts",
       "src/operations.ts",
-      "src/reference.ts",
       "src/vite.ts",
       "src/runtime/state.ts",
       "src/served.ts",
@@ -106,7 +107,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
           Object.entries(exports)
-            .filter(([key]) => key !== "./drivers/vercel-bundled" && key !== "./storage")
+            .filter(([key]) => !privateEntries.has(key))
             .map(([key, value]) => {
               const driver = key.match(/^\.\/drivers\/(.+)$/)?.[1];
               if (!driver || !bundledFilesSdkDrivers.has(driver) || typeof value !== "string") {
@@ -128,6 +129,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

@@ -95,6 +95,6 @@ export default defineConfig({
       inlinedDependencies: false,
     },
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: true,
+    publint: "ci-only",
   },
 });

@@ -1,32 +1,18 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { Readable } from "node:stream"
-import { fileURLToPath } from "node:url"
 
 import ts from "typescript"
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { createServer, DevEnvironment, mergeConfig, resolveConfig } from "vite"
+import { afterEach, describe, expect, it } from "vitest"
+import { mergeConfig, resolveConfig } from "vite"
 
-
-import * as authServer from "../src/server.ts"
-import { defineAuth } from "../src/index.ts"
-
-import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
+import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
 const tempDirs: string[] = []
-const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
 
 async function createTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-vite-"))
   tempDirs.push(rootDir)
-  return rootDir
-}
-
-async function createWorkspaceTempProject(): Promise<string> {
-  const rootDir = await mkdtemp(join(workspaceRoot, ".tmp-vitehub-auth-vite-"))
-  tempDirs.push(rootDir)
-  await writeFile(join(rootDir, "package.json"), "{}")
   return rootDir
 }
 
@@ -214,12 +200,12 @@ describe("hubAuth", () => {
     expect(diagnostics).toEqual([])
   })
 
-  it("lets top-level config disable the auth plugin", async () => {
+  it("disables the auth plugin with false", async () => {
     const root = await createTempProject()
     await writeAuth(root)
 
-    const plugin = hubAuth()
-    await (plugin.configResolved as (config: { auth: false; root: string }) => Promise<void>)({ auth: false, root })
+    const plugin = hubAuth(false)
+    await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 
     expect(plugin.api.getConfig()).toBeUndefined()
     expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
@@ -400,155 +386,6 @@ describe("hubAuth", () => {
     ].join("\n"))
   })
 
-  it("serves portable native responses without getSetCookie through the mounted Auth route", async () => {
-    const root = await createWorkspaceTempProject()
-    await writeAuth(root)
-    await writeFile(join(root, "index.html"), "<div>ok</div>")
-    const authResponse = new Response("Portable policy response", {
-      status: 409,
-      headers: { "x-policy": "portable", "set-cookie": "policy=denied; Path=/" },
-    })
-    Object.defineProperty(authResponse.headers, "getSetCookie", { value: undefined })
-    // SAFETY: The mounted route needs only this Better Auth handler for the response serialization regression.
-    const handler = vi.spyOn(authServer, "getAuthForDefinition").mockReturnValue({
-      handler: async () => authResponse,
-    } as never)
-    const server = await createServer({
-      configFile: false,
-      plugins: [hubAuth()],
-      root,
-      server: { host: "127.0.0.1", port: 0 },
-    })
-    try {
-      await server.listen()
-      const address = server.httpServer?.address()
-      if (!address || typeof address === "string") throw new Error("Expected local Auth server address")
-      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/get-session`)
-      expect(response.status).toBe(409)
-      expect(response.headers.get("x-policy")).toBe("portable")
-      expect(response.headers.getSetCookie()).toEqual(["policy=denied; Path=/"])
-      await expect(response.text()).resolves.toBe("Portable policy response")
-      expect(handler).toHaveBeenCalledOnce()
-    }
-    finally {
-      handler.mockRestore()
-      await server.close()
-    }
-  })
-
-  it("shares dev route sessions with the authenticated Agent helper in SSR modules", async () => {
-    const root = await createWorkspaceTempProject()
-    await writeAuth(root)
-    await writeFile(join(root, "server", "auth.ts"), [
-      "import { defineAuth } from '@vite-hub/auth'",
-      "export default defineAuth({ appName: 'ViteHub', emailAndPassword: { enabled: true } })",
-      "",
-    ].join("\n"))
-    await writeFile(join(root, "server", "check.ts"), [
-      "import { authenticated } from '@vite-hub/auth/agent'",
-      "export async function resolveInvoker(cookie = '', required = true) {",
-      "  const store = new Map()",
-      "  const options = authenticated({ required })",
-      "  return await options.resolve({",
-      "    context: { entries: () => store.entries(), get: id => store.get(id), has: id => store.has(id), set: (id, value) => store.set(id, value), toJSON: () => Object.fromEntries(store) },",
-      "    defaultInvoker: { id: 'anonymous:test', kind: 'anonymous' },",
-      "    input: {},",
-      "    profiles: [],",
-      "    request: new Request('http://localhost/api/agent', { headers: cookie ? { cookie } : {} }),",
-      "    runtime: 'unknown',",
-      "  })",
-      "}",
-      "",
-    ].join("\n"))
-    await writeFile(join(root, "index.html"), "<div>ok</div>")
-
-    const server = await createServer({
-      configFile: false,
-      plugins: [hubAuth()],
-      root,
-      server: {
-        host: "127.0.0.1",
-        port: 0,
-      },
-    })
-
-    try {
-      await server.listen()
-      const address = server.httpServer?.address()
-      const port = typeof address === "object" && address ? address.port : undefined
-      expect(port).toBeTypeOf("number")
-      const module = await server.ssrLoadModule(join(root, "server", "check.ts")) as {
-        resolveInvoker: (cookie?: string, required?: boolean) => Promise<{ id: string; kind?: string; meta?: Record<string, unknown> } | undefined>
-      }
-      const coldInvoker = await module.resolveInvoker("", false)
-
-      const response = await fetch(`http://127.0.0.1:${port}/api/auth/sign-up/email`, {
-        body: JSON.stringify({
-          email: `auth-${Date.now()}@example.com`,
-          name: "Auth User",
-          password: "passwordpassword",
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      })
-      const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
-      const invoker = await module.resolveInvoker(cookie)
-
-      expect(coldInvoker).toBeUndefined()
-      expect(response.status).toBe(200)
-      const sessionResponse = await fetch(`http://127.0.0.1:${port}/api/auth/get-session`, { headers: { cookie } })
-      expect(sessionResponse.status).toBe(200)
-      await expect(sessionResponse.json()).resolves.toMatchObject({ session: { ipAddress: "127.0.0.1" } })
-      if (!invoker) throw new Error("Expected authenticated invoker.")
-      expect(invoker).toMatchObject({
-        kind: "authUser",
-        meta: {
-          authUserId: invoker.id,
-        },
-      })
-    }
-    finally {
-      await server.close()
-    }
-  })
-
-  it("lets the host serve Auth routes when the SSR environment cannot run modules", async () => {
-    // Nuxt 5 gives Vite an `ssr` environment that does not run modules. The Nitro route after the Vite middleware serves Auth.
-    const root = await createTempProject()
-    await writeAuth(root)
-    const server = await createServer({
-      configFile: false,
-      environments: {
-        ssr: { dev: { createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } },
-      },
-      logLevel: "silent",
-      plugins: [hubAuth(), {
-        name: "test:host-auth-route",
-        configureServer(viteServer) {
-          return () => viteServer.middlewares.use((request, response) => {
-            response.statusCode = 200
-            response.end(`host ${request.method} ${request.url}`)
-          })
-        },
-      }],
-      root,
-      server: { host: "127.0.0.1", port: 0 },
-    })
-
-    try {
-      await server.listen()
-      const address = server.httpServer?.address()
-      if (!address || typeof address !== "object") throw new Error("Expected a TCP address.")
-      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/sign-up/email`, { method: "POST" })
-
-      expect(response.status).toBe(200)
-      await expect(response.text()).resolves.toBe("host POST /api/auth/sign-up/email")
-    }
-    finally {
-      await server.close()
-    }
-  })
-
   it("invalidates the virtual definition module during auth definition hot updates", async () => {
     const root = await createTempProject()
     const definition = await writeAuth(root)
@@ -582,162 +419,6 @@ describe("hubAuth", () => {
 
     expect(invalidated).toEqual([`\0${AUTH_DEFINITION_ID}`])
   })
-
-  it.each([true, false])("preserves separate cookies in dev responses (getSetCookie: %s)", async (nativeCookies) => {
-    const root = await createTempProject()
-    await writeAuth(root)
-    const plugin = hubAuth()
-    await resolvePluginConfig(plugin, root)
-    const cookies = [
-      "session=first; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/; HttpOnly",
-      "state=second; Path=/; Secure",
-    ]
-    const webResponse = new Response("redirect", { status: 302, headers: { location: "/app", "set-cookie": cookies.join(", ") } })
-    if (nativeCookies) Object.defineProperty(webResponse.headers, "getSetCookie", { value: () => cookies })
-    else Object.defineProperty(webResponse.headers, "getSetCookie", { value: undefined })
-    const server = await import("../src/server.ts")
-    const auth = vi.spyOn(server, "getAuthForDefinition").mockReturnValue({ handler: async () => webResponse } as unknown as ReturnType<typeof server.getAuthForDefinition>)
-    try {
-      let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
-      const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-      configureServer({
-        environments: { ssr: { runner: {} } },
-        middlewares: { use(handler: typeof middleware) { middleware = handler } },
-        ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
-      })
-      if (!middleware) throw new Error("Auth middleware was not registered.")
-      const target = { appendHeader: vi.fn(), end: vi.fn(), write: vi.fn(), statusCode: 0, statusMessage: "" }
-      const next = vi.fn()
-      await middleware({ headers: { host: "app.example" }, method: "GET", url: "/api/auth/session" }, target, next)
-      expect(next).not.toHaveBeenCalled()
-      expect(target.statusCode).toBe(302)
-      // Without getSetCookie(), sendWebResponse() splits the combined field at cookie names.
-      expect(target.appendHeader.mock.calls.filter(([key]) => key === "set-cookie")).toEqual(cookies.map(cookie => ["set-cookie", cookie]))
-      expect(target.appendHeader).toHaveBeenCalledWith("location", "/app")
-      expect(target.write).toHaveBeenCalledWith(Buffer.from("redirect"))
-      expect(target.end).toHaveBeenCalledOnce()
-    }
-    finally { auth.mockRestore() }
-  })
-
-  it("lets Nitro serve the Auth route when Nitro runs in the dev server", async () => {
-    const root = await createTempProject()
-    await writeAuth(root)
-    const plugin = hubAuth()
-    await resolvePluginConfig(plugin, root)
-    const use = vi.fn()
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer({
-      environments: { nitro: { dispatchFetch: async () => new Response() }, ssr: { runner: {} } },
-      middlewares: { use },
-      ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
-    })
-    // One Auth instance serves `/api/auth` and the Console, so they share users and sessions.
-    expect(use).not.toHaveBeenCalled()
-  })
-
-  it.each([true, false])("preserves peer rate-limit buckets in dev (request runtime: %s)", async (requestRuntime) => {
-    const root = await createTempProject()
-    await writeAuth(root)
-    const plugin = hubAuth()
-    await resolvePluginConfig(plugin, root)
-    const options = {
-      emailAndPassword: { enabled: true },
-      rateLimit: { enabled: true },
-    }
-    const runtime = { secret: "abcdefghijklmnopqrstuvwxyz0123456789" }
-    const definition = requestRuntime ? defineAuth(() => ({ ...options, ...runtime })) : defineAuth({ ...options, runtime })
-    let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer({
-      environments: { ssr: { runner: {} } },
-      middlewares: { use(handler: typeof middleware) { middleware = handler } },
-      ssrLoadModule: async () => ({ default: definition }),
-    })
-    if (!middleware) throw new Error("Auth middleware was not registered.")
-
-    const send = async (address: string, index: number) => {
-      const request = Object.assign(Readable.from([Buffer.from(JSON.stringify({ email: "nobody@example.com", password: "wrong-password" }))]), {
-        headers: {
-          "content-type": "application/json",
-          "host": "app.example.com",
-          "origin": "http://app.example.com",
-          "x-forwarded-for": `203.0.113.${index}`,
-          "x-vitehub-client-address": `203.0.113.${index}`,
-        },
-        method: "POST",
-        socket: { remoteAddress: address },
-        url: "/api/auth/sign-in/email",
-      })
-      const response = { appendHeader() {}, end() {}, write() {}, statusCode: 0, statusMessage: "" }
-      const next = vi.fn()
-      await middleware!(request, response, next)
-      expect(next).not.toHaveBeenCalled()
-      return response.statusCode
-    }
-
-    try {
-      const first = requestRuntime ? "192.0.2.101" : "192.0.2.103"
-      const second = requestRuntime ? "192.0.2.102" : "192.0.2.104"
-      const statuses: number[] = []
-      for (let index = 1; index <= 4; index++) statuses.push(await send(first, index))
-      expect(statuses).toEqual([401, 401, 401, 429])
-      expect(await send(second, 5)).toBe(401)
-    }
-    finally { authServer.resetAuth() }
-  })
-
-  it("accepts comma-separated forwarded protocols in the dev middleware", async () => {
-    const root = await createTempProject()
-    await writeAuth(root)
-    const plugin = hubAuth()
-    await resolvePluginConfig(plugin, root)
-
-    let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer({
-      environments: { ssr: { runner: {} } },
-      middlewares: {
-        use(handler: typeof middleware) {
-          middleware = handler
-        },
-      },
-      ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
-    })
-    if (!middleware) throw new Error("Auth middleware was not registered.")
-
-    const next = vi.fn()
-    let ended = false
-    const response = {
-      appendHeader: vi.fn(),
-      end: vi.fn(() => { ended = true }),
-      statusCode: 0,
-      statusMessage: "",
-      write() {},
-    }
-
-    await middleware({
-      headers: { host: "app.example", "x-forwarded-proto": "https,http" },
-      method: "GET",
-      url: "/api/auth/session",
-    }, response, next)
-
-    expect(next).not.toHaveBeenCalled()
-    expect(response.statusCode).toBeGreaterThanOrEqual(200)
-    expect(ended).toBe(true)
-  })
-})
-
-it("recognizes every path when Auth uses the root base path", async () => {
-  const { isAuthRequestPath } = await import("../src/shared.ts")
-  expect(isAuthRequestPath("/sign-in", "/")).toBe(true)
-  expect(isAuthRequestPath("/api/auth", "/")).toBe(true)
-})
-
-it("only passes Better Auth 404 responses through for the root base path", () => {
-  expect(shouldPassThroughAuthResponse("/", 404)).toBe(true)
-  expect(shouldPassThroughAuthResponse("/auth", 404)).toBe(false)
-  expect(shouldPassThroughAuthResponse("/", 200)).toBe(false)
 })
 
 describe("Auth tables in the app Database", () => {

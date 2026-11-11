@@ -14,7 +14,7 @@ icon: i-lucide-code-2
 | `image`, `file` from `vite-hub/blob` | Validate Blob references and describe them as JSON Schema for pickers. |
 | `blob.media` from `vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
 | `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `vite-hub/blob/media` | Image helpers that also run in the browser. `vite-hub/blob` re-exports them. |
-| `detectContentType` from `vite-hub/blob/content-type` | Detect common image and PDF signatures before storage. |
+| `detectContentType` from `vite-hub/blob`, or from `vite-hub/blob/client` in browser code | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `vite-hub/blob` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime config and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob runtime config yourself. |
@@ -29,10 +29,12 @@ Writes keep the metadata you give. `detectContentType()` checks the first bytes 
 Use `blob` in server code.
 
 ```ts [server/api/files.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, v.parser(v.object({ path: v.string(), text: v.string() })))
 
   const [error] = await blob.put(body.path, body.text, {
     contentType: 'text/plain',
@@ -98,7 +100,7 @@ export default defineEventHandler(async (event) => {
 
 `blob` implements `BlobStorage`.
 
-Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefined]` on failure, `[undefined, value]` on success. Expected provider and storage failures are errors with a `BLOB_*` code, `why`, `fix`, and `docs`, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Read [Blob limits and errors](/docs/blob/limits-and-errors) for each code. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()`, answer `BLOB_NOT_FOUND` with `404`, and throw other errors to the host.
+Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: `[error, undefined]` on failure, `[undefined, value]` on success. Expected provider and storage failures are errors with a `BLOB_*` code, `why`, `fix`, and `docs`, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Read [Blob limits and errors](/docs/blob/limits-and-errors) for each code. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. `blob.serve()` returns a `Response` for every expected outcome, including `400` and `404`, and throws a storage failure to the host.
 
 | Method | Description |
 | --- | --- |
@@ -108,14 +110,14 @@ Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefine
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event or a Fetchable `Request`, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
+| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. An empty pathname, a control character, or a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so the route answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
 
@@ -125,7 +127,26 @@ With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is 
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub app, and the `Request` of a Fetchable route. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. A Fetchable route must move that status and those headers to the `Response` that it returns: copy them, then delete them from `res.headers`, so Nitro does not add them a second time. The generated serve route does this for you. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers. When it does not serve the object, `serve()` removes these headers and restores any values the response had before the call.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them.
+
+In a Nitro 3 or H3 2 handler:
+
+```ts [server/routes/files/[...pathname].get.ts]
+import { blob } from '@vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  return blob.serve(event.req, pathname)
+})
+```
+
+`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
+
+HEAD responses keep the same status and headers as GET, with no body.
+
+In an H3 app, headers that middleware set on `event.res.headers` before the route replace the same headers of the returned `Response`, and they do not reach `4xx` responses. The generated Blob serve route preserves those middleware headers on `4xx` responses and keeps the Blob response headers when both set the same name.
 
 `blob.serve()` answers byte-range requests, so `<video>` and `<audio>` can seek and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`.
 
@@ -136,7 +157,7 @@ Use `blob.serve()` in an application route when authorization or a database look
 
 For a resized or cropped image, pass `variant`, or let the serve route read it from the query string. Read [Image variants](/docs/blob/media#image-variants).
 
-The optional `transform` gets the original `Blob` and returns the response `Blob`. ViteHub caches the result in the same store, with the same access, under `_vitehub/derived/`. Public writes, signed PUTs, multipart uploads, and the serve route cannot use `_vitehub/derived/`, `_vitehub/media/`, or the `_vitehub` pathname itself. On filesystem stores, old files at either cache path are kept. Transforms still work, but caching starts only after you move those files.
+The optional `transform` gets the original `Blob` and returns the response `Blob`. ViteHub caches the result in the same store, with the same access, under `_vitehub/derived/`. Public writes, signed PUTs, multipart uploads, and the serve route cannot use `_vitehub/derived/`, `_vitehub/media/`, `.vitehub/`, or the `_vitehub` pathname itself. On filesystem stores, old files at either cache path are kept. Transforms still work, but caching starts only after you move those files.
 
 ViteHub checks the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes apart from content metadata. If source metadata changes during the read, ViteHub reads again before it transforms. Stable ETags decide cache writes, not provider timestamps.
 
@@ -150,23 +171,23 @@ Use a private store to keep originals and variants reachable only through your a
 import { blob } from 'vite-hub/blob'
 import { createPreview, resolvePhotoPath } from '../../utils/photos'
 
-export default defineEventHandler(async (event) => {
-  const id = getRouterParam(event, 'id')!
-  // Validate access and resolve the private storage path before serving.
-  const path = await resolvePhotoPath(event, id)
-  const [error, response] = await blob.serve(event, path, {
-    cacheControl: 'public, max-age=300, must-revalidate',
-    transform: {
-      key: 'preview-768-v1',
-      run: createPreview,
-    },
-  })
-  if (error) throw error
-  return response
-})
+export default {
+  async fetch(request: Request) {
+    const id = new URL(request.url).pathname.split('/').at(-1)!
+    // Validate access and resolve the private storage path before serving.
+    const path = await resolvePhotoPath(request, id)
+    return blob.serve(request, path, {
+      cacheControl: 'public, max-age=300, must-revalidate',
+      transform: {
+        key: 'preview-768-v1',
+        run: createPreview,
+      },
+    })
+  },
+}
 ```
 
-`createPreview` is your code. Return a `Blob` with its response MIME type. Transform failures use the normal error tuple. If the cache write fails, ViteHub logs it and serves the fresh result. Requests at the same time in one runtime share one transform.
+`createPreview` is application code that validates and transforms the image. Return a `Blob` with its response MIME type. A transform failure throws a `BLOB_OPERATION_FAILED` error without the detail of the failure. If storing the derived result fails, ViteHub logs the failure and serves the freshly transformed result. Concurrent requests in one runtime share the transformation.
 
 Across runtimes, the cache is best effort. Source updates at the same time can remove a newer entry and cause another transform. The fingerprint check never returns an entry for the wrong source version. Drivers need no distributed locks or conditional writes.
 

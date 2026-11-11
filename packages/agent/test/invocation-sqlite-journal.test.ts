@@ -5,7 +5,6 @@ import { createClient } from "@libsql/client"
 import type { Client, InStatement, Transaction, TransactionMode } from "@libsql/client"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { createMemoryAgentInvocationStore, observationLimits } from "../src/invocations.ts"
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationStoreUpdateInput } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -31,8 +30,8 @@ const step = (sequence: number, attributes: Record<string, unknown> = {}) => ({
 })
 
 function statementSql(statement: unknown): string {
-  if (hasRuntimeType(statement, "string")) return statement
-  return statement !== null && hasRuntimeType(statement, "object") && "sql" in statement && hasRuntimeType(statement.sql, "string") ? statement.sql : ""
+  if (typeof statement === "string") return statement
+  return statement !== null && typeof statement === "object" && "sql" in statement && typeof statement.sql === "string" ? statement.sql : ""
 }
 
 /** Records the SQL and arguments that the store sends through the client and its transactions. */
@@ -44,7 +43,7 @@ function recordingClient(client: Client, protocol = client.protocol) {
   const wrapTransaction = (transaction: Transaction) => new Proxy(transaction, {
     get(target, property) {
       const value = Reflect.get(target, property)
-      if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+      if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
       return async (statement: InStatement) => {
         record(statement)
         return await target.execute(statement)
@@ -62,6 +61,12 @@ function recordingClient(client: Client, protocol = client.protocol) {
           return await target.execute(statement)
         }
       }
+      if (property === "executeMultiple") {
+        return async (sql: string) => {
+          record(sql)
+          return await target.executeMultiple(sql)
+        }
+      }
       if (property === "batch") {
         return async (batch: InStatement[], mode?: TransactionMode) => {
           batch.forEach(record)
@@ -71,7 +76,7 @@ function recordingClient(client: Client, protocol = client.protocol) {
       if (property === "transaction") {
         return async (mode?: TransactionMode) => wrapTransaction(await target.transaction(mode))
       }
-      return hasRuntimeType(value, "function") ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   }) as Client
   return { client: proxy, statements }
@@ -111,7 +116,7 @@ describe("SQLite invocation journal", () => {
     const readerClient = new Proxy(client, {
       get(target, property) {
         const value = Reflect.get(target, property)
-        if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+        if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
         return async (statement: InStatement) => {
           const result = await target.execute(statement)
           const sql = statementSql(statement)
@@ -170,11 +175,64 @@ describe("SQLite invocation journal", () => {
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
+    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nCREATE TABLE")))
+      .toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
     // synchronous is per connection, so every write sets it on the connection it borrows.
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
     expect(recording.statements.map(statementSql)[0]).toBe("PRAGMA synchronous = NORMAL")
     expect((await client.execute("PRAGMA synchronous")).rows[0]?.synchronous).toBe(1)
+  })
+
+  it.each([false, true])("uses NORMAL on each borrowed schema connection (legacy: %s)", async (legacy) => {
+    await client.execute("CREATE TABLE schema_modes (mode INTEGER NOT NULL)")
+    if (legacy) {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, record TEXT NOT NULL
+      )`)
+      await client.execute(`CREATE TABLE vitehub_agent_invocations_claims (
+        id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, expires_at INTEGER NOT NULL
+      )`)
+    }
+    const recordMode = "INSERT INTO schema_modes SELECT synchronous FROM pragma_synchronous"
+    const onBorrowedConnection = async <T>(operation: () => Promise<T>) => {
+      // Hold the idle connection so schema creation must borrow another one. Reset that connection to its default.
+      const held = await client.transaction("read")
+      try {
+        await client.execute("PRAGMA synchronous = FULL")
+        return await operation()
+      }
+      finally {
+        await held.rollback()
+      }
+    }
+    const pooled = new Proxy(client, {
+      get(target, property) {
+        if (property === "execute") {
+          return async (statement: InStatement) => {
+            if (!/^\s*(CREATE|ALTER|DROP)\b/.test(statementSql(statement))) return await target.execute(statement)
+            return await onBorrowedConnection(async () => {
+              await target.execute(recordMode)
+              return await target.execute(statement)
+            })
+          }
+        }
+        if (property === "executeMultiple") {
+          return async (sql: string) => await onBorrowedConnection(async () => {
+            // Read the effective setting in the same call and on the same connection as the schema statement.
+            await target.executeMultiple(`${sql}; ${recordMode}`)
+          })
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const store = createLibsqlAgentInvocationStore({ client: pooled, maxAge: false, maxRecords: false })
+    await store.create(invocation("run"))
+    const modes = (await client.execute("SELECT mode FROM schema_modes")).rows.map(row => row.mode)
+    expect(modes.length).toBeGreaterThan(20)
+    expect(modes).toEqual(modes.map(() => 1))
+    expect((await store.get("run"))?.id).toBe("run")
   })
 
   it.each(["http", "https", "ws", "wss"])("does not set journal pragmas for remote %s databases", async (protocol) => {
@@ -281,7 +339,7 @@ describe("SQLite invocation journal", () => {
     const query = recording.statements.map(statementSql).find(sql => sql.startsWith("SELECT position, observation FROM"))
     if (!query) throw new Error("Expected an observation read")
     const plan = await client.execute({ args: ["run", JSON.stringify(["agent.invocation.finish"])], sql: `EXPLAIN QUERY PLAN ${query}` })
-    expect(plan.rows.some(row => hasRuntimeType(row.detail, "string") && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
+    expect(plan.rows.some(row => typeof row.detail === "string" && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
     expect((await store.get("run"))?.observations.map(entry => entry.sequence)).toEqual([1, 2, 3])
   })
 

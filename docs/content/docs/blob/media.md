@@ -31,12 +31,19 @@ export default defineEventHandler(async (event) => {
 
 `handleUpload()` reads the `files` form field, stores each file under `folder`, and returns one record per file. If the store already has the same bytes, it returns that record and stores nothing. `media.put()` writes to your pathname unless you pass `dedupe: true`.
 
-```ts
-const [error, record] = await blob.media.put('posts/cover.jpg', file, {
-  alt: 'A field at sunrise',
-  focal: { x: 0.7, y: 0.4 },
-  crops: { mobile: { aspect: '4:5' } },
-})
+```ts [server/utils/cover.ts]
+import { blob } from 'vite-hub/blob'
+
+// Store a cover image that server code already holds, such as a generated one
+export async function saveCover(file: Blob) {
+  const [error, record] = await blob.media.put('posts/cover.jpg', file, {
+    alt: 'A field at sunrise',
+    focal: { x: 0.7, y: 0.4 },
+    crops: { mobile: { aspect: '4:5' } },
+  })
+  if (error) throw error
+  return record
+}
 ```
 
 A record looks like this:
@@ -147,8 +154,9 @@ In your own routes, pass the variant to `blob.serve()`:
 ```ts fragment
 import { blob, parseImageVariant } from 'vite-hub/blob'
 
-const [error, stream] = await blob.serve(event, pathname, {
-  variant: parseImageVariant(getQuery(event)) ?? { width: 640 },
+const url = new URL(request.url)
+return blob.serve(request, pathname, {
+  variant: parseImageVariant(url.searchParams) ?? { width: 640 },
 })
 ```
 

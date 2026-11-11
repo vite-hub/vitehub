@@ -125,7 +125,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 .vh-seg {
   position: relative;
   display: inline-flex;
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-elevated);
   padding: 3px;
 }
@@ -198,7 +198,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 }
 
 .vh-example-body > :deep(.docs-example-preview) {
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   box-shadow: 0 0 0 1px var(--ui-border);
   padding: 1.25rem 1.5rem;
 }
