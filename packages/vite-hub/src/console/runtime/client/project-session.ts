@@ -28,8 +28,11 @@ export type ConsoleProjectGate =
   | { kind: "empty" }
   /** `home` offers a way back to the Console instead of a retry. */
   | { kind: "problem", problem: ConsoleProjectProblem, home?: boolean }
-  /** The sign-in page of an `account` Console, or the `/invite/<id>` page of an invitation to a team. */
-  | { kind: "account", invitation?: string }
+  /**
+   * The sign-in page of an `account` Console, or the `/invite/<id>` page of an invitation to a team. `returnTo` is the
+   * `/open` link that the person followed, which the sign-in opens again when it completes.
+   */
+  | { kind: "account", invitation?: string, returnTo?: string }
   /** An `account` Console linked the project, but the project does not have the public key of the link yet. */
   | { kind: "setup", project: ConsoleAccountProject }
   /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
@@ -304,6 +307,19 @@ export function consoleOpenLink(search: string, projects: readonly { id: string,
 }
 
 /**
+ * The address of an `/open` link that the Console opens again after a sign-in, such as
+ * `/open?project=https%3A%2F%2Fapp.example.com&path=%2Fkv`. It keeps only the project and the path of the link.
+ * `undefined` when the link names no project URL or a path that is not a Console page.
+ */
+export function consoleOpenReturnPath(home: string, search: string): string | undefined {
+  const query = new URLSearchParams(search)
+  const project = query.get("project") ?? ""
+  const path = query.get("path") ?? "/"
+  if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
+  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+}
+
+/**
  * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
  * `/open` link, or `undefined` to keep the address.
  */
@@ -347,7 +363,11 @@ export async function startConsoleAccount(options: {
   if (options.boot === "shell") started.openingView = "shell"
   const invitation = consoleInvitationOf(options.pathname)
   const page = accountPageOf(options.pathname)
-  if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }
+  // Signed out, an `/open` link waits for the sign-in. Each sign-in method comes back to it.
+  const returnTo = !account && !invitation && options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
+    ? consoleOpenReturnPath(options.home, options.search ?? "")
+    : undefined
+  if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}), ...(returnTo ? { returnTo } : {}) }
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
   return address ?? (missingApp ? options.home : undefined)
@@ -397,4 +417,16 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
 export function reloadConsoleAccount(): void {
   const projects = useState()
   projects.navigate(projects.home)
+}
+
+/** The page that a completed sign-in opens: the `/open` link that the person followed, else the Console home. */
+export function consoleSignInReturnPath(): string {
+  const projects = useState()
+  const gate = projects.gate.value
+  return gate.kind === "account" && gate.returnTo ? gate.returnTo : projects.home
+}
+
+/** Load the Console after a sign-in on this page, such as with a passkey, at the page that the sign-in opens. */
+export function finishConsoleSignIn(): void {
+  useState().navigate(consoleSignInReturnPath())
 }
