@@ -295,7 +295,7 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
-`--vh-ui-comment-mark` sets the color of a drawn area. It is a blue by default, so an area shows on a dark page and on a white image in it.
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
 
 ## Anchors
 

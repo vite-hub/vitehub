@@ -33,8 +33,9 @@
   --vh-info: var(--vh-ui-info, var(--ui-info, var(--vh-highlighted)));
   --vh-success: var(--vh-ui-success, var(--ui-success, var(--vh-highlighted)));
   --vh-warning: var(--vh-ui-warning, var(--ui-warning, var(--vh-highlighted)));
-  /* The blue of an area drawn for a comment. A line in the text color vanishes on a white image in a dark page. */
-  --vh-comment-mark: var(--vh-ui-comment-mark, oklch(0.62 0.18 255));
+  /* The color of an area drawn for a comment: the focus blue, else Nuxt UI's info color. A line in the text color
+     vanishes on a white image in a dark page. */
+  --vh-comment-mark: var(--vh-ui-comment-mark, var(--vh-focus, var(--ui-info, var(--vh-highlighted))));
 }
 
 /*
@@ -1919,7 +1920,7 @@
   }
 
   [data-slot="comment-layer-area-handle"] {
-    background: #fff;
+    background: var(--vh-on-media, white);
     border: 1.5px solid var(--vh-comment-mark);
     border-radius: 9999px;
     box-sizing: border-box;
@@ -1936,7 +1937,7 @@
   [data-slot="comment-layer-area-size"] {
     background: color-mix(in oklab, var(--vh-comment-mark), black 10%);
     border-radius: 0.25rem;
-    color: #fff;
+    color: var(--vh-on-media, white);
     font: 500 0.6875rem/1rem ui-monospace, SFMono-Regular, Menlo, monospace;
     font-variant-numeric: tabular-nums;
     left: -2px;
