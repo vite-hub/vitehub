@@ -21,3 +21,11 @@ export function resolveAuthMountPath(path: string): string {
   if (!base || path === base || path.startsWith(`${base}/`)) return path
   return `${base}${path}`
 }
+
+/**
+ * Prefix a Nitro route with the application base path, always. Nitro serves each handler route below its `baseURL`, so
+ * this is the path of the request that reaches the route, even when the route itself starts with the base path.
+ */
+export function resolveAuthRoutePath(route: string): string {
+  return `${authApplicationBasePath()}${route}`
+}

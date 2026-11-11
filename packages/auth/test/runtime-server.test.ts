@@ -15,7 +15,7 @@ vi.mock("better-auth/cookies", () => {
   return {}
 })
 
-const { createLazyAuthAccessHandler, excludeAuthAccessPath } = await import("../src/runtime/server.ts")
+const { createLazyAuthAccessHandler, excludeAuthAccessRoute } = await import("../src/runtime/server.ts")
 const { getAuthRuntimeState } = await import("../src/runtime-state.ts")
 
 describe("Auth startup runtime", () => {
@@ -45,22 +45,29 @@ describe("Auth startup runtime", () => {
     expect(load).toHaveBeenCalledTimes(2)
   })
 
-  it("leaves an excluded path to its own route, below the application base path", async () => {
+  it("leaves only the excluded method and route to its own handler, below the Nitro base path", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/docs/")
     try {
-      excludeAuthAccessPath("/_vitehub/rpc")
+      // The route as Nitro registers it. It can start with the base path, such as a Console mounted below a Vite base.
+      excludeAuthAccessRoute("POST", "/docs/_vitehub/rpc")
       const check = vi.fn(async () => new Response(null, { status: 401 }))
       const handler = createLazyAuthAccessHandler([{ route: "/**" }], async () => ({ createAuthAccessHandler: () => check }))
 
-      await expect(handler(new Request("https://app.example/docs/_vitehub/rpc", { method: "POST" }))).resolves.toBeUndefined()
+      await expect(handler(new Request("https://app.example/docs/docs/_vitehub/rpc", { method: "POST" }))).resolves.toBeUndefined()
       expect(check).not.toHaveBeenCalled()
-      for (const path of ["/docs/_vitehub/rpc/other", "/docs/x/_vitehub/rpc", "/docs/private"]) {
-        await expect(handler(new Request(`https://app.example${path}`, { method: "POST" }))).resolves.toMatchObject({ status: 401 })
+      const kept = [
+        ["GET", "/docs/docs/_vitehub/rpc"],
+        ["POST", "/docs/_vitehub/rpc"],
+        ["POST", "/docs/docs/_vitehub/rpc/other"],
+        ["POST", "/docs/private"],
+      ]
+      for (const [method, path] of kept) {
+        await expect(handler(new Request(`https://app.example${path}`, { method }))).resolves.toMatchObject({ status: 401 })
       }
-      expect(check).toHaveBeenCalledTimes(3)
+      expect(check).toHaveBeenCalledTimes(kept.length)
     }
     finally {
-      getAuthRuntimeState().accessExcludedPaths = undefined
+      getAuthRuntimeState().accessExcludedRoutes = undefined
       vi.unstubAllGlobals()
     }
   })

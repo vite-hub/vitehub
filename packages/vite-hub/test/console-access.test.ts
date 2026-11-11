@@ -17,6 +17,7 @@ import { consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } f
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
+import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
@@ -343,7 +344,23 @@ describe("generated Console access", () => {
     const plugin = await generatedPlugin({ console: {} }, "build")
     expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
     // Without app Auth, there are no Auth access routes to leave the Console RPC out of.
-    expect(plugin).not.toContain("vitehubExcludeAuthAccessPath")
+    expect(plugin).not.toContain("vitehubExcludeAuthAccessRoute")
+  })
+
+  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("leaves only the Console POST route below %s out of app Auth access routes", async (base, route) => {
+    const auth: ResolvedAuthViteConfig = {
+      access: { routes: [{ route: "/**" }] },
+      basePath: "/api/auth",
+      database: { mode: "default" },
+      definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
+      rootDir: "/",
+      route: "/api/auth",
+      secondaryStorage: false,
+      tables: false,
+    }
+    const plugin = await generatedPlugin({ console: {}, resolveAuthConfig: () => auth }, "build", { base, nitro: { handlers: [] } })
+    expect(plugin).toContain('import { excludeAuthAccessRoute as vitehubExcludeAuthAccessRoute } from "vite-hub/auth/runtime/server"')
+    expect(plugin).toContain(`vitehubExcludeAuthAccessRoute("POST", ${JSON.stringify(route)})`)
   })
 
   it("serves development operations without Console pages or assets", async () => {
