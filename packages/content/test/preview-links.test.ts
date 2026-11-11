@@ -13,12 +13,13 @@ import { operationRpcRequest, operationRpcResponse } from "../../internal/test-u
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 import { runContentCli } from "../src/cli.ts"
 import { documents } from "../src/collections.ts"
-import { contentRefTokenParameter, defineContent, defineContentPreset, registerContentKV } from "../src/index.ts"
+import { contentRefTokenParameter, contentSource, defineContent, defineContentPreset, registerContentKV } from "../src/index.ts"
 import { contentOperations } from "../src/operations.ts"
 import { contentPreviewComment, contentPreviewCommentMarker } from "../src/preview-comment.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 import type { ContentPreviewLinks } from "../src/index.ts"
+import type { ContentSourceOptions } from "../src/content-source.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 let fake: FakeGitHub
@@ -70,7 +71,7 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
   // The CMS GitHub store edits the files that the github() Source of the site reads, as a docs site with the CMS does.
   const pullRequests = defineContentPreset({ name: "pull-requests", options: { workspace: "content" }, configure: options => ({ workspace: options.workspace, publish: "pr" }) })
 
-  function cms(options: { previews?: boolean } = {}) {
+  function cms(options: { previews?: boolean, url?: string } = {}) {
     useFake("onmax", "repo")
     fake.commit("main", { "content/posts/a.md": page("A") })
     const workspace = `preview-links-${process.pid}-${++workspaces}`
@@ -80,7 +81,7 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     })
     const content = defineContent({
       extends: [pullRequests, { workspace }] as const,
-      collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() }, url: "/posts/:id" }) },
+      collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() }, url: options.url ?? "/posts/:id" }) },
       sources: { site: github({ repo: "onmax/repo", ref: "main", root: "content" }) },
       previews: options.previews ?? true,
       logger: false,
@@ -122,6 +123,18 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     expect(served.headers.get("cache-control")).toBe("private, no-store")
   })
 
+  it.each(["/posts/:id?lang=en", "/posts/:id#intro", "/posts/:id?lang=en#intro"])("keeps the token in the query for %s", async (url) => {
+    const { content, posts } = cms({ url })
+    await posts.save("b", { data: { title: "B" }, body: "New\n" })
+    const result = await content.publish({ collection: "posts", ids: ["b"] })
+    const link = new URL(result.previews![0]!.url, "https://docs.example")
+    expect(link.pathname).toBe("/pr/1/posts/b")
+    expect(link.searchParams.get("lang")).toBe(url.includes("?lang=en") ? "en" : null)
+    expect(link.hash).toBe(url.includes("#intro") ? "#intro" : "")
+    expect(link.searchParams.get(contentRefTokenParameter)).toBeTruthy()
+    expect(await content.sources.allow("pr/1", new Request(link), "site")).toMatchObject({ allowed: true, reason: "token" })
+  })
+
   it("returns no links without previews, and still opens the pull request without a key", async () => {
     const off = cms({ previews: false })
     await off.posts.save("b", { data: { title: "B" }, body: "" })
@@ -156,8 +169,8 @@ function docs() {
   fake.openPull("fork-kv", "main", "From a fork", { fork: "mallory/docs" })
 }
 
-function app() {
-  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", include: "**/*.md" }) }, previews: true, seo: { site: "https://docs.example" }, logger: false })
+function app(options: ContentSourceOptions = {}) {
+  const content = defineContent({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", include: "**/*.md" }), options) }, previews: true, seo: { site: "https://docs.example" }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -179,6 +192,25 @@ describe("content.sources.previewLinks()", { timeout: 30_000 }, () => {
       "- [/new](https://docs.example/pr/1/new)",
       "",
     ].join("\n"))
+  })
+
+  it("uses the Source URL pattern for changed pages", async () => {
+    docs()
+    const links = await app({ url: "/docs/:id" }).sources.previewLinks(1)
+    expect(links.pages).toEqual([
+      { key: "kv.md", path: "/docs/kv", url: "https://docs.example/pr/1/docs/kv" },
+      { key: "new.md", path: "/docs/new", url: "https://docs.example/pr/1/docs/new" },
+    ])
+    expect(contentPreviewComment(plain(links))).toContain("- [/docs/kv](https://docs.example/pr/1/docs/kv)")
+  })
+
+  it("resolves Source URL functions with PR head data and skips null URLs", async () => {
+    docs()
+    const content = app({ url: ({ id, data }) => data.title === "New" ? null : `/docs/${id}/${encodeURIComponent(String(data.title))}` })
+    const links = await content.sources.previewLinks(1)
+    expect(links.pages).toEqual([
+      { key: "kv.md", path: "/docs/kv/KV%20on%20feat%2Fkv", url: "https://docs.example/pr/1/docs/kv/KV%20on%20feat%2Fkv" },
+    ])
   })
 
   it("signs the links of a private CMS pull request", async () => {

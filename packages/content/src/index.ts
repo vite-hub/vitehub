@@ -30,12 +30,12 @@ import type { ContentSourceHeads } from "./source-heads.ts"
 import type { ContentSourceRef } from "./source-refs.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
-import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition, parseDocumentFile } from "./documents.ts"
+import { collectionPathsOverlap, contentDocumentUrl, documentsRuntimeOf, isContentCollectionDefinition, parseDocumentFile } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview, createRequestScope } from "./preview.ts"
 import { contentRefTokenParameter } from "./preview-parameters.ts"
-import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
+import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
 import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
@@ -876,8 +876,8 @@ export function defineContent<
   }
   /** A preview URL of an app path under `prefix`, absolute when a site is known, with the signed link token if any. */
   function previewUrl(prefix: string, path: string, site: string | undefined, token: string | undefined): string {
-    const query = token === undefined ? "" : `?${contentRefTokenParameter}=${encodeURIComponent(token)}`
-    const link = `${prefix}${path}${query}`
+    const query = token === undefined ? undefined : `${contentRefTokenParameter}=${encodeURIComponent(token)}`
+    const link = previewLink(path, prefix, query)
     return site === undefined ? link : new URL(link, site).href
   }
   /**
@@ -942,10 +942,13 @@ export function defineContent<
       const keys = new Set(changed)
       const site = linkOptions.site === undefined ? configuredSite : siteOrigin(linkOptions.site)
       const pages: ContentPreviewLink[] = []
+      const url = contentSourceUrl(inputs[name])
       for (const file of await view.list([name])) {
         // Comark keys a file as `<source>/<Source key>`.
         const key = file.meta.key.startsWith(`${name}/`) ? file.meta.key.slice(name.length + 1) : file.meta.key
-        if (keys.has(key)) pages.push({ key, path: file.path, url: previewUrl(`/pr/${pull}`, file.path, site, signed?.token) })
+        if (!keys.has(key)) continue
+        const path = url === undefined ? file.path : contentDocumentUrl(url, { id: file.path.replace(/^\/+/, ""), data: file.data })
+        if (path !== null) pages.push({ key, path, url: previewUrl(`/pr/${pull}`, path, site, signed?.token) })
       }
       pages.sort((left, right) => left.path.localeCompare(right.path))
       const fingerprint: unknown = definition.fingerprint
