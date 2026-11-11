@@ -154,6 +154,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/email/runtime/console",
+  "@vite-hub/kv/runtime/redis-driver",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",

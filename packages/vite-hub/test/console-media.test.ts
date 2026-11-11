@@ -116,6 +116,17 @@ afterEach(async () => {
 })
 
 describe("Console media library", () => {
+  it("serves Content media operations while navigation shows only Setup", async () => {
+    installConsoleSections("/app", ["setup", "content", "blob"], false, ["setup"])
+    const navigation = await respond(new Request("http://localhost/_vitehub/rpc", {
+      body: operationRpcBody("sections.list", {}),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    }))
+    expect(navigation).toMatchObject({ status: 200, body: { ok: true, value: { sections: ["setup"] } } })
+    await expect(media("info")).resolves.toMatchObject({ status: 200, body: { ok: true, value: { store: "default", access: roles.editor } } })
+  })
+
   it("names uploads for URLs and Markdown", () => {
     expect(consoleMediaName("Launch Day (final).PNG")).toBe("launch-day-final.png")
     expect(consoleMediaName("Café crème.jpg")).toBe("cafe-creme.jpg")
