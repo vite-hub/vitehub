@@ -151,6 +151,12 @@ const highlightIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 2
 
 const undoIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" }))
 
+const pageIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4" }))
+
+const editIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" }))
+
+const closeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M18 6 6 18M6 6l12 12" }))
+
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
 /**
@@ -227,8 +233,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
-  /** The mode to resume after a first-time guest gives their name. */
-  let namedMode: "comment" | "mark" = "comment"
+  /** The action to resume after a first-time guest gives their name. */
+  const namedMode = ref<"comment" | "mark" | "page">("comment")
   /** The text a first-time guest selected before the name card took the focus, so the comment starts on it after. */
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
@@ -254,11 +260,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   const failed = (error: CommentsApiError) => showToast({ text: error.fix ? `${error.why} ${error.fix}` : error.why, kind: "error" })
 
-  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
-  const account = (): CommentUser | undefined => {
-    const user = session?.user
-    return user && !(user.guest && user.id === "guest:console") ? user : undefined
-  }
+  /** The server-identified person. */
+  const account = (): CommentUser | undefined => session?.user ?? undefined
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
@@ -314,9 +317,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   const edit = createInlineEdit({
     page: () => page.value,
-    openTool: async path => await context?.openTool("content", path) ?? false,
-    contentPath: () => `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`,
-    info: (text, link) => showToast({ text, kind: "info", link }),
+    info: text => showToast({ text, kind: "info" }),
     failed,
     drafted(field) {
       drafted.value = new Set([...drafted.value, field])
@@ -334,7 +335,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (next === "mark") {
       if (!canComment.value || marking.value) return
       if (needsName.value) {
-        namedMode = next
+        namedMode.value = next
         namedQuote = undefined
         naming.value = true
         return
@@ -347,7 +348,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     else if (next === "comment") {
       if (!canComment.value) return
       if (needsName.value) {
-        namedMode = next
+        namedMode.value = next
         namedQuote = undefined
         naming.value = true
         return
@@ -363,6 +364,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       editing.value = true
     }
     else {
+      naming.value = false
+      namedQuote = undefined
       state.exit()
       editing.value = false
       void edit.finish(true)
@@ -370,8 +373,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     hover.value = undefined
   }
   const mode = computed<Mode>(() => marking.value ? "mark" : editing.value ? "edit" : state?.active.value ? "comment" : "view")
-  /** Whether comment mode is on, or comes back on when the subject of the new page is known. */
-  const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value))
+  /** Whether comment mode is on, waiting for a guest name, or paused until the new page is known. */
+  const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value) || (naming.value && namedMode.value !== "mark"))
 
   function startMarking() {
     dropInk()
@@ -486,8 +489,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
-    const next = namedMode
-    namedMode = "comment"
+    const next = namedMode.value
+    namedMode.value = "comment"
     const quote = namedQuote
     namedQuote = undefined
     if (quote?.startContainer.isConnected) {
@@ -496,7 +499,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       selection?.addRange(quote)
       if (commentOnSelection()) return
     }
-    setMode(next)
+    if (next === "page") commentOnPage()
+    else setMode(next)
   }
 
   async function signOut(url: string) {
@@ -548,7 +552,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     pressingBar = false
     if (!range) return false
     if (needsName.value) {
-      namedMode = "comment"
+      namedMode.value = "comment"
       namedQuote = range
       naming.value = true
       return true
@@ -754,28 +758,64 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ])
   }
 
+  /** Starts a comment on the whole page, as Drop's **Whole page**. Its box opens near the top. */
+  function commentOnPage() {
+    if (!canComment.value || resolving.value) return
+    if (needsName.value) {
+      namedMode.value = "page"
+      namedQuote = undefined
+      naming.value = true
+      return
+    }
+    void edit.finish(true)
+    state.startDraft("page")
+  }
+
+  /**
+   * Drop's Comments segment: one **Comments** button with the open count. For people who may comment it turns comment
+   * mode on (C), says **Click anywhere**, and grows the actions beside it: **Whole page**, **All comments**, and ×. For
+   * people who may only read, it opens the list. **Highlight** and **Edit** follow.
+   */
   function toolbar(): VNode {
     void tick.value
+    if (marking.value || finishing.value) return markerToolbar()
     const people = room?.people() ?? []
     const seen = new Set<string>()
     const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
       h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
     const open = state.counts.value.open
-    const count = `${open} open ${open === 1 ? "thread" : "threads"}`
+    const commenting = commentOn.value
+    const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
+    const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     const signOutUrl = session?.signOut
-    if (marking.value || finishing.value) return markerToolbar()
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
-      canComment.value ? h("button", { "aria-keyshortcuts": "C", "aria-pressed": String(commentOn.value), onClick: () => setMode(commentOn.value ? "view" : "comment"), title: "Comment (C)", type: "button" }, "Comment") : null,
+      canComment.value
+        ? h("button", {
+            "aria-keyshortcuts": "C",
+            "aria-label": commenting ? "Comments: click anywhere on the page" : open ? `Comments, ${open} open` : "Comments",
+            "aria-pressed": String(commenting),
+            onClick: () => setMode(commenting ? "view" : "comment"),
+            title: commenting ? "Stop commenting (C)" : "Comment on the page (C)",
+            type: "button",
+          }, [commentIcon(), commenting ? "Click anywhere" : "Comments", badge(!commenting)])
+        : h("button", {
+            "aria-expanded": String(panelOpen.value),
+            "aria-label": open ? `Comments, ${open} open` : "Comments",
+            onClick: togglePanel,
+            title: "Show comments",
+            type: "button",
+          }, [commentIcon(), "Comments", badge(true)]),
+      commenting
+        ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
+            h("span", { class: "divider", "aria-hidden": "true" }),
+            h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]),
+            h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]),
+            h("button", { "aria-label": "Stop commenting", onClick: () => setMode("view"), title: "Stop commenting (Esc)", type: "button" }, closeIcon()),
+            h("span", { class: "divider", "aria-hidden": "true" }),
+          ])
+        : null,
       canComment.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
-      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, "Edit") : null,
-      h("span", { class: "sep" }),
-      h("button", {
-        "aria-label": `Comments on this page, ${count}`,
-        "aria-pressed": String(panelOpen.value),
-        onClick: () => (panelOpen.value ? pageWindow?.hide() : showPanel()),
-        title: "Comments on this page",
-        type: "button",
-      }, [listIcon(), String(open)]),
+      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
       avatars.length > 0 ? h("span", { "aria-label": `${people.length} on this page`, class: "people" }, avatars) : null,
       signOutUrl && session?.github
         ? h("button", { "aria-label": `Sign out @${session.github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${session.github.login}. Sign out`, type: "button" },
@@ -901,6 +941,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         // The new page can have the same subject, which keeps the state's draft. The person said to discard it.
         state.cancelDraft()
       }
+      naming.value = false
+      namedQuote = undefined
       page.value = next
       search.value = location.search
       panelThread.value = null

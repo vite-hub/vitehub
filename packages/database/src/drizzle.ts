@@ -1,7 +1,8 @@
 import virtualSchema from "#vitehub/database/schema"
-import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
-import { createAgentDatabase } from "./runtime/agent.ts"
+import { databases as runtimeDatabases, db as runtimeDb, useDatabase as useRuntimeDatabase } from "./runtime/drizzle-runtime.ts"
+import { createAgentDatabase, createDatabaseBindingLookup } from "./runtime/agent.ts"
 
+import type { DatabaseD1Binding } from "./runtime/agent.ts"
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
@@ -41,11 +42,36 @@ export const databases = runtimeDatabases as RuntimeDatabaseLookup
 // SAFETY: generated schema declarations specialize the default runtime database schema.
 export const db = runtimeDb as DefaultDatabaseEntry["db"]
 
-export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
-  if (Object.hasOwn(databases, name)) return databases[name]
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
 
-  // SAFETY: missing runtime entries are represented as undefined by the public lookup contract.
-  return undefined as unknown as RuntimeDatabaseRegistry[Name]
+/** The Database that `useDatabase()` returns without a name: `default`, else the only one. */
+type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
+  ? "default"
+  : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
+
+/**
+ * Returns the Drizzle client and schema of a discovered Database. Without a name, it returns the `default` Database or
+ * the only one. It throws `DATABASE_NOT_FOUND` for a name without a Database Definition, and `DATABASE_NAME_REQUIRED`
+ * without a name when the app has several Databases and none is named `default`.
+ */
+export function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
+  ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
+): RuntimeDatabaseRegistry[Name]
+export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
+export function useDatabase(name?: keyof RuntimeDatabaseRegistry): RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry] {
+  // SAFETY: generated registry declarations type each runtime entry by its name.
+  return useRuntimeDatabase(name) as RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry]
+}
+
+const lookupDatabaseBinding = createDatabaseBindingLookup(databases)
+
+/**
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Exposes the shared
+ * prepare/batch API for consumers such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
+ */
+export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding {
+  return lookupDatabaseBinding(name)
 }
 
 export const agentDb = createAgentDatabase(databases)
@@ -56,4 +82,5 @@ export const agentDb = createAgentDatabase(databases)
 export const schema = virtualSchema as DefaultDatabaseEntry["schema"]
 export { chunkParameters } from "./runtime/chunk-parameters.ts"
 export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
+export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.ts"
 export * from "#vitehub/database/schema"

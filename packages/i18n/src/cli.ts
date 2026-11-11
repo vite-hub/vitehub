@@ -1,10 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { userInfo } from "node:os"
-import { resolve } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 
 import { formatter as poFormatter } from "@lingui/format-po"
 
 import { inspectI18n } from "./inspect.ts"
+import { findPreviousTranslations } from "./lineage.ts"
 import { recordsRoot } from "./lingui.ts"
 import { importTranslation, isVisible, removeRecord } from "./records.ts"
 
@@ -45,17 +46,43 @@ function formatStatus(status: I18nStatus): string {
     const percent = locale.messages === 0 ? 100 : Math.round(locale.translated / locale.messages * 100)
     const role = locale.source
       ? "source"
-      : `${percent}% translated, ${locale.missing} missing${locale.unused ? `, ${locale.unused} unused` : ""}  ${locale.folder}`
+      : `${percent}% translated, ${locale.missing} missing${locale.changed ? ` (${locale.changed} changed)` : ""}${locale.unused ? `, ${locale.unused} unused` : ""}  ${locale.folder}`
     return `${locale.locale.padEnd(8)} ${String(locale.messages).padStart(5)} messages  ${role}`
   })
   const problems = status.locales.flatMap(locale => locale.problems.map(problem => `  ${problem.file}: ${problem.problem}`))
   const unused = status.locales.some(locale => locale.unused > 0)
+  const changed = status.locales.find(locale => locale.changed > 0)
   return [
     ...rows,
     ...(problems.length ? ["", "Records that ViteHub skips:", ...problems] : []),
+    ...(changed ? ["", `A changed message keeps its old translation as a draft in \`vitehub i18n export ${changed.locale}\`. Review it, then import the file.`] : []),
     ...(unused ? ["", "Delete unused records with `vitehub i18n prune`."] : []),
     "",
   ].join("\n")
+}
+
+/**
+ * How the records folder relates to the `i18n.workspace` Workspace: `vitehub pull` merges the published translations
+ * of that Workspace into the folder when `vitehub.lock` checks it out there.
+ */
+async function workspaceNote(rootDir: string, folder: string, workspace: string | undefined): Promise<string[]> {
+  if (!workspace) return []
+  const dir = relative(rootDir, folder).split(sep).join("/") || "."
+  let entry: unknown
+  try {
+    entry = Reflect.get(Object(Reflect.get(Object(JSON.parse(await readFile(join(rootDir, "vitehub.lock"), "utf8"))), "workspaces")), workspace)
+  }
+  catch {
+    entry = undefined
+  }
+  const remote: unknown = Object(entry) === entry ? Reflect.get(Object(entry), "remote") : undefined
+  const pull = `vitehub pull ${workspace} --dir ${dir} --ref published --url ${typeof remote === "string" && remote ? remote : "<origin>"}`
+  if (Object(entry) === entry && Reflect.get(Object(entry), "dir") === dir) {
+    const ref = String(Reflect.get(Object(entry), "ref"))
+    if (ref === "published") return ["", `${dir}/ is a checkout of Workspace "${workspace}" (published). Run \`vitehub pull\` for translations saved since then.`]
+    return ["", `Warning: ${dir}/ is a checkout of Workspace "${workspace}" on ref "${ref}", not "published". \`vitehub pull\` copies its unpublished translations into ${dir}/, and the next build embeds them. To switch, remove "${workspace}" from vitehub.lock, then run \`${pull}\`.`]
+  }
+  return ["", `Translations saved in Workspace "${workspace}" reach ${dir}/ only through a pull: \`${pull}\`.`]
 }
 
 function translationLocale(config: LinguiConfigNormalized, locale: string | undefined): string | undefined {
@@ -90,7 +117,7 @@ function importBaseline(comments: string[] = []): string | null | undefined {
   }
 }
 
-export function createI18nCliContributor(resolveConfig: I18nConfigResolver): ViteHubCliContributor {
+export function createI18nCliContributor(resolveConfig: I18nConfigResolver, workspace: () => string | undefined = () => undefined): ViteHubCliContributor {
   return {
     namespaces: [{
       name: "i18n",
@@ -104,8 +131,15 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
           run: async (args, context) => {
             const flags = parseFlags(args)
             if (flags.help) return usage(context, usages.status)
-            const status = await inspectI18n(resolveConfig(context.rootDir))
-            context.stdout.write(flags.json ? `${JSON.stringify(status.locales, null, 2)}\n` : formatStatus(status))
+            const config = resolveConfig(context.rootDir)
+            const status = await inspectI18n(config)
+            if (flags.json) {
+              context.stdout.write(`${JSON.stringify(status.locales, null, 2)}\n`)
+              return 0
+            }
+            context.stdout.write(formatStatus(status))
+            const note = await workspaceNote(context.rootDir, recordsRoot(config.rootDir), workspace())
+            if (note.length) context.stdout.write(`${note.join("\n").trimStart()}\n`)
             return 0
           },
         },
@@ -121,13 +155,22 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             if (!locale) return usage(context, `${usages.export}\nThe locale must be one of: ${config.locales.filter(entry => entry !== config.sourceLocale).join(", ")}.`, 1)
             const status = await inspectI18n(config)
             const records = status.records[locale] ?? {}
+            // A message whose source changed a little gets its old translation, marked fuzzy as gettext does, so a
+            // translator edits it instead of starting again. `import` skips fuzzy entries.
+            const previous = findPreviousTranslations(status.messages, records)
             const catalog: CatalogType = {}
             for (const [id, message] of Object.entries(status.messages)) {
+              const carried = previous.get(id)
               catalog[id] = {
                 message: message.message,
                 ...(message.context ? { context: message.context } : {}),
-                translation: records[id] && isVisible(records[id]) ? records[id].text : "",
-                comments: [...message.comments ?? [], `${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`],
+                translation: records[id] && isVisible(records[id]) ? records[id].text : carried?.record.text ?? "",
+                comments: [
+                  ...message.comments ?? [],
+                  `${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`,
+                  ...(carried ? [`Previous source: ${carried.record.source}`] : []),
+                ],
+                ...(carried ? { extra: { flags: ["fuzzy"] } } : {}),
                 origin: message.origins.map((origin) => {
                   const index = origin.lastIndexOf(":")
                   return index === -1 ? [origin] : [origin.slice(0, index), Number(origin.slice(index + 1))]
@@ -162,9 +205,15 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             const at = new Date().toISOString()
             let saved = 0
             let unchanged = 0
+            let fuzzy = 0
             const refused: { message: string, problem: string }[] = []
             for (const entry of Object.values(catalog)) {
               if (!entry.message || !entry.translation) continue
+              const flags = (entry.extra as { flags?: unknown } | undefined)?.flags
+              if (Array.isArray(flags) && flags.includes("fuzzy")) {
+                fuzzy++
+                continue
+              }
               const expected = importBaseline(entry.comments)
               if (expected === undefined) {
                 refused.push({ message: entry.message, problem: "The PO export baseline is invalid. Export the locale again before editing it." })
@@ -176,15 +225,16 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
               else refused.push({ message: entry.message, problem: result.message })
             }
             const lines = refused.map(entry => `  ${JSON.stringify(entry.message)}: ${entry.problem}`)
+            const skipped = fuzzy ? ` Skipped ${fuzzy} fuzzy translations: remove the fuzzy flag after you review them.` : ""
             context.stdout.write(flags.json
-              ? `${JSON.stringify({ locale, saved, unchanged, refused })}\n`
-              : `Saved ${saved} translations to locales/${locale}. ${unchanged} were already saved.\n${refused.length ? `Refused ${refused.length}:\n${lines.join("\n")}\n` : ""}`)
+              ? `${JSON.stringify({ locale, saved, unchanged, fuzzy, refused })}\n`
+              : `Saved ${saved} translations to locales/${locale}. ${unchanged} were already saved.${skipped}\n${refused.length ? `Refused ${refused.length}:\n${lines.join("\n")}\n` : ""}`)
             return refused.length ? 1 : 0
           },
         },
         {
           name: "prune",
-          description: "Delete the records of messages that the code no longer has. Lists them unless --yes.",
+          description: "Delete the records of messages that the code no longer has. Lists them unless --yes. Export changed messages first: prune deletes their old translations.",
           usage: usages.prune,
           run: async (args, context) => {
             const flags = parseFlags(args)

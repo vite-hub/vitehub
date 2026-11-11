@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, onMounted, ref, shallowRef } from "vue";
 import {
   connectionApprovalResultSchema,
@@ -6,16 +7,15 @@ import {
   requestConnectionsManagement,
 } from "../client/connections-management";
 import type { ConsoleConnectionApproval } from "../client/connections-management";
-import { consoleDateTime } from "../client/time";
-import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
+import { consoleDateTime } from "../client/format";
+import ConsoleActivityFeed from "./console-activity-feed.vue";
+import ConsoleSection from "./console-section.vue";
 const props = defineProps<{ endpoint: string; name: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const approvals = ref<Awaited<ReturnType<typeof loadConnectionApprovals>>["history"]>([]);
 const pendingCursors = ref<(string | undefined)[]>([undefined]);
 const pendingPage = shallowRef(0);
 const nextCursor = shallowRef<string>();
-const loaded = ref(false);
 const busy = ref(false);
 const error = ref<unknown>();
 const errorTitle = ref("Could not complete the request");
@@ -47,7 +47,6 @@ async function fetchApprovals(before?: string) {
   approvals.value = result.history;
   pending.value = result.pending;
   nextCursor.value = result.nextCursor;
-  loaded.value = true;
 }
 function load() {
   return run(async () => {
@@ -99,18 +98,24 @@ function decide(id: string, decision: "approve" | "deny") {
 onMounted(load);
 </script>
 <template>
-  <div class="space-y-4">
-    <div class="flex items-start justify-between gap-3">
-      <p class="text-xs text-muted">
-        Calls that wait for a person. Approve runs the call once with the stored input.
-      </p>
-      <UButton label="Refresh" color="neutral" variant="ghost" :loading="busy" @click="load" />
-    </div>
-    <ConsoleState v-if="error" compact :error="error" :title="errorTitle" />
-    <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
-    <p v-if="loaded && !pending.length" class="text-sm text-muted">No pending approvals.</p>
-    <ol v-if="pending.length" role="list" aria-label="Pending approvals" class="divide-y divide-default">
-      <li v-for="approval in pending" :key="approval.id" class="space-y-2 py-3 text-xs">
+  <ConsoleActivityFeed
+    description="Calls that wait for a person. Approve runs the call once with the stored input."
+    :items="pending"
+    :item-key="(approval) => approval.id"
+    label="Pending approvals"
+    :loading="busy"
+    :error="error"
+    :error-title="errorTitle"
+    empty-title="No pending approvals"
+    empty-description="A call that needs a person waits here until someone approves or denies it."
+    empty-icon="i-lucide-shield-check"
+    :refresh="load"
+  >
+    <template #notices>
+      <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
+    </template>
+    <template #item="{ item: approval }">
+      <div class="space-y-2">
         <p class="break-all font-mono text-highlighted">{{ approval.action }}</p>
         <p class="break-all text-muted">{{ approval.actor }}</p>
         <time :datetime="approval.createdAt" class="block text-muted tabular-nums">{{
@@ -119,7 +124,6 @@ onMounted(load);
         <div class="flex gap-2">
           <UButton
             label="Approve"
-            color="neutral"
             variant="outline"
             size="xs"
             :disabled="busy"
@@ -134,20 +138,19 @@ onMounted(load);
             @click="decide(approval.id, 'deny')"
           />
         </div>
-      </li>
-    </ol>
+      </div>
+    </template>
     <nav v-if="pendingPage > 0 || nextCursor" aria-label="Pending approval pages" class="flex items-center gap-2">
-      <UButton label="Previous" color="neutral" variant="outline" size="xs" :disabled="busy || pendingPage === 0" @click="changePage('previous')" />
+      <UButton label="Previous" variant="outline" size="xs" :disabled="busy || pendingPage === 0" @click="changePage('previous')" />
       <span class="text-xs text-muted">Page {{ pendingPage + 1 }}</span>
-      <UButton label="Next" color="neutral" variant="outline" size="xs" :disabled="busy || !nextCursor" @click="changePage('next')" />
+      <UButton label="Next" variant="outline" size="xs" :disabled="busy || !nextCursor" @click="changePage('next')" />
     </nav>
-    <section v-if="decided.length" class="space-y-2">
-      <h3 class="text-sm text-muted">Decided</h3>
+    <ConsoleSection v-if="decided.length" :level="3" title="Decided" :count="decided.length">
       <ol role="list" aria-label="Decided approvals" class="divide-y divide-default">
         <li v-for="approval in decided" :key="approval.id" class="space-y-1 py-3 text-xs">
           <div class="flex flex-wrap justify-between gap-2">
             <span class="break-all font-mono text-highlighted">{{ approval.action }}</span
-            ><ConsoleStatus
+            ><Status
               :label="outcomes[approval.status]?.label ?? approval.status"
               :tone="outcomes[approval.status]?.tone"
             />
@@ -164,6 +167,6 @@ onMounted(load);
           <p v-if="approval.error" class="break-all font-mono text-error">{{ approval.error }}</p>
         </li>
       </ol>
-    </section>
-  </div>
+    </ConsoleSection>
+  </ConsoleActivityFeed>
 </template>

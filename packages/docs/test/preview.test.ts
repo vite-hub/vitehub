@@ -40,7 +40,7 @@ vi.mock("#docs/manifest", async () => {
 })
 vi.mock("#docs/content", () => ({ content }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
-vi.mock("#docs/parser", () => ({ default: {} }))
+vi.mock("#docs/parser", () => ({ default: {}, githubRepo: null }))
 
 const { default: page } = await import("../src/runtime/server/page.ts")
 const app = new H3().get("/api/_docs/page/**", page)

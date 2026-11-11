@@ -8,8 +8,8 @@ import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
 import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
 import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
+import { useCopy } from "@vite-hub/ui/copy-button";
 import { downloadZip, encodePlaygroundLink, playgroundLinkLimit, playgroundUrl } from "@vite-hub/ui/playground";
-import { useClipboard } from "@vueuse/core";
 import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
 import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
 import WorkspaceTabs from "~/components/workspace/WorkspaceTabs.vue";
@@ -152,7 +152,7 @@ function reset() {
 }
 
 const toast = useToast();
-const { copy } = useClipboard({ legacy: true });
+const { copy } = useCopy();
 async function share() {
   const code = await encodePlaygroundLink({ template: current.value.id, files: workspace.files.value }, current.value.files);
   const url = `${location.origin}${playgroundUrl(location.pathname, code)}`;
@@ -165,7 +165,10 @@ async function share() {
     });
     return;
   }
-  await copy(url);
+  if (!await copy(url)) {
+    toast.add({ title: "Could not copy the link", description: "Your browser blocked the clipboard.", color: "warning", icon: "i-lucide-triangle-alert" });
+    return;
+  }
   toast.add({ title: "Link copied", description: "The link holds your files. Nothing is stored on a server.", icon: "i-lucide-link" });
 }
 
@@ -178,17 +181,17 @@ function download() {
   <div class="vh-playground-workspace" :class="{ 'is-dragging': dragging }">
     <header class="vh-pg-toolbar">
       <UDropdownMenu :items="templateItems" :content="{ align: 'start' }" :ui="{ content: 'w-64' }">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-layout-template" trailing-icon="i-lucide-chevron-down" :aria-label="`Template: ${current.label}`">
+        <UButton variant="ghost" icon="i-lucide-layout-template" trailing-icon="i-lucide-chevron-down" :aria-label="`Template: ${current.label}`">
           <span class="text-muted">Template</span>
           <span class="font-medium text-highlighted">{{ current.label }}</span>
         </UButton>
       </UDropdownMenu>
       <WorkspaceRunState class="ml-2" :tone="runState.tone" :label="runState.label" />
       <span class="flex-1" />
-      <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-download" label="Download" @click="download" />
-      <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-link" label="Copy link" @click="share" />
+      <UButton variant="ghost" icon="i-lucide-download" label="Download" @click="download" />
+      <UButton variant="outline" icon="i-lucide-link" label="Copy link" @click="share" />
       <UDropdownMenu :items="moreItems" :content="{ align: 'end' }">
-        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="More actions" />
+        <UButton variant="ghost" icon="i-lucide-ellipsis" aria-label="More actions" />
       </UDropdownMenu>
     </header>
 
@@ -260,8 +263,8 @@ function download() {
     <UModal :open="!!confirm" :title="confirm?.title" description="Your edits to the current files are lost. Copy a link or download them first to keep them." @update:open="value => { if (!value) confirm = undefined }">
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Cancel" @click="confirm = undefined" />
-          <UButton color="neutral" :label="confirm?.label" @click="confirmAction" />
+          <UButton variant="ghost" label="Cancel" @click="confirm = undefined" />
+          <UButton :label="confirm?.label" @click="confirmAction" />
         </div>
       </template>
     </UModal>

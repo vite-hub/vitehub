@@ -17,7 +17,7 @@ A loader reads one kind of origin, such as a GitHub repository. Use a built-in o
 | `glob(pattern)`, `glob(options)` | A pattern such as `'content/docs/**/*.md'`, or `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Finds files with `tinyglobby`. Keys are relative to `cwd` (in a pattern, the folders before the first wildcard). `prefix` adds a path before each item. `keyCache: false` turns off the key cache. Symlinks are off by default. A build bundles the files ([Hosts without a file system](#hosts-without-a-file-system)). |
 | `files(entries, options?)` | A record of path to content or a content loader, `base`, and `prefix`. | Serves files from memory. A loader runs on each read, so an `import.meta.glob()` record works. `base` is removed from each path, then a leading `./` is removed from the key. A build turns `glob()` into this. Needs no file system. |
 | `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `ignore`, `cache`. | Reads repository content through [`forges`](https://forges.link). `ref` defaults to the default branch. `auth` is a token string or a trusted callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. `auth: false` uses no token. |
-| `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. |
+| `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. Install `@modelcontextprotocol/sdk` to use it. Agent apps already have it. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines your own loader, with inferred item types. |
 
 `github()` reads only GitHub.com repositories, with `repo` as `owner/name`. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, so in GitHub Actions set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes only to the GitHub API and the sparse Git fetch, never to the `codeload.github.com` redirect. Without a token, public archives come from `codeload.github.com`, outside the anonymous API limit.
@@ -34,7 +34,7 @@ Point `glob()` at your project files and deploy to any host:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
   sources: {

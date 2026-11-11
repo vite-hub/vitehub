@@ -50,11 +50,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ai-sdk": {
-      "types": "./dist/ai-sdk.d.ts",
-      "import": "./dist/ai-sdk.js",
-      "default": "./dist/ai-sdk.js"
-    },
     "./capabilities": {
       "types": "./dist/capabilities.d.ts",
       "import": "./dist/capabilities.js",
@@ -90,15 +85,40 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./invocations/app": {
+      "types": "./dist/invocations/app.d.ts",
+      "import": "./dist/invocations/app.js",
+      "default": "./dist/invocations/app.js"
+    },
     "./invocations/d1": {
       "types": "./dist/invocations/d1.d.ts",
       "import": "./dist/invocations/d1.js",
       "default": "./dist/invocations/d1.js"
     },
+    "./invocations/database": {
+      "types": "./dist/invocations/database.d.ts",
+      "import": "./dist/invocations/database.js",
+      "default": "./dist/invocations/database.js"
+    },
     "./invocations/default": {
       "types": "./dist/invocations/default.d.ts",
       "import": "./dist/invocations/default.js",
       "default": "./dist/invocations/default.js"
+    },
+    "./invocations/default-core": {
+      "types": "./dist/invocations/default-core.d.ts",
+      "import": "./dist/invocations/default-core.js",
+      "default": "./dist/invocations/default-core.js"
+    },
+    "./invocations/default-libsql": {
+      "types": "./dist/invocations/default-libsql.d.ts",
+      "import": "./dist/invocations/default-libsql.js",
+      "default": "./dist/invocations/default-libsql.js"
+    },
+    "./invocations/drizzle": {
+      "types": "./dist/invocations/drizzle.d.ts",
+      "import": "./dist/invocations/drizzle.js",
+      "default": "./dist/invocations/drizzle.js"
     },
     "./invocations/sqlite": {
       "types": "./dist/invocations/sqlite.d.ts",
@@ -109,16 +129,6 @@
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
-    },
-    "./mcp/stdio": {
-      "types": "./dist/mcp/stdio.d.ts",
-      "import": "./dist/mcp/stdio.js",
-      "default": "./dist/mcp/stdio.js"
-    },
-    "./messages": {
-      "types": "./dist/messages.d.ts",
-      "import": "./dist/messages.js",
-      "default": "./dist/messages.js"
     },
     "./observability": {
       "types": "./dist/observability.d.ts",
@@ -134,11 +144,6 @@
       "types": "./dist/observability/posthog.d.ts",
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
-    },
-    "./output": {
-      "types": "./dist/output.d.ts",
-      "import": "./dist/output.js",
-      "default": "./dist/output.js"
     },
     "./process-host": {
       "types": "./dist/process-host.d.ts",
@@ -186,7 +191,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/agent#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
+    "test": "vp run --cache -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "catalog:ai",
@@ -227,7 +232,6 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -238,8 +242,8 @@
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -266,6 +270,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "drizzle-orm": "catalog:database",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -275,7 +280,6 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:vue-compat",
-    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
     "@vite-hub/connections": "workspace:*"
@@ -302,6 +306,9 @@
     "@vite-hub/database": {
       "optional": true
     },
+    "drizzle-orm": {
+      "optional": true
+    },
     "@vite-hub/email": {
       "optional": true
     },
@@ -324,9 +331,6 @@
       "optional": true
     },
     "vue": {
-      "optional": true
-    },
-    "eve": {
       "optional": true
     },
     "evlog": {

@@ -8,7 +8,7 @@ export default defineConfig({
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "#vitehub/queue/registry"],
+      neverBundle: ["vite", "#vitehub/queue/registry"],
       onlyBundle: false,
     },
     entry: [
@@ -32,6 +32,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   },
 });

@@ -26,19 +26,19 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
  */
 export function commentsRealtime(comments: Comments, options: CommentsSessionOptions = {}): RealtimeDefinition {
   // Realtime drops policy fields such as role. Keep the whole identity for this request's page-aware check.
-  const readers = new WeakMap<object, CommentsIdentity | false>()
+  const readers = new WeakMap<object, CommentsIdentity>()
   return {
     async identify({ event }) {
       const identity = await resolveCommentsIdentity(comments, event, options)
       readers.set(event, identity)
-      if (identity === false || !identity.user) return null
-      // Browser WebSockets carry no guest headers. Keep Console guests' browser identities in awareness instead of
+      if (!identity.user) return null
+      // Browser WebSockets carry no guest headers. Keep guests' browser identities in awareness instead of
       // binding them to the shared session fallback. Custom identify results, including guests, remain server-bound.
       return comments.options.identify || identity.user.guest !== true ? toRealtimeUser(identity.user) : null
     },
     async authorize({ event, mode, documentId, request }) {
       const identity = readers.get(event)
-      if (mode !== "read" || identity === undefined || identity === false) return false
+      if (mode !== "read" || identity === undefined) return false
       const page = new URL(request.url).searchParams.get("page")
       if (!page) return false
       // Rooms stay one per page path. Comments hints travel in page awareness. The definition-wide events room exposes

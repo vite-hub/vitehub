@@ -9,6 +9,7 @@ import {
   createViteHubEnvImportAliases,
   resolveViteHubProjectRoot,
   VITEHUB_ENV_PUBLIC_ID,
+  VITEHUB_ENV_SERVER,
   VITEHUB_ENV_SERVER_ID,
   viteHubEnvAmbientTypesPath,
   viteHubEnvDescriptionModulePath,
@@ -37,13 +38,12 @@ export { envSchema } from "./env-schema/index.ts"
 export type { EnvSchemaOptions } from "./env-schema/index.ts"
 
 import type {
-  EnvIntegrationOptions,
+  EnvDeclarations,
+  EnvOptions,
   EnvRuntimeConfigOptions,
   EnvRuntimeImportSpecifiers,
   EnvRuntimeRegistry,
   EnvRuntimeRegistryValue,
-  EnvViteConfigOptions,
-  EnvViteUserConfig,
 } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, UserConfig } from "vite"
@@ -61,8 +61,8 @@ const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
 const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
 const defaultRuntimeImports = {
-  secret: "@vite-hub/env/secret",
-  server: "@vite-hub/env/server",
+  secret: "@vite-hub/env",
+  server: "@vite-hub/env/internal/server",
 }
 let envVitePluginSequence = 0
 const developmentSecretLocks = new Map<string, Promise<{ secret: string, generated: boolean, envKey: string }>>()
@@ -74,8 +74,34 @@ export interface EnvVitePluginAPI {
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
   onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
-  prepareTypes: (config: EnvViteConfigOptions | undefined, viteRoot: string) => Promise<void>
+  prepareTypes: (declarations: EnvDeclarations | undefined, viteRoot: string) => Promise<void>
+  /** The declarations of this plugin's options, with the Server Env that ViteHub features add to this Vite config. */
+  resolveDeclarations: (config: object) => EnvDeclarations | undefined
   resolveProjectRoot: (viteRoot: string) => string
+}
+
+// A nested group is a plain object that is not an env() declaration.
+function isDeclarationGroup(value: unknown): value is EnvRuntimeConfigOptions {
+  return Object.prototype.toString.call(value) === "[object Object]"
+    && Reflect.get(Object(value), "kind") !== "env-variable"
+}
+
+function resolveDeclarations(options: EnvDeclarations, config: object): EnvDeclarations | undefined {
+  const contributed: unknown = Reflect.get(config, VITEHUB_ENV_SERVER)
+  let server = options.server
+  if (isDeclarationGroup(contributed)) {
+    server = { ...contributed }
+    for (const [key, value] of Object.entries(options.server ?? {})) {
+      const base = server[key]
+      server[key] = isDeclarationGroup(base) && isDeclarationGroup(value) ? { ...base, ...value } : value
+    }
+  }
+  if (!options.define && !options.public && !server) return undefined
+  return {
+    ...(options.define ? { define: options.define } : {}),
+    ...(options.public ? { public: options.public } : {}),
+    ...(server ? { server } : {}),
+  }
 }
 
 export type EnvVitePlugin = Plugin & {
@@ -88,6 +114,7 @@ interface ResolvedEnvState {
   diagnosticsText: string | undefined
   projectRoot: string
   providerModules: Record<string, string>
+  schemaModules: Record<string, string>
   publicConfig: Record<string, unknown>
   publicTypes: Record<string, string>
   serverRegistry: EnvRuntimeRegistry
@@ -114,7 +141,20 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
   }
 }
 
-export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
+/**
+ * Returns the declarations that the Vite Integration writes to `.vitehub/types/env.d.ts` for an `env` config: the
+ * `PublicEnv` and `ServerEnv` types of `#vitehub/env/public` and `#vitehub/env/server`. A TypeScript host that does
+ * not run Vite, such as a test or a docs check, can write them itself.
+ */
+export function createEnvTypes(config: EnvDeclarations | undefined, options: Pick<EnvOptions, "prefix" | "runtimeImports" | "projectRoot"> = {}): string {
+  validateEnvConfigShape(config, "vite")
+  const root = resolve(options.projectRoot ?? process.cwd())
+  const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix, schemaModules: true })
+  return createViteTypes(createPublicTypeEntries(config?.public), registry, resolveRuntimeImports(options.runtimeImports), resolveSchemaModules(registry, root), viteHubEnvAmbientTypesPath(root))
+}
+
+export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
+  validateEnvConfigShape(options, "vite")
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   const resolvedStates = new Map<string, ResolvedEnvState>()
@@ -127,19 +167,18 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
-  const createServerEnvRegistry = (declarations: EnvRuntimeConfigOptions | undefined) => createRuntimeRegistry(declarations, { prefix: options.prefix })
+  const createServerEnvRegistry = (declarations: EnvRuntimeConfigOptions | undefined) => createRuntimeRegistry(declarations, { prefix: options.prefix, schemaModules: true })
   const resolveProjectRoot = (viteRoot: string) => resolveViteHubProjectRoot(resolve(viteRoot), { projectRoot: options.projectRoot })
   const runtimeImports = resolveRuntimeImports(options.runtimeImports)
-  const prepareTypes = async (config: EnvViteConfigOptions | undefined, viteRoot: string) => {
+  const prepareTypes = async (declarations: EnvDeclarations | undefined, viteRoot: string) => {
     const root = resolveProjectRoot(viteRoot)
     const packageRoot = await resolvePackageRoot(viteRoot, root)
-    const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix })
+    const registry = createServerEnvRegistry(declarations?.server)
     assertConfiguredProviders(registry, resolveProviderModules(options.providers, root))
-    await prepareEnvGeneratedTypes(root, packageRoot, config?.public, registry, runtimeImports)
+    await prepareEnvGeneratedTypes(root, packageRoot, declarations?.public, registry, runtimeImports, resolveSchemaModules(registry, root))
   }
-  const resolveState = async (config: UserConfig & EnvViteUserConfig, mode: string, developmentSecret?: string, developmentSecretGenerated?: boolean, developmentSecretEnvKey?: string) => {
-    const envConfig = config.env
-    validateEnvConfigShape(envConfig, "vite")
+  const resolveState = async (config: UserConfig, mode: string, developmentSecret?: string, developmentSecretGenerated?: boolean, developmentSecretEnvKey?: string) => {
+    const envConfig = resolveDeclarations(options, config)
     const projectRoot = resolveProjectRoot(config.root || process.cwd())
     const providerModules = resolveProviderModules(options.providers, projectRoot)
     if (!envConfig) {
@@ -150,6 +189,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           diagnosticsText: undefined,
           projectRoot,
           providerModules,
+          schemaModules: {},
           publicConfig: {},
           publicTypes: {},
           serverRegistry: {},
@@ -190,6 +230,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         diagnosticsText: formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics),
         projectRoot,
         providerModules,
+        schemaModules: resolveSchemaModules(registry, projectRoot),
         publicConfig,
         publicTypes: createPublicTypeEntries(envConfig.public, publicConfig),
         serverRegistry: registry,
@@ -208,6 +249,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       getServerEnvRegistry,
       onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
       prepareTypes,
+      resolveDeclarations: config => resolveDeclarations(options, config),
       resolveProjectRoot,
     },
     vitehub: {
@@ -225,9 +267,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         developmentSecretEnvKey = resolvedSecret.envKey
         if (developmentSecretEnvKey) process.env[developmentSecretEnvKey] = developmentSecret
       }
-      const envConfig = (config as UserConfig & EnvViteUserConfig).env
-      // SAFETY: Env extends UserConfig with the optional env field validated by resolveState.
-      const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode, developmentSecret, developmentSecretGenerated, developmentSecretEnvKey)
+      const envConfig = resolveDeclarations(options, config)
+      const { defineValues, state } = await resolveState(config, env.mode, developmentSecret, developmentSecretGenerated, developmentSecretEnvKey)
       buildPublicConfig = state.publicConfig
       serverRegistry = state.serverRegistry
       const configStateId = String(++configStateSequence)
@@ -280,7 +321,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const previousGeneratedStateWrite = generatedStateWrites.get(projectRoot) ?? Promise.resolve()
       const generatedStateWrite = previousGeneratedStateWrite.catch(() => undefined).then(async () => {
         const packageRoot = await resolvePackageRoot(config.root, projectRoot)
-        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.publicTypes, state.serverRegistry, runtimeImports, state.providerModules, state.developmentSecretEnvKey, state.developmentSecretGenerated)
+        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.publicTypes, state.serverRegistry, runtimeImports, state.providerModules, state.schemaModules, state.developmentSecretEnvKey, state.developmentSecretGenerated)
       })
       generatedStateWrites.set(projectRoot, generatedStateWrite)
       try {
@@ -305,6 +346,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         const publicConfig = state?.publicConfig ?? buildPublicConfig
         const registry = state?.serverRegistry ?? serverRegistry
         const providerModules = state?.providerModules ?? {}
+        const schemaModules = state?.schemaModules ?? {}
         if (id === RESOLVED_DESCRIPTION_ID) {
           return createServerEnvDescriptionModule(registry)
         }
@@ -312,7 +354,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           return createPublicEnvModule(publicConfig)
         }
         if (id === RESOLVED_SERVER_ID) {
-          return createServerEnvModule(registry, runtimeImports, providerModules, undefined, state?.developmentSecretEnvKey, state?.developmentSecretGenerated)
+          return createServerEnvModule(registry, runtimeImports, providerModules, schemaModules, undefined, state?.developmentSecretEnvKey, state?.developmentSecretGenerated)
         }
       },
     },
@@ -347,23 +389,24 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 async function prepareEnvGeneratedTypes(
   root: string,
   packageRoot: string | undefined,
-  publicConfig: EnvViteConfigOptions["public"],
+  publicConfig: EnvDeclarations["public"],
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+  schemaModules: Record<string, string>,
 ): Promise<void> {
   const publicTypes = createPublicTypeEntries(publicConfig)
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
           writeFileIfChanged(viteHubEnvPublicModuleTypesPath(packageRoot), createPublicEnvModuleTypes(publicTypes)),
-          writeFileIfChanged(viteHubEnvServerModuleTypesPath(packageRoot), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+          writeFileIfChanged(viteHubEnvServerModuleTypesPath(packageRoot), createServerEnvModuleTypes(serverRegistry, runtimeImports, schemaModules, viteHubEnvServerModuleTypesPath(packageRoot))),
           writeFileIfChanged(viteHubEnvAmbientTypesPath(packageRoot), createAmbientTypesReference(packageRoot, root)),
         ]
       : []),
-    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports, schemaModules, viteHubEnvAmbientTypesPath(root))),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
-    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports, schemaModules, viteHubEnvServerModuleTypesPath(root))),
   ])
 }
 
@@ -406,6 +449,25 @@ function assertConfiguredProviders(registry: EnvRuntimeRegistry, providers: Reco
       throw envErrorDiagnostics.ENV_B0005({ message: `[vitehub] ${path} references Env provider ${JSON.stringify(entry.source.provider)}, but hubEnv({ providers }) does not configure it.` })
     }
   }
+}
+
+/** Map each `env.schemaFrom()` specifier to the module the server build imports. Relative specifiers resolve from the project root. */
+function resolveSchemaModules(registry: EnvRuntimeRegistry, root: string): Record<string, string> {
+  const output: Record<string, string> = {}
+  for (const { entry } of runtimeRegistryEntries(registry)) {
+    if (!(isEnvEntry(entry) || isProviderEntry(entry)) || !entry.schemaModule) continue
+    const specifier = entry.schemaModule.module
+    output[specifier] = specifier.startsWith(".") ? resolve(root, specifier) : specifier
+  }
+  return output
+}
+
+/** A type-only import specifier for a schema module, relative to the generated declaration file. */
+function schemaModuleTypeSpecifier(specifier: string, outputPath: string): string {
+  const typed = specifier.replace(/\.([cm]?)tsx?$/, ".$1js")
+  if (!isAbsolute(typed)) return typed
+  const target = relative(dirname(outputPath), typed).replace(/\\/g, "/")
+  return target.startsWith(".") ? target : `./${target}`
 }
 
 const generatedSecretPattern = /^[0-9a-f]{64}$/
@@ -472,7 +534,7 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
         await new Promise(resolve => setTimeout(resolve, 5))
       }
     }
-    if (!lock) throw new Error(`Timed out waiting for generated secret lock: ${secretPath}`)
+    if (!lock) throw envErrorDiagnostics.ENV_B0007({ message: `[vitehub] Timed out waiting for the generated secret lock: ${secretPath}.lock` })
     const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
     try {
       secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
@@ -503,28 +565,29 @@ async function refreshEnvGeneratedFiles(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
+  schemaModules: Record<string, string>,
   developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): Promise<void> {
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
-          ...packageEnvModuleWrites(packageRoot, publicConfig, publicTypes, serverRegistry, runtimeImports, providerModules, developmentSecretEnvKey, developmentSecretGenerated),
+          ...packageEnvModuleWrites(packageRoot, publicConfig, publicTypes, serverRegistry, runtimeImports, providerModules, schemaModules, developmentSecretEnvKey, developmentSecretGenerated),
           writeFileIfChanged(
             viteHubEnvAmbientTypesPath(packageRoot),
             createAmbientTypesReference(packageRoot, root),
           ),
         ]
       : []),
-    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports, schemaModules, viteHubEnvAmbientTypesPath(root))),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
     writeFileIfChanged(
       viteHubEnvServerModulePath(root),
-      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root), developmentSecretEnvKey, developmentSecretGenerated),
+      createServerEnvModule(serverRegistry, runtimeImports, providerModules, schemaModules, viteHubEnvServerModulePath(root), developmentSecretEnvKey, developmentSecretGenerated),
     ),
-    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports, schemaModules, viteHubEnvServerModuleTypesPath(root))),
   ])
 }
 
@@ -541,6 +604,7 @@ function packageEnvModuleWrites(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
+  schemaModules: Record<string, string>,
   developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): Promise<void>[] {
@@ -549,9 +613,9 @@ function packageEnvModuleWrites(
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(
       viteHubEnvServerModulePath(root),
-      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root), developmentSecretEnvKey, developmentSecretGenerated),
+      createServerEnvModule(serverRegistry, runtimeImports, providerModules, schemaModules, viteHubEnvServerModulePath(root), developmentSecretEnvKey, developmentSecretGenerated),
     ),
-    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports, schemaModules, viteHubEnvServerModuleTypesPath(root))),
   ]
 }
 
@@ -603,17 +667,23 @@ function createServerEnvModule(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
+  schemaModules: Record<string, string>,
   outputPath?: string,
   developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): string {
   const referenced = referencedProviderNames(serverRegistry)
   const providers = Object.entries(providerModules).filter(([name]) => referenced.has(name))
+  const schemas = Object.entries(schemaModules)
   return [
     `import * as envRuntime from ${JSON.stringify(runtimeImports.server)};`,
 
     ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
+    ...schemas.map(([, specifier], index) => `import * as envSchemas${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
     `const registry = JSON.parse(${JSON.stringify(JSON.stringify(serverRegistry))});`,
+    ...(schemas.length
+      ? [`envRuntime.bindServerEnvSchemas(registry, { ${schemas.map(([name], index) => `${JSON.stringify(name)}: envSchemas${index}`).join(", ")} });`]
+      : []),
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
     createServerEnvDescriptionModule(serverRegistry).trimEnd(),
     'export const manageServerEnv = envRuntime.createServerEnvManagement?.(registry, providers) ?? (async () => Response.json({ message: "Env management is unavailable." }, { status: 503 }));',
@@ -670,13 +740,19 @@ function referencedProviderNames(registry: EnvRuntimeRegistry): Set<string> {
   return names
 }
 
-function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeImports: Required<EnvRuntimeImportSpecifiers>): string {
+interface ServerSchemaTypes {
+  modules: Record<string, string>
+  outputPath: string
+}
+
+function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeImports: Required<EnvRuntimeImportSpecifiers>, schemaModules: Record<string, string>, outputPath: string): string {
+  const schemaTypes = { modules: schemaModules, outputPath }
   return [
     `import type { SecretEnv } from ${JSON.stringify(runtimeImports.secret)}`,
     "",
     ...createServerEnvInspectionTypes(0),
     "export interface ServerEnv {",
-    ...createServerTypeFields(serverRegistry, 2),
+    ...createServerTypeFields(serverRegistry, 2, schemaTypes),
     "}",
     `export function useServerEnv(event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): ServerEnv`,
     `export function deriveSecret(purpose: string, event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): Promise<string>`,
@@ -694,7 +770,10 @@ function createViteTypes(
   publicTypes: Record<string, string>,
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+  schemaModules: Record<string, string>,
+  outputPath: string,
 ): string {
+  const schemaTypes = { modules: schemaModules, outputPath }
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
@@ -706,7 +785,7 @@ function createViteTypes(
     "declare module \"#vitehub/env/server\" {",
     ...createServerEnvInspectionTypes(2),
     "  export interface ServerEnv {",
-    ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
+    ...createServerTypeFields(serverRegistry, 4, schemaTypes, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     `  export function useServerEnv(event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): ServerEnv`,
     `  export function deriveSecret(purpose: string, event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): Promise<string>`,
@@ -758,7 +837,7 @@ function createReadonlyServerEnvTypes(indent: number, secretType: string): strin
   ]
 }
 
-function createPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"], resolvedValues?: Record<string, unknown>): Record<string, string> {
+function createPublicTypeEntries(publicConfig: EnvDeclarations["public"], resolvedValues?: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
     const valueSchema = runtimeValueSchema(declaration)
     const fallbackValue = resolvedValues
@@ -781,25 +860,33 @@ function createPublicTypeFields(publicTypes: Record<string, string>, indent: num
   return Object.entries(publicTypes).map(([key, type]) => `${prefix}${JSON.stringify(key)}: ${type}`)
 }
 
-function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, secretType = "SecretEnv"): string[] {
+function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, schemaTypes: ServerSchemaTypes, secretType = "SecretEnv"): string[] {
   const prefix = " ".repeat(indent)
   return Object.entries(registry).map(([key, value]) => {
     const optional = isOptionalServerValue(value) ? "?" : ""
-    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent, secretType)}`
+    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent, schemaTypes, secretType)}`
   })
 }
 
-function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, secretType: string): string {
+function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, schemaTypes: ServerSchemaTypes, secretType: string): string {
   if (isLiteralEntry(value)) return literalType(value.value)
   if (isEnvEntry(value) || isProviderEntry(value)) {
-    const type = envValueTypeName(value.schema ?? stringValueSchema)
+    const type = value.schemaModule
+      ? schemaOutputType(value.schemaModule.module, value.schemaModule.export, schemaTypes)
+      : envValueTypeName(value.schema ?? stringValueSchema)
     return value.secret ? `${secretType}<${type}>` : type
   }
 
-  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2, secretType)
+  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2, schemaTypes, secretType)
   if (!fields.length) return "Record<string, never>"
   const prefix = " ".repeat(indent)
   return `{\n${fields.join("\n")}\n${prefix}}`
+}
+
+/** Infer the output from optional Standard Schema type metadata, falling back to unknown when it is absent. */
+function schemaOutputType(specifier: string, exportName: string, schemaTypes: ServerSchemaTypes): string {
+  const module = schemaModuleTypeSpecifier(schemaTypes.modules[specifier] ?? specifier, schemaTypes.outputPath)
+  return `typeof import(${JSON.stringify(module)})[${JSON.stringify(exportName)}] extends { readonly "~standard": { readonly types?: { readonly output: infer Output } | undefined } } ? Output : unknown`
 }
 
 function isOptionalServerValue(value: EnvRuntimeRegistryValue): boolean {
@@ -819,11 +906,5 @@ function literalType(value: unknown): string {
       return JSON.stringify(value)
     default:
       return "unknown"
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    env?: EnvViteConfigOptions
   }
 }

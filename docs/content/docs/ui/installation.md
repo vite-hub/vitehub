@@ -23,7 +23,7 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 | `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `@vite-hub/ui/headless`. |
 | `vite` and `@vitejs/plugin-vue`           | The `@vite-hub/ui/vite` plugin.                           |
 | `vite-hub`                                | Nuxt. `vite-hub/nuxt` gives the components their Nuxt runtime. |
-| `@iconify-json/lucide`, `@iconify-json/ph` | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
+| `@iconify-json/lucide`                    | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
 
 `@nuxt/ui` and `vite` are optional peers, so an app that uses only the headless entry does not need them.
 
@@ -32,7 +32,7 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 Install the package and its peers:
 
 ```bash [commands/install-nuxt]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Add Nuxt UI and ViteHub to `nuxt.config.ts`. Register Nuxt UI first:
@@ -183,6 +183,14 @@ app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
 ```
 
 A part uses the component given here first, then a global one with the same name from `app.component()`, then Nuxt UI's.
+
+Parts such as `CopyButton` read their icons from Nuxt UI's `appConfig.ui.icons`. The Nuxt module passes them for you. In Vue with Vite, pass the same icons, or each part falls back to Lucide:
+
+```ts [vite/icons/src/main.ts] fragment
+import { vitehubTheme } from "@vite-hub/ui/theme";
+
+app.use(createViteHubUI({ icons: vitehubTheme.icons }));
+```
 
 ## Theme
 
