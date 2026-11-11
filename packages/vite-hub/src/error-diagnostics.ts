@@ -23,7 +23,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_R0136: dynamicError,
     VITE_HUB_R0137: dynamicError,
     VITE_HUB_R0141: dynamicError,
-    VITE_HUB_R0142: dynamicError,
+    VITE_HUB_R0142: {
+      ...dynamicError,
+      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,
