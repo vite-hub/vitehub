@@ -8,8 +8,6 @@ export const generatedModules = {
   commentsRealtime: ownModule(import.meta.url, "comments/realtime"),
   commentsRuntimeAuth: ownModule(import.meta.url, "comments/runtime/auth"),
   connectionsAgent: ownModule(import.meta.url, "connections/agent"),
-  consoleAuthCloudflareAccess: ownModule(import.meta.url, "console/auth-cloudflare-access"),
-  consoleAuthInline: ownModule(import.meta.url, "console/auth-inline"),
   consoleBlob: ownModule(import.meta.url, "console/runtime/server/blob"),
   consoleDatabase: ownModule(import.meta.url, "console/runtime/server/database"),
   consoleDefinitions: ownModule(import.meta.url, "console/runtime/server/definitions"),

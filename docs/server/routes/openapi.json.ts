@@ -1,3 +1,4 @@
+import { defineEventHandler, setResponseHeader } from "h3";
 import { viteHubOpenApi } from "../utils/openapi";
 
 export default defineEventHandler((event) => {

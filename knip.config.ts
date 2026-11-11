@@ -103,20 +103,21 @@ const packageEntries = [
 // Packages bundle `@vite-hub/internal` (`alwaysBundle`), so the imports of the internal modules that they use become
 // theirs, and each one declares them. `@valibot/to-json-schema` stays external through the `neverBundle` of internal.
 const bundledInternal: Record<string, string[]> = {
-  agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft"],
-  blob: ["@valibot/to-json-schema"],
-  cli: ["@babel/parser"],
+  agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
+  blob: ["@valibot/to-json-schema", "birpc"],
+  cli: ["@babel/parser", "birpc"],
   codemods: ["@babel/parser"],
-  comments: ["@valibot/to-json-schema"],
-  content: ["@valibot/to-json-schema"],
+  comments: ["@valibot/to-json-schema", "birpc"],
+  content: ["@valibot/to-json-schema", "birpc"],
   database: ["@sqlite.org/sqlite-wasm"],
-  email: ["@valibot/to-json-schema"],
-  kv: ["@valibot/to-json-schema"],
-  "rate-limit": ["@valibot/to-json-schema"],
+  email: ["@valibot/to-json-schema", "birpc"],
+  forms: ["birpc"],
+  kv: ["@valibot/to-json-schema", "birpc"],
+  "rate-limit": ["@valibot/to-json-schema", "birpc"],
   schedule: ["@valibot/to-json-schema"],
-  "vite-hub": ["@valibot/to-json-schema", "semver"],
+  "vite-hub": ["@valibot/to-json-schema", "birpc", "semver"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
-  workspace: ["@valibot/to-json-schema", "@vercel/nft"],
+  workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
@@ -188,6 +189,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
   ui: {
     ignoreDependencies: [
+      // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
+      "nuxt-nightly",
       // The bundled `@pierre/diffs` imports these, and `neverBundle` keeps `vega-loader` external for the bundled Vega code.
       "@shikijs/langs",
       "@shikijs/themes",
