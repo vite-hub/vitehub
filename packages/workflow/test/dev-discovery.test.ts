@@ -25,7 +25,7 @@ async function writeSource(file: string, source = "export default async () => 42
 }
 
 function agentSource(workflowName: string) {
-  return `export default defineAgent({ runtime: workflow(${JSON.stringify(workflowName)}) })\n`
+  return `export default defineAgent({ runtime: agentWorkflow(${JSON.stringify(workflowName)}) })\n`
 }
 
 describe("Workflow development discovery", () => {

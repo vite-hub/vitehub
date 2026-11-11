@@ -5,47 +5,33 @@ import { getAgentLayerOptions } from "../src/agent-layers.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { markWorkspaceAgentDefinitionRegistered, workspaceAgentUsesRegisteredDefinition, workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
-describe("named Agent presets", () => {
-  it("runs a selected published definition with local overrides", async () => {
+describe("Agent presets from a package", () => {
+  it("runs an extended published definition with local overrides", async () => {
     const run = vi.fn(() => ({ text: "notes" }))
-    const unused = vi.fn(() => ({ text: "unused" }))
     const notetaker = defineAgent({ name: "published-notetaker", driver: { run } })
-    const agent = defineAgent({
-      preset: "notetaker",
-      presets: { notetaker, other: defineAgent({ driver: { run: unused } }) },
-      description: "Local notes",
-    })
+    const agent = defineAgent({ extends: notetaker, description: "Local notes" })
     await runAgentWithContext(agent, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "Summarize this" })
     expect(run).toHaveBeenCalledTimes(1)
-    expect(unused).not.toHaveBeenCalled()
     expect(agent.name).toBeUndefined()
     expect(agent.description).toBe("Local notes")
     expect(notetaker.name).toBe("published-notetaker")
     expect(agent.resolve).not.toBe(notetaker.resolve)
   })
 
-  it("keeps registries local and composes named presets through multiple generations", () => {
+  it("composes presets through multiple generations", () => {
     const first = defineAgent({ driver: codexDriver({ model: "first" }), workspace: {} })
-    const second = defineAgent({ preset: "notes", presets: { notes: first }, driver: { model: "second" } })
-    const third = defineAgent({ preset: "notes", presets: { notes: second }, description: "third" })
+    const second = defineAgent({ extends: first, driver: { model: "second" } })
+    const third = defineAgent({ extends: second, description: "third" })
     expect(second.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model: "second" })
     expect(third.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model: "second" })
-    expect(third.__vitehubWorkspaceAgentOptions).not.toHaveProperty("presets")
-    expect(third.__vitehubWorkspaceAgentOptions).not.toHaveProperty("preset")
     expect(first.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model: "first" })
   })
 
-  it.each([undefined, null, false, 42, {}, [], "", " "])("rejects malformed preset %j without a registry", (preset) => {
-    expect(() => defineAgent({ preset } as never)).toThrow("requires a non-empty preset name")
-  })
-
-  it("rejects missing, inherited, invalid and ambiguous selections", () => {
+  it("rejects the removed preset and presets options", () => {
     const base = defineAgent({ driver: codexDriver() })
-    expect(() => defineAgent({ preset: "missing", presets: { notes: base } } as never)).toThrow('preset "missing" is not defined')
-    expect(() => defineAgent({ preset: "toString", presets: {} } as never)).toThrow('preset "toString" is not defined')
-    expect(() => defineAgent({ presets: { notes: base } } as never)).toThrow("requires a non-empty preset name")
-    expect(() => defineAgent({ preset: "notes", presets: { notes: {} } } as never)).toThrow("requires an Agent Definition")
-    expect(() => defineAgent({ preset: "notes", presets: { notes: base }, extends: base } as never)).toThrow("Select one Agent parent")
+    expect(() => defineAgent({ preset: "notes", presets: { notes: base } } as never)).toThrow("Pass the parent Agent Definition as extends")
+    expect(() => defineAgent({ presets: { notes: base } } as never)).toThrow("has no preset or presets option")
+    expect(() => defineAgent({ preset: "notes" } as never)).toThrow("has no preset or presets option")
   })
 })
 
@@ -94,7 +80,7 @@ describe("configured Agent presets", () => {
     }))
     const preset = defineAgent({ options: defaults, configure: factory })
     const second = defineAgent({
-      preset: "repair", presets: { repair: preset },
+      extends: preset,
       options: { filter: { author: { allow: ["replacement"] } }, autoMerge: false },
       description: "application",
       name: "second",
@@ -118,7 +104,7 @@ describe("configured Agent presets", () => {
       options: { filter: { when: original } },
       configure: options => defineAgent({ driver: codexDriver(), workspace: {}, description: String(options.filter.when()) }),
     })
-    const agent = defineAgent({ preset: "repair", presets: { repair: preset }, options: { filter: { when: replacement } } })
+    const agent = defineAgent({ extends: preset, options: { filter: { when: replacement } } })
     expect(agent.description).toBe("false")
     expect(agent.__vitehubWorkspaceAgentOptions).not.toHaveProperty("options")
     expect(agent.__vitehubWorkspaceAgentOptions).not.toHaveProperty("configure")
@@ -268,9 +254,9 @@ it.each(["capability", "channel", "channel factory"])("preserves discovered defa
 it("promotes configured presets when capabilities or channels contribute Workspace access", () => {
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const capability = defineCapability({ id: "workspace", workspace: {} })
-  const selected = defineAgent({ preset: "plain", presets: { plain }, capabilities: [capability] })
+  const selected = defineAgent({ extends: plain, capabilities: [capability] })
   const extended = defineAgent({ extends: plain, capabilities: [capability] })
-  const channel = defineAgent({ preset: "plain", presets: { plain }, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  const channel = defineAgent({ extends: plain, channels: { custom: { kind: "custom", capabilities: [capability] } } })
   for (const agent of [selected, extended, channel, defineAgent({ extends: channel })]) {
     expect(agent.__vitehubWorkspaceAgent).toBe(true)
     expect(agent.options).toEqual({ enabled: true })
@@ -297,7 +283,7 @@ it("removes contributed Workspace access when its last channel or capability is 
   expect(Object.getOwnPropertyDescriptor(callbackChild, decoration)?.value).toEqual({ published: true })
   expect(defineAgent({ extends: callbackPreset, workspace: {} })).toHaveProperty("publishedMetadata", { published: true })
   const withCapability = defineAgent({ extends: plain, capabilities: [capability] })
-  const removedCapability = defineAgent({ preset: "base", presets: { base: withCapability }, capabilities: [replacement] })
+  const removedCapability = defineAgent({ extends: withCapability, capabilities: [replacement] })
   expect(removedCapability).not.toHaveProperty("__vitehubWorkspaceAgent")
   const explicit = defineAgent({ extends: channel, workspace: {} })
   expect(defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } }).__vitehubWorkspaceAgent).toBe(true)
@@ -311,7 +297,7 @@ it("keeps Workspace registration state separate from configured definitions", ()
   const base = defineAgent({ name: "base", driver: codexDriver(), workspace: {} })
   markWorkspaceAgentDefinitionRegistered(base, "base")
   const preset = defineAgent({ options: { enabled: true }, configure: () => base })
-  const selected = defineAgent({ preset: "base", presets: { base: preset }, name: "selected" })
+  const selected = defineAgent({ extends: preset, name: "selected" })
   const extended = defineAgent({ extends: preset, name: "extended" })
   for (const definition of [preset, selected, extended]) {
     expect(workspaceAgentUsesRegisteredDefinition(definition, "base")).toBe(false)
@@ -338,19 +324,19 @@ it("preserves nested streams through preset configuration", () => {
 })
 
 describe("module-style Agent presets", () => {
-  it("applies named options selected through a preset registry", () => {
+  it("applies named options of an extended preset", () => {
     const preset = defineAgent({
       configKey: "repair",
       options: { enabled: true },
       configure: options => defineAgent({ driver: codexDriver(), description: String(options.enabled) }),
     })
-    const selected = defineAgent({ preset: "selected", presets: { selected: preset }, repair: { enabled: false } })
+    const selected = defineAgent({ extends: preset, repair: { enabled: false } })
     expect(selected.configKey).toBe("repair")
     expect(selected.options.enabled).toBe(false)
     expect(selected.description).toBe("false")
     const child = defineAgent({ extends: selected, repair: { enabled: true } })
     expect(child.options.enabled).toBe(true)
-    expect(() => defineAgent({ preset: "selected", presets: { selected: preset }, repair: {}, options: {} } as never)).toThrow("Select preset options")
+    expect(() => defineAgent({ extends: preset, repair: {}, options: {} } as never)).toThrow("Select preset options")
   })
 
   it("merges named and tuple options while retaining the config key", async () => {
@@ -379,6 +365,8 @@ describe("module-style Agent presets", () => {
     expect(() => defineAgent({ extends: preset, repair: { typo: true } } as never)).toThrow('Unknown Agent repair option "typo"')
     expect(() => defineAgent({ extends: [preset, { typo: true }] } as never)).toThrow('Unknown Agent repair option "typo"')
     expect(() => defineAgent({ extends: preset, options: {}, repair: {} } as never)).toThrow("Select preset options")
-    expect(() => defineAgent({ configKey: "driver", options: {}, configure: () => defineAgent({ driver: codexDriver() }) } as never)).toThrow("non-reserved")
+    for (const configKey of ["driver", "preset", "presets"]) {
+      expect(() => defineAgent({ configKey, options: {}, configure: () => defineAgent({ driver: codexDriver() }) } as never)).toThrow("non-reserved")
+    }
   })
 })

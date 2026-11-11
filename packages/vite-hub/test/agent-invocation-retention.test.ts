@@ -3,10 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
-import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
+import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-invocations"
 
 import { installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
@@ -43,7 +43,7 @@ const clients: Client[] = []
 
 beforeAll(async () => {
   // Keep cold module loading outside the journal's one-second store operation timeout.
-  await Promise.all([import("@libsql/client"), import("@vite-hub/agent/invocations/sqlite")])
+  await Promise.all([import("@libsql/client"), import("@vite-hub/agent/invocations")])
 })
 
 beforeEach(async () => {

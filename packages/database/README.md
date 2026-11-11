@@ -12,8 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 ## Minimal API
@@ -99,7 +99,7 @@ A production build bundles libSQL only when a Database can reach a remote libSQL
 
 ## Migrations
 
-`vitehub database generate` writes Drizzle migrations beside the Definition. `vitehub database migrate` applies the pending ones with Drizzle Kit. For D1 HTTP it applies them itself with Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), so `wrangler d1 migrations apply` and `vitehub database migrate` agree on what is applied. Each file and its ledger row go in one request. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
+`vitehub database generate` writes Drizzle migrations beside the Definition, one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder each, as Drizzle Kit 1.0 does. Convert a `meta/_journal.json` folder from Drizzle Kit 0.x once with `npx drizzle-kit up`. For Cloudflare D1, commit the `d1-migrations.json` that keeps the Wrangler file name of each folder. `vitehub database migrate` applies the pending ones with Drizzle Kit. For D1 HTTP it applies them itself with Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), so `wrangler d1 migrations apply` and `vitehub database migrate` agree on what is applied. Each file and its ledger row go in one request. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
 
 Connection URLs and tokens can use string literals or runtime environment declarations, including module-level variables initialized with those values. The generated Kit config reads environment values at invocation time and uses the Turso dialect for remote or authenticated libSQL. The migration check uses the same connection values. Local migration creates the database's parent directory after the check; generation and `--dry-run` do not create the database file.
 
@@ -113,6 +113,8 @@ Before it applies anything, `vitehub database migrate` reads Drizzle's migration
 
 The check connects to the migration target: the local SQLite file, remote libSQL, D1 HTTP with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (or the object-form `cloudflare.http` proxy's resolved `url` and `authToken`), or Postgres with the `postgres` package. When it cannot read the migrations table, it fails with `DATABASE_MIGRATION_CHECK_FAILED` and does not guess. A D1 HTTP database without Wrangler's table but with `__drizzle_migrations` keeps the migrations that Drizzle Kit applied: the first `vitehub database migrate` writes them to Wrangler's table. Wrangler applies the migrations of a native D1 binding, so that path has no check.
 
+The CLI and startup refuse a legacy ledger upgrade when overlapping timestamp or hash updates would assign different folder names to one row. Drizzle Kit can replay applied SQL in that case. Verify and repair the ledger upgrade on a database copy before retrying.
+
 `vitehub database export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads remote libSQL, Cloudflare D1 through the D1 export API (like `wrangler d1 export --remote`), an object-form `cloudflare.http` proxy, or Postgres through `pg_dump`. `--stage <name>` loads that mode's Vite env files, `--database <name>` picks one database, and `--output <file>` sets the file. SQLite-family dumps use Wrangler's format, so `wrangler d1 execute --file` and `sqlite3` can restore them. Failures print `DATABASE_EXPORT_FAILED`.
 
 Local SQLite, libSQL, and object-form D1 proxy exports reject contentless FTS5 tables (`content=''`) to avoid losing their search indexes. Use a SQLite backup that preserves FTS shadow tables for these databases.
@@ -124,7 +126,11 @@ pnpm vitehub database export                             # local SQLite to .vite
 pnpm vitehub database export --remote --stage production # the deployed database
 ```
 
-A self-hosted Node build can apply migrations itself with `database: { migrateOnStart: true }`. The build writes each database's migrations into a Nitro plugin. When the server starts, the plugin applies the pending ones to the local SQLite file in one transaction, before the server handles a request. It uses Drizzle Kit's ledger and refuses data loss like `vitehub database migrate`, unless `migrateOnStart: { allowDataLoss: true }`. Another host, Postgres, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a file must have ledger entries matching every migration at or below its latest applied timestamp; otherwise startup refuses all changes with that error. Run one server process per database file.
+A self-hosted Node build applies migrations itself when the server starts. The build writes each database's migrations into a Nitro plugin, and Nitro loads it before the server listens. Postgres databases migrate on start by default when the build's host is Node; `migrateOnStart: true` also migrates local SQLite files, and `migrateOnStart: false` turns it off. The plugin applies the pending migrations in one transaction, with Drizzle 1.0's ledger: a migration folder is pending when the `name` column does not list it. A Drizzle Kit 0.x ledger gets `name` first, as Drizzle 1.0 adds it. It refuses data loss like `vitehub database migrate`, unless `migrateOnStart: { allowDataLoss: true }`. A failed migration rolls back and stops the server with `DATABASE_MIGRATION_FAILED` for Postgres.
+
+On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_lock(hashtext('vitehub:migrations'))` and keeps it until the commit. Several instances can start together: one migrates, and the others wait, then find nothing pending. `vitehub database migrate` applies Postgres migrations with the same migrator and lock, not with Drizzle Kit. Definitions on one Postgres database, as the server reports it (`current_database()` and the server start time in Unix seconds, the same for every session), share its ledger and migrate in one transaction.
+
+With `migrateOnStart: true`, another host, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a SQLite file or a Postgres database must not have one folder name with different SQL; otherwise startup refuses all changes with that error. SQLite has no lock across processes: run one server process per database file.
 
 ## Contributed tables
 
@@ -228,7 +234,7 @@ export default defineDatabase({
 })
 ```
 
-ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
+ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. The client drops server notices, such as `relation already exists, skipping`, and prints each Postgres warning with `console.warn`. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
 
 Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
 
