@@ -124,6 +124,8 @@ export function addConsoleRpcHandler(
   }
 
   for (const registration of registrations) {
+    // Only the Env section installs the Server Env that this route manages.
+    if (registration.suffix === "/_vitehub/env/manage" && !sections.includes("env")) continue
     // Other Console access modes leave the application's origin-wide OAuth discovery routes alone.
     if (registration.absolute && !oauth) continue
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;

@@ -221,7 +221,6 @@ describe("Agent invocation console", () => {
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
         "/**",
         "/_vitehub/rpc",
-        "/_vitehub/env/manage",
         "/_vitehub/mcp",
       ])
       expect(config.nitro.publicAssets).toEqual([
@@ -365,7 +364,6 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
         `${mount}/_vitehub/rpc`,
-        `${mount}/_vitehub/env/manage`,
         `${mount}/_vitehub/mcp`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
@@ -397,7 +395,6 @@ describe("Agent invocation console", () => {
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
         "/portal/_vitehub/rpc",
-        "/portal/_vitehub/env/manage",
         "/portal/_vitehub/mcp",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
@@ -440,8 +437,8 @@ describe("Agent invocation console", () => {
 
   it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
     const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
-    addConsoleRpcHandler(config, "/runtime", "/early/", [], true)
-    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
+    addConsoleRpcHandler(config, "/runtime", "/early/", ["env"], true)
+    addConsoleRpcHandler(config, "/runtime", "/portal/", ["env"], true)
 
     expect(config.handlers.map(handler => handler.route)).toEqual([
       undefined,
@@ -474,7 +471,7 @@ describe("Agent invocation console", () => {
         console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
-        sections: ["blob"],
+        sections: ["env", "blob"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -542,7 +539,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: productionConsole,
         preset: "cloudflare",
-        sections: ["kv"],
+        sections: ["env", "kv"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -559,7 +556,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], "cloudflare-access")`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","kv"], "cloudflare-access")`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("installConsoleKV")
       expect(generated).not.toContain("hidden.agent")
@@ -724,7 +721,7 @@ describe("Agent invocation console", () => {
         console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
-        sections: ["databases"],
+        sections: ["env", "databases"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -749,7 +746,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
       expect(generated).toContain(`import("vite-hub/database/drizzle")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"], "cloudflare-access")`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -773,7 +770,7 @@ describe("Agent invocation console", () => {
         console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
-        sections: ["queues"],
+        sections: ["env", "queues"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -792,7 +789,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"], "cloudflare-access")`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":{"definitions":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -820,7 +817,7 @@ describe("Agent invocation console", () => {
         console: productionConsole,
         preset: "cloudflare",
         resolveKV: () => false,
-        sections: ["rate-limits"],
+        sections: ["env", "rate-limits"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -842,7 +839,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"], "cloudflare-access")`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits"], "cloudflare-access")`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -917,7 +914,6 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
         "/_vitehub/rpc",
-        "/_vitehub/env/manage",
         "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])

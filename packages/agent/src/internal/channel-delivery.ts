@@ -1,6 +1,5 @@
 import type { StateAdapter } from "chat"
 
-import { isRuntimeBigInt, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentChannelDelivery,
@@ -32,15 +31,15 @@ export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
   return Boolean(
     value &&
-    isRuntimeObject(value) &&
+    typeof value === "object" && value !== null &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).channelId) || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
+    (typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string" || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).deliveryId) &&
+    typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string" &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).provider) &&
+    typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string" &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).stateScope) || (value as AgentChannelDeliveryWorkflowBinding).stateScope === undefined) &&
+    (typeof (value as AgentChannelDeliveryWorkflowBinding).stateScope === "string" || (value as AgentChannelDeliveryWorkflowBinding).stateScope === undefined) &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"),
   )
@@ -121,18 +120,18 @@ function token(): string {
 }
 
 export function agentChannelDeliverySourceValue(value: unknown): string | undefined {
-  return isRuntimeString(value) && value ? value : isRuntimeNumber(value) || isRuntimeBigInt(value) ? String(value) : undefined
+  return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
 }
 
 export function agentChannelDeliverySourceId(provider: string, payload: unknown): string | undefined {
-  if (!payload || !isRuntimeObject(payload) || Array.isArray(payload)) return
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const record = payload as Record<string, unknown>
   const activity =
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    record.activity && isRuntimeObject(record.activity) && !Array.isArray(record.activity) ? (record.activity as Record<string, unknown>) : undefined
+    record.activity && typeof record.activity === "object" && !Array.isArray(record.activity) ? (record.activity as Record<string, unknown>) : undefined
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-  const event = record.event && isRuntimeObject(record.event) && !Array.isArray(record.event) ? (record.event as Record<string, unknown>) : undefined
+  const event = record.event && typeof record.event === "object" && !Array.isArray(record.event) ? (record.event as Record<string, unknown>) : undefined
   if (provider === "teams" && record.type === "messageUpdate") {
     // An edit keeps the id of the message. Its timestamp tells edits apart and repeats when Teams redelivers one.
     const id = agentChannelDeliverySourceValue(record.id)
@@ -149,15 +148,15 @@ export function agentChannelDeliverySourceId(provider: string, payload: unknown)
 }
 
 export function agentChannelDeliveryMessageIdentity(provider: string, payload: unknown): { messageId: string; threadId: string } | undefined {
-  if (!payload || !isRuntimeObject(payload) || Array.isArray(payload)) return
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const record = payload as Record<string, unknown>
   if (provider === "telegram") {
     const message =
       // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-      record.message && isRuntimeObject(record.message) && !Array.isArray(record.message) ? (record.message as Record<string, unknown>) : undefined
+      record.message && typeof record.message === "object" && !Array.isArray(record.message) ? (record.message as Record<string, unknown>) : undefined
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    const chat = message?.chat && isRuntimeObject(message.chat) && !Array.isArray(message.chat) ? (message.chat as Record<string, unknown>) : undefined
+    const chat = message?.chat && typeof message.chat === "object" && message.chat !== null && !Array.isArray(message.chat) ? (message.chat as Record<string, unknown>) : undefined
     const messageId = agentChannelDeliverySourceValue(message?.message_id)
     const chatId = agentChannelDeliverySourceValue(chat?.id)
     if (messageId && chatId) return { messageId, threadId: `telegram:${chatId}` }
@@ -165,7 +164,7 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
 }
 
 function stablePayload(value: unknown): string {
-  if (!value || !isRuntimeObject(value)) return JSON.stringify(value)
+  if (!value || typeof value !== "object") return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return `{${Object.entries(value as Record<string, unknown>)
