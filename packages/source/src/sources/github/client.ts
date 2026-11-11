@@ -82,12 +82,6 @@ export function createGitHubClient(repo: string): GitHubClient {
     }
   }
 
-  async function resolveCommit(ref: string, token: string | undefined, signal?: AbortSignal): Promise<string> {
-    const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))
-    if (typeof sha !== "string" || !sha) throw malformed(repo, "commit")
-    return sha
-  }
-
   function repoPath(repoRef: { owner: string, name: string }): string {
     return `/repos/${encodeURIComponent(repoRef.owner)}/${encodeURIComponent(repoRef.name)}`
   }
@@ -110,7 +104,15 @@ export function createGitHubClient(repo: string): GitHubClient {
       return data.object.sha
     },
     async commit(sha, token, signal) {
-      return await missingAsUndefined(() => resolveCommit(sha, token, signal))
+      // contents.resolveRef() returns a full SHA without a request, so read the commit to know that it exists.
+      const data = await missingAsUndefined(() => request(sha, "commit", token, signal, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/commits/${encodeURIComponent(sha)}`,
+        { signal },
+      )).data))
+      if (data === undefined) return
+      if (!isRecord(data) || !isNonEmptyString(data.sha)) throw malformed(repo, "commit")
+      return data.sha
     },
     async pull(number, token, signal) {
       const data = await missingAsUndefined(() => request(`pull/${number}`, "pull request", token, signal, async (client, repoRef) => (await client.request<unknown>(
@@ -182,6 +184,10 @@ export function createGitHubClient(repo: string): GitHubClient {
       if (!isRecord(entry) || !isNonEmptyString(entry.type) || !isNonEmptyString(entry.sha)) throw malformed(repo, "content")
       return entry.type === "file" ? { sha: entry.sha } : undefined
     },
-    resolveCommit,
+    async resolveCommit(ref, token, signal) {
+      const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))
+      if (typeof sha !== "string" || !sha) throw malformed(repo, "commit")
+      return sha
+    },
   }
 }

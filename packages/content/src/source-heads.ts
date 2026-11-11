@@ -498,7 +498,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     const base = createContentInstance(state.name, state.input, options, undefined, commits)
     // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
     const instance = base.withRef(sha)
-    const open: OpenView = { key, state, sha, instances: [base], hub: contentHub([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+    const open: OpenView = { key, state, sha, instances: [base], hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
     views.set(key, open)
     while (views.size > MAX_SOURCE_VIEWS) {
       const [oldest] = views.values()
