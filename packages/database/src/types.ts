@@ -67,8 +67,12 @@ export interface DatabaseIntegrationOptions {
     migrate?: false
   }
   /**
-   * Applies pending migrations of local SQLite databases when a Node server build starts, before it handles requests.
-   * It uses the ledger and data loss check of `vitehub database migrate`. Run one server process per database file.
+   * Applies pending migrations when a Node server build starts, before it handles requests. It uses the ledger and
+   * data loss check of `vitehub database migrate`, and a failed migration stops the server.
+   *
+   * Unset, Postgres databases of a Node build migrate on start and other databases do not. Postgres migrations hold an
+   * advisory lock, so several instances can start together. `true` also migrates local SQLite files, one server
+   * process per file. `false` turns it off.
    */
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */

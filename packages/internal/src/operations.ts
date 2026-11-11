@@ -603,21 +603,11 @@ export interface OperationTarget {
   roots?: readonly string[]
 }
 
-export const operationCredentialHint = "Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key that `vitehub secret console-key` printed, and its public key on the app. Apps with app Auth or Cloudflare Access take VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
+export const operationCredentialHint = "Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key that `vitehub secret console-key` printed, and its public key in VITEHUB_CONSOLE_KEY_<NAME> on the app."
 
-/** The Console credentials that CLI commands send to a deployed app, read from the environment. */
-export function consoleCredentialHeaders(env: Record<string, string | undefined>): Headers {
+/** Headers of an operation call, without a signature. */
+export function operationHeaders(): Headers {
   const headers = new Headers()
-  if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
-  if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
-  if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
-  if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
-  return headers
-}
-
-/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
-export function operationHeaders(env: Record<string, string | undefined>): Headers {
-  const headers = consoleCredentialHeaders(env)
   headers.set("accept", "application/json")
   headers.set("content-type", "application/json")
   headers.set(operationRpcHeader, "1")
@@ -631,7 +621,7 @@ export function operationHeaders(env: Record<string, string | undefined>): Heade
  * malformed private key.
  */
 export async function signedOperationHeaders(env: Record<string, string | undefined>, url: string | URL, body: string): Promise<Headers> {
-  const headers = operationHeaders(env)
+  const headers = operationHeaders()
   const key = readConsoleSigningKey(env)
   if (key) {
     const signed = await signConsoleRequest({ body, caller: { via: "cli" }, key, method: "POST", url })
@@ -646,8 +636,7 @@ function unreachable(message: string, status = 503): OperationResult {
 }
 
 function hasCredentials(env: Record<string, string | undefined>): boolean {
-  return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
-    || Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
+  return Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Refuse a stale local discovery target before dispatching any operation. */

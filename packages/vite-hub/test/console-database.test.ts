@@ -60,7 +60,7 @@ afterEach(() => {
 
 describe("Console database inspection", () => {
   it("serves local table and row operations with Setup-only navigation", async () => {
-    installConsoleSections("/project", ["setup", "databases"], false, ["setup"]);
+    installConsoleSections("/project", ["setup", "databases"], ["setup"]);
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
     for (const [operation, input, expected] of [
       ["sections.list", {}, { sections: ["setup"] }],

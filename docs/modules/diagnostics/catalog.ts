@@ -91,10 +91,29 @@ function ownerPackage(code: string, packages: ReadonlySet<string>): string | nul
   return null
 }
 
-function helperFix(value: ts.Expression): string | null {
-  if (!ts.isCallExpression(value) || value.arguments.length !== 1) return null
-  const [argument] = value.arguments
+/**
+ * The text that a catalog helper call passes as its `why` or `fix` parameter, such as `guidance("Retry.")` or
+ * `code(why, fix, docs, action)`. The helper must be a function of the same file. Only literal arguments count.
+ */
+function helperText(value: ts.Expression, key: "why" | "fix"): string | null {
+  if (!ts.isCallExpression(value) || !ts.isIdentifier(value.expression)) return null
+  const index = helperParameters(value.expression)?.findIndex(parameter => ts.isIdentifier(parameter.name) && parameter.name.text === key) ?? -1
+  const argument = index < 0 ? undefined : value.arguments[index]
   return argument && (ts.isStringLiteralLike(argument) || ts.isTemplateExpression(argument)) ? templateText(argument) : null
+}
+
+/** The parameters of a same-file function declaration or of a variable that holds an arrow or function expression. */
+function helperParameters(name: ts.Identifier): ts.NodeArray<ts.ParameterDeclaration> | null {
+  for (let scope = name.parent; scope; scope = scope.parent) {
+    if (!ts.isSourceFile(scope) && !ts.isBlock(scope)) continue
+    for (const statement of scope.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name?.text === name.text) return statement.parameters
+      if (!ts.isVariableStatement(statement)) continue
+      const initializer = statement.declarationList.declarations.find(candidate => ts.isIdentifier(candidate.name) && candidate.name.text === name.text)?.initializer
+      if (initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))) return initializer.parameters
+    }
+  }
+  return null
 }
 
 function packageSources(root: string): string[] {
@@ -141,9 +160,8 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
         pkg: ownerPackage(code, packages) ?? declaring,
         file: relative(root, file),
         line: lineOf(source, property),
-        why: definition ? textOf(definition, "why") : null,
-        // `guidance("Retry.")` passes the fix to a helper.
-        fix: definition ? textOf(definition, "fix") : helperFix(property.initializer),
+        why: definition ? textOf(definition, "why") : helperText(property.initializer, "why"),
+        fix: definition ? textOf(definition, "fix") : helperText(property.initializer, "fix"),
         group,
         docsBase,
         docs: definition ? stringValue(source, definition.properties.find(property => propertyName(property) === "docs")) : null,
