@@ -20,6 +20,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
       root,
     },
     name: "github",
+    authenticated: async () => await (await load()).authenticated(),
     resolveRevision: async ctx => await (await load()).resolveRevision(ctx),
     getKeys: async ctx => await (await load()).getKeys(ctx),
     getItems: async ctx => await (await load()).getItems(ctx),
