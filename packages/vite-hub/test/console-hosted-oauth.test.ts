@@ -21,7 +21,6 @@ import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
-import consoleScheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -230,7 +229,6 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     for (const [handler, path, body] of [
       [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "impersonate", userId: "someone" }],
       [consoleEnvManageHandler, "/_vitehub/env/manage", {}],
-      [consoleScheduleRunHandler, "/_vitehub/schedules/run", {}],
     ] as const) {
       const response = await handler.fetch(new Request(`${app}${path}`, {
         body: JSON.stringify(body),

@@ -1,10 +1,12 @@
+import { consoleBodySha256 } from "@vite-hub/internal/console-signature"
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
-import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationRpcPath, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { isConsoleRpcPath } from "./console-signature.ts"
 import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
@@ -75,12 +77,6 @@ function isSameOriginRequest(request: Request, url: URL): boolean {
   return request.headers.get(consoleRpcHeader) === "1"
 }
 
-// Accept an application mount prefix, but no other path before or after the Console route.
-function isConsoleRpcPath(pathname: string): boolean {
-  const route = pathname.indexOf(operationRpcPath)
-  return route !== -1 && pathname.slice(route) === operationRpcPath
-}
-
 function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: string, prefix: string } | undefined {
   // birpc writes the method name `m` first, so a large call can be classified within 64 KiB.
   const prefix = /^[ \t\r\n]*\{[ \t\r\n]*"m"[ \t\r\n]*:[ \t\r\n]*("(?:[^"\\]|\\.)*")[ \t\r\n]*(?:,|(?=\}))/.exec(body)
@@ -92,10 +88,15 @@ function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: s
   return { maximumBytes, operation, prefix: prefix[0] }
 }
 
-async function readConsoleEnvelope(request: Request): Promise<unknown> {
+/**
+ * Read the birpc message of a request, within the byte limit of its operation. `bodySha256` is the digest that the
+ * signature of a signed request covers: the bytes must match it before the message is parsed.
+ */
+async function readConsoleEnvelope(request: Request, bodySha256?: string): Promise<unknown> {
   if (!request.body) throw new SyntaxError("Request body is unavailable.")
   const reader = request.body.getReader()
   const decoder = new TextDecoder()
+  const chunks: Uint8Array[] = []
   let body = ""
   let bytes = 0
   let maximumBytes = maximumConsoleRpcRequestBytes
@@ -103,6 +104,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
     while (true) {
       const chunk = await reader.read()
       if (chunk.done) break
+      if (bodySha256) chunks.push(chunk.value)
       const remaining = maximumBytes - bytes
       if (chunk.value.byteLength > remaining) {
         // Decode only the bounded prefix before deciding whether attachments are allowed.
@@ -121,6 +123,15 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
       bytes += chunk.value.byteLength
     }
     body += decoder.decode()
+    if (bodySha256) {
+      const all = new Uint8Array(bytes)
+      let offset = 0
+      for (const chunk of chunks) {
+        all.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      if (await consoleBodySha256(all) !== bodySha256) throw consoleRequestError(401, "The request body is not the body that was signed.", "CONSOLE_SIGNATURE_BODY")
+    }
     const large = largeEnvelopePrefix(body)
     if (!large) return JSON.parse(body)
     // Parse the remaining members separately so a duplicate method name cannot override
@@ -147,10 +158,11 @@ async function readConsoleCall(request: Request, access: ConsoleAccess): Promise
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown
   try {
-    payload = await readConsoleEnvelope(request)
+    payload = await readConsoleEnvelope(request, access.signature?.bodySha256)
   }
   catch (error) {
-    if (Reflect.get(Object(error), "statusCode") === 413) throw error
+    const status = Reflect.get(Object(error), "statusCode")
+    if (status === 413 || status === 401) throw error
     throw consoleRequestError(400, "Malformed Console request.")
   }
   // One HTTP request answers one call, so an event without an id or an optional call is refused.
@@ -187,8 +199,9 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     development: isConsoleDevelopmentBuild(),
     request,
     response: context.response,
-    // The CLI names itself. Only the unauthenticated `local` access of `vite dev` trusts it more than the Console.
-    surface: request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
+    // A signed request names its signer. Without a signature, the CLI names itself with a header; only the
+    // unauthenticated `local` access of `vite dev` trusts it more than the Console.
+    surface: context.access.via === "cli" || context.access.via === "console" ? context.access.via : request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
     // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
     user: user ? user as OperationContext["user"] : null,
     ...(context.env ? { env: context.env } : {}),

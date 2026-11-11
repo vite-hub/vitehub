@@ -486,6 +486,44 @@ describe("vitehub database migrate with D1 over HTTP", () => {
     }
   }, 120_000)
 
+  it("upgrades the merged Console D1 history without replaying applied migrations", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
+    await cp(join(import.meta.dirname, "../../console/server/databases/default/migrations"), migrationsDir, { recursive: true })
+    const initial = await readFile(join(migrationsDir, "20261109200643_left_namorita/migration.sql"), "utf8")
+    const triggers = await readFile(join(migrationsDir, "20261111050000_keep_sign_in_method/migration.sql"), "utf8")
+    // Main applied these exact SQL files under these names before conversion to RC folders.
+    const d1 = await createFakeD1(project.rootDir, [
+      initial,
+      triggers,
+      "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+      "INSERT INTO d1_migrations (name) VALUES ('0000_careful_stature.sql'), ('0001_keep_sign_in_method.sql');",
+    ].join("\n"))
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      const applied = await project.run("migrate", ["--allow-data-loss"], { ...process.env, ...d1Env })
+      expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+      expect(applied.stdout).toContain("applied 0002_sign_project_calls.sql.")
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([
+        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"],
+      ])
+      const columns = (await d1.rows("SELECT name FROM pragma_table_info('console_projects')")).flat()
+      expect(columns).toContain("key_sealed")
+      expect(columns).toContain("public_key")
+      expect(columns).not.toContain("token_sealed")
+      await expect(project.run("migrate", ["--dry-run"], { ...process.env, ...d1Env })).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("no pending migrations.") })
+
+      const staged = join(project.rootDir, "staged")
+      await copyD1MigrationFiles(migrationsDir, staged)
+      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql"])
+      await expect(readFile(join(staged, "0000_careful_stature.sql"), "utf8")).resolves.toBe(initial)
+    }
+    finally {
+      d1.client.close()
+    }
+  }, 120_000)
+
   it("keeps Wrangler names in d1-migrations.json, so a folder merged with an earlier timestamp takes the next number", async () => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir

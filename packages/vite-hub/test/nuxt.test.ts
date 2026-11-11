@@ -2423,7 +2423,6 @@ describe("ViteHub Nuxt integration", () => {
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
           { route: "/_vitehub/env/manage" },
-          { route: "/_vitehub/schedules/run" },
           { route: "/_vitehub/mcp" },
         ],
       })

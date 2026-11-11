@@ -5,7 +5,7 @@ import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
-import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
+import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { isCompatibleAgentDevServerRoot } from "./agent-info-cli.ts"
@@ -445,7 +445,6 @@ function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
 }
 
 /** Console RPC contract owned by `vite-hub/console`. Its tests drive this client against the real handler. */
-const consoleCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 /** The Console returns at most 100 records per page. */
 const consolePageLimit = 100
 const consoleDefaultListLimit = 50
@@ -459,6 +458,7 @@ interface ConsoleTarget {
 
 function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
+    || Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */
@@ -469,7 +469,7 @@ async function consoleCall<T>(target: ConsoleTarget, operation: string, input: R
     outcome = await callOperationRpc(operation, input, async (body) => {
       const response = await target.fetch(url.href, {
         body,
-        headers: operationHeaders(target.env),
+        headers: await signedOperationHeaders(target.env, url, body),
         method: "POST",
         redirect: "manual",
         signal: AbortSignal.timeout(target.timeout),
@@ -495,10 +495,10 @@ async function consoleCall<T>(target: ConsoleTarget, operation: string, input: R
   const message = isRuntimeRecord(failure) && typeof failure.message === "string" && failure.message ? failure.message.replace(/\.$/, "") : undefined
   const status = outcome.error?.status ?? (response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status)
   if (status === 401 || (status >= 300 && status < 400)) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${consoleCredentialHint}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${operationCredentialHint}` })
   }
   if (status === 403) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${consoleCredentialHint}`}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${operationCredentialHint}`}` })
   }
   if (!isRuntimeRecord(failure)) {
     throw agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
