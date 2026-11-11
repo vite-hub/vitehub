@@ -70,6 +70,8 @@ function wellFormed(xml: string): string[] {
 
 const itemLinks = (xml: string) => [...xml.matchAll(/<item>\s*<title>[^<]*<\/title>\s*<link>([^<]+)<\/link>/g)].map(match => match[1])
 const commitLists = () => fake.requests.filter(request => request.path === "/repos/acme/docs/commits")
+const fileHistories = () => fake.requests.filter(request => request.operation === "FileHistory")
+const compares = () => fake.requests.filter(request => request.path.startsWith("/repos/acme/docs/compare/"))
 
 function sourceSite(seo: Record<string, unknown> = { rss: true }) {
   const content = defineContent({
@@ -96,7 +98,7 @@ describe("seo.rss for github() Sources", () => {
     expect(xml).toContain(`<lastBuildDate>${new Date(at(3)).toUTCString()}</lastBuildDate>`)
     expect(xml).toContain(`<guid isPermaLink="true">https://example.com/docs/a</guid>`)
     expect(xml).toContain(`<title>example.com</title>`)
-    expect(commitLists()).toHaveLength(3)
+    expect(fileHistories()).toHaveLength(1)
 
     // The sitemap reads the same cached dates.
     expect(await content.sitemap()).toEqual([
@@ -105,16 +107,68 @@ describe("seo.rss for github() Sources", () => {
       { collection: "docs", id: "c", loc: "https://example.com/docs/c", lastmod: at(2) },
     ])
     expect(await content.rss()).toBe(xml)
-    expect(commitLists()).toHaveLength(3)
+    expect(fileHistories()).toHaveLength(1)
     // Another server instance reads the dates from KV.
     expect(await sourceSite().rss()).toBe(xml)
-    expect(commitLists()).toHaveLength(3)
+    expect(fileHistories()).toHaveLength(1)
 
-    // A new head reads GitHub again.
+    // A new head asks GitHub for the changed page only.
     fake.commit("main", { "content/b.md": page("B v2") }, { author: { date: at(4), name: "Ada" } })
     await content.sources.advance("docs")
+    const before = compares().length
     expect(itemLinks(await content.rss())[0]).toBe("https://example.com/docs/b")
-    expect(commitLists().length).toBeGreaterThan(3)
+    expect(compares().length - before).toBe(1)
+    expect(fileHistories()).toHaveLength(2)
+    expect(fileHistories()[1]!.body?.variables).toMatchObject({ p0: "content/b.md" })
+    expect(fileHistories()[1]!.body?.variables).not.toHaveProperty("p1")
+    expect(commitLists()).toHaveLength(0)
+  })
+
+  it("dates 2,600 pages with 18 GitHub GraphQL requests, then 2 requests after a push", async () => {
+    const files: Record<string, string> = {}
+    for (let index = 0; index < 2600; index++) files[`content/p${index}.md`] = page(`P${index}`)
+    fake.commit("main", files, { author: { date: at(1), name: "Ada" } })
+    fake.commit("main", { "content/p7.md": page("P7 v2") }, { author: { date: at(2), name: "Ada" } })
+    const content = sourceSite()
+    // Read the head and the commit first, so the counts below are the dates only.
+    await content.list("docs")
+    const start = fake.requests.length
+
+    const xml = await content.rss()
+    expect(itemLinks(xml)[0]).toBe("https://example.com/docs/p7")
+    expect(xml.match(/<pubDate>/g)).toHaveLength(20)
+    const cold = fake.requests.slice(start)
+    expect(cold.filter(request => request.operation === "FileHistory")).toHaveLength(18)
+    expect(cold).toHaveLength(18)
+    expect((await content.sitemap()).filter(entry => entry.lastmod)).toHaveLength(2600)
+    expect(fake.requests).toHaveLength(start + 18)
+
+    // A push that changes 2 pages: 1 compare and 1 GraphQL request, on top of the head move.
+    fake.commit("main", { "content/p1.md": page("P1 v2"), "content/p2.md": page("P2 v2"), "content/p2599.md": null }, { author: { date: at(3), name: "Ada" } })
+    await content.sources.advance("docs")
+    await content.list("docs")
+    const moved = fake.requests.length
+    const dated = await content.sitemap()
+    expect(dated).toHaveLength(2599)
+    expect(dated.find(entry => entry.id === "p1")?.lastmod).toBe(at(3))
+    expect(dated.find(entry => entry.id === "p7")?.lastmod).toBe(at(2))
+    expect(dated.find(entry => entry.id === "p100")?.lastmod).toBe(at(1))
+    const warm = fake.requests.slice(moved)
+    expect(warm.map(request => request.operation ?? request.path.replace(/\/compare\/.*/, "/compare"))).toEqual(["/repos/acme/docs/compare", "FileHistory"])
+  }, 60_000)
+
+  it("asks again with half the pages when GitHub stops a GraphQL request", async () => {
+    const files: Record<string, string> = {}
+    for (let index = 0; index < 150; index++) files[`content/p${index}.md`] = page(`P${index}`)
+    fake.commit("main", files, { author: { date: at(1), name: "Ada" } })
+    // GitHub answers 502 when a GraphQL request runs past 10 seconds.
+    fake.respond(request => request.operation === "FileHistory" && Object.keys(Object(request.body?.variables)).length > 100
+      ? new Response(JSON.stringify({ message: "We couldn't respond to your request in time." }), { status: 502 })
+      : undefined)
+    const content = sourceSite()
+
+    expect((await content.sitemap()).filter(entry => entry.lastmod)).toHaveLength(150)
+    expect(fileHistories().map(request => Object.keys(Object(request.body?.variables)).filter(name => /^p\d+$/.test(name)).length)).toEqual([150, 75, 75])
   })
 
   it("is a valid feed without a token, dated by the date field", async () => {
@@ -127,7 +181,7 @@ describe("seo.rss for github() Sources", () => {
     expect(itemLinks(xml)).toEqual(["https://example.com/docs/b", "https://example.com/docs/a"])
     expect(xml).toContain(`<pubDate>${new Date("2026-09-01").toUTCString()}</pubDate>`)
     expect(xml.match(/<pubDate>/g)).toHaveLength(1)
-    expect(commitLists()).toHaveLength(0)
+    expect(fileHistories()).toHaveLength(0)
     expect((await content.sitemap()).map(entry => entry.lastmod)).toEqual([undefined, undefined])
   })
 })

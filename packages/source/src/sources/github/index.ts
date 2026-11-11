@@ -12,7 +12,14 @@ import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 import { normalizeGitHubRoot } from "./root.ts"
 
 import type { SourceContext, SourceRevision } from "../../core/types.ts"
-import type { GitHubFile, GitHubPullRequest, GitHubSource, GitHubSourceOptions } from "./types.ts"
+import type { GitHubFile, GitHubFileCommit, GitHubPullRequest, GitHubSource, GitHubSourceOptions } from "./types.ts"
+
+/** Files per GraphQL request of `latest()`. GitHub answers 150 in about 4 seconds, and stops a request at 10. */
+const historyBatch = 150
+/** `latest()` splits a request that GitHub stopped down to this many files, then gives up. */
+const historyBatchMin = 20
+/** GraphQL requests of `latest()` that run at once. */
+const historyConcurrency = 4
 
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
@@ -321,6 +328,39 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     },
     async history(key, historyOptions) {
       return await client.commits(repoPathForKey(normalizeSafeSourcePath(key)), historyOptions, await resolveAuth())
+    },
+    async latest(keys, latestOptions) {
+      const token = await resolveAuth()
+      const paths = keys.map(key => repoPathForKey(normalizeSafeSourcePath(key)))
+      const found = new Map<string, GitHubFileCommit>()
+      async function read(start: number, end: number): Promise<void> {
+        try {
+          const commits = await client.latestCommits(paths.slice(start, end), latestOptions.sha, token)
+          commits.forEach((commit, index) => commit && found.set(keys[start + index]!, commit))
+        }
+        catch (error) {
+          // GitHub stops a GraphQL request after 10 seconds with 502. Ask again with half the files each time.
+          const status = githubErrorStatus(error)
+          if ((status !== 502 && status !== 504) || end - start <= historyBatchMin) throw error
+          const middle = start + Math.ceil((end - start) / 2)
+          await Promise.all([read(start, middle), read(middle, end)])
+        }
+      }
+      const batches = Array.from({ length: Math.ceil(paths.length / historyBatch) }, (_, index) => index * historyBatch)
+      let next = 0
+      await Promise.all(Array.from({ length: Math.min(historyConcurrency, batches.length) }, async () => {
+        while (next < batches.length) {
+          const start = batches[next++]!
+          await read(start, Math.min(start + historyBatch, paths.length))
+        }
+      }))
+      return found
+    },
+    async changes(base, head) {
+      const paths = await client.changedPaths(base, head, await resolveAuth())
+      if (!paths) return
+      const prefix = root ? `${root}/` : ""
+      return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
     },
     async resolveRef(ref, refOptions) {
       const token = await resolveAuth()

@@ -90,16 +90,26 @@ function revisionEntry(revision: ContentRevision): ContentHistoryEntry {
 export interface ContentHistoryApi {
   /** `content.history()`. */
   history(path: string, options?: ContentHistoryOptions): Promise<ContentHistoryResult | null>
-  /** The date of the latest commit of one Source page, or null without history or a GitHub token. */
-  latest(source: string, key: string): Promise<string | null>
-  /** The commit that the history of a Source reads up to, or null when the Source has no history to read. */
-  head(source: string): Promise<string | null>
+  /**
+   * The date of the latest commit of each Source page at the published commit, by Source key. Empty without history or
+   * a GitHub token. A key without commits has no entry.
+   */
+  dates(source: string, keys: readonly string[]): Promise<Map<string, string>>
 }
+
+/** The latest commit dates of the pages of one Source at one commit. Null for a page without commits. */
+type SourceDates = { sha: string, dates: Record<string, string | null> }
+
+/** Date sets that one server instance holds in memory. */
+const memoryDates = 8
 
 /** Create `content.history()`. */
 export function createContentHistory(runtime: ContentHistoryRuntime): ContentHistoryApi {
   const pages = new Map<string, Promise<CommitPage>>()
   const warned = new Set<string>()
+  const dateSets = new Map<string, Promise<SourceDates>>()
+  /** The newest date set of each Source and origin, so the next commit reads only the pages that changed. */
+  const lastDates = new Map<string, SourceDates>()
 
   /** One page of commits, from memory, then KV, then GitHub. A failed read is not kept. */
   async function commitPage(cacheKey: string, load: () => Promise<CommitPage>): Promise<CommitPage> {
@@ -192,9 +202,58 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
     return page ? await sourceHistory(page.source, page.key, limit, options.cursor) : null
   }
 
-  return {
-    history,
-    latest: async (source, key) => (await sourceHistory(source, key, 1, undefined)).entries[0]?.at ?? null,
-    head: async source => await readable(source) ? await runtime.published(source) : null,
+  /**
+   * The dates of `keys` at `sha`, from memory, then KV, then GitHub. GitHub gets the pages that changed since the last
+   * date set (one compare request), or every page when there is none, in GraphQL requests of 150 pages.
+   */
+  async function sourceDates(definition: GitHubDefinition, prefix: string, sha: string, keys: readonly string[]): Promise<SourceDates> {
+    const kv = contentKV()
+    const read = async (key: string): Promise<SourceDates | undefined> => {
+      if (!kv) return
+      const [error, stored] = await kv.get<SourceDates>(key).catch((cause: unknown) => [cause, undefined] as const)
+      return !error && stored && stored.sha && stored.dates ? stored : undefined
+    }
+    let current = lastDates.get(prefix)?.sha === sha ? lastDates.get(prefix) : await read(`${prefix}:${sha}`)
+    if (current && keys.every(key => Object.hasOwn(current!.dates, key))) return current
+    let known: Record<string, string | null> = current?.dates ?? {}
+    if (!current) {
+      const previous = lastDates.get(prefix) ?? await read(`${prefix}:last`)
+      const changed = previous && previous.sha !== sha ? await definition.changes!(previous.sha, sha) : undefined
+      if (previous && changed) {
+        known = { ...previous.dates }
+        for (const key of changed) delete known[key]
+      }
+    }
+    const missing = keys.filter(key => !Object.hasOwn(known, key))
+    const found = missing.length ? await definition.latest!(missing, { sha }) : new Map()
+    // Only the pages at this commit, so a removed page leaves the set.
+    const dates = Object.fromEntries(keys.map(key => [key, Object.hasOwn(known, key) ? known[key]! : found.get(key)?.date ?? null]))
+    current = { sha, dates }
+    lastDates.set(prefix, current)
+    if (kv) await Promise.all([kv.set(`${prefix}:${sha}`, current), kv.set(`${prefix}:last`, current)]).catch(() => undefined)
+    return current
   }
+
+  async function dates(source: string, keys: readonly string[]): Promise<Map<string, string>> {
+    if (!keys.length || !await readable(source)) return new Map()
+    const definition = runtime.github(source)!
+    if (!definition.latest || !definition.changes) return new Map()
+    const sha = await runtime.published(source)
+    if (!sha) return new Map()
+    const prefix = `content:dates:${source}:${await parserHash(definition.fingerprint ?? null)}`
+    const cacheKey = `${prefix}:${sha}:${await parserHash([...keys].sort())}`
+    let pending = dateSets.get(cacheKey)
+    if (!pending) {
+      pending = sourceDates(definition, prefix, sha, keys)
+      dateSets.set(cacheKey, pending)
+      pending.catch(() => {
+        if (dateSets.get(cacheKey) === pending) dateSets.delete(cacheKey)
+      })
+      while (dateSets.size > memoryDates) dateSets.delete(dateSets.keys().next().value!)
+    }
+    const { dates: stored } = await pending
+    return new Map(keys.flatMap(key => Object.hasOwn(stored, key) && stored[key] ? [[key, stored[key]] as const] : []))
+  }
+
+  return { history, dates }
 }

@@ -1,4 +1,3 @@
-import { contentKV } from "./source-heads.ts"
 import { escapeXml } from "./sitemap.ts"
 
 import type { ContentRoutedPage, ContentRssOptions } from "./sitemap.ts"
@@ -74,44 +73,4 @@ export function renderContentRss(channel: ContentRssChannel, items: readonly Con
 export function contentRssChannel(options: ContentRssOptions, site: string): ContentRssChannel {
   const title = options.title ?? new URL(site).host
   return { title, link: `${site}/`, description: options.description ?? title, self: `${site}/rss.xml` }
-}
-
-/** Generated files that one server instance holds in memory. */
-const memoryFiles = 32
-
-async function stateHash(state: unknown): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(state)))
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
-/**
- * A cache of generated files, such as the feed, keyed by the state they come from: the page list and the head commit
- * of each `github()` Source. A hit reads memory, then ViteHub KV, and never GitHub. A failed build is not kept.
- */
-export function createContentFileCache(): (kind: string, state: unknown, build: () => Promise<string>) => Promise<string> {
-  const files = new Map<string, Promise<string>>()
-  return async function cached(kind: string, state: unknown, build: () => Promise<string>): Promise<string> {
-    const key = `content:${kind}:${await stateHash(state)}`
-    let pending = files.get(key)
-    if (pending) {
-      files.delete(key)
-      files.set(key, pending)
-      return await pending
-    }
-    pending = (async () => {
-      const kv = contentKV()
-      if (!kv) return await build()
-      const [error, stored] = await kv.get<string>(key).catch((cause: unknown) => [cause, undefined] as const)
-      if (!error && String(stored) === stored) return stored
-      const built = await build()
-      await kv.set(key, built).catch(() => undefined)
-      return built
-    })()
-    files.set(key, pending)
-    pending.catch(() => {
-      if (files.get(key) === pending) files.delete(key)
-    })
-    while (files.size > memoryFiles) files.delete(files.keys().next().value!)
-    return await pending
-  }
 }

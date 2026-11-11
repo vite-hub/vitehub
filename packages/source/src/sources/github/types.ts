@@ -85,6 +85,17 @@ export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>
    */
   history(key: string, options: GitHubHistoryOptions): Promise<{ commits: GitHubFileCommit[], more: boolean }>
   /**
+   * The latest commit that changed each file, from the full commit SHA `sha` back. A key without commits has no entry.
+   * It asks GitHub GraphQL for 150 files per request, so 2,600 files cost 18 requests. Like `history()`, it does not
+   * follow renames.
+   */
+  latest(keys: readonly string[], options: { sha: string }): Promise<Map<string, GitHubFileCommit>>
+  /**
+   * The keys of the Source that changed from commit `base` to commit `head`, with the old key of a renamed file. One
+   * compare request. Undefined when `head` does not descend from `base`, or when more files changed than GitHub lists.
+   */
+  changes(base: string, head: string): Promise<string[] | undefined>
+  /**
    * The commit that a ref of the repository points to now. A branch must match its full name, and a SHA must be a full
    * commit SHA. Undefined when the repository has no such commit, branch, or pull request.
    */

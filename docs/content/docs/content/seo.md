@@ -215,7 +215,7 @@ export default defineContent({
 
 Each item has the page `title` (the `seo()` title, else the title field), its absolute `link`, the `description` field when there is one, a `guid` that is the link, so an edited page is not a new item, and a `pubDate`. A `github()` Source page without a GitHub token has no history. It uses its `date` frontmatter field, and without one it has no `pubDate` and goes last.
 
-The dates of `github()` Source pages cost one GitHub request per page for the first feed or sitemap after the head commit moves, at most 8 at a time. Content keeps them in memory and in ViteHub KV per head commit, so later requests, and other server instances, make no GitHub request. Collection dates come from the Workspace and cost no request.
+Content keeps the dates of `github()` Source pages in memory and in ViteHub KV per head commit, so later requests, and other server instances, make no GitHub request. The first feed or sitemap after the head commit moves asks GitHub only for the pages that changed since the last dates: one compare request, then one GraphQL request per 150 changed pages. With no earlier dates, such as on the first deploy, it asks for every page: 2,600 pages cost 18 GraphQL requests, which fits the 50 subrequests of a free Cloudflare Worker. A compare that GitHub cannot list in full (300 files or more, or a head that does not descend from the last one) also reads every page. Collection dates come from the Workspace and cost no request.
 
 Add the feed to your pages with `contentHead(document, { rss: true })`. `content.rss()` returns the same XML. ViteHub generates `/rss.xml` like the sitemap; in another server, mount `defineContentRssHandler(content)`. `renderContentRss(channel, items)` renders your own items.
 

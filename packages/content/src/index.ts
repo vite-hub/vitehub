@@ -32,8 +32,8 @@ import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview, createRequestScope } from "./preview.ts"
 import { parseContentPreviewPath, previewResponse, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
-import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, contentSourceDates, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
-import { contentRssChannel, contentRssItems, contentRssLimit, createContentFileCache, renderContentRss } from "./rss.ts"
+import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import type {
   AnyContentCollection,
   ContentCollection,
@@ -623,26 +623,21 @@ export function defineContent<
     const url = contentSourceUrl(input)
     return url === undefined ? [] : [{ name, url, list: () => from(name).list() }]
   })
-  const cached = createContentFileCache()
   /**
-   * The routed pages, and the latest history date of each Source page. The dates are cached per head commit of each
-   * `github()` Source, so only the first read after a head moves calls GitHub.
+   * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
+   * `github()` Source, so only the first read after a head moves calls GitHub, and then only for the pages that changed.
    */
   async function routedPages(site: string | undefined): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
     const pages = await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)
-    const commits = new Map(await Promise.all([...new Set(routedSources.map(source => source.name))].map(async name => [name, await historyApi.head(name)] as const)))
-    const dated = pages.filter(page => page.key !== undefined && commits.get(page.collection))
-    if (!dated.length) return { pages, dates: new Map() }
-    const state = { commits: [...commits], keys: dated.map(page => `${page.collection}/${page.key}`) }
-    const stored: Record<string, string> = JSON.parse(await cached("page-dates", state, async () => {
-      const found = await contentSourceDates(dated, historyApi.latest)
-      return JSON.stringify(Object.fromEntries([...found].map(([page, date]) => [`${page.collection}/${page.key}`, date])))
-    }))
     const dates = new Map<ContentRoutedPage, string>()
-    for (const page of dated) {
-      const date = stored[`${page.collection}/${page.key}`]
-      if (date) dates.set(page, date)
-    }
+    await Promise.all([...new Set(routedSources.map(source => source.name))].map(async (name) => {
+      const dated = pages.filter(page => page.collection === name && page.key !== undefined)
+      const found = await historyApi.dates(name, dated.map(page => page.key!))
+      for (const page of dated) {
+        const date = found.get(page.key!)
+        if (date) dates.set(page, date)
+      }
+    }))
     return { pages, dates }
   }
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)

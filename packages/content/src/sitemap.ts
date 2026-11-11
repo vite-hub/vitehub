@@ -200,24 +200,6 @@ export function contentSitemapEntries(pages: readonly ContentRoutedPage[], dates
   })
 }
 
-/** History lookups that run at once. Each one is at most one GitHub request, and none after the first. */
-const historyConcurrency = 8
-
-/** The latest history date of each Source page, read with at most 8 lookups at a time. */
-export async function contentSourceDates(pages: readonly ContentRoutedPage[], lastmod: (source: string, key: string) => Promise<string | null>): Promise<Map<ContentRoutedPage, string>> {
-  const pending = pages.filter(page => page.key !== undefined)
-  const dates = new Map<ContentRoutedPage, string>()
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(historyConcurrency, pending.length) }, async () => {
-    while (next < pending.length) {
-      const page = pending[next++]!
-      const date = await lastmod(page.collection, page.key!)
-      if (date) dates.set(page, date)
-    }
-  }))
-  return dates
-}
-
 export function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character]!)
 }

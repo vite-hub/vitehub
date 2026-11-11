@@ -28,7 +28,17 @@ export interface GitHubClient {
   resolveCommit: (ref: string, token: string | undefined, signal?: AbortSignal) => Promise<string>
   /** One page of the commits that changed `path`, newest first, from `sha` back. */
   commits: (path: string, options: GitHubHistoryOptions, token: string | undefined) => Promise<{ commits: GitHubFileCommit[], more: boolean }>
+  /** The latest commit that changed each path, from `sha` back, in one GraphQL request. Null for a path without commits. */
+  latestCommits: (paths: readonly string[], sha: string, token: string | undefined) => Promise<Array<GitHubFileCommit | null>>
+  /**
+   * The paths that changed from `base` to `head`, with the old path of a rename. Undefined when `head` is not `base` or a
+   * descendant of it, or when GitHub lists 300 files, its limit, so the list may be cut.
+   */
+  changedPaths: (base: string, head: string, token: string | undefined) => Promise<string[] | undefined>
 }
+
+/** GitHub lists at most this many files in a compare response. */
+const compareFileLimit = 300
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
 export function githubEnvToken(): string | undefined {
@@ -256,6 +266,62 @@ export function createGitHubClient(repo: string): GitHubClient {
         commits: response.data.map(item => fileCommit(repo, item)),
         more: /rel="next"/.test(response.headers.get("link") ?? ""),
       }
+    },
+    async latestCommits(paths, sha, token) {
+      const fields = "oid authoredDate message url author { name user { login } }"
+      const query = [
+        `query FileHistory($owner: String!, $name: String!, $sha: GitObjectID!${paths.map((_, index) => `, $p${index}: String!`).join("")}) {`,
+        "  repository(owner: $owner, name: $name) { object(oid: $sha) { ... on Commit {",
+        ...paths.map((_, index) => `    p${index}: history(first: 1, path: $p${index}) { nodes { ${fields} } }`),
+        "  } } }",
+        "}",
+      ].join("\n")
+      const data = await request(sha, "file history", token, undefined, async (client, repoRef) => (await client.request<unknown>("POST", "/graphql", {
+        body: { query, operationName: "FileHistory", variables: { owner: repoRef.owner, name: repoRef.name, sha, ...Object.fromEntries(paths.map((path, index) => [`p${index}`, path])) } },
+        mutates: false,
+      })).data)
+      if (!isRecord(data) || (Array.isArray(data.errors) && data.errors.length)) {
+        const message: unknown = isRecord(data) && Array.isArray(data.errors) && isRecord(data.errors[0]) ? data.errors[0].message : undefined
+        throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) file history request failed${typeof message === "string" ? `: ${message}` : "."}`)
+      }
+      const commit: unknown = isRecord(data.data) && isRecord(data.data.repository) ? data.data.repository.object : undefined
+      if (!isRecord(commit)) throw malformed(repo, "file history")
+      return paths.map((_, index) => {
+        const history: unknown = commit[`p${index}`]
+        const node: unknown = isRecord(history) && Array.isArray(history.nodes) ? history.nodes[0] : undefined
+        if (!isRecord(history) || !Array.isArray(history.nodes)) throw malformed(repo, "file history")
+        if (node === undefined) return null
+        const author: unknown = isRecord(node) ? node.author : undefined
+        const login: unknown = isRecord(author) && isRecord(author.user) ? author.user.login : undefined
+        const name: unknown = isRecord(author) ? author.name : undefined
+        if (!isRecord(node) || !isNonEmptyString(node.oid) || !isNonEmptyString(node.authoredDate) || !isNonEmptyString(node.url) || typeof node.message !== "string") {
+          throw malformed(repo, "file history")
+        }
+        return {
+          sha: node.oid,
+          date: new Date(node.authoredDate).toISOString(),
+          author: isNonEmptyString(login) ? login : isNonEmptyString(name) ? name : null,
+          message: node.message.split("\n", 1)[0]!.trim(),
+          url: node.url,
+        }
+      })
+    },
+    async changedPaths(base, head, token) {
+      const data = await missingAsUndefined(() => request(`${base}...${head}`, "compare", token, undefined, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+        { query: { per_page: 1 } },
+      )).data))
+      if (data === undefined) return
+      if (!isRecord(data) || typeof data.status !== "string") throw malformed(repo, "compare")
+      if (data.status !== "ahead" && data.status !== "identical") return
+      const files: unknown = data.files ?? []
+      if (!Array.isArray(files)) throw malformed(repo, "compare")
+      if (files.length >= compareFileLimit) return
+      return files.flatMap((file) => {
+        if (!isRecord(file) || !isNonEmptyString(file.filename)) throw malformed(repo, "compare")
+        return isNonEmptyString(file.previous_filename) ? [file.filename, file.previous_filename] : [file.filename]
+      })
     },
     async resolveCommit(ref, token, signal) {
       const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))

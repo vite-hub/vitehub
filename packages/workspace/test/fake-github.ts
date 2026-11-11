@@ -270,9 +270,42 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     }
   }
 
+  /** The paths whose blob differs between two trees. */
+  function treeChanges(before: FakeTreeEntry[], after: FakeTreeEntry[]): Map<string, "added" | "modified" | "removed"> {
+    const old = new Map(before.map(entry => [entry.path, entry.sha]))
+    const next = new Map(after.map(entry => [entry.path, entry.sha]))
+    const changes = new Map<string, "added" | "modified" | "removed">()
+    for (const [path, sha] of next) if (old.get(path) !== sha) changes.set(path, old.has(path) ? "modified" : "added")
+    for (const path of old.keys()) if (!next.has(path)) changes.set(path, "removed")
+    return changes
+  }
+
+  /** `history(first: 1, path: $pN)` for every `pN` variable, as GitHub answers aliased fields on a commit. */
+  function fileHistory(variables: Record<string, unknown>): Response {
+    const head = commits.get(String(variables.sha))
+    if (!head) return json({ data: { repository: { object: null } } })
+    const changed = ancestors(head.sha).map(commit => ({ commit, paths: [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree).keys()] }))
+    const object: Record<string, unknown> = {}
+    for (const [alias, path] of Object.entries(variables)) {
+      if (!/^p\d+$/.test(alias)) continue
+      const latest = changed.find(entry => entry.paths.some(name => name === path || name.startsWith(`${String(path)}/`)))?.commit
+      object[alias] = { nodes: latest
+        ? [{
+            oid: latest.sha,
+            authoredDate: latest.author?.date,
+            message: latest.message,
+            url: `https://github.com/${owner}/${repo}/commit/${latest.sha}`,
+            author: { name: latest.author?.name ?? null, user: latest.author?.login ? { login: latest.author.login } : null },
+          }]
+        : [] }
+    }
+    return json({ data: { repository: { object } } })
+  }
+
   function graphql(request: FakeRequest): Response {
     const variables = (request.body?.variables ?? {}) as { input?: Record<string, unknown> }
     const input = variables.input ?? {}
+    if (request.operation === "FileHistory") return fileHistory(variables)
     if (request.operation === "RepositoryId") return json({ data: { repository: { id: "R_repo" } } })
     if (request.operation === "UpdateRefs") {
       const [update] = input.refUpdates as Array<{ afterOid: string, beforeOid: string, name: string }>
@@ -350,7 +383,9 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const base = mergeBase(left, right)
       if (!base) return failure(404, `No common ancestor between ${leftRef} and ${rightRef}.`)
       const status = left === right ? "identical" : base === right ? "behind" : base === left ? "ahead" : "diverged"
-      return json({ merge_base_commit: { sha: base }, status })
+      // GitHub lists the files that changed from the merge base to the head, at most 300.
+      const files = [...treeChanges(commits.get(base)!.tree, commits.get(right)!.tree)].slice(0, 300).map(([filename, change]) => ({ filename, status: change }))
+      return json({ merge_base_commit: { sha: base }, status, files })
     }
     if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
       const prefix = rest.slice("/git/matching-refs/heads/".length)
