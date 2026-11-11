@@ -1,0 +1,14 @@
+{
+  "name": "vitehub-drop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:remote": "cp -r server/databases/migrations .output/server/ && wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.0",
+    "nuxt": "npm:nuxt-nightly@5x",
+    "vite-hub": "0.0.0-016f1ef"
+  }
+}

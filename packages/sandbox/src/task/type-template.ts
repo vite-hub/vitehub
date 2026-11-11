@@ -7,7 +7,7 @@ export interface SandboxTaskTypeDefinition {
 function createDefinitionContract(definition: SandboxTaskTypeDefinition) {
   const module = `typeof import(${JSON.stringify(definition.handler)})`
   if (definition.kind === 'definition') {
-    return `{ payload: Parameters<${module}['default']['run']>[0], result: Awaited<ReturnType<${module}['default']['run']>> }`
+    return `{ payload: Parameters<${module}['default']['handler']>[0], result: Awaited<ReturnType<${module}['default']['handler']>> }`
   }
 
   return `SandboxTaskPackageContract<${module}['default']>`

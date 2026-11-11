@@ -18,7 +18,7 @@ import { defineContent } from 'vite-hub/content'
 import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   authorize: ({ user, action }) => action === 'read' && Boolean(user),
   collections: {
@@ -30,7 +30,7 @@ export const content = defineContent({
 This policy lets signed-in users read drafts. Replace it with your app's preview access rules.
 
 ```ts [server/api/preview.post.ts] fragment
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async (event) => {
   const user = await getUser(event) // your Auth session
@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts [server/api/preview.delete.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(event => content.preview.disable(event))
 ```

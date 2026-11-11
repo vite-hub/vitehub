@@ -68,7 +68,7 @@ function isContentRuntime(value: unknown): value is ContentRuntime {
 }
 
 function contentRuntime(value: unknown): ContentRuntime {
-  if (!isContentRuntime(value)) throw new TypeError("[vitehub] server/content.ts must export the defineContent() runtime as `content`.")
+  if (!isContentRuntime(value)) throw new TypeError("[vitehub] server/content.ts must default-export the defineContent() runtime.")
   return value
 }
 
@@ -376,11 +376,11 @@ function sessionsUnavailable(error: unknown): string | undefined {
 }
 
 /**
- * Create the Console document actions for the `content` export of `server/content.ts`. Every action checks
+ * Create the Console document actions for the default export of `server/content.ts`. Every action checks
  * `content.can()` with the signed-in Console user before it calls the trusted runtime method.
  */
 export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory = (module) => {
-  const content = contentRuntime(module.content)
+  const content = contentRuntime(module.default)
 
   function open(name: unknown): AnyContentCollection {
     const collectionName = text(name, "collection")
