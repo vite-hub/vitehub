@@ -136,6 +136,8 @@ interface OpenView {
   state: HeadState
   sha: string
   instances: ComarkContent[]
+  /** The ref instance of the commit. Its plugin tables and rows are dropped when the view closes. */
+  view: ComarkContent
   hub: ContentHub<ComarkContent[]>
   /** Reads that run now. An evicted view closes after the last one. */
   readers: number
@@ -524,6 +526,8 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     return open.closing ??= (async () => {
       try {
         if (open.readers) await new Promise<void>((resolve) => { open.idle = resolve })
+        // `dispose()` keeps the SQL and search rows of a ref in a shared database. `clean()` drops them, then disposes.
+        if (open.view.status !== "disposed") await open.view.clean()
         await Promise.all([open.hub.dispose(), ...open.instances.map(instance => instance.dispose())])
       }
       finally {
@@ -555,7 +559,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     const base = createContentInstance(state.name, state.input, options, undefined, commits)
     // A ref instance keeps its cache entries and plugin tables apart from the head instance of the same Source.
     const instance = base.withRef(sha)
-    const open: OpenView = { key, state, sha, instances: [base], hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
+    const open: OpenView = { key, state, sha, instances: [base], view: instance, hub: contentHub<ComarkContent[]>([instance], { basePath: options.basePath ?? "/api/content", logger: options.logger }), readers: 0, evicted: false }
     views.set(key, open)
     allViews.add(open)
     while (views.size > MAX_SOURCE_VIEWS) {
