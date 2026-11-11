@@ -1996,7 +1996,7 @@ describe("workflow runtime", () => {
   it.each(["default", "direct"])("rejects mismatched names in %s OpenWorkflow registry definitions", async (shape) => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
+      driver: "openworkflow",
     })
     const definition = defineWorkflow("onboard", async () => ({ ok: true }))
     setWorkflowRuntimeRegistry({

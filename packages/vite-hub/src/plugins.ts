@@ -19,7 +19,7 @@ import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServer
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentPreset, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_PRESET, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { deploymentPresetFromNitro, detectPreset, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
@@ -27,6 +27,7 @@ import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
+import { generatedModules } from "./internal/generated-modules.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
@@ -39,7 +40,7 @@ import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
-import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
+import { cloudflareExportConditions } from "./deployment.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -420,7 +421,7 @@ export interface ViteHubOptions {
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
   /**
-   * The host to build for. When omitted, `detectPreset()` from `vite-hub/deployment` reads it from `VITEHUB_HOSTING`,
+   * The host to build for. When omitted, `detectHost()` from `vite-hub/runtime` reads it from `VITEHUB_HOSTING`,
    * `NITRO_PRESET`, `SERVER_PRESET`, or the provider variables of Cloudflare Workers Builds, Netlify, Vercel, and Deno Deploy.
    * Without any of them, ViteHub builds for `"node"`.
    */
@@ -1313,7 +1314,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
-    connections: options.connections ? "vite-hub/connections/agent" : false,
+    connections: options.connections ? generatedModules.connectionsAgent : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
@@ -1497,12 +1498,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
     imports: {
-      auth: "vite-hub/comments/runtime/auth",
+      auth: generatedModules.commentsRuntimeAuth,
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "vite-hub/database/drizzle",
-      realtime: "vite-hub/comments/realtime",
+      realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },
   })
@@ -1518,7 +1519,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...context,
             contentImport: "vite-hub/content/realtime",
             realtimeImport: "vite-hub/realtime/server",
-            ...(configuredConsole ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+            ...(configuredConsole ? { console: { module: generatedModules.consoleSections, section: "content" } } : {}),
           }),
           commentsPlugin?.api.contributeRealtime(context),
         ])

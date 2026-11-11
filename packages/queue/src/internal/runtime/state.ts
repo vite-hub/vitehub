@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import type { QueueClient, QueueDefinition, QueueDefinitionRegistry } from "../../types.ts"
 import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "./types.ts"
@@ -84,7 +83,7 @@ export function getOrCreateQueueClient(name: string, createClient: () => Promise
 function isQueueDefinition(value: unknown): value is QueueDefinition {
   return isPlainObject(value)
     && Object.hasOwn(value, "handler")
-    && hasRuntimeType(value.handler, "function")
+    && typeof value.handler === "function"
 }
 
 export async function loadQueueDefinition(name: string): Promise<QueueDefinition | undefined> {

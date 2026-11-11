@@ -293,7 +293,7 @@ describe("Workflow dev registry", () => {
     await mkdir(folder)
     await writeFile(join(folder, "index.ts"), workflowModule("onboard-user"))
     await writeFile(join(folder, "01.collect.ts"), "export default () => 'collected'\n")
-    const plugin = hubWorkflow({ provider: "vercel" })
+    const plugin = hubWorkflow({ driver: "vercel" })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command, mode: "development" })
@@ -316,7 +316,7 @@ describe("Workflow dev registry", () => {
 
   it("keeps a declaration available to the types entry before the first folder step is added", async () => {
     const projectRoot = await createApp()
-    const plugin = hubWorkflow({ provider: "vercel" })
+    const plugin = hubWorkflow({ driver: "vercel" })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "serve", mode: "development" })

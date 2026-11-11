@@ -54,6 +54,8 @@ A menu item, an option, a tab, a table row            → 2px ring, inside the i
 A link row in a framed list                           → add data-focus-inset, ring inside
 A framed text field                                   → its frame turns blue and 2px (red with an error)
 A field framed by a wrapper (prompt input)            → add data-focus-frame to the wrapper, it turns blue
+A plain field with its own CSS border (DeviceFrame)   → add data-focus-frame to the field, it turns blue
+A control whose face is a wrapper (a hidden select)   → add data-focus-ring to the wrapper, 2px ring outside
 A field without a frame, the document editor          → the caret only
 An element that code focused (tabindex="-1")          → no ring
 ```

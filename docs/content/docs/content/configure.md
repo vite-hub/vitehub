@@ -409,16 +409,16 @@ The build stores the parsed documents gzipped, and the server inflates each part
 
 Content has no hosted provider. Comark Content keeps its query and search index in the database you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
 
-For full-text search on read-only Sources, install `comark-content` for the plugin imports. Content already has what it needs to read and render Markdown.
+To add full-text search to read-only Sources, install `comark-content` for the plugin import. Pass `sqlite()` from `vite-hub/content/sqlite` as the index database. It works on every preset.
 
 ```bash
 pnpm add comark-content
 ```
 
 ```ts [server/content.ts]
-import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
+import { sqlite } from 'vite-hub/content/sqlite'
 import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
@@ -429,14 +429,11 @@ export const content = defineContent({
 })
 ```
 
-For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. The Node SQLite adapter keeps local state. Read [Limits and errors](/docs/content/limits-and-errors) before you run several server instances.
+`sqlite()` keeps the index in memory. Each server instance builds its own index when Content loads, so it needs no Database and no migration. On Node runtimes, such as the Node, Vercel, and Netlify presets, it uses Node SQLite. On Cloudflare Workers it uses SQLite WASM, because Node SQLite there is a stub.
 
-| Database | Import | Use |
-| --- | --- | --- |
-| Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite, such as the Node, Vercel, and Netlify presets. |
-| SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. Install `@sqlite.org/sqlite-wasm` too, because `comark-content` does not install it. |
+A Worker can compile WebAssembly only while it starts, and Content loads on its first request. So when `server/content.ts` imports `vite-hub/content/sqlite`, ViteHub loads SQLite WASM when the Worker starts. This adds about 0.6 MB gzip to the Worker and about 15 ms to its startup. If you import it only from another file, the first search fails with `CONTENT_R0018`.
 
-Full-text search does not run on Cloudflare Workers yet. Workers have no Node SQLite, and SQLite WASM cannot start inside a request there, which is where Content loads.
+For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. Review [Limits and errors](/docs/content/limits-and-errors) before running multiple server instances. Comark's own `comark-content/database/sqlite-node` and `comark-content/database/sqlite-wasm` adapters also work on Node runtimes, but not on Cloudflare Workers.
 
 The `vitehub()` Vite plugin and the Nuxt module generate the Content route for every preset. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 

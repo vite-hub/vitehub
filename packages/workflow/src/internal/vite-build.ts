@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 import { workflowRuntimeModule, type WorkflowRuntimeModuleName } from "./runtime-modules.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
@@ -99,17 +99,17 @@ async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise
   try {
     const value = parseJsonRecord(await readFile(ownershipFile, "utf8"), "Vercel Workflow ownership")
     if (value.version !== 1 || !isRuntimeRecord(value.files) || !Array.isArray(value.routes)) return
-    if (value.cleanup !== undefined && !hasRuntimeType(value.cleanup, "boolean")) return
+    if (value.cleanup !== undefined && typeof value.cleanup !== "boolean") return
     const files: Record<string, string> = {}
     for (const [file, digest] of Object.entries(value.files)) {
-      if (isAbsolute(file) || !hasRuntimeType(digest, "string")) return
+      if (isAbsolute(file) || typeof digest !== "string") return
       files[file] = digest
     }
-    if (value.routes.some(route => !hasRuntimeType(route, "string"))) return
+    if (value.routes.some(route => typeof route !== "string")) return
     return {
       ...(value.cleanup === true ? { cleanup: true } : {}),
       files,
-      routes: value.routes.filter((route): route is string => hasRuntimeType(route, "string")),
+      routes: value.routes.filter((route): route is string => typeof route === "string"),
       version: 1,
     }
   }
@@ -558,11 +558,11 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     const ownedFiles = Object.fromEntries(Object.entries(generatedFiles)
       .filter(([file, digest]) => previousFiles[file] !== digest || previousFiles[file] === previousOwnership?.files[file]))
     const routeTargetsOwnedFunction = (route: unknown) => {
-      if (!route || !hasRuntimeType(route, "object")) return false
+      if (!route || typeof route !== "object") return false
       return ["dest", "src"]
         // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
         .map(key => (route as Record<string, unknown>)[key])
-        .filter((value): value is string => hasRuntimeType(value, "string"))
+        .filter((value): value is string => typeof value === "string")
         .some((target) => {
           const functionPath = target.match(/\/\.well-known\/workflow\/(v1\/[^?]+)/)?.[1]
           return Boolean(functionPath && Object.keys(ownedFiles).some(file => file.startsWith(`${functionPath}.func/`)))
@@ -704,16 +704,16 @@ interface CloudflareWorkflowNitroOptions {
 
 function record(value: unknown): Record<string, unknown> {
   // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-  return value && hasRuntimeType(value, "object") ? value as Record<string, unknown> : {}
+  return value && typeof value === "object" ? value as Record<string, unknown> : {}
 }
 
 function mergeCloudflareWorkersExternal(external: unknown): unknown {
   const cloudflareRuntimeModules = ["cloudflare:workers", "cloudflare:workflows"]
   if (external === undefined) return cloudflareRuntimeModules
-  if (hasRuntimeType(external, "string")) return [...new Set([external, ...cloudflareRuntimeModules])]
+  if (typeof external === "string") return [...new Set([external, ...cloudflareRuntimeModules])]
   if (external instanceof RegExp) return [external, ...cloudflareRuntimeModules]
   if (Array.isArray(external)) return [...new Set([...external, ...cloudflareRuntimeModules])]
-  if (hasRuntimeType(external, "function")) {
+  if (typeof external === "function") {
     return (source: string, importer?: string, isResolved?: boolean) => cloudflareRuntimeModules.includes(source) || external(source, importer, isResolved)
   }
   return external
@@ -1403,9 +1403,9 @@ function isSafeVercelFunctionName(functionsRoot: string, serverFunctionName: str
 async function readVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
   try {
     const ownership = parseJsonRecord(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8"), "Vercel Workflow function ownership")
-    if (!hasRuntimeType(ownership.digest, "string")) return
+    if (typeof ownership.digest !== "string") return
     if (ownership.version !== undefined && ownership.version !== 1) return
-    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => !hasRuntimeType(route, "string")))) return
+    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => typeof route !== "string"))) return
     return {
       digest: ownership.digest,
       ...(ownership.rootConfigRoutes ? { rootConfigRoutes: ownership.rootConfigRoutes } : {}),
@@ -1433,9 +1433,9 @@ async function getVercelWorkflowFunctionOwnership(functionRoot: string): Promise
 async function readVercelWorkflowOutputState(rootDir: string, functionsRoot: string): Promise<VercelWorkflowOutputState | undefined> {
   try {
     const state = parseJsonRecord(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8"), "Vercel Workflow output state")
-    if (!hasRuntimeType(state.serverFunctionName, "string") || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
+    if (typeof state.serverFunctionName !== "string" || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
     if (state.version !== undefined && state.version !== 1) return
-    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => !hasRuntimeType(route, "string")))) return
+    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => typeof route !== "string"))) return
     return {
       ...(state.rootConfigRoutes ? { rootConfigRoutes: state.rootConfigRoutes } : {}),
       serverFunctionName: state.serverFunctionName,

@@ -173,6 +173,11 @@
       "import": "./dist/runtime/cloudflare-env.js",
       "default": "./dist/runtime/cloudflare-env.js"
     },
+    "./runtime/cloudflare-env-lookup": {
+      "types": "./dist/runtime/cloudflare-env-lookup.d.ts",
+      "import": "./dist/runtime/cloudflare-env-lookup.js",
+      "default": "./dist/runtime/cloudflare-env-lookup.js"
+    },
     "./http-request": {
       "types": "./dist/http-request.d.ts",
       "import": "./dist/http-request.js",
