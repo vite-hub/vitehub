@@ -4,11 +4,28 @@ import type { Plugin } from "vite"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import { consolePublicURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
+import { authConsoleActionOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
+import { authFixture } from "./auth-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
+
+const authReads = new Map<string, string>(Object.entries(authConsoleReadOperations).map(([read, operation]) => [operation, read]))
+const authActions = new Map<string, string>(Object.entries(authConsoleActionOperations).map(([action, operation]) => [operation, action]))
+
+/** Answer an `auth.*` operation from the synthetic Auth fixture, which keeps the command shape of the Auth Console. */
+function authOperationFixture(operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
+  const events = process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"
+  const read = authReads.get(operation)
+  if (read) {
+    const { cursor, group, id, ...query } = input
+    return { ok: true, value: authFixture({ activity: { cursor, group, limit: query.limit, userId: query.userId }, id, operation: read, query }, events) }
+  }
+  const action = authActions.get(operation)
+  return action ? { ok: true, value: authFixture({ ...input, action }, events) } : undefined
+}
 
 async function readBody(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
@@ -39,6 +56,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   // The MCP client keeps its connections in this process, so its fixture answers here, not over HTTP.
   if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload, cookie)
   const input = payload.input ?? {}
+  const auth = authOperationFixture(payload.operation, input)
+  if (auth) return auth
   const comment = callCommentsFixture(payload.operation, input)
   if (comment) return comment
   const channel = channelsFixture(payload.operation, input)

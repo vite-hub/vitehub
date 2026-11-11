@@ -18,6 +18,7 @@ import authManage from "../src/console/runtime/server/auth-manage.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { assertConsoleAccess, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { requestEvent } from "./console-event.ts"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 const state = vi.hoisted(() => ({ inspect: undefined as unknown, host: undefined as unknown }))
 vi.mock("@vite-hub/auth/server", async importOriginal => ({
@@ -51,6 +52,15 @@ function manage(body: unknown, cookie = "") {
   return authManage.fetch(new Request("http://localhost:5173/_vitehub/auth/manage", {
     method: "POST",
     body: JSON.stringify(body),
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
+  }))
+}
+
+/** One `auth.*` operation through the Console RPC, with the cookies of the browser. */
+async function operation(name: string, input: Record<string, unknown> = {}, cookie = "") {
+  return await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
+    method: "POST",
+    body: JSON.stringify({ operation: name, input }),
     headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
   }))
 }
@@ -90,7 +100,8 @@ describe("Auth Console impersonation route", () => {
       expect(response.status).toBe(404)
       expect(await response.json()).toMatchObject({ message: expect.stringContaining("console.impersonation") })
     }
-    expect(state.host).toEqual({ impersonation: false })
+    // The route refuses before it opens the Auth Console.
+    expect(state.host).toBeUndefined()
     expect(inspect.execute).not.toHaveBeenCalled()
     expect(inspect.stopImpersonating).not.toHaveBeenCalled()
   })
@@ -100,12 +111,13 @@ describe("Auth Console impersonation route", () => {
     state.inspect = inspect
     installConsoleSections("impersonation-read-only", ["auth"])
     installConsoleAccess({ mode: "open", impersonation: true, authorize: () => ({ sections: ["auth:read"] }) })
-    expect((await manage({ operation: "users" })).status).toBe(200)
-    for (const body of [{ action: "impersonate", userId: "user-1" }, { action: "ban", userId: "user-1" }]) {
-      const response = await manage(body)
-      expect(response.status).toBe(403)
-      expect(await response.json()).toEqual({ message: "This Console access can read Auth data but not change it." })
-    }
+    expect((await operation("auth.users")).status).toBe(200)
+    const impersonate = await manage({ action: "impersonate", userId: "user-1" })
+    expect(impersonate.status).toBe(403)
+    expect(await impersonate.json()).toEqual({ message: "This Console access can read Auth data but not change it." })
+    const ban = await operation("auth.ban", { userId: "user-1" })
+    expect(ban.status).toBe(403)
+    expect(await ban.json()).toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("read-only") })
     expect(inspect.execute).not.toHaveBeenCalled()
   })
 
@@ -116,18 +128,18 @@ describe("Auth Console impersonation route", () => {
     installConsoleSections("impersonation-route", ["auth"])
     installConsoleAccess({ mode: "open", impersonation: true, authorize: () => ({ sections: ["auth"] }) })
 
-    const described = await (await manage({ operation: "describe" }, app.operator.cookie)).json()
+    const described = await (await operation("auth.describe", {}, app.operator.cookie)).json()
     expect(state.host).toEqual({ impersonation: true })
-    expect(described).toMatchObject({ actions: { impersonate: { enabled: true } }, impersonation: { duration: 3600, active: null } })
-    expect(await (await manage({ operation: "user", id: app.member.id }, app.operator.cookie)).json()).toMatchObject({ impersonation: { enabled: true } })
+    expect(described).toMatchObject({ value: { actions: { impersonate: { enabled: true } }, impersonation: { duration: 3600, active: null } } })
+    expect(await (await operation("auth.user", { id: app.member.id }, app.operator.cookie)).json()).toMatchObject({ value: { impersonation: { enabled: true } } })
 
     const started = await manage({ action: "impersonate", userId: app.member.id }, app.operator.cookie)
     expect(started.status).toBe(200)
     const impersonating = jar(app.operator.cookie, started)
     const session = (cookie: string) => app.auth.api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })
     expect(await session(impersonating)).toMatchObject({ user: { id: app.member.id }, session: { impersonatedBy: app.operator.id } })
-    expect(await (await manage({ operation: "describe" }, impersonating)).json()).toMatchObject({
-      impersonation: { active: { user: { id: app.member.id, name: "Ada Lovelace" } } },
+    expect(await (await operation("auth.describe", {}, impersonating)).json()).toMatchObject({
+      value: { impersonation: { active: { user: { id: app.member.id, name: "Ada Lovelace" } } } },
     })
 
     const stopped = await manage({ action: "stopImpersonating" }, impersonating)

@@ -12,6 +12,8 @@ Turn on and protect the [Console](/docs/development/console). The section id for
 
 `console: { auth: false }` is for development. A production build with it fails. Use `auth: 'app'`, or `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`: create a token with `openssl rand -hex 32` and store `printf %s "$TOKEN" | sha256sum`. Open the app in the hosted Console at `https://console.vitehub.dev`.
 
+Each page and action of the section is an operation on the Console RPC: `auth.describe`, `auth.overview`, `auth.activity`, `auth.users`, `auth.user`, `auth.sessions`, `auth.organizations`, `auth.organization`, and `auth.agents` read, and `auth.ban`, `auth.unban`, `auth.remove`, `auth.revoke-sessions`, `auth.revoke-session`, `auth.set-role`, `auth.edit-field`, and `auth.revoke-consent` change. Impersonation sets the session cookie on the app origin, so it stays on `POST /_vitehub/auth/manage`.
+
 With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call. An [OAuth access token](/docs/development/console#sign-a-console-in-with-oauth) for the Console resource names the signed-in user. Reads need the `vitehub:read` scope, and changes need `vitehub:write`. A bearer call cannot start or stop impersonation, because impersonation changes the session cookie on the app origin.
 
 ## Pages

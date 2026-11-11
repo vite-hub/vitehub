@@ -125,11 +125,11 @@ async function refresh() {
   loading.value = true;
   error.value = undefined;
   try {
-    const config = await readAuthConsole(props.managementBase, "describe", {}, current.signal);
+    const config = await readAuthConsole("describe", {}, current.signal);
     if (current.signal.aborted) return;
     description.value = config;
     if (page.value === "overview") {
-      const result = await readAuthConsole(props.managementBase, "overview", {}, current.signal);
+      const result = await readAuthConsole("overview", {}, current.signal);
       if (!current.signal.aborted) overview.value = result;
       return;
     }
@@ -144,7 +144,6 @@ async function refresh() {
     let list: AuthConsoleList<unknown>;
     if (page.value === "users") {
       const result = await readAuthConsole(
-        props.managementBase,
         "users",
         { query },
         current.signal,
@@ -153,7 +152,6 @@ async function refresh() {
       list = result;
     } else if (page.value === "sessions") {
       const result = await readAuthConsole(
-        props.managementBase,
         "sessions",
         { query },
         current.signal,
@@ -162,7 +160,6 @@ async function refresh() {
       list = result;
     } else if (page.value === "organizations") {
       const result = await readAuthConsole(
-        props.managementBase,
         "organizations",
         { query },
         current.signal,
@@ -171,7 +168,6 @@ async function refresh() {
       list = result;
     } else {
       const result = await readAuthConsole(
-        props.managementBase,
         "agents",
         { query },
         current.signal,
@@ -222,7 +218,6 @@ async function openOrganization(id: string, offset = 0) {
   orgLoading.value = true;
   try {
     const result = await readAuthConsole(
-      props.managementBase,
       "organization",
       { id, query: { offset, limit } },
       current.signal,
@@ -344,7 +339,6 @@ onBeforeUnmount(() => {
           />
           <ConsoleAuthActivity
             v-else-if="page === 'activity' && description"
-            :base="managementBase"
             :enabled="description.events.enabled"
             :revision="revision"
           />

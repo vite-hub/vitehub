@@ -227,7 +227,7 @@ describe("hosted Console sign-in with app Auth OAuth", () => {
     install()
     installConsoleSections("/tmp/console-hosted-oauth", ["fixture", "env", "auth", "agents", "schedules"])
     for (const [handler, path, body] of [
-      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "ban", userId: "someone" }],
+      [consoleAuthManageHandler, "/_vitehub/auth/manage", { action: "impersonate", userId: "someone" }],
       [consoleEnvManageHandler, "/_vitehub/env/manage", {}],
       [consoleScheduleRunHandler, "/_vitehub/schedules/run", {}],
     ] as const) {
