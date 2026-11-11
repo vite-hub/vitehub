@@ -66,6 +66,7 @@
   "dependencies": {
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
     "destr": "^2.0.5",
     "nostics": "catalog:runtime",
