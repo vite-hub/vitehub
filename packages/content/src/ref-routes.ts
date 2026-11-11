@@ -1,5 +1,6 @@
 import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 
+import { contentRefTokenParameter } from "./preview-parameters.ts"
 import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentSourceAllowReason } from "./source-access.ts"
@@ -141,9 +142,20 @@ function isInternalLink(href: string, prefix: string): boolean {
   return href !== prefix && !href.startsWith(`${prefix}/`) && !href.startsWith(`${prefix}?`) && !href.startsWith(`${prefix}#`)
 }
 
-/** An internal link with the preview prefix, such as `/pr/12/docs/kv` for `/docs/kv`. */
-export function previewLink(href: string, prefix: string): string {
-  return isInternalLink(href, prefix) ? `${prefix}${href}` : href
+/** `href` with `query`, such as a signed-link token, added before its fragment. */
+function withQuery(href: string, query: string | undefined): string {
+  if (!query) return href
+  const hash = href.indexOf("#")
+  const base = hash < 0 ? href : href.slice(0, hash)
+  return `${base}${base.includes("?") ? "&" : "?"}${query}${hash < 0 ? "" : href.slice(hash)}`
+}
+
+/**
+ * An internal link with the preview prefix, such as `/pr/12/docs/kv` for `/docs/kv`. `query` is added to it, such as
+ * the signed-link token that opened a private ref, so a reader who follows the link keeps access to the same ref.
+ */
+export function previewLink(href: string, prefix: string, query?: string): string {
+  return isInternalLink(href, prefix) ? withQuery(`${prefix}${href}`, query) : href
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -155,20 +167,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `[tag, attributes, ...children]`. The walk goes through objects and arrays, so it works on a document, a list of
  * documents, and the JSON of `/api/content`. Values without a change are the same objects.
  */
-export function rewriteContentLinks<T>(value: T, prefix: string): T {
+export function rewriteContentLinks<T>(value: T, prefix: string, query?: string): T {
   // SAFETY: rewrite() returns a value of the same shape, with only `href` strings changed.
-  return rewrite(value, prefix, 0) as T
+  return rewrite(value, prefix, query, 0) as T
 }
 
-function rewrite(value: unknown, prefix: string, depth: number): unknown {
+function rewrite(value: unknown, prefix: string, query: string | undefined, depth: number): unknown {
   // Comark trees are deep, but not this deep. A cycle or a hostile value stops here.
   if (depth > 512) return value
   if (Array.isArray(value)) {
     let changed = false
     const next = value.map((item, index) => {
-      let result = rewrite(item, prefix, depth + 1)
+      let result = rewrite(item, prefix, query, depth + 1)
       if (index === 1 && typeof value[0] === "string" && isRecord(item) && typeof item.href === "string") {
-        const href = previewLink(item.href, prefix)
+        const href = previewLink(item.href, prefix, query)
         if (href !== item.href) result = { ...(isRecord(result) ? result : item), href }
       }
       if (result !== item) changed = true
@@ -182,13 +194,53 @@ function rewrite(value: unknown, prefix: string, depth: number): unknown {
   if (proto !== Object.prototype && proto !== null) return value
   let copy: Record<string, unknown> | undefined
   for (const [key, item] of Object.entries(value)) {
-    const result = rewrite(item, prefix, depth + 1)
+    const result = rewrite(item, prefix, query, depth + 1)
     if (result === item) continue
     copy ??= { ...value }
     copy[key] = result
   }
   return copy ?? value
 }
+
+/**
+ * The query that keeps a signed link working on the links and redirects of its preview, such as
+ * `vitehub-content-token=...`. Undefined unless the signed link opened the ref.
+ */
+export function previewLinkQuery(requestUrl: string, reason: ContentSourceAllowReason): string | undefined {
+  if (reason !== "token") return
+  const token = new URL(requestUrl).searchParams.get(contentRefTokenParameter)
+  return token ? `${contentRefTokenParameter}=${encodeURIComponent(token)}` : undefined
+}
+
+/**
+ * A request for `url` that keeps everything else of `request`: the host fields that Nitro and srvx put on it, such as
+ * `runtime`, `context`, `ip`, and `waitUntil`, and the raw Node request. `new Request(url, request)` drops them.
+ */
+export function requestWithUrl(request: Request, url: string): Request {
+  const shadow: Record<PropertyKey, unknown> = { url, _url: undefined }
+  return new Proxy(request, {
+    get(target, property) {
+      if (Object.hasOwn(shadow, property)) return shadow[property]
+      const value: unknown = Reflect.get(target, property, target)
+      // Methods of Request such as `json()` and `clone()` need the real Request as `this`. A host field such as
+      // `waitUntil` is an own property, which a Proxy must return as it is.
+      return typeof value === "function" && property !== "constructor" && !Object.hasOwn(target, property) ? value.bind(target) : value
+    },
+    set(target, property, value) {
+      if (property === "url" || property === "_url") {
+        shadow[property] = value
+        return true
+      }
+      return Reflect.set(target, property, value, target)
+    },
+    has(target, property) {
+      return Object.hasOwn(shadow, property) || Reflect.has(target, property)
+    },
+  })
+}
+
+/** An application `Cache-Control` that keeps a response out of shared caches. Preview rules never loosen it. */
+const privateCache = /(?:^|[\s,])(?:private|no-store|no-cache)(?:$|[\s,=])/i
 
 /** The `Cache-Control` of a preview response. */
 export function previewCacheControl(route: ContentPreviewRouteKind, reason: ContentSourceAllowReason): string {
@@ -215,13 +267,20 @@ export function previewResponse(response: Response, preview: ContentSourcePrevie
     result.headers.set("x-robots-tag", "noindex")
   }
   result.headers.append("link", `<${preview.url}>; rel="canonical"`)
-  result.headers.set("cache-control", previewCacheControl(preview.route, reason))
+  // The preview rule is an upper bound: a page that the app marks private, or that sets a cookie, stays private.
+  const own = result.headers.get("cache-control")
+  if (own !== null && privateCache.test(own)) {
+    if (!/\bprivate\b/i.test(own) && !/\bno-store\b/i.test(own)) result.headers.set("cache-control", `private, ${own}`)
+  }
+  else if (result.headers.has("set-cookie")) result.headers.set("cache-control", "private, no-store")
+  else result.headers.set("cache-control", previewCacheControl(preview.route, reason))
   const location = result.headers.get("location")
   if (location !== null && result.status >= 300 && result.status < 400) {
     const origin = new URL(requestUrl).origin
     const target = URL.canParse(location, requestUrl) ? new URL(location, requestUrl) : undefined
     if (target?.origin === origin && !mayBeContentPreviewPath(target.pathname)) {
-      result.headers.set("location", `${preview.prefix}${target.pathname}${target.search}${target.hash}`)
+      const query = target.searchParams.has(contentRefTokenParameter) ? undefined : previewLinkQuery(requestUrl, reason)
+      result.headers.set("location", withQuery(`${preview.prefix}${target.pathname}${target.search}`, query) + target.hash)
     }
   }
   return result
@@ -264,9 +323,14 @@ export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHo
     if (isRecord(hooks) && hooks.hook instanceof Function) {
       for (const name of ["close", "shutdown", "dispose"]) Reflect.apply(hooks.hook, hooks, [name, removeCacheBypass])
     }
-    const fetch = nitroApp.fetch
-    nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
-      const call = (next: unknown) => Reflect.apply(fetch, nitroApp, [next, ...rest])
+    // Nitro's fetch entry calls `nitroApp.h3.fetch()` on each request. Wrapping that method, not `nitroApp.fetch`, also
+    // reaches a server entry that took `nitroApp.fetch` before this plugin ran, as after an earlier async plugin.
+    const h3 = nitroApp.h3
+    const owner: Record<string, unknown> = isRecord(h3) && h3.fetch instanceof Function ? h3 : nitroApp
+    const fetch = owner.fetch
+    if (!(fetch instanceof Function)) return
+    owner.fetch = (request: unknown, ...rest: unknown[]) => {
+      const call = (next: unknown) => Reflect.apply(fetch, owner, [next, ...rest])
       if (!(request instanceof Request)) return call(request)
       // Most requests are not preview URLs, so they skip parsing.
       const start = request.url.indexOf("/", request.url.indexOf("//") + 2)
