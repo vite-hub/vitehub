@@ -14,7 +14,7 @@ const page = computed(() => props.response.page)
 </script>
 
 <template>
-  <UPage v-if="header" :ui="{ root: 'lg:!grid-cols-1 lg:!gap-0', center: 'lg:!col-span-1', right: 'hidden' }" :data-path="page.path">
+  <UPage v-if="header" :ui="withDocsTheme('page', { root: 'lg:!grid-cols-1 lg:!gap-0', center: 'lg:!col-span-1', right: 'hidden' })" :data-path="page.path">
     <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined">
       <template #links>
         <DocsPageHeaderLinks />
