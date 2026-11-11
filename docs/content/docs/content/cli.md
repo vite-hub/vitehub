@@ -39,6 +39,10 @@ The commands appear when the app has a Content file. Without `--url`, they call 
 | `vitehub content scheduled [collection] [id]` | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule <schedule>` | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Print the sitemap URLs of published documents. |
+| `vitehub content head [source]` | Show the commit that each `github()` Source serves, and what holds it back. |
+| `vitehub content advance [source]` | Move the head to the latest commit of the branch when every document parses. |
+| `vitehub content pin <sha> [source]` | Serve one commit until `unpin`, for example to roll back. |
+| `vitehub content unpin [source]` | Remove the pin and move to the latest valid commit. |
 
 Omit the id for a [singleton](/docs/content/configure#singletons-and-data-files): `vitehub content edit settings` edits `settings.json`.
 
@@ -214,6 +218,40 @@ pnpm vitehub content sitemap --xml --site https://example.com
 ```
 
 `sitemap` prints the URL and last change time of each published, indexable document in a collection with a [`url`](/docs/content/seo#document-urls). `--xml` prints the `/sitemap.xml` XML. `--site` sets the origin. It defaults to `defineContent({ seo: { site } })`, else URLs are paths.
+
+## GitHub Source heads
+
+A `github()` Source with a GitHub token and a KV store serves one validated commit, the head. These commands call [`content.sources`](https://github.com/vite-hub/vitehub/tree/main/packages/content#live-github-sources) in the app, so they read and move the same head as the app.
+
+```bash [Terminal]
+pnpm vitehub content head
+pnpm vitehub content advance docs
+pnpm vitehub content pin 9d1c4e2a7b3f5c8d0e6a1b4f7c2d9e3a5b8f0c1d docs
+pnpm vitehub content unpin docs
+```
+
+```txt [Output]
+docs stays on 978e88bf21f94b93237cfa6e11b6e1277758dc61.
+docs
+  Head:      978e88bf21f94b93237cfa6e11b6e1277758dc61 on main, moved 2026-11-11T12:38:12.512Z
+  Checked:   2026-11-11T12:38:12.525Z
+  Rejected:  062822c8aa1dc2530d98426a6e9f40b856f75579 at 2026-11-11T12:38:12.525Z
+  CONTENT_R0019: Commit 062822c8aa1dc2530d98426a6e9f40b856f75579 of Content source "docs" failed validation, so Content keeps commit 978e88bf21f94b93237cfa6e11b6e1277758dc61: broken.md: unexpected end of the stream within a flow collection (1:17)
+  Fix: Fix the document in the repository and push a new commit, then run `vitehub content advance` or call `content.sources.advance()`. `vitehub content head` and `content.sources.head()` show the rejected commit and the reason.
+```
+
+`head` without a name shows every `github()` Source. The others take the Source name, and need it only when the app has more than one `github()` Source. Each head shows the commit, the branch, the pin, the last branch check, the rejected commit, and the last [push webhook](https://github.com/vite-hub/vitehub/tree/main/packages/content#github-push-webhook) delivery. When the head does not follow the branch, it shows the diagnostic and its fix:
+
+| Code | Why |
+| --- | --- |
+| [`CONTENT_R0020`](/docs/content/diagnostics/content_r0020) | The Source has no GitHub token, so it has no head. |
+| [`CONTENT_R0021`](/docs/content/diagnostics/content_r0021) | The app has no KV store, so the Source has no head. |
+| [`CONTENT_R0019`](/docs/content/diagnostics/content_r0019) | The newest commit has a document that does not parse. The head stays on the last valid commit. |
+| [`CONTENT_R0035`](/docs/content/diagnostics/content_r0035) | GitHub answered 403 or 429 to the branch lookup, as it does when the rate limit is hit. The head did not move. This server instance shows it until a lookup succeeds. |
+
+`advance` and `unpin` exit with status 1 when the head is held back, so a CI step fails on a broken push. A pinned head does not move and exits with status 0. `pin` needs the full 40-character SHA and checks that every document of the commit parses. `--json` prints the [`ContentSourceHead`](https://github.com/vite-hub/vitehub/tree/main/packages/content#live-github-sources), with the diagnostic in `diagnostic: { code, message, fix }`. `head --json` prints `{ "heads": [...] }`.
+
+`head` needs the `content` section of the Console access, read-only is enough. `advance`, `pin`, and `unpin` need the whole section. `defineContent({ authorize })` does not apply, because Sources are read-only and public.
 
 ## How it reaches storage
 

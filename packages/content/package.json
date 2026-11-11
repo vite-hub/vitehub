@@ -97,6 +97,7 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "comark": "catalog:markdown-ui",

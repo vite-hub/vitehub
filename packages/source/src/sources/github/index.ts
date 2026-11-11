@@ -322,6 +322,27 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     async history(key, historyOptions) {
       return await client.commits(repoPathForKey(normalizeSafeSourcePath(key)), historyOptions, await resolveAuth())
     },
+    async resolveRef(ref, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      if ("pull" in ref) {
+        const pull = await client.pull(ref.pull, token, signal)
+        return pull && { sha: pull.sha, pull: pull.pull }
+      }
+      const sha = "branch" in ref ? await client.branch(ref.branch, token, signal) : await client.commit(ref.sha, token, signal)
+      return sha === undefined ? undefined : { sha }
+    },
+    async contains(sha, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      const base = configuredRef ?? await client.defaultBranch(token, signal)
+      const status = await client.compare(base, sha, token, signal)
+      return status === "identical" || status === "behind"
+    },
+    async pullsAt(sha, refOptions) {
+      const pulls = await client.commitPulls(sha, await resolveAuth(), refOptions?.signal)
+      return pulls.filter(entry => entry.sha.toLowerCase() === sha.toLowerCase()).map(entry => entry.pull)
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)

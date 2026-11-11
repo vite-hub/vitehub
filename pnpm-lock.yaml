@@ -1964,6 +1964,9 @@ importers:
       '@vite-hub/blob':
         specifier: workspace:*
         version: link:../blob
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

@@ -7,6 +7,7 @@ import type {
 import type { ContentFieldIssue, ContentFormat } from "./documents.ts"
 import type { ContentSchedule } from "./schedules.ts"
 import type { ContentSitemapEntry } from "./sitemap.ts"
+import type { ContentSourceHead } from "./source-heads.ts"
 
 /** The results of the Content operations. */
 export interface ContentDevCollection {
@@ -149,4 +150,9 @@ export interface ContentDevUnscheduleResult {
 
 export interface ContentDevSitemapResult {
   entries: ContentSitemapEntry[]
+}
+
+/** `content.head`: the head of one `github()` Source, or of each one when the input names none. */
+export interface ContentDevHeadResult {
+  heads: ContentSourceHead[]
 }

@@ -74,7 +74,7 @@ export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBa
 export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
 export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
-export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
+export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
@@ -92,7 +92,10 @@ export type {
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { registerContentKV } from "./source-heads.ts"
 export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
+export type { ContentKV, ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
+export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
+export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
+export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export { contentSessionTimeouts } from "./defaults.ts"
@@ -452,11 +455,11 @@ export function defineContent<
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" })
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [] })
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
-    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.revision(name, input))
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input))
     heads.attach(name, instance)
     if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
     return instance
@@ -663,7 +666,7 @@ export function defineContent<
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
-      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
+      await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
