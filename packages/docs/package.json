@@ -97,6 +97,7 @@
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "tailwindcss": "^4.3.3",

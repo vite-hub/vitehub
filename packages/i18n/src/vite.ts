@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/compiler"
@@ -10,7 +10,6 @@ import MagicString from "magic-string"
 
 import { compileMessages } from "./catalogs.ts"
 import { createLinguiConfig, recordsRoot } from "./lingui.ts"
-import { i18nErrorDiagnostics } from "./errors.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
 import { addMessage, allMessages, extractFileMessages, manifestFile, mergeMessages, scanMessages } from "./manifest.ts"
@@ -60,7 +59,7 @@ interface InternalOptions extends I18nVitePluginOptions {
 
 export type I18nVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata }
 
-type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown, [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 }
+type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown }
 
 function renderNitroPlugin(importBase: string, messagesFile: string, workspace: string | undefined): string {
   // `vite-hub/i18n` gets the Workspace from `vite-hub/workspace/files`, and `@vite-hub/i18n` from `@vite-hub/workspace/files`.
@@ -231,8 +230,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         const viteHubConfig = config as ViteHubConfig
         isBuild = env?.command === "build"
         setup(viteHubConfig)
-        // Server messages read the request from Nitro 3's async context. Nitro 2 has no such context on every host.
-        if (viteHubConfig[VITEHUB_NITRO_MAJOR_VERSION] === 2) throw i18nErrorDiagnostics.I18N_UNSUPPORTED_HOST()
         await writeServerFiles()
         const kit = createNitroServerKit(viteHubConfig.nitro)
         kit.addPlugin(resolve(projectRoot!, generatedPlugin), "start")

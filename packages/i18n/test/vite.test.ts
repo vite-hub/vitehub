@@ -1,22 +1,29 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 
-import { VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { describe, expect, it } from "vitest"
 
 import { hubI18n } from "../src/vite.ts"
 
-const packageRoot = fileURLToPath(new URL("..", import.meta.url))
-
 describe("hubI18n", () => {
-  it("refuses Nuxt 4, whose Nitro 2 server has no request context on every host", async () => {
-    const root = await mkdtemp(join(packageRoot, "test/.tmp/nitro2-"))
+  it("installs the Nitro 3 request context plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-vite-"))
     try {
       const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root })
-      const config = { root, [VITEHUB_NITRO_MAJOR_VERSION]: 2 }
+      const config = { root, nitro: { plugins: ["/user-plugin.mjs"], experimental: { openAPI: true } } }
       const hook = plugin.config as { handler: (config: object) => Promise<unknown> }
-      await expect(hook.handler(config)).rejects.toMatchObject({ code: "I18N_UNSUPPORTED_HOST" })
+      await hook.handler(config)
+
+      const generatedPlugin = join(root, ".vitehub/nitro/i18n/plugin.mjs")
+      expect(config.nitro).toMatchObject({
+        plugins: [generatedPlugin, "/user-plugin.mjs"],
+        experimental: { asyncContext: true, openAPI: true },
+      })
+      const source = await readFile(generatedPlugin, "utf8")
+      expect(source).toContain('import { definePlugin } from "nitro"')
+      expect(source).toContain('import { useRequest } from "nitro/context"')
+      expect(source).toContain("return useRequest()")
     }
     finally {
       await rm(root, { recursive: true, force: true })
