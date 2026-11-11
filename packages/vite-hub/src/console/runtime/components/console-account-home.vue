@@ -119,7 +119,7 @@ async function link(): Promise<void> {
       </div>
       <ul class="vitehub-account-list">
         <li v-for="app in apps" :key="app.id">
-          <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" @click="openApp($event, app.id)">
+          <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" data-focus-inset @click="openApp($event, app.id)">
             <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
             <span class="grid min-w-0 flex-1 text-start">
               <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
@@ -332,10 +332,5 @@ async function link(): Promise<void> {
 
 a.vitehub-account-list__row:hover {
   background: var(--ui-bg-elevated);
-}
-
-.vitehub-account-list__row:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
 }
 </style>

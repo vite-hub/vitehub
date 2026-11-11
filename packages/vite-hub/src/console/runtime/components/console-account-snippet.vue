@@ -26,6 +26,7 @@ async function copy(): Promise<void> {
           :key="key"
           type="button"
           class="vitehub-account-snippet__tab"
+          data-focus-inset
           :aria-pressed="framework === key"
           @click="framework = key"
         >
@@ -72,10 +73,5 @@ async function copy(): Promise<void> {
 .vitehub-account-snippet__tab[aria-pressed="true"] {
   border-bottom-color: var(--ui-text-highlighted);
   color: var(--ui-text-highlighted);
-}
-
-.vitehub-account-snippet__tab:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
 }
 </style>

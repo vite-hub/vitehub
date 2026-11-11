@@ -43,7 +43,7 @@ https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A3000
 
 Open it, and select **Continue** to link the project. Chrome asks for permission to reach the local network. The development server answers only this machine. See [Share a development server](#share-a-development-server).
 
-### Hosted Console
+### In production
 
 [console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in. The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
 

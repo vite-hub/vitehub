@@ -101,7 +101,7 @@ async function create(): Promise<void> {
 
 <template>
   <UDropdownMenu v-if="variant === 'team'" size="sm" :items="items" :content="{ align: 'start' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
-    <button type="button" class="vitehub-account-menu__trigger" :aria-label="`Team: ${team?.name ?? 'none'}. Switch team`">
+    <button type="button" class="vitehub-account-menu__trigger" data-focus-inset :aria-label="`Team: ${team?.name ?? 'none'}. Switch team`">
       <span class="vitehub-account-menu__team-mark" aria-hidden="true">{{ (team?.name ?? "T").slice(0, 1).toUpperCase() }}</span>
       <span class="min-w-0 flex-1 truncate text-start">{{ team?.name ?? "Team" }}</span>
       <UIcon name="i-lucide-chevrons-up-down" class="size-3.5 shrink-0 text-muted" aria-hidden="true" />
@@ -109,7 +109,7 @@ async function create(): Promise<void> {
   </UDropdownMenu>
 
   <UDropdownMenu v-else-if="variant === 'user'" size="sm" :items="items" :content="{ align: 'start', side: 'top' }" :ui="{ content: 'min-w-(--reka-dropdown-menu-trigger-width)' }">
-    <button type="button" class="vitehub-account-menu__trigger">
+    <button type="button" class="vitehub-account-menu__trigger" data-focus-inset>
       <UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="xs" />
       <span class="grid min-w-0 flex-1 text-start">
         <span class="truncate">{{ label }}</span>
@@ -162,11 +162,6 @@ async function create(): Promise<void> {
 .vitehub-account-menu__trigger:hover,
 .vitehub-account-menu__trigger[data-state="open"] {
   background: var(--ui-bg-elevated);
-}
-
-.vitehub-account-menu__trigger:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
 }
 
 .vitehub-account-menu__team-mark {

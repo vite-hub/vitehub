@@ -127,6 +127,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
 
 <style>
 .vitehub-account-sign-in__create {
+  border-radius: 0.125rem;
   color: var(--ui-text-highlighted);
   font-weight: 500;
   text-decoration: underline;
@@ -136,11 +137,5 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
 
 .vitehub-account-sign-in__create:hover {
   text-decoration-color: currentColor;
-}
-
-.vitehub-account-sign-in__create:focus-visible {
-  border-radius: 0.125rem;
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: 2px;
 }
 </style>
