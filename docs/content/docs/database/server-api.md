@@ -156,7 +156,7 @@ export default defineTask({
 })
 ```
 
-A process runs the migrations of a Database once. Calls during that run, and calls after it succeeds, wait for the same run and apply nothing. The start plugin shares this run, so a call after the start does no work. When a run fails, the call rejects and the process forgets the run, so the next call tries again. Several processes on one Postgres database apply each migration once: one process takes the lock and the others wait, then find nothing pending.
+A process runs the migrations of a Database once. Calls during that run, and calls after it succeeds, wait for the same run and apply nothing. The start plugin shares this run, so a call after the start does no work. When a run fails, the call rejects and the process forgets the run, so the next call tries again. A new run waits for the run before it, so Definitions that share a SQLite file apply each migration once. Several processes on one Postgres database apply each migration once: one process takes the lock and the others wait, then find nothing pending.
 
 The build writes the migrations into the server output, and the server reads them at the first call. A Cloudflare or Vercel build ships none, and a call rejects with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`: migrate those from the deployment with `vitehub database migrate` or Wrangler. Remote libSQL and D1 over HTTP reject with the same error. In app tests with `vite-hub/test`, a SQLite Database is an in-memory copy that already has its migrations, so the call skips it.
 

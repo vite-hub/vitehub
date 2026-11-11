@@ -187,11 +187,15 @@ export interface EnsureMigrationsContext {
 
 // One run for each Database in this process. The server start and `ensureMigrations()` share it.
 const runs = new Map<string, Promise<void>>()
+// Runs start one after the other. Definitions on one SQLite file share its ledger, so a run must read it after the
+// previous run committed, or both apply the same migration.
+let lastRun: Promise<unknown> = Promise.resolve()
 
 /**
  * Applies the pending migrations of `names`, or of every Database, once in this process. It runs `migrateOnStart()`,
  * so a Postgres database migrates under the advisory lock. Calls during a run and after a successful run share that
- * run. A run that fails is forgotten, so the next call starts a new one.
+ * run. A run that fails is forgotten, so the next call starts a new one. A new run waits for the previous run, so
+ * Definitions that share a SQLite file apply each migration once.
  *
  * In app tests, a SQLite Database is an in-memory copy that already has its migrations, so it is skipped.
  */
@@ -201,7 +205,7 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
   if (unknown !== undefined) return Promise.reject(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: unknown }))
   const missing = [...new Set(selected.filter(name => !runs.has(name)))]
   if (missing.length) {
-    const run = context.load().then(async (shipped) => {
+    const run = lastRun.then(() => context.load()).then(async (shipped) => {
       if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
       const test = getViteHubTestMode()
       await migrateOnStart(missing.flatMap((name) => {
@@ -212,7 +216,7 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
       }), { allowDataLoss: shipped.allowDataLoss })
     })
     for (const name of missing) runs.set(name, run)
-    run.catch(() => {
+    lastRun = run.catch(() => {
       for (const name of missing) if (runs.get(name) === run) runs.delete(name)
     })
   }

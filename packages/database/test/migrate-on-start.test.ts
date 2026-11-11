@@ -564,15 +564,46 @@ describe("ensureMigrations", () => {
     }
   })
 
+  it("applies a migration once when calls for Definitions on one SQLite file overlap", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const clients = Array.from({ length: 4 }, () => createClient({ url }))
+    try {
+      await clients[0]!.execute("CREATE TABLE `events` (`message` text)")
+      const once = { dataLoss: [], hash: "once", name: "20231114221320_once", statements: ["INSERT INTO `events` (`message`) VALUES ('once')"], when: init.when }
+      const later = { dataLoss: [], hash: "later", name: "20231114221321_later", statements: ["INSERT INTO `events` (`message`) VALUES ('later')"], when: seed.when }
+      const names = ["sharedFirst", "sharedSecond", "sharedThird", "sharedFourth"] as const
+      const context = {
+        databases: Object.fromEntries(names.map((name, index) => [name, { db: drizzle({ client: clients[index]! }) }])),
+        load: async () => ({
+          allowDataLoss: false,
+          databases: Object.fromEntries(names.map(name => [name, { dialect: "sqlite" as const, migrations: name === "sharedFourth" ? [once, later] : [once] }])),
+        }),
+      }
+      // Two named calls, then a named call that overlaps the call for every Database.
+      await Promise.all([ensureDatabaseMigrations(context, ["sharedFirst"]), ensureDatabaseMigrations(context, ["sharedSecond"])])
+      await Promise.all([ensureDatabaseMigrations(context, ["sharedThird"]), ensureDatabaseMigrations(context)])
+
+      // The migration of the fourth Definition that the others do not have still applies.
+      expect((await clients[0]!.execute("SELECT message FROM events ORDER BY rowid")).rows.map(row => row[0])).toEqual(["once", "later"])
+      expect((await clients[0]!.execute("SELECT name FROM __drizzle_migrations ORDER BY id")).rows.map(row => row[0])).toEqual([once.name, later.name])
+    }
+    finally {
+      for (const client of clients) client.close()
+    }
+  })
+
   it("ships the migrations to `ensureMigrations()` in a Vite build, and none to Cloudflare", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
     const load = async (config: Record<string, unknown>) => {
       const plugin = hubDbVite({ migrateOnStart: { allowDataLoss: true } })
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root, ...config })
-      const id = (plugin.resolveId as (id: string) => string | undefined)("#vitehub/database/migrations")
-      const code = (plugin.load as (id: string) => string | undefined)(id!)!
-      return JSON.parse(code.replace(/^export default /, ""))
+      // SAFETY: These are Vite hook handlers returned by hubDb.
+      const id = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler("#vitehub/database/migrations")
+      // SAFETY: These are Vite hook handlers returned by hubDb.
+      const code = await (plugin.load as { handler: (id: string) => Promise<string> | undefined }).handler(id!)
+      return JSON.parse(code!.replace(/^export default /, ""))
     }
     const node = await load({ command: "build", nitro: { preset: "node-server" } })
     expect(node).toMatchObject({ allowDataLoss: true, databases: { default: { dialect: "sqlite", migrations: [{ name: init.tag, when: init.when }] } } })
