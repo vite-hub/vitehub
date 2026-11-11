@@ -1,16 +1,15 @@
-import { withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { readConsoleDocumentSection } from "./documents.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { copyConsoleRecords, getConsoleDefinitions, getConsoleSchedules } from "./definitions.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
+import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRecord, ConsoleSectionContent } from "../definitions.ts"
 import type { ConsoleSectionId } from "../sections.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }))
 }
 
 async function readRuntimeRecords(reader: () => readonly ConsoleRecord[] | Promise<readonly ConsoleRecord[]>): Promise<ConsoleRecord[]> {
@@ -53,11 +52,11 @@ function markRunnableSchedules(records: readonly ConsoleRecord[]): ConsoleRecord
     : record)
 }
 
-async function consoleDefinitionsHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<ConsoleSectionContent & {
+/** The definitions of one Console section, for the `definitions.list` operation. */
+export async function listConsoleDefinitions(input: { section: string }, access: ConsoleAccess): Promise<ConsoleSectionContent & {
   section: ConsoleSectionId
 }> {
-  assertConsoleRequest(event)
-  const section = consoleRequestURL(event).searchParams.get("section")
+  const { section } = input
   if (!isConsoleSectionId(section)) {
     throw requestError(400, "A valid definition section is required.")
   }
@@ -79,8 +78,3 @@ async function consoleDefinitionsHandler(event: ConsoleRequestEvent, access: Con
   const records = reader ? mergeRecords(content.records, await readRuntimeRecords(reader)) : content.records
   return { kind: "record-table", records: section === "schedules" ? markRunnableSchedules(records) : records, section }
 }
-
-const guardedHandler: ConsoleAccessRoute<typeof consoleDefinitionsHandler> = withConsoleAccess(consoleDefinitionsHandler, {
-  section: event => consoleRequestURL(event).searchParams.get("section") ?? undefined,
-})
-export default guardedHandler

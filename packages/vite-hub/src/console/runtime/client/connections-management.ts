@@ -2,7 +2,7 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
-import { isRemoteProject, projectConsoleUrl, projectFetch, projectUrl } from "./project"
+import { isRemoteProject, projectFetch, projectUrl } from "./project"
 import { ConsoleNetworkError, ConsoleRequestError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
@@ -13,6 +13,7 @@ export const connectionInspectionSchema: v.GenericSchema<unknown, ConnectionInsp
   actions: v.array(v.object({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
   connectedAt: v.optional(v.string()),
   credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
+  docs: v.optional(v.string()),
   expiresAt: v.optional(v.string()),
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   name: v.string(),
@@ -75,6 +76,32 @@ export function connectionNextStep(connection: Pick<ConnectionInspection, "crede
     : { kind: "connect", label: fresh ? "Connect" : "Reconnect" }
 }
 
+/** What needs attention on a Connection besides its status: pending approvals and missing scopes. */
+export interface ConnectionNotices {
+  /** The number of pending approvals plus missing scopes. */
+  readonly count: number
+  /** One line for each fact, such as `2 pending approvals`. The tooltip lists them. */
+  readonly items: readonly string[]
+  /** The count in words, such as `3 notices`, for the short accessible name of the count button. */
+  readonly summary: string
+  /** The details tab that shows the first fact. */
+  readonly tab: "approvals" | "details"
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
+/** The notices of a Connection, or `undefined` when nothing needs attention. */
+export function connectionNotices(connection: Pick<ConnectionInspection, "scopes">, pendingApprovals = 0): ConnectionNotices | undefined {
+  const missing = connection.scopes.missing.length
+  const items = [
+    ...pendingApprovals > 0 ? [plural(pendingApprovals, "pending approval")] : [],
+    ...missing > 0 ? [plural(missing, "missing scope")] : [],
+  ]
+  if (!items.length) return undefined
+  const count = pendingApprovals + missing
+  return { count, items, summary: plural(count, "notice"), tab: pendingApprovals > 0 ? "approvals" : "details" }
+}
+
 /** A short label for a Connection activity action. Connection tokens are stored as Env credentials. */
 export function connectionActivityLabel(action: EnvActivity["action"]): string {
   return { grant: "Grant", inspect: "Inspect", preview: "Preview", replace: "Store token", resolve: "Retrieve token", revoke: "Revoke", use: "Call" }[action]
@@ -85,10 +112,9 @@ export function connectionActivityLabel(action: EnvActivity["action"]): string {
  * path such as the Console page, the result page of the flow returns there.
  */
 export function connectionConnectURL(endpoint: string, name: string, returnTo?: string): string {
-  // The flow runs on the app origin with the app session. A Console on another origin opens the app's own Console.
-  if (isRemoteProject()) return projectConsoleUrl("/connections")
   const url = projectUrl(`${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`)
-  return returnTo ? `${url}?return=${encodeURIComponent(returnTo)}` : url
+  // The flow runs on the app origin with the app session, and can return only to a path of the app.
+  return returnTo && !isRemoteProject() ? `${url}?return=${encodeURIComponent(returnTo)}` : url
 }
 
 export const connectionKeyTransportMessage = "The Console sends an API key only over HTTPS or to a local development server."

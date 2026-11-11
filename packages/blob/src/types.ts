@@ -1,5 +1,5 @@
 import type { ViteHubContext } from "@vite-hub/runtime/h3"
-import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
+import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
@@ -69,13 +69,6 @@ export type BlobOperation = "del" | "get" | "head" | "list" | "media" | "multipa
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
 export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
-export type BlobErrorDetails = ViteHubErrorDetails & {
-  operation: BlobOperation
-  store: string
-}
-export type BlobResult<TResult> =
-  | [error: null, value: TResult]
-  | [error: ViteHubError<BlobErrorCode, BlobErrorDetails>, value: undefined]
 
 export type BlobSignOptions =
   | { expiresIn: number, method: "GET" }
@@ -110,9 +103,9 @@ export interface BlobMultipartUpload {
   /** Final object pathname, after `prefix` and `addRandomSuffix`. Use it to resume the upload. */
   pathname: string
   uploadId: string
-  abort(): Promise<BlobResult<void>>
-  complete(parts: BlobMultipartPart[]): Promise<BlobResult<BlobObject>>
-  uploadPart(partNumber: number, body: BlobPutBody): Promise<BlobResult<BlobMultipartPart>>
+  abort(): Promise<Result<void, BlobErrorCode>>
+  complete(parts: BlobMultipartPart[]): Promise<Result<BlobObject, BlobErrorCode>>
+  uploadPart(partNumber: number, body: BlobPutBody): Promise<Result<BlobMultipartPart, BlobErrorCode>>
 }
 
 /** Bytes of an object: `length` bytes from `offset` (to the end without `length`), or the last `suffix` bytes. */
@@ -189,9 +182,9 @@ export interface BlobEnsureOptions {
 }
 
 export interface BlobServeResponseOptions {
-  /** Defaults to the event's Cache-Control header, or private, no-cache. */
+  /** Defaults to the `Cache-Control` of `headers`, or `private, no-cache`. */
   cacheControl?: string
-  /** Response headers to set first. `serve()` removes them again when it does not serve the object. */
+  /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**
    * Serve a resized, cropped, or re-encoded image. The generated serve route reads it from `?w=&h=&fit=&fmt=&q=&crop=`.
@@ -259,57 +252,58 @@ export interface BlobMediaListResult {
  */
 export interface BlobMedia {
   /** Create an empty folder. It holds a `.keep` object, which `media.list()` hides. */
-  createFolder(path: string): Promise<BlobResult<void>>
+  createFolder(path: string): Promise<Result<void, BlobErrorCode>>
   /** Read the record of an object. Builds and stores it when it is missing or the object changed. `null` when the object does not exist. */
-  get(pathname: string | { pathname: string }): Promise<BlobResult<MediaRecord | null>>
+  get(pathname: string | { pathname: string }): Promise<Result<MediaRecord | null, BlobErrorCode>>
   /** Store the files of a `multipart/form-data` request as media. */
-  handleUpload(event: BlobUploadEvent, options?: BlobMediaUploadOptions): Promise<BlobResult<MediaRecord[]>>
+  handleUpload(event: BlobUploadEvent, options?: BlobMediaUploadOptions): Promise<Result<MediaRecord[], BlobErrorCode>>
   /** List records and folders. */
-  list(options?: BlobMediaListOptions): Promise<BlobResult<BlobMediaListResult>>
+  list(options?: BlobMediaListOptions): Promise<Result<BlobMediaListResult, BlobErrorCode>>
   /** Copy an object, its record, and its crop replacements to `to`, then delete the source and its variants. */
-  move(from: string, to: string, options?: { overwrite?: boolean }): Promise<BlobResult<MediaRecord>>
+  move(from: string, to: string, options?: { overwrite?: boolean }): Promise<Result<MediaRecord, BlobErrorCode>>
   /** Move every object of a folder. Fails with `BLOB_CONFLICT` when the destination folder is not empty. */
-  moveFolder(from: string, to: string): Promise<BlobResult<{ moved: number }>>
+  moveFolder(from: string, to: string): Promise<Result<{ moved: number }, BlobErrorCode>>
   /** Store an object, probe its dimensions, hash it, and write its record. */
-  put(pathname: string, body: BlobPutBody, options?: BlobMediaPutOptions): Promise<BlobResult<MediaRecord>>
+  put(pathname: string, body: BlobPutBody, options?: BlobMediaPutOptions): Promise<Result<MediaRecord, BlobErrorCode>>
   /** Delete an object, its record, its crop replacements, and its variants. */
-  remove(pathname: string): Promise<BlobResult<void>>
+  remove(pathname: string): Promise<Result<void, BlobErrorCode>>
   /** Delete an empty folder. Fails with `BLOB_CONFLICT` when it holds objects, unless `force` is set. */
-  removeFolder(path: string, options?: { force?: boolean }): Promise<BlobResult<{ removed: number }>>
+  removeFolder(path: string, options?: { force?: boolean }): Promise<Result<{ removed: number }, BlobErrorCode>>
   /**
    * Upload an image that replaces one crop, or pass `null` to go back to cropping the original. A new crop takes the
    * aspect of the replacement.
    */
-  replaceCrop(pathname: string, crop: string, body: BlobPutBody | null): Promise<BlobResult<MediaRecord>>
+  replaceCrop(pathname: string, crop: string, body: BlobPutBody | null): Promise<Result<MediaRecord, BlobErrorCode>>
   /** Change alt text, caption, focal point, or crops. Focal point and crop changes clear cached variants. */
-  update(pathname: string, patch: MediaUpdate): Promise<BlobResult<MediaRecord>>
+  update(pathname: string, patch: MediaUpdate): Promise<Result<MediaRecord, BlobErrorCode>>
   /** List cached variants of an object and its crop replacements. */
-  variants(pathname: string): Promise<BlobResult<MediaVariantEntry[]>>
+  variants(pathname: string): Promise<Result<MediaVariantEntry[], BlobErrorCode>>
 }
 
 export interface BlobStorage {
   /** Media records, folders, and image variants. */
   readonly media: BlobMedia
   /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
-  createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<BlobResult<BlobMultipartUpload>>
-  del(pathnames: string | string[]): Promise<BlobResult<void>>
-  get(pathname: string): Promise<BlobResult<Blob | null>>
+  createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
+  del(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  get(pathname: string): Promise<Result<Blob | null, BlobErrorCode>>
   /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
-  handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<BlobResult<BlobMultipartHandlerResult>>
+  handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>>
   /** Store the files of a `multipart/form-data` request. */
-  handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions): Promise<BlobResult<BlobObject[]>>
-  head(pathname: string): Promise<BlobResult<BlobObject | null>>
-  list(options?: BlobListOptions): Promise<BlobResult<BlobListResult>>
-  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobResult<BlobObject>>
+  handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions): Promise<Result<BlobObject[], BlobErrorCode>>
+  head(pathname: string): Promise<Result<BlobObject | null, BlobErrorCode>>
+  list(options?: BlobListOptions): Promise<Result<BlobListResult, BlobErrorCode>>
+  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<Result<BlobObject, BlobErrorCode>>
   /** Continue a multipart upload in a later request. */
-  resumeMultipartUpload(pathname: string, uploadId: string): Promise<BlobResult<BlobMultipartUpload>>
-  sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
-  /** Returns null for a conditional 304 response. */
+  resumeMultipartUpload(pathname: string, uploadId: string): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
+  sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
   /**
-   * Serve an object for a request event with Standard Context properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub
-   * app. Reads the request from `event["~standard"].req` and writes the status and headers to `event["~standard"].res`.
+   * Answer a `GET` or `HEAD` request for one object. The `Response` has the final status and headers: `200`, `206` or
+   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, and `404` for a missing object or a
+   * reserved ViteHub path. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
+   * an H3 handler, pass `event.req`.
    */
-  serve(event: ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
+  serve(request: Request, pathname: string, options?: BlobServeResponseOptions): Promise<Response>
   /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
   store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
@@ -334,10 +328,9 @@ export interface ReadonlyBlobStorage {
   get: BlobStorage["get"]
   head: BlobStorage["head"]
   list: BlobStorage["list"]
-  /** Returns null for a conditional 304 response. */
   serve: BlobStorage["serve"]
   /** Signs a short-lived `GET` request. */
-  sign(pathname: string, options: Extract<BlobSignOptions, { method: "GET" }>): Promise<BlobResult<BlobSignedRequest>>
+  sign(pathname: string, options: Extract<BlobSignOptions, { method: "GET" }>): Promise<Result<BlobSignedRequest, BlobErrorCode>>
 }
 
 /**
@@ -615,7 +608,7 @@ export interface BlobStoresConfig extends BlobModuleBaseOptions {
   stores: Record<string, BlobStoreConfig>
 }
 
-export type BlobModuleOptions =
+export type BlobOptions =
   | false
   | BlobStoresConfig
   | (BlobModuleBaseOptions & HostedBlobStoreConfig & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)

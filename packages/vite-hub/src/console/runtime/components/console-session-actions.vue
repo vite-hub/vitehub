@@ -115,7 +115,6 @@ async function deleteInvocation(): Promise<void> {
     <UButton
       data-slot="session-rerun"
       icon="i-lucide-rotate-ccw"
-      color="neutral"
       variant="ghost"
       size="xs"
       :disabled="!props.rerun.available || Boolean(pending)"
@@ -132,7 +131,6 @@ async function deleteInvocation(): Promise<void> {
       <UButton
         data-slot="session-delete"
         icon="i-lucide-trash-2"
-        color="neutral"
         variant="ghost"
         size="xs"
         :disabled="!deletable || Boolean(pending)"
@@ -143,7 +141,7 @@ async function deleteInvocation(): Promise<void> {
       <div class="grid gap-3">
         <p class="text-sm">Delete this session and its usage record?</p>
         <div class="flex justify-end gap-1">
-          <UButton color="neutral" label="Cancel" size="xs" variant="ghost" @click="confirmOpen = false" />
+          <UButton label="Cancel" size="xs" variant="ghost" @click="confirmOpen = false" />
           <UButton
             data-slot="session-delete-confirm"
             color="error"

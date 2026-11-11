@@ -2,19 +2,24 @@ import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { parseArgs } from "node:util"
 
+import { cliErrorDiagnostics } from "../error-diagnostics.ts"
+import { addCommand } from "./add.ts"
 import { setupCatalog } from "./catalog.ts"
-import { readSetupArgs, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { deployCommand } from "./deploy.ts"
+import { deploymentsCommand, liveLabel, readSetupLive, STATUS_HOST_TIMEOUT_MS } from "./deployments.ts"
+import { readSetupArgs, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { initCommandDefinition, readSetupStack } from "./init.ts"
+import { linkSetupProject, readSetupLinkState, SETUP_LINK_FILE, unlinkSetupProject } from "./link.ts"
 import { readSetupProject } from "./project.ts"
+import { removeCommand } from "./remove.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { SetupLiveStatus } from "./deployments.ts"
+import type { SetupLinkResult, SetupLinkStatus } from "./link.ts"
 import type { SetupFeatureStatus, SetupStatus } from "./status.ts"
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => cell.padEnd(widths[column]!)).join("  ").trimEnd()).join("\n")
-}
 
 function supportLabel(support: SetupFeatureStatus["support"]): string {
   if (support.level === "unknown") return "unknown"
@@ -64,7 +69,18 @@ function configLabel(config: SetupStatus["config"]): string {
   return `${at}manual (${config.manual})`
 }
 
-function writeStatus(status: SetupStatus, context: ViteHubCliContext): void {
+function linkLabel(link: SetupLinkStatus["link"]): string {
+  if (!link) return "none (run `vitehub link`)"
+  const account = link.account ? ` in ${link.account.name ?? link.account.id}` : ""
+  return `${link.project.name} on ${link.host}${account}${link.verified ? "" : " (not verified)"}`
+}
+
+function credentialsLabel(credentials: SetupLinkStatus["credentials"]): string {
+  if (!credentials) return "not needed"
+  return credentials.ok ? `${credentials.host} (${credentials.source})` : `missing: ${credentials.fix}`
+}
+
+function writeStatus(status: SetupStatus & SetupLinkStatus & SetupLiveStatus & { stack: { command: string } | null }, context: ViteHubCliContext): void {
   const shown = status.features.filter(feature => feature.enabled !== "off")
   const off = status.features.length - shown.length
   context.stdout.write(`${table([
@@ -73,6 +89,11 @@ function writeStatus(status: SetupStatus, context: ViteHubCliContext): void {
     ["config", configLabel(status.config)],
     ["host", `${status.host.name} (${status.host.source})`],
     ["packages", status.packageManager],
+    ["link", linkLabel(status.link)],
+    ["credentials", credentialsLabel(status.credentials)],
+    ["live", liveLabel(status)],
+    ...(status.console ? [["console", `pending link ${status.console.pendingId}`]] : []),
+    ...(status.stack ? [["stack", status.stack.command]] : []),
   ])}\n\n`)
   if (shown.length) {
     context.stdout.write(`${table([
@@ -120,21 +141,99 @@ async function readCheckouts(root: string): Promise<{ statuses: unknown[], text:
 }
 
 const statusCommand: ViteHubCliCommand = {
-  description: "Show the host, the enabled features, what each one still needs, and the checkout folders of vitehub.lock. Reads the config without running it.",
+  description: "Show the host, the enabled features, what each one still needs, the live deployment, and the checkout folders of vitehub.lock. Reads the config without running it. --offline skips the host request.",
   name: "status",
-  run: (args, context) => runSetupCommand(statusCommand, args, context, async (json) => {
-    const status = setupStatus(await readSetupProject(context.rootDir, context.env), context.env)
-    const checkouts = await readCheckouts(status.root)
-    if (json) {
-      writeSetupJson(context, checkouts === undefined ? status : { ...status, checkouts: "error" in checkouts ? { error: checkouts.error } : checkouts.statuses })
+  run: (args, context) => {
+    const offline = args.includes("--offline")
+    return runSetupCommand(statusCommand, args.filter(arg => arg !== "--offline"), context, async (json) => {
+      const project = await readSetupProject(context.rootDir, context.env)
+      const features = setupStatus(project, context.env)
+      const signal = offline ? undefined : AbortSignal.timeout(STATUS_HOST_TIMEOUT_MS)
+      const state = await readSetupLinkState(project, features.host.name, context, { offline, signal })
+      const status = {
+        ...features,
+        ...state.status,
+        ...await readSetupLive(project.root, state.link, state.credentials, context, { offline, signal }),
+        stack: await readSetupStack(project.root),
+      }
+      const checkouts = await readCheckouts(status.root)
+      if (json) {
+        writeSetupJson(context, checkouts === undefined ? status : { ...status, checkouts: "error" in checkouts ? { error: checkouts.error } : checkouts.statuses })
+        return setupExitCodes.done
+      }
+      writeStatus(status, context)
+      if (checkouts) context.stdout.write(`\nCheckouts (vitehub.lock):\n${"error" in checkouts ? `${checkouts.error}\n` : checkouts.text}`)
+      return setupExitCodes.done
+    })
+  },
+  usage: "vitehub status [--offline] [--json]",
+}
+
+const linkUsage = "vitehub link [--host <preset>] [--project <name>] [--account <id>] [--create] [--json]"
+
+function readLinkArgs(args: string[]) {
+  try {
+    return parseArgs({
+      args,
+      options: {
+        account: { type: "string" },
+        create: { type: "boolean", default: false },
+        help: { short: "h", type: "boolean", default: false },
+        host: { type: "string" },
+        json: { type: "boolean", default: false },
+        project: { type: "string" },
+      },
+      strict: true,
+    }).values
+  }
+  catch (error: unknown) {
+    throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${linkUsage}` })
+  }
+}
+
+function writeLinked(result: SetupLinkResult, context: ViteHubCliContext): void {
+  const { link } = result
+  const account = link.account ? ` in account ${link.account.name ?? link.account.id}` : ""
+  context.stdout.write(`${result.created ? "Created and linked" : "Linked"} ${link.project.name} on ${link.host}${account}.\n`)
+  if (!link.verified) context.stdout.write(`The ${link.host} API was not asked, so the project is not verified.\n`)
+  context.stdout.write(`Wrote ${result.file}. It holds no secret.\n`)
+  if (result.gitignore === "added") context.stdout.write("Added .vitehub to .gitignore.\n")
+  if (result.gitignore === "no-gitignore") context.stderr.write("[vitehub] The project has no .gitignore. Do not commit the .vitehub folder.\n")
+}
+
+const linkCommand: ViteHubCliCommand = {
+  description: "Link this project to a project on its host. Writes .vitehub/link.json, which holds no secret.",
+  name: "link",
+  run: async (args, context) => {
+    const json = args.includes("--json")
+    try {
+      const values = readLinkArgs(args)
+      if (values.help) return writeHelp(linkCommand, context)
+      const project = await readSetupProject(context.rootDir, context.env)
+      const result = await linkSetupProject(project, { account: values.account, create: values.create, host: values.host, project: values.project }, context)
+      if (json) writeSetupJson(context, result)
+      else writeLinked(result, context)
       return setupExitCodes.done
     }
-    writeStatus(status, context)
-    if (checkouts) context.stdout.write(`\nCheckouts (vitehub.lock):\n${"error" in checkouts ? `${checkouts.error}\n` : checkouts.text}`)
+    catch (error: unknown) {
+      return writeSetupError(context, json, error)
+    }
+  },
+  usage: linkUsage,
+}
+
+const unlinkCommand: ViteHubCliCommand = {
+  description: "Remove the link to the host project. The project on the host does not change.",
+  name: "unlink",
+  run: (args, context) => runSetupCommand(unlinkCommand, args, context, async (json) => {
+    const project = await readSetupProject(context.rootDir, context.env)
+    const removed = await unlinkSetupProject(project.root)
+    if (json) writeSetupJson(context, { file: SETUP_LINK_FILE, removed })
+    else context.stdout.write(removed ? `Removed ${SETUP_LINK_FILE}.\n` : "The project is not linked.\n")
     return setupExitCodes.done
   }),
-  usage: "vitehub status [--json]",
+  usage: "vitehub unlink [--json]",
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [catalogCommand, statusCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand, deployCommand, deploymentsCommand]

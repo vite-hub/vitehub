@@ -3,14 +3,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
+import { channelAdapter, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
 import { defineAgent } from "../src/index.ts"
 import { cancelChannelTask, enqueueChannelTask } from "../src/server.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import * as channelTasks from "../src/channel-tasks.ts"
 import { hubAgent } from "../src/vite.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 
 const cleanups: (() => Promise<void>)[] = []
 
@@ -25,7 +24,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
   const failed = vi.fn()
   const agent = defineAgent({
     channels: {
-      airtable: defineChannel("airtable", {
+      airtable: channelAdapter("airtable", {
         messages: false,
         triggers: {
           webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),
@@ -57,7 +56,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
         webhooks: { path: "/api/airtable/webhook", secretToken: false },
       }),
       ...(options.prefixedChannel ? {
-        "airtable.eu": defineChannel("airtable.eu", {
+        "airtable.eu": channelAdapter("airtable.eu", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),
@@ -112,7 +111,7 @@ async function installGeneratedHost(resume: () => () => Promise<void>) {
   await mkdir(join(root, "server", "agents"), { recursive: true })
   await writeFile(join(root, "server", "agents", "bot.ts"), "export default {}")
   const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:state.sqlite" } } })
-  if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+  if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
   // SAFETY: The config hook reads only command and root from this fixture.
   await plugin.configResolved.call({} as never, { command: "build", root } as never)
   const source = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
@@ -137,9 +136,9 @@ describe("enqueueChannelTask()", () => {
   it("selects tasks from the exact Channel when Channel IDs share a prefix", async () => {
     const { ran } = await setup({ prefixedChannel: true })
     const [error] = await enqueueChannelTask("airtable", "close-duplicate", { data: { channel: "airtable" } })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const [regionalError] = await enqueueChannelTask("airtable.eu", "close-duplicate", { data: { channel: "airtable.eu" } })
-    expect(regionalError).toBeNull()
+    expect(regionalError).toBeUndefined()
     await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual(expect.arrayContaining([{ channel: "airtable" }, { channel: "airtable.eu" }])), { timeout: 5_000 })
     expect(ran).toHaveLength(2)
   })
@@ -149,8 +148,8 @@ describe("enqueueChannelTask()", () => {
     const [error, result] = operation === "enqueue"
       ? await enqueueChannelTask("airtable", "regional-only", { data: {} })
       : await cancelChannelTask("airtable", "regional-only", { key: "pair" })
-    expect(error?.message).toContain('No trigger of Channel "airtable" declares task "regional-only"')
-    expect(result).toBeNull()
+    expect(error).toMatchObject({ code: "CHANNEL_TASK_REJECTED", why: 'No trigger of Channel "airtable" declares task "regional-only".' })
+    expect(result).toBeUndefined()
   })
 
   it.each(["enqueue", "cancel"])("starts the generated persistent Nitro queue for an immediate server-code %s call", async (operation) => {
@@ -160,7 +159,7 @@ describe("enqueueChannelTask()", () => {
     const [error] = operation === "enqueue"
       ? await enqueueChannelTask("airtable", "close-duplicate", { data: { immediate: true } })
       : await cancelChannelTask("airtable", "close-duplicate", { key: "absent" })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     if (operation === "enqueue") await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
   })
 
@@ -171,7 +170,7 @@ describe("enqueueChannelTask()", () => {
       delayMs: 400,
       run: { annotations: { "airtable.record": "recA" } },
     })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(receipt).toMatchObject({ deliveryId: expect.stringMatching(/^task:close-duplicate:/), runId: expect.stringMatching(/^airtable:task:close-duplicate:/) })
 
     await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
@@ -184,7 +183,7 @@ describe("enqueueChannelTask()", () => {
     const { deliveries, ran } = await setup()
     const [, first] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 300, key: "pair:recA:recB" })
     const [error] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 2 } }, { delayMs: 300, key: "pair:recA:recB" })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("completed")
 
     await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
@@ -193,13 +192,21 @@ describe("enqueueChannelTask()", () => {
   })
 
   it("keeps task names and keys containing colons distinct during replacement and cancellation", async () => {
-    const { deliveries, ran } = await setup()
-    const [, first] = await enqueueChannelTask("airtable", "close", { data: { version: 1 } }, { delayMs: 400, key: "duplicate:123" })
-    const [, second] = await enqueueChannelTask("airtable", "close:duplicate", { data: { version: 2 } }, { delayMs: 400, key: "123" })
-    expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
-    await expect(cancelChannelTask("airtable", "close", { key: "duplicate:123" })).resolves.toEqual([null, { cancelled: 1 }])
-    expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
-    await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
+    // Keep both tasks queued until cancellation, even when database calls take longer than their delay on CI.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+    try {
+      const { deliveries, ran } = await setup()
+      const [, first] = await enqueueChannelTask("airtable", "close", { data: { version: 1 } }, { delayMs: 400, key: "duplicate:123" })
+      const [, second] = await enqueueChannelTask("airtable", "close:duplicate", { data: { version: 2 } }, { delayMs: 400, key: "123" })
+      expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
+      await expect(cancelChannelTask("airtable", "close", { key: "duplicate:123" })).resolves.toEqual([undefined, { cancelled: 1 }])
+      expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
+      clock.mockRestore()
+      await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
+    }
+    finally {
+      clock.mockRestore()
+    }
   })
 
   it("isolates the same task key on different triggers during replacement and cancellation", async () => {
@@ -207,7 +214,7 @@ describe("enqueueChannelTask()", () => {
     const [, first] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 500, key: "pair", trigger: "record" })
     const [, second] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 2 } }, { delayMs: 500, key: "pair", trigger: "other" })
     expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
-    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair", trigger: "record" })).resolves.toEqual([null, { cancelled: 1 }])
+    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair", trigger: "record" })).resolves.toEqual([undefined, { cancelled: 1 }])
     expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
     await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
   })
@@ -229,11 +236,11 @@ describe("enqueueChannelTask()", () => {
     try {
       if (operation === "replacement") {
         const [error] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 2 } }, { key: "pair" })
-        expect(error).toBeNull()
+        expect(error).toBeUndefined()
         await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
       }
       else {
-        await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair" })).resolves.toEqual([null, { cancelled: 1 }])
+        await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair" })).resolves.toEqual([undefined, { cancelled: 1 }])
       }
       expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
       const scope = (await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)!.scope
@@ -269,14 +276,15 @@ describe("enqueueChannelTask()", () => {
   it("returns an error for an undeclared task or a Channel without a running queue", async () => {
     await setup()
     const [unknownTask, none] = await enqueueChannelTask("airtable", "missing", { data: {} })
-    expect(none).toBeNull()
-    expect(unknownTask?.message).toContain('No trigger of Channel "airtable" declares task "missing"')
+    expect(none).toBeUndefined()
+    expect(unknownTask).toMatchObject({ code: "CHANNEL_TASK_REJECTED", why: 'No trigger of Channel "airtable" declares task "missing".' })
 
     const [noQueue] = await enqueueChannelTask("slack", "close-duplicate", { data: {} })
+    expect(noQueue?.code).toBe("CHANNEL_TASK_REJECTED")
     expect(noQueue?.message).toContain('Channel "slack" has no running webhook queue')
 
     const [both] = await enqueueChannelTask("airtable", "close-duplicate", { data: {} }, { delayMs: 1, notBefore: Date.now() })
-    expect(both?.message).toContain("notBefore or delayMs, not both")
+    expect(both).toMatchObject({ code: "CHANNEL_TASK_REJECTED", why: "enqueueChannelTask() takes notBefore or delayMs, not both." })
   })
 })
 
@@ -285,8 +293,8 @@ describe("cancelChannelTask()", () => {
     const { deliveries, ran } = await setup()
     const [, receipt] = await enqueueChannelTask("airtable", "close-duplicate", { data: {} }, { delayMs: 500, key: "pair:recA:recB" })
 
-    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair:recA:recB" })).resolves.toEqual([null, { cancelled: 1 }])
-    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair:recA:recB" })).resolves.toEqual([null, { cancelled: 0 }])
+    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair:recA:recB" })).resolves.toEqual([undefined, { cancelled: 1 }])
+    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair:recA:recB" })).resolves.toEqual([undefined, { cancelled: 0 }])
 
     await new Promise(resolve => setTimeout(resolve, 2_000))
     expect(ran).toEqual([])

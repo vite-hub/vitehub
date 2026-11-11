@@ -1,7 +1,5 @@
 import {
-  createConsoleFixtureInvocations,
   getConsoleInvocations,
-  installConsoleFixtureInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
 import { encodeAgentRouteParam } from "./runtime/console-route.ts"
@@ -45,7 +43,6 @@ export const console = {
 }
 
 export {
-  createConsoleFixtureInvocations,
   getConsoleBlob,
   getConsoleAgents,
   getConsoleDefinitions,
@@ -55,7 +52,6 @@ export {
   getConsoleProjectName,
   installConsoleAgentDefinitions,
   installConsoleAgents,
-  installConsoleFixtureInvocations,
   installConsoleDefinitions,
   installConsoleDatabase,
   installConsoleInvocations,

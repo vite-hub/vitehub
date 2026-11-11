@@ -8,7 +8,7 @@ icon: i-lucide-radio
 ---
 
 ::product-hero{tagline="Let several people edit one document at the same time, with live changes and automatic saves to a file." hosts="Cloudflare, Node, Docker"}
-  :::product-files
+  :::code-tree{feature="realtime"}
   ```ts [server/realtime/docs.ts]
   import { defineRealtime } from 'vite-hub/realtime'
 
@@ -82,6 +82,20 @@ icon: i-lucide-radio
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // Keep rooms in this server process
+      realtime: { authority: 'memory' },
+      workspace: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import vue from '@vitejs/plugin-vue'
   import { nitro } from 'nitro/vite'
@@ -101,8 +115,28 @@ icon: i-lucide-radio
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import vue from '@vitejs/plugin-vue'
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
 
-  ```ts [Checkpoint]
+  export default defineConfig({
+    plugins: [
+      vue(),
+      vitehub({
+        preset: 'node',
+        // Keep rooms in this server process
+        realtime: { authority: 'memory' },
+        workspace: true,
+      }),
+    ],
+  })
+  ```
+  ::::
+
+  ```ts [Checkpoint] fragment
   const [error, checkpoint] = await realtime.history.checkpoint()
   if (error) throw error
 
@@ -114,35 +148,35 @@ icon: i-lucide-radio
 
 ::product-features
   :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#configure-realtime"}
-  Add a file to `server/realtime`. Its name is the name your editor connects to.
+  Add a file to `server/realtime`. Your editor connects to its name.
   :::
 
   :::product-feature-item{title="Works with your TipTap editor" icon="i-lucide-code-2" to="/docs/realtime/get-started#connect-a-tiptap-editor"}
-  `useRealtimeTiptap()` gives your editor live sync and tells you if it is connected.
+  `useRealtimeTiptap()` gives your editor live sync and its connection state.
   :::
 
   :::product-feature-item{title="See who is editing" icon="i-lucide-users" to="/docs/realtime/server-api#carets"}
-  Each person gets a name and a color. Their cursor shows in the editor of everyone else.
+  Each person gets a name and a color. Everyone else sees their cursor.
   :::
 
   :::product-feature-item{title="Presence parts in @vite-hub/ui" icon="i-lucide-users" to="/docs/ui/blocks/collaborative-editor"}
-  `people`, `status`, and the save state go straight into the avatar stack and status parts.
+  `people`, `status`, and the save state plug into the avatar stack and status parts.
   :::
 
   :::product-feature-item{title="Saves on its own" icon="i-lucide-save" to="/docs/realtime/configure#control-saves"}
-  Changes save to the file 2 seconds after the last edit, and when the last person leaves.
+  Changes save 2 seconds after the last edit, and when the last person leaves.
   :::
 
   :::product-feature-item{title="Decide who can join" icon="i-lucide-lock" to="/docs/realtime/server-api#identity-and-authorization"}
-  Set `auth: true` to allow only signed-in people. `authorize()` decides who can read or edit each document.
+  `auth: true` allows only signed-in people. `authorize()` decides who reads or edits each document.
   :::
 
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
   On Node, one server process holds every room. On Cloudflare, each document gets its own Durable Object.
   :::
 
-  :::product-feature-item{title="Content documents edit live in the Console" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
-  With Realtime enabled, Content adds a `content` definition: carets, field focus, and drafts that save themselves.
+  :::product-feature-item{title="Content documents edit live" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
+  With Realtime on, Content adds a `content` definition for your own live editor: carets, field focus, and drafts that save themselves.
   :::
 ::
 

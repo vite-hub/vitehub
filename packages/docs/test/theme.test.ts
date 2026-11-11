@@ -1,21 +1,40 @@
+import { vitehubTheme } from "@vite-hub/ui/theme"
 import { describe, expect, it } from "vitest"
 
-import { docsAppConfigUi, vercelTheme } from "../src/theme.ts"
+import { docsAppConfigUi, docsUi } from "../src/theme.ts"
 
 // What `nuxt.options.appConfig.ui` holds after Nuxt UI ran first and added its defaults.
-const nuxtUiDefaults = { colors: { primary: "green", secondary: "blue", neutral: "slate" }, icons: { light: "i-lucide-sun", copy: "i-lucide-copy" } }
+const nuxtUiDefaults = { colors: { primary: "green", secondary: "blue", neutral: "slate" }, icons: { light: "i-lucide-sun", copy: "i-lucide-copy", search: "i-lucide-search" } }
 
 describe("docsAppConfigUi", () => {
-  it("keeps the theme colors when Nuxt UI added its defaults first", () => {
-    const ui = docsAppConfigUi(vercelTheme("Docs"), nuxtUiDefaults, [undefined])
+  it("keeps the design system colors and icons when Nuxt UI added its defaults first", () => {
+    const ui = docsAppConfigUi(docsUi("Docs"), nuxtUiDefaults, [undefined])
 
-    expect(ui.colors).toEqual({ primary: "neutral", secondary: "blue", neutral: "zinc", warning: "amber" })
-    expect(ui.icons).toMatchObject({ light: "i-ph-sun-light", copy: "i-lucide-copy" })
+    expect(ui.colors).toEqual({ ...vitehubTheme.colors, secondary: "blue" })
+    expect(ui.icons).toEqual(vitehubTheme.icons)
   })
 
-  it("lets the app's Nuxt config win over the theme", () => {
-    const ui = docsAppConfigUi(vercelTheme("Docs"), { ...nuxtUiDefaults, colors: { ...nuxtUiDefaults.colors, primary: "blue" } }, [{ colors: { primary: "blue" } }])
+  it("lets the app's Nuxt config win over the design", () => {
+    const ui = docsAppConfigUi(docsUi("Docs"), { ...nuxtUiDefaults, colors: { ...nuxtUiDefaults.colors, primary: "blue" } }, [{ colors: { primary: "blue" } }])
 
-    expect(ui.colors).toMatchObject({ primary: "blue", neutral: "zinc" })
+    expect(ui.colors).toMatchObject({ primary: "blue", neutral: "neutral" })
+  })
+})
+
+describe("docsUi", () => {
+  it("styles components the docs share with the Console through the design system", () => {
+    const ui = docsUi("Docs")
+
+    expect(ui.tabs).toEqual(vitehubTheme.tabs)
+    expect(ui.button).toEqual(vitehubTheme.button)
+    expect(ui.pageCard).toEqual(vitehubTheme.pageCard)
+  })
+
+  it("adds only shell slots, without square corners or focus styles", () => {
+    const shell = JSON.stringify(Object.entries(docsUi("Docs")).filter(([key]) => !(key in vitehubTheme)))
+
+    expect(shell).not.toMatch(/rounded-(none|sm)\b/)
+    expect(shell).not.toMatch(/focus(-visible)?:(outline|ring)/)
+    expect(shell).not.toMatch(/\bi-ph-/)
   })
 })

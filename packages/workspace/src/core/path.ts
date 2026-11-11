@@ -1,7 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path"
 import { createHash } from "node:crypto"
 import { minimatch } from "minimatch"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { workspacePathError } from "./errors.ts"
 import { normalizeSafeWorkspacePath } from "../internal/path.ts"
@@ -119,6 +118,6 @@ export function decodeFile<TOptions extends ReadFileOptions | undefined>(
 }
 
 export async function sha256(input: unknown): Promise<string> {
-  const bytes = contentToBytes(hasRuntimeType(input, "string") || isWorkspaceBytes(input) ? input : JSON.stringify(input))
+  const bytes = contentToBytes(typeof input === "string" || isWorkspaceBytes(input) ? input : JSON.stringify(input))
   return createHash("sha256").update(bytes).digest("hex")
 }

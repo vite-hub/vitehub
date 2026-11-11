@@ -8,22 +8,48 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Allow two requests in one minute, then reject the third with HTTP `429`. Add the guard before the work in your route so requests over the limit cannot reach that work.
+A Rate Limit stops a client that sends too many requests. You set how many requests a client may send in a time window. ViteHub counts them and refuses the extra ones.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for shared enforcement.
+In this tutorial, you let a route accept two requests per minute. The third request gets the HTTP status `429 Too Many Requests`.
+
+> [!NOTE] Before you start
+> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands from the root of the app. You need no account and no API key. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for a shared count.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install ViteHub and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+Install ViteHub. Nitro is the server that runs your API routes.
 
-```bash [commands/install]
-pnpm add vite-hub nitro h3
+```bash pm [commands/install]
+pnpm add vite-hub @vite-hub/rate-limit nitro h3
 pnpm add -D vite
 ```
 
-Enable Rate Limit on the `node` preset for this local check. Supported deployment presets and provider configuration are in [Hosts](/docs/rate-limit/hosts).
+Add `rateLimit: true` to `vitehub()` in `vite.config.ts`. Keep the other plugins of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', rateLimit: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', rateLimit: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -32,15 +58,17 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', rateLimit: true })],
 })
 ```
+::::
+:::
+
+To use Rate Limit on another host, see [Hosts](/docs/rate-limit/hosts).
 
 ::
 
 ::tutorial-step{title="Protect one route"}
 ## Protect one route
 
-Require the Rate Limit directly in ordinary server code. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
-
-The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. On the Node preset, the window is a fixed window that starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window. Put the guard before any upload or other side effect.
+Create `server/api/image-upload.post.ts`. Call `requireRateLimit()` at the start of the route. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
 
 ```ts [server/api/image-upload.post.ts]
 import { defineEventHandler } from 'h3'
@@ -55,20 +83,24 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+- `'image-upload'` is the name of this limit.
+- `limit: 2` and `window: '1m'` let each client send two requests per minute.
+- Put the guard before the real work of the route, such as an upload. Then a refused request does no work.
+
+On the Node preset, each window starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window.
+
 ::
 
 ::tutorial-step{title="Run and verify the decision"}
 ## Run and verify the decision
 
-Start the dev server and call the route three times from the same client:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
-
-Run these requests within one minute. `-i` includes the HTTP status and headers so you can see the third request change to `429`.
+Keep the server running. Open a second terminal. Send three requests in less than one minute. `-i` shows the HTTP status of each response.
 
 ```bash [commands/request]
 curl -i -X POST http://localhost:5173/api/image-upload
@@ -76,19 +108,45 @@ curl -i -X POST http://localhost:5173/api/image-upload
 curl -i -X POST http://localhost:5173/api/image-upload
 ```
 
-The first two responses are `200` with `{ "ok": true, "message": "accepted" }`.
-The third response is `429`. `requireRateLimit()` uses the event's client
-address by default and throws a standard H3 `HTTPError` when the request is
-limited. Pass `key: authenticatedUser.id` when a user, account, tenant, or API
-client is the correct budget boundary.
+The first two responses are `200` with `{ "ok": true, "message": "accepted" }`. The third response is `429`.
 
-Inspect the generated policy before choosing a hosted provider:
+When a request is over the limit, `requireRateLimit()` throws a standard H3 `HTTPError`. The route stops there.
+
+By default, `requireRateLimit()` counts per client IP address. To count per user, account, tenant, or API client, pass that id as `key`, for example `key: authenticatedUser.id`.
+
+To see the limits that the build found, build the app and list them:
 
 ```bash [commands/inspect]
 pnpm vite build
 pnpm vitehub inspect definitions --kind rate-limit
 ```
 
-Continue with [Hosts](/docs/rate-limit/hosts) for Cloudflare output and
-[limits and errors](/docs/rate-limit/limits-and-errors) for production checks.
+The list shows your limit and where it is:
+
+```text [output/inspect.txt]
+Rate Limits (rate-limit): 1
+  image-upload  server/api/image-upload.post.ts  [require-rate-limit]
+    Limit: 2
+    Window: 1m
+    Enforcement: Best effort
+    Provider failure: Deny
+    Source location: 5:9
+```
+
+::
+
+## Next steps
+
+::card-group
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/rate-limit/hosts"}
+Share one count across app instances, and see the Cloudflare output.
+:::
+
+:::card{title="Limits and errors" icon="i-lucide-triangle-alert" to="/docs/rate-limit/limits-and-errors"}
+Check what to know before you go to production.
+:::
+
+:::card{title="Server API" icon="i-lucide-code-2" to="/docs/rate-limit/server-api"}
+See every option of `requireRateLimit()`.
+:::
 ::

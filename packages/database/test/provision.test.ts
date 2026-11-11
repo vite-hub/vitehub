@@ -19,7 +19,7 @@ async function createApp() {
   directories.push(rootDir)
   const dir = join(rootDir, "server", "databases", "primary")
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, "config.ts"), [
+  await writeFile(join(dir, "index.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "export default defineDatabase({",
     "  name: 'primary',",
@@ -86,7 +86,7 @@ describe("database provision step", () => {
   })
 
   async function writeReplicatedDefinition(rootDir: string) {
-    await writeFile(join(rootDir, "server", "databases", "primary", "config.ts"), [
+    await writeFile(join(rootDir, "server", "databases", "primary", "index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
       "  name: 'primary',",
@@ -128,6 +128,19 @@ describe("database provision step", () => {
       url: "https://api.cloudflare.com/client/v4/accounts/acc/d1/database/uuid-1",
       body: { read_replication: { mode: "auto" } },
     })
+  })
+
+  it("describes the D1 ids it records without network access", async () => {
+    const rootDir = await createApp()
+
+    const recorded = createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "d1", nuxtHostResource: true }).recordedState?.({ env: {} }) ?? []
+
+    expect(recorded.map(({ category, declared }) => ({ category, declared }))).toEqual([
+      { category: "d1", declared: ["primary"] },
+      { category: "d1Nuxt", declared: ["app-db"] },
+    ])
+    expect(recorded[1]?.deleteHint({ id: "uuid-old", key: getDatabaseNuxtProvisionStateKey("old-db") })).toBe("run `wrangler d1 delete old-db`")
+    expect(recorded[1]?.deleteHint({ id: "uuid-old", key: getDatabaseNuxtProvisionStateKey("$(touch /tmp/x)") })).toBe("delete the D1 database in the Cloudflare dashboard")
   })
 
   it("plans no change for an existing D1 database that already replicates", async () => {
@@ -231,7 +244,7 @@ describe("database provision step", () => {
     const rootDir = await createApp()
     const secondaryDir = join(rootDir, "server", "databases", "secondary")
     await mkdir(secondaryDir, { recursive: true })
-    await writeFile(join(secondaryDir, "config.ts"), [
+    await writeFile(join(secondaryDir, "index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
       "  name: 'secondary',",

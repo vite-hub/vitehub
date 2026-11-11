@@ -1,4 +1,4 @@
-import { runAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { eq } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
@@ -6,17 +6,18 @@ import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vit
 import { defineAgent } from "../src/agent.ts"
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
 
@@ -65,7 +66,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     await expect(db.select().from(schema.invocations)).resolves.toEqual([])
     await expect(db.select().from(schema.invocations).get()).resolves.toBeUndefined()
 
-    await expect(runAgent(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
 
     // Each journal write is bounded to one second and retried in the background, so wait for the terminal state.
     await vi.waitFor(async () => {
@@ -262,7 +263,7 @@ describe("Default Agent D1 journal read by the Console", () => {
       return { DB: database }
     })
     installD1Journal("/console-d1-usage-cache", { binding: "DB", env })
-    const request = () => usageHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/usage" } })
+    const request = () => usageHandler(consoleEvent({ url: "http://localhost/_vitehub/api/usage" }))
     const requests = [request(), request()]
     try {
       await vi.waitFor(() => expect(env).toHaveBeenCalledTimes(2))
@@ -296,7 +297,7 @@ describe("Default Agent D1 journal read by the Console", () => {
       observations: [observation(5)],
     }
     await db.insert(schema.invocations).values({ id: record.id, status: record.status, agentName: record.agentName, search: "", summary: record, updatedAt: now, record }).run()
-    const request = () => usageHandler({ method: "GET", req: { url: `http://localhost/api/_vitehub/console/usage?agent=${record.agentName}` } })
+    const request = () => usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?agent=${record.agentName}` }))
     let release: (() => void) | undefined
     const ready = new Promise<void>(resolve => { release = resolve })
     const query = index.query.bind(index)

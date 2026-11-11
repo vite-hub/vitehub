@@ -1,10 +1,10 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       neverBundle: ["vite"],
       alwaysBundle: [/^@vite-hub\/internal/],
@@ -20,13 +20,10 @@ export default defineConfig({
       "src/vite.ts",
     ],
     exports: {
+      // Generated code imports these modules by path. They are not public API.
+      exclude: ["cli", "operations"],
       customExports: normalizePackageExports,
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

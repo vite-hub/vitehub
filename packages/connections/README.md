@@ -96,65 +96,40 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
 
-## Sign in without a person
-
-Use `oauthLogin()` when a service account must use an OAuth API or MCP server that accepts only its own OAuth tokens, and no person can click through a consent screen. The app supplies only `login`, which plays the browser:
-
-```ts
-// server/connections/portal.ts
-import { defineConnection, oauthLogin } from "@vite-hub/connections";
-
-export default defineConnection({
-  provider: oauthLogin({
-    id: "portal",
-    mcp: "https://portal.example.com/mcp",
-    clientName: "Support Agent",
-    credentials: () => process.env.PORTAL_LOGIN, // "email:password"
-    async login({ url, redirectUri, credentials, fetch }) {
-      const [email, password] = credentials.split(":");
-      await fetch("/api/sign-in", { method: "POST", body: JSON.stringify({ email, password }) });
-      // Return the URL that the provider redirects to `redirectUri`, with `code` and `state`.
-      return (await fetch(url)).headers.get("location")!;
-    },
-  }),
-  scopes: ["openid", "email"],
-  access: { "agent:support": { read: true, write: ["fetch"], approve: false } },
-});
-```
-
-ViteHub does the rest:
-
-1. Discovery: the protected resource metadata of `mcp` (RFC 9728) names the authorization server, and its metadata (RFC 8414, or OpenID Connect discovery) names the endpoints. Set `issuer` to skip the first step.
-2. Registration: ViteHub registers a public client (RFC 7591) once per process, unless `clientId` is set.
-3. Sign-in: ViteHub builds the authorization URL with PKCE (`S256`), `state`, `scope`, and `resource` (default: `mcp`), calls `login`, checks the returned `code` and `state`, and exchanges the code.
-4. Renewal: a token that expires within a minute is refreshed with its refresh token, or replaced by a new sign-in. A `401` signs in again once and retries the request. Concurrent requests share one sign-in, also when it fails.
-
-`login` gets a `fetch` that acts as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and does not follow redirects unless `init.redirect` asks for it. `redirectUri` defaults to `http://127.0.0.1/callback`; ViteHub never listens on it. An error that `login` throws becomes a `CONNECTION_PROVIDER` error without its message, because the message could contain the credentials.
-
-Tokens and the client registration stay in memory, so each process signs in again, and the Connections store is not needed. While `credentials` resolves to nothing, the Connection is `disconnected` and requests fail with `CONNECTION_REAUTH_REQUIRED`. Otherwise it is `connected`, and a failed sign-in fails only the request that needed it. The Connection has no connect flow and no key: `authorize()` and `setKey()` reject it, and `revoke()` drops the tokens, so the next request signs in again. Access rules, approvals, dry run, and activity work as for other Connections. The token goes only to `mcp`, the `origins`, and the root URLs of `apis`.
-
 ## Define one Connection per instance
 
 A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
 
-```ts
+```ts fragment
 // server/connections/portal.ts
 export default defineConnection({
   instances: ["acme", "globex"],
   definition: tenant => ({
-    provider: oauthLogin({ mcp: `https://${tenant}.example.com/mcp`, credentials: () => process.env[`PORTAL_${tenant.toUpperCase()}`], login }),
-    scopes: ["openid"],
+    provider: {
+      id: "portal",
+      authorizationEndpoint: `https://${tenant}.example.com/oauth/authorize`,
+      tokenEndpoint: `https://${tenant}.example.com/oauth/token`,
+      clientId: "portal-client-id",
+      mcp: `https://${tenant}.example.com/mcp`,
+    },
+    scopes: ["openid", "offline_access"],
   }),
 });
 ```
 
 This file defines `portal:acme` and `portal:globex`. Use them like any other Connection, for example `useConnection("portal:acme")` or `mcp({ servers: { portal_acme: { connection: "portal:acme" } } })`. `list()`, the CLI, and the Console show each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
 
+## Write setup docs
+
+Put the steps a person needs before connecting, such as which account to choose, in a Markdown file next to the definition: `server/connections/crm.md` for `crm.ts`. The Console shows it on the Connection before the **Connect** button, `vitehub connections inspect` prints it, and `inspect()` returns it as `docs`. A definition's `docs` option replaces the file, for example to give each instance its own steps.
+
 ## Pace and retry requests
 
-Set `requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
+Set `requests` on an OAuth provider or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
 
 ```ts
+import { apiKey } from "@vite-hub/connections"
+
 apiKey({
   origins: ["https://api.airtable.com"],
   requests: {
@@ -173,7 +148,7 @@ The `fallback` key applies only when no key was ever set for the Connection, or 
 
 `useConnection()` uses the ViteHub Database and `VITEHUB_CONNECTIONS_KEY` by default. Call `setConnectionsRuntime()` to use another database or key:
 
-```ts
+```ts fragment
 import { createDatabaseConnectionStore, setConnectionsRuntime } from "@vite-hub/connections/server";
 
 setConnectionsRuntime({
@@ -208,7 +183,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 The actor module default-exports one of these policies:
 
-- A function `(request, event) => string | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, or `undefined` to reject the request (`403`). Relative module paths resolve from the project root.
+- A function `(request) => string | Response | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request (`403`), or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the Standard Context of the event, so `getStandardContext(request)` and the Auth helpers accept it. Relative module paths resolve from the project root.
 - The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
@@ -232,7 +207,14 @@ hubConnections({ management: { actor: "./server/connections-auth.ts" } });
 
 ### Management routes
 
-`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. Its handler takes a Web `Request` or a request event, and reads the request of an event from `event["~standard"].req`. `actor` is required and gets `(request, event)`.
+`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections` serves these routes. It returns a Fetchable, `{ fetch(request) }`. `actor` is required and gets the `Request`.
+
+```ts
+import { createConnectionsHandler } from "@vite-hub/connections";
+
+const handler = createConnectionsHandler({ actor: "development" });
+const response = await handler.fetch(new Request("http://localhost/_vitehub/connections/connect/google"));
+```
 
 | Route | Use |
 | --- | --- |
@@ -252,7 +234,7 @@ The OAuth callback is reached by a browser redirect from the provider. It comple
 
 ## Generate API catalogs
 
-`pnpm --dir packages/connections run generate` reads the Google Discovery document and writes `src/google/gmail.ts`.
+`pnpm --dir packages/connections run generate` reads the Google Discovery document and writes `src/google/gmail.ts`. It types the Gmail messages, attachments, drafts, labels, threads, history, profile, and filters methods. `useConnection().fetch()` reaches every other Gmail endpoint, such as `users.watch` or the other settings.
 
 See the [Connections documentation](https://vitehub.dev/docs/connections).
 

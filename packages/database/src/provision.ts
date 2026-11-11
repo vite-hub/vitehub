@@ -1,14 +1,14 @@
-import { createCloudflareProvisionClient, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
+import { createCloudflareProvisionClient, isShellSafeProvisionValue, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { CollectedDatabaseContributions } from "./contributions.ts"
-import type { DBModulePublicOptions } from "./types.ts"
+import type { DatabaseOptions } from "./types.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
-type DatabaseProvisionOptions = DBModulePublicOptions | (Exclude<DBModulePublicOptions, false> & { nuxtHostResource: true })
+type DatabaseProvisionOptions = DatabaseOptions | (Exclude<DatabaseOptions, false> & { nuxtHostResource: true })
 
 interface CloudflareD1Database {
   uuid?: string
@@ -38,6 +38,16 @@ function parseDatabase(value: unknown): CloudflareD1Database {
 
 export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
   return encodeURIComponent(databaseName.trim())
+}
+
+// Provision State is a file that developers can edit, so a key may not decode.
+function decodeStateKey(key: string): string {
+  try {
+    return decodeURIComponent(key)
+  }
+  catch {
+    return key
+  }
 }
 
 /** Contributions and server directories that the Database plugin resolved, so plans include contributed Definitions. */
@@ -87,6 +97,21 @@ export function createDatabaseProvisionStep(
   return {
     id: "database:cloudflare-d1",
     provider: "cloudflare",
+    recordedState() {
+      const planned = planDatabases(resolveRootDir(), options, resolveContext?.())
+      return [{
+        category: "d1",
+        declared: planned.flatMap(database => database.definitions),
+        deleteHint: ({ id }) => `delete D1 database ${id} in the Cloudflare dashboard, or find its name with \`wrangler d1 list\` and run \`wrangler d1 delete <name>\``,
+      }, {
+        category: "d1Nuxt",
+        declared: planned.filter(database => database.nuxt).map(database => getDatabaseNuxtProvisionStateKey(database.databaseName)),
+        deleteHint: ({ key }) => {
+          const name = decodeStateKey(key)
+          return isShellSafeProvisionValue(name) ? `run \`wrangler d1 delete ${name}\`` : "delete the D1 database in the Cloudflare dashboard"
+        },
+      }]
+    },
     async plan(context) {
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {

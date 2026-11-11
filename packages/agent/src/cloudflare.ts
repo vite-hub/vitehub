@@ -115,6 +115,10 @@ function createCloudflareAgentStateEntrypointPlugin(options: CloudflareAgentStat
 
   return {
     name: "vitehub-agent-cloudflare-state-exports",
+    options(inputOptions) {
+      // Workers treat entry exports as handlers. Keep shared values in internal chunks.
+      return { ...inputOptions, preserveEntrySignatures: "strict" }
+    },
     buildStart() {
       this.emitFile({
         type: "chunk",
@@ -122,16 +126,22 @@ function createCloudflareAgentStateEntrypointPlugin(options: CloudflareAgentStat
         fileName: "agent-cloudflare-state-exports.mjs",
       })
     },
-    resolveId(id: string) {
-      if (id === moduleId) return resolvedModuleId
+    resolveId: {
+      filter: { id: /^virtual:vitehub-agent-cloudflare-state-exports$/ },
+      handler(id: string) {
+        if (id === moduleId) return resolvedModuleId
+      },
     },
-    load(id: string) {
-      if (id === resolvedModuleId) {
-        return [
-          `export { ${className} } from ${JSON.stringify(stateImport)}`,
-          "",
-        ].join("\n")
-      }
+    load: {
+      filter: { id: /^\0virtual:vitehub-agent-cloudflare-state-exports$/ },
+      handler(id: string) {
+        if (id === resolvedModuleId) {
+          return [
+            `export { ${className} } from ${JSON.stringify(stateImport)}`,
+            "",
+          ].join("\n")
+        }
+      },
     },
     renderChunk(code: string, chunk: { fileName: string, isEntry: boolean }) {
       if (!chunk.isEntry || chunk.fileName !== "index.mjs") return null

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 import { parse, string } from "valibot"
 
-import { hubAgent } from "../src/vite.ts"
+import { agentRuntimeModule, hubAgent } from "../src/vite.ts"
 import { syncWorkspaceDefinition } from "../../workspace/src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../../workspace/src/sources/materialization.ts"
 import { createLocalWorkspaceStore } from "../../workspace/src/storage/local.ts"
@@ -42,17 +42,18 @@ const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
 
 function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
-    ["@vite-hub/agent/server/registry", `export { resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/server/registry.ts"))}`],
-    ["@vite-hub/agent/server/internal", [
-      "export { createError, defineEventHandler, getRouterParam } from 'h3'",
+    [agentRuntimeModule("server/registry"), `export { resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/server/registry.ts"))}`],
+    [agentRuntimeModule("server/internal"), [
       `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
       // The generated SQLite-state route builds its webhook warm-up at module load (#2628).
       `export { createAgentWebhookWarmup } from ${JSON.stringify(join(import.meta.dirname, "../src/server/webhook-warmup.ts"))}`,
       // The generated route installs the Channel reader for the Console.
       `export { installChannelsConsoleHost } from ${JSON.stringify(join(import.meta.dirname, "../src/channels-console-host.ts"))}`,
-      `export { markDiscoveredAgentName, resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
-      `export { toEventRequest } from ${JSON.stringify(join(import.meta.dirname, "../../internal/src/runtime/h3-v1-request.ts"))}`,
+      `export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
+      `export { namedChannelHosts } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/named-channels.ts"))}`,
+      `export { withDeclaredAgentWorkspace } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,
+      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/h3.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
@@ -88,29 +89,24 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  return name",
       "}",
     ].join("\n")],
-    ["@vite-hub/agent/state/sqlite", [
+    [agentRuntimeModule("state/sqlite"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function createLibsqlAgentState(options) {",
       "  capture.stateAdapter = { kind: 'sqlite', options }",
       "  return capture.stateAdapter",
       "}",
     ].join("\n")],
-    ["@vite-hub/workspace/runtime", [
+    [agentRuntimeModule("internal/workspace/runtime"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
     ].join("\n")],
-    ["@vite-hub/agent/server/workspace", [
+    [agentRuntimeModule("server/workspace"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function setAgentWorkspaceDefinitions(definitions) { capture.workspaceDefinitions = definitions }",
       "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
     ].join("\n")],
-    ["@vite-hub/workspace/internal/runtime/hosted", "export function installHostedWorkspaceRuntime() {}"],
-    ["@vite-hub/workspace/internal/runtime/hosted-vercel-blob", "export function installHostedVercelBlobWorkspaceRuntime() {}"],
-    ["h3", [
-      "export const createError = input => Object.assign(new Error(input.statusMessage), input)",
-      "export const defineEventHandler = handler => handler",
-      "export const getRouterParam = (event, name) => event.params?.[name]",
-    ].join("\n")],
+    [agentRuntimeModule("internal/workspace/internal/runtime/hosted"), "export function installHostedWorkspaceRuntime() {}"],
+    [agentRuntimeModule("internal/workspace/internal/runtime/hosted-vercel-blob"), "export function installHostedVercelBlobWorkspaceRuntime() {}"],
   ])
 }
 
@@ -220,8 +216,12 @@ async function createDeploymentRuntimeFixture(
     resolve: {
       alias: [
         {
-          find: /^@vite-hub\/agent\/runtime\/workflow$/,
+          find: agentRuntimeModule("runtime/workflow"),
           replacement: join(import.meta.dirname, "..", "src", "runtime", "workflow.ts"),
+        },
+        {
+          find: agentRuntimeModule("index"),
+          replacement: join(import.meta.dirname, "..", "src", "index.ts"),
         },
         {
           find: /^@vite-hub\/agent$/,
@@ -242,7 +242,7 @@ async function createDeploymentRuntimeFixture(
     }
   }
 
-  let route: { default: (input: Record<string, unknown> | Request, context?: Record<string, unknown>) => Promise<Response> }
+  let route: { default: ((request: Request, context?: Record<string, unknown>) => Promise<Response>) & { fetch: (request: Request) => Promise<Response> } }
   try {
     route = await server.ssrLoadModule(join(
       root,
@@ -299,25 +299,18 @@ async function createDeploymentRuntimeFixture(
         )
       }
       const url = new URL(requestedRoute === "alias" ? "https://example.com/api/github/webhook/" : `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`)
-      const req = new Request(url, {
+      const request = new Request(url, {
         ...(body ? { body } : {}),
         headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
         method,
       })
-      return await route.default({
-        body,
-        context: {
-          params: { agent, ...(webhook ? { webhook } : {}) },
-          waitUntil(task: Promise<unknown>) {
-            waitUntilTasks.push(task)
-          },
+      // The route is a Fetchable. Outside Nitro, its Standard Context reads the host lifetime from `request.waitUntil`.
+      Object.assign(request, {
+        waitUntil(task: Promise<unknown>) {
+          waitUntilTasks.push(task)
         },
-        headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
-        method,
-        params: { agent, ...(webhook ? { webhook } : {}) },
-        req,
-        url,
       })
+      return await route.default.fetch(request)
     },
     async workspace(name) {
       const workspace = capture.workspaceDefinitions[name]
@@ -363,10 +356,9 @@ describe("generated Agent deployment catalog", () => {
       runtime: "vite",
       webhook: "channel",
     })
-    await expect(runtime!.request("missing", "chat")).rejects.toMatchObject({
-      statusCode: 404,
-      statusMessage: "Unknown ViteHub agent.",
-    })
+    const missing = await runtime!.request("missing", "chat")
+    expect(missing.status).toBe(404)
+    await expect(missing.json()).resolves.toEqual({ message: "Unknown ViteHub agent.", status: 404 })
   })
 
   it("serves canonical inspection metadata with private error responses", async () => {

@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { cmsConsoleAuthorize } from "vite-hub/cms/access"
-import { getAuthForRequest } from "@vite-hub/auth/server"
+import { authForRequest } from "@vite-hub/auth/runtime/console"
 import { createConsoleAppAuthPages, defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
@@ -13,8 +13,8 @@ declare const access: ConsoleAccess
 
 describe("Console access types", () => {
   it("accepts synchronous and lazy app Auth resolvers", () => {
-    createConsoleAppAuthPages(getAuthForRequest)
-    createConsoleAppAuthPages(async (...input) => getAuthForRequest(...input))
+    createConsoleAppAuthPages(authForRequest)
+    createConsoleAppAuthPages(async (...input) => authForRequest(...input))
   })
 
   it("type checks", () => {
@@ -31,7 +31,7 @@ describe("Console access types", () => {
     // @ts-expect-error Every guarded route declares its Console section.
     withConsoleAccess((_event: ConsoleRequestEvent) => "data")
 
-    withConsoleAccess((_event: ConsoleRequestEvent) => "data", { section: event => event.method })
+    withConsoleAccess((_event: ConsoleRequestEvent) => "data", { section: event => event["~standard"].req.method })
     withConsoleAccess((_event: ConsoleRequestEvent) => "data", { anySection: true })
     // @ts-expect-error A route serves one section or every section, not both.
     withConsoleAccess((_event: ConsoleRequestEvent) => "data", { anySection: false })

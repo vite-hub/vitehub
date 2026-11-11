@@ -732,7 +732,12 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         if (result?.status === "fulfilled") results.push(result.value)
       }
       for (const result of results) {
-        for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
+        for (const path of Object.keys(result.metafile.inputs)) {
+          const source = resolve(root, path)
+          importedSources.add(source)
+          if (results.length === traceBuildVariants.length
+            && results.every(variant => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source)
+        }
       }
       for (const path of importedSourceHints) {
         importedSources.add(path)
@@ -1013,6 +1018,27 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           : generatedOutputIndex
       return [resolve(scopedRoot, ...segments.slice(0, outputRootIndex + 1))]
     })
+    // The root can be a whole monorepo. Outside the configured roots, copy only the packages that the build references.
+    const outsideConfiguredRoots = (path: string): boolean => !nestedConfiguredRoots.some(configuredRoot => pathContains(configuredRoot, path))
+    const referencedSources = nestedConfiguredRoots.length ? materializedSources.filter(outsideConfiguredRoots) : []
+    const referencedPackages = new Set(referencedSources.map(source => packageRoot(source))
+      .filter(sourcePackage => sourcePackage !== root && pathContains(root, sourcePackage)))
+    const referencedTrees = new Set([...referencedPackages, ...referencedSources])
+    const referencedAncestors = new Set<string>()
+    for (const tree of [...nestedConfiguredRoots, ...referencedTrees]) {
+      for (let directory = tree; pathContains(root, directory) && !referencedAncestors.has(directory); directory = dirname(directory)) {
+        referencedAncestors.add(directory)
+        if (directory === root) break
+      }
+    }
+    const isReferencedSource = (path: string): boolean => {
+      if (referencedAncestors.has(path)) return true
+      for (let directory = path; pathContains(root, directory); directory = dirname(directory)) {
+        if (referencedTrees.has(directory)) return true
+        if (directory === root) break
+      }
+      return false
+    }
     const nestedDependencyRoots = new Map<string, string>()
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedContainer = resolve(temporaryRoot, "source")
@@ -1030,6 +1056,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
         const nested = relative(root, resolvedSource)
         if (!nested) return true
+        if (nestedConfiguredRoots.length && outsideConfiguredRoots(resolvedSource) && !isReferencedSource(resolvedSource)) return false
         const segments = nested.split(sep)
         const dependencyIndex = segments.indexOf("node_modules")
         if (dependencyIndex !== -1) {
@@ -1051,8 +1078,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         }
         const nestedGeneratedOutput = scopedSegments
           .some(segment => ignoredGeneratedDirectories.has(segment))
-        if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
-          && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
+        const ignoredIndex = scopedSegments.findIndex(segment => ignoredSourceDirectories.has(segment))
+        // A retained package keeps its top-level build output: its exports can point there.
+        const packageOutput = scopedSegments[ignoredIndex] === "dist" && !containingConfiguredRoot
+          && (ignoredIndex === 0 ? packageRoots.has(root) : referencedPackages.has(resolve(root, ...scopedSegments.slice(0, ignoredIndex))))
+        if (nestedGeneratedOutput || (ignoredIndex !== -1 && !packageOutput)) {
           return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
             || [...importedSources].some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
             || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))

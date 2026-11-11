@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
+
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const opens = vi.hoisted(() => ({ count: 0 }))
 
@@ -38,6 +41,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   installAgentInvocations({})
   vi.unstubAllEnvs()
   await rm(directory, { force: true, recursive: true })
@@ -45,6 +49,8 @@ afterEach(async () => {
 
 describe("Default Agent journal open", () => {
   it("opens the libSQL journal on first use, once for concurrent first uses", async () => {
+    // Keep cold module loading independent of the store operation deadline.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const file = join(directory, ".vitehub/data/agent-invocations.sqlite")
     const invocations = createDefaultAgentInvocations({ projectRoot: directory })
     expect(opens.count).toBe(0)
@@ -61,7 +67,7 @@ describe("Default Agent journal open", () => {
   })
 
   it("shares the open journal with Drizzle", async () => {
-    installAgentInvocations({ default: { databaseUrl: "file:journal.sqlite" }, journal: { projectRoot: directory } })
+    installAgentInvocations({ default: { databaseUrl: "file:journal.sqlite" }, journal: { libsql, projectRoot: directory } })
     expect(opens.count).toBe(0)
     const [database, other] = await Promise.all([getAgentInvocationsDatabase(), getAgentInvocationsDatabase()])
     expect(other).toBe(database)

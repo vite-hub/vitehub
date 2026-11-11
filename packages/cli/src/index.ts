@@ -1,22 +1,21 @@
-#!/usr/bin/env node
 import { spawn } from "node:child_process"
-import { existsSync, readFileSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import process from "node:process"
-import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
-import { reservedOperationNamespaces } from "@vite-hub/internal/operations"
+import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
 import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
+import { drainCommand } from "./drain.ts"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
-import { setupCommands } from "./setup/commands.ts"
 
-import type { ConfigEnv, InlineConfig } from "vite"
+import type { InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { HostCliRun } from "@vite-hub/internal/host-credentials"
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ViteHubCliSpawnResult {
@@ -28,7 +27,7 @@ interface ViteHubCliSpawnOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   stderr?: "inherit" | "pipe"
-  stdout?: "inherit" | "pipe"
+  stdout?: "inherit" | "pipe" | "stderr"
 }
 
 type ViteHubCliSpawn = (
@@ -59,9 +58,14 @@ interface ViteHubCliLoadedConfig {
 
 const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
 
+// The setup commands load Babel, semver, and diff, so the CLI imports them only to run one or to print the root help.
+async function loadSetupCommands(): Promise<readonly ViteHubCliCommand[]> {
+  return (await import("./setup/commands.ts")).setupCommands
+}
+
 export interface RunViteHubCliOptions {
   args?: string[]
-  /** Top-level commands that run before the project config loads, such as `vitehub status`. Defaults to the setup commands. */
+  /** Top-level commands that run before the project config loads, such as `vitehub status`. Defaults to the setup commands and `drain`. */
   commands?: readonly ViteHubCliCommand[]
   cwd?: string
   env?: NodeJS.ProcessEnv
@@ -74,8 +78,10 @@ export interface RunViteHubCliOptions {
   runtimeFeatures?: ViteHubCliCommandNamespace[]
   /** Optional guard for runtime features that have a project-level opt-out. */
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
-  /** Replaces `fetch` in commands that call a running app. */
+  /** Replaces `fetch` in commands that call a running app or a host API. */
   fetch?: typeof fetch
+  /** Replaces the host CLI runner of setup commands, such as for `wrangler auth token`. */
+  runHostCli?: HostCliRun
   loadConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<ViteHubCliLoadedConfig>
   loadNuxtViteConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
@@ -88,7 +94,7 @@ export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOption
   stdout?: ViteHubCliEntrypointStream
 }
 
-async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
+async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
@@ -152,7 +158,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
       shell: process.platform === "win32" && command !== process.execPath,
       stdio: [
         "inherit",
-        options.stdout || "inherit",
+        options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
         options.stderr || "inherit",
       ],
     })
@@ -161,7 +167,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   })
 }
 
-async function loadViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<ViteHubCliLoadedConfig> {
+async function loadViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
     root: rootDir,
@@ -244,11 +250,13 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
-  const commands = options.commands ?? setupCommands
+  const loadCommands = async () => options.commands ?? [...await loadSetupCommands(), drainCommand]
   // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
-  const setupCommand = commands.find(item => item.name === args[0])
+  const setupCommand = options.commands || setupCommandNames.includes(args[0] ?? "")
+    ? (await loadCommands()).find(item => item.name === args[0])
+    : undefined
   if (setupCommand) {
-    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, spawn, stderr, stdout })
+    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
@@ -257,7 +265,8 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
   }
 
-  const command = args[0] === "inspect" && args[1] === "provider-output" ? "build" : "serve"
+  // Provider Output and host resources must match what a production build deploys.
+  const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources") ? "build" : "serve"
   // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
   const stageIndex = args[0] === "channels" && (args[1] === "sync" || args[1] === "history") ? args.lastIndexOf("--stage") : -1
   const stageValue = stageIndex === -1 ? undefined : args[stageIndex + 1]
@@ -300,7 +309,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   if (!args.length || isRootHelp(args)) {
-    writeRootHelp(namespaces, commands, stdout)
+    writeRootHelp(namespaces, await loadCommands(), stdout)
     return 0
   }
 
@@ -311,7 +320,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     if (namespaces.length === 2 && namespaces.every(item => BUILTIN_NAMESPACE_NAMES.has(item.name))) {
       stderr.write(`No ViteHub integration contributed the "${namespaceName}" commands. Run this from a configured project and enable the matching integration in vite.config.ts or nuxt.config.ts.\n`)
     }
-    writeRootHelp(namespaces, commands, stderr)
+    writeRootHelp(namespaces, await loadCommands(), stderr)
     return 1
   }
 
@@ -329,7 +338,7 @@ async function runNamespace(namespace: ViteHubCliCommandNamespace, args: string[
     writeNamespaceHelp(namespace, stdout)
     return 0
   }
-  // `vitehub usage`, `vitehub usage --json`, and `vitehub pull site` run the default feature of the namespace with the
+  // `vitehub bundle`, `vitehub bundle --json`, and `vitehub pull site` run the default feature of the namespace with the
   // arguments that do not name another feature.
   if (defaultFeature && (!featureName || featureName.startsWith("-") || !namespace.features.some(item => item.name === featureName))) return await defaultFeature.run(args.slice(1), context) ?? 0
   if (!featureName) {
@@ -421,18 +430,4 @@ export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions 
     }
     process.exit(exitCode)
   })()
-}
-
-function isCliEntrypoint() {
-  if (!process.argv[1]) return false
-  try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])
-  }
-  catch {
-    return false
-  }
-}
-
-if (isCliEntrypoint()) {
-  runViteHubCliEntrypoint()
 }

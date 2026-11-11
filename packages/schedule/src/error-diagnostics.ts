@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {
     SCHEDULE_C0001: dynamicError,
     SCHEDULE_C0002: dynamicError,
@@ -14,6 +14,10 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SCHEDULE_C0004: dynamicError,
     SCHEDULE_C0005: dynamicError,
     SCHEDULE_C0006: dynamicError,
+    SCHEDULE_C0007: {
+      ...dynamicError,
+      fix: "Write `defineSchedule({ cron, handler })`. Run `npx @vite-hub/codemods define-forms` to rewrite every Schedule.",
+    },
     SCHEDULE_R0001: dynamicError,
     SCHEDULE_R0002: dynamicError,
     SCHEDULE_R0003: dynamicError,

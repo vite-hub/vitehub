@@ -1,10 +1,8 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
 import json from "comark-content/plugins/json"
 import yaml from "comark-content/plugins/yaml"
-import { defineEventHandler } from "h3"
 
 import type {
   Cache,
@@ -16,8 +14,10 @@ import type {
   ContentPlugin,
   Source as ComarkContentSource,
 } from "comark-content"
-import type { H3Event } from "h3"
-import { contentSourceUrl, createContentInstance } from "./content-source.ts"
+import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
+import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
+import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
@@ -63,9 +63,15 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { defineContentTypesPlugin, generateContentTypes } from "./types.ts"
+export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
+/** Comark's registry interfaces. Generated Content types extend them through this module. */
+export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBase } from "comark-content"
+export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
+export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
@@ -96,8 +102,8 @@ export type {
 export { optional } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
 // Blob owns the reference schemas. Content re-exports them so one import covers every field helper.
-export { file, image } from "@vite-hub/blob/reference"
-export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
+export { file, image } from "@vite-hub/blob"
+export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
 export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
@@ -136,7 +142,9 @@ export type {
 } from "./documents.ts"
 export type {
   AnyContentCollection,
+  ContentAlternate,
   ContentCollection,
+  ContentDerivedFrom,
   ContentDocument,
   ContentDocumentState,
   ContentDocumentStatus,
@@ -159,46 +167,18 @@ export type {
   ContentRevisionsResult,
   ContentSaveInput,
   ContentSingleton,
+  ContentStatusOptions,
+  ContentTranslationState,
   ContentWriteOptions,
 } from "./collections-types.ts"
 
+/** A Fetchable route: mount it on a Nitro or H3 route, or call `fetch(request)` directly. */
 export interface ContentHandler {
-  (event: unknown): Promise<unknown>
-  fetch(input: Request | URL | string): Promise<Response>
+  fetch(request: Request): Promise<Response>
 }
 
-export interface ContentHandlerEvent {
-  method?: string
-  node?: { req: NodeContentRequest }
-  req: Request | NodeContentRequest
-}
-
-type NodeContentRequest = {
-  aborted: boolean
-  headers: Record<string, string | string[] | undefined>
-  method?: string
-  url?: string
-  [Symbol.asyncIterator](): AsyncIterator<Uint8Array>
-  once(event: "aborted", listener: () => void): unknown
-}
-
-function nodeBodyChunk(value: unknown): Uint8Array | undefined {
-  try {
-    if (ArrayBuffer.isView(value)) {
-      // SAFETY: ArrayBuffer.isView narrows value to an ArrayBufferView with the required buffer offsets.
-      const view = value as ArrayBufferView
-      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
-    }
-    // Calling the intrinsic getter performs the ArrayBuffer brand check and
-    // works for genuine buffers created in another realm.
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    // SAFETY: The intrinsic byteLength getter above verified the ArrayBuffer internal slot.
-    return new Uint8Array(value as ArrayBuffer)
-  }
-  catch {
-    return undefined
-  }
-}
+/** H3 middleware: it returns nothing to pass the request on to the next handler. */
+export type ContentMiddleware = (event: { req: Request }) => Promise<Response | undefined>
 
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
 type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
@@ -374,9 +354,18 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
 }
 
+/**
+ * `content.list()` with one name or a list of names. Generated Content types in `.vitehub/types/content.d.ts` type the
+ * `data` of a named source or collection.
+ */
+export interface ContentRuntimeList {
+  <TName extends keyof ContentRegistry & string>(names: TName | readonly TName[]): Promise<ContentListFile<SourceData<TName>>[]>
+  (names?: string | readonly string[]): Promise<ContentListFile<RegistryData>[]>
+}
+
 /** Named-source operations retained across the Comark instance API migration. */
 export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search" | "media"> & {
-  list(names?: string | string[]): ReturnType<ContentHub["list"]>
+  list: ContentRuntimeList
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -412,7 +401,6 @@ export function defineContent<
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
   if (authorize !== undefined && typeof authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -442,9 +430,15 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
+  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
+  const snapshots = takeContentSnapshots()
+  const snapshotTargets: ContentSnapshotTarget[] = []
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
-    return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
+    const kind = contentSourceKind(input)
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
+    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
+    return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
@@ -593,9 +587,9 @@ export function defineContent<
     unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
     publishDue: (dueOptions?: ContentPublishDueOptions) => requireDocuments().publishDue(dueOptions),
     revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
-      if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
+      if (typeof collectionOrOptions !== "string") return requireDocuments().history(collectionOrOptions)
       // Without a string id, the second argument is the options of a singleton.
-      return hasRuntimeType(id, "string") ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
+      return typeof id === "string" ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
     },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
@@ -623,7 +617,8 @@ export function defineContent<
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
     handler: fresh((target, request: Request) => target.handler(request)),
-    list: fresh((target, names?: string | string[]) => target.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
+    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat())) as ContentRuntimeList,
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
     async dispose() {
       documentsRuntime?.dispose()
@@ -651,6 +646,7 @@ export function defineContent<
       },
     },
   }
+  setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
@@ -662,20 +658,21 @@ export function defineContent<
 }
 
 /**
- * Adapt a Comark Content Web handler to an H3/Nitro route. With a Content runtime, a request with a valid preview
+ * Serve the Comark Content Web handler as a Fetchable route. With a Content runtime, a request with a valid preview
  * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
  */
 export function defineContentHandler(
   content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview, route?: boolean },
 ): ContentHandler {
-  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
-  return defineEventHandler(async (event: H3Event) => {
-    if (content.route === false) return new Response("Not Found", { status: 404 })
-    const dispatch = () => serveContent(content, event)
-    return await (content.preview
-      ? content.preview.run(event, dispatch)
-      : dispatch())
-  }) as ContentHandler
+  return {
+    async fetch(request) {
+      if (content.route === false) return new Response("Not Found", { status: 404 })
+      const dispatch = () => content.handler(request)
+      return await (content.preview
+        ? content.preview.run(request, dispatch)
+        : dispatch())
+    },
+  }
 }
 
 type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "seo" | "sitemap">
@@ -685,14 +682,15 @@ type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "seo" | 
  * ViteHub generates this route when `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
  */
 export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler {
-  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
-  return defineEventHandler(async (event: H3Event) => {
-    if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
-    const site = content.seo.site ?? requestUrl(event).origin
-    return new Response(renderContentSitemap(await content.sitemap({ site })), {
-      headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-    })
-  }) as ContentHandler
+  return {
+    async fetch(request) {
+      if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
+      const site = content.seo.site ?? new URL(request.url).origin
+      return new Response(renderContentSitemap(await content.sitemap({ site })), {
+        headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
+      })
+    },
+  }
 }
 
 /**
@@ -700,159 +698,39 @@ export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler
  * route when `defineContent({ seo: { robots: true } })`.
  */
 export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler {
-  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
-  return defineEventHandler(async (event: H3Event) => {
-    const robots = content.seo?.robots
-    if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
-    return new Response(content.robots({ site: content.seo?.site ?? requestUrl(event).origin }), {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    })
-  }) as ContentHandler
+  return {
+    async fetch(request) {
+      const robots = content.seo?.robots
+      if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
+      return new Response(content.robots({ site: content.seo?.site ?? new URL(request.url).origin }), {
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      })
+    },
+  }
 }
 
 /**
- * Serve `<url>.md` from `content.markdown()` as middleware: Nitro routes cannot match a suffix, so a request for any
- * other path, or for a page without a published Markdown document, passes through. ViteHub generates it when
- * `defineContent({ seo: { markdown: true } })`.
+ * Serve `<url>.md` from `content.markdown()` as H3 middleware, not as a Fetchable route: Nitro routes cannot match a
+ * suffix, so a request for any other path, or for a page without a published Markdown document, returns nothing and
+ * passes through. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
  */
-export function defineContentMarkdownHandler(content: SeoRuntime): ContentHandler {
-  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
-  return defineEventHandler(async (event: H3Event) => {
+export function defineContentMarkdownHandler(content: SeoRuntime): ContentMiddleware {
+  return async (event) => {
     if (content.seo?.markdown !== true) return
-    const method = event.method || event.node?.req.method || "GET"
-    if (method !== "GET" && method !== "HEAD") return
-    const url = requestUrl(event)
+    const request = event.req
+    if (request.method !== "GET" && request.method !== "HEAD") return
+    const url = new URL(request.url)
     if (!url.pathname.endsWith(".md")) return
     const markdown = await content.markdown(url.pathname, { site: content.seo.site ?? url.origin })
     if (markdown === null) return
-    return new Response(method === "HEAD" ? null : markdown, {
+    return new Response(request.method === "HEAD" ? null : markdown, {
       headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
     })
-  }) as ContentHandler
-}
-
-function nodeHeaders(nodeRequest: NodeContentRequest): Headers {
-  const headers = new Headers()
-  for (const [name, value] of Object.entries(nodeRequest.headers)) {
-    if (value === undefined) continue
-    if (Array.isArray(value)) {
-      for (const entry of value) headers.append(name, entry)
-    }
-    else headers.set(name, value)
   }
-  return headers
-}
-
-function nodeUrl(nodeRequest: NodeContentRequest, headers: Headers): URL {
-  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-    || headers.get("host")
-    || "localhost"
-  return new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-}
-
-/** The request URL of an H3 v2 Web event, or of an H3 v1 (Nitro 2) Node event. */
-function requestUrl(event: H3Event): URL {
-  if (isRequestLike(event.req)) return new URL(event.req.url)
-  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-  const nodeRequest = event.node.req as NodeContentRequest
-  return nodeUrl(nodeRequest, nodeHeaders(nodeRequest))
-}
-
-async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
-  if (isRequestLike(event.req)) return await content.handler(event.req)
-
-  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-  const nodeRequest = event.node.req as NodeContentRequest
-  const method = event.method || nodeRequest.method || "GET"
-  const headers = nodeHeaders(nodeRequest)
-  const url = nodeUrl(nodeRequest, headers)
-  let body: Uint8Array | undefined
-  if (method !== "GET" && method !== "HEAD") {
-    const chunks: Uint8Array[] = []
-    for await (const chunk of nodeRequest) {
-      const bytes = nodeBodyChunk(chunk)
-      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-      chunks.push(bytes)
-    }
-    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-    body = new Uint8Array(length)
-    let offset = 0
-    for (const chunk of chunks) {
-      body.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-  }
-  const abort = new AbortController()
-  if (nodeRequest.aborted) abort.abort()
-  else nodeRequest.once("aborted", () => abort.abort())
-
-  return await content.handler(new Request(url, {
-    body,
-    headers,
-    method,
-    signal: abort.signal,
-  }))
 }
 
 // Every Comark Content plugin field is optional, so a parse plugin type-checks in `plugins`, but Content never runs it there.
 function isComarkParsePlugin(plugin: unknown): plugin is { name?: unknown } {
   if (typeof plugin !== "object" || plugin === null) return false
   return "pre" in plugin || "post" in plugin || "markdownItPlugins" in plugin
-}
-
-function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object") return false
-  try {
-    const request = value as Request
-    const findDescriptor = (key: PropertyKey) => {
-      let prototype: object | null = Object.getPrototypeOf(request)
-      for (let depth = 0; prototype && depth < 32; depth++) {
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-        if (descriptor) return { descriptor, prototype }
-        prototype = Object.getPrototypeOf(prototype)
-      }
-      return undefined
-    }
-    const methodDescriptor = findDescriptor("method")
-    const urlDescriptor = findDescriptor("url")
-    const headersDescriptor = findDescriptor("headers")
-    if (!methodDescriptor || !urlDescriptor || !headersDescriptor) return false
-    const requestConstructor = Object.getOwnPropertyDescriptor(methodDescriptor.prototype, "constructor")?.value
-    const requestPrototype = typeof requestConstructor === "function" ? requestConstructor.prototype : undefined
-    if (!requestPrototype) return false
-    for (const [key, found] of [["method", methodDescriptor], ["url", urlDescriptor], ["headers", headersDescriptor]] as const) {
-      if (Object.getOwnPropertyDescriptor(requestPrototype, key)?.get !== found.descriptor.get) return false
-    }
-    const methodGetter = methodDescriptor.descriptor.get
-    const urlGetter = urlDescriptor.descriptor.get
-    const headersGetter = headersDescriptor.descriptor.get
-    if (typeof methodGetter !== "function" || typeof urlGetter !== "function" || typeof headersGetter !== "function") return false
-    const method = Reflect.apply(methodGetter, request, [])
-    const url = Reflect.apply(urlGetter, request, [])
-    const headers = Reflect.apply(headersGetter, request, [])
-    let headersPrototype: object | null = Object.getPrototypeOf(headers)
-    let headersGet: unknown
-    let headersForEach: unknown
-    for (let depth = 0; headersPrototype && depth < 32; depth++) {
-      headersGet = Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
-      headersForEach = Object.getOwnPropertyDescriptor(headersPrototype, "forEach")?.value
-      if (typeof headersGet === "function" && typeof headersForEach === "function") break
-      headersPrototype = Object.getPrototypeOf(headersPrototype)
-    }
-    const headersConstructor = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "constructor")?.value
-    const headersNativePrototype = typeof headersConstructor === "function" ? headersConstructor.prototype : undefined
-    if (!headersNativePrototype || Object.getOwnPropertyDescriptor(headersNativePrototype, "get")?.value !== headersGet
-      || Object.getOwnPropertyDescriptor(headersNativePrototype, "forEach")?.value !== headersForEach) return false
-    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return false
-    Reflect.apply(headersGet, headers, ["x-vitehub-brand-check"])
-    Reflect.apply(headersForEach, headers, [() => {}])
-    return typeof method === "string" && typeof url === "string"
-  }
-  catch {
-    return false
-  }
-
 }

@@ -607,15 +607,25 @@ function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | unde
   }
 }
 
+/** Whether a URL can carry `name` in its query. A `%` counts, since percent-encoding can spell the name another way. */
+function mayCarryParameter(url: string, name: string): boolean {
+  return url.includes(name) || url.includes("%")
+}
+
 /**
  * Whether a request asks for published reads: its URL has `?vitehub-content-published`, or its `Referer` is a page of
  * the same origin with it, such as a fetch from the page in the Published view. It only takes draft access away.
  */
 function publishedRequest(event: ContentPreviewEvent): boolean {
+  // Most requests carry the parameter in neither their URL nor their referer, so they skip parsing both.
+  const raw = eventParts(event).url
+  const text = raw instanceof URL ? raw.href : raw
+  const referer = requestHeader(event, "referer")
+  if (String(text) === text && !mayCarryParameter(text, contentPreviewPublishedParameter)
+    && (!referer || !mayCarryParameter(referer, contentPreviewPublishedParameter))) return false
   const url = requestUrl(event)
   if (!url) return false
   if (url.searchParams.has(contentPreviewPublishedParameter)) return true
-  const referer = requestHeader(event, "referer")
   if (!referer) return false
   try {
     const from = new URL(referer)
@@ -885,6 +895,37 @@ export interface ContentPreviewHost {
   preview?: ContentPreview
 }
 
+/** Loads the Content runtime, such as `() => import("./server/content.ts").then(module => module.default)`. */
+export type ContentPreviewHostLoader = () => Promise<ContentPreviewHost>
+
+interface PreviewSource {
+  /** The preview, loading the Content runtime first when `content` is a loader. */
+  load(): ContentPreview | undefined | Promise<ContentPreview | undefined>
+  /** The preview when the runtime is loaded. Before that, no request runs in a preview scope. */
+  loaded(): ContentPreview | undefined
+}
+
+/** A loader runs once, and again only after it fails. */
+function previewSource(content: ContentPreviewHost | ContentPreviewHostLoader): PreviewSource {
+  if (!(content instanceof Function)) return { load: () => content.preview, loaded: () => content.preview }
+  let host: ContentPreviewHost | undefined
+  let loading: Promise<ContentPreview | undefined> | undefined
+  return {
+    load() {
+      if (host) return host.preview
+      loading ??= content().then((loaded) => {
+        host = loaded
+        return loaded.preview
+      }, (error: unknown) => {
+        loading = undefined
+        throw error
+      })
+      return loading
+    },
+    loaded: () => host?.preview,
+  }
+}
+
 function hasPreviewCookie(event: ContentPreviewEvent): boolean {
   return cookieValues(requestHeader(event, "cookie"), contentPreviewCookieName).length > 0
 }
@@ -912,15 +953,25 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed. A redirect
  * from it to the same host name, such as a canonical or locale redirect, gets the parameter in its `Location`, so the
  * page the browser lands on reads `published` too. A redirect to another host is not changed.
- * ViteHub generates this plugin for `server/content.ts`.
+ * ViteHub generates this plugin for `server/content.ts` with a loader, so the server starts without the Content runtime.
+ * The loader runs on the first request with a preview cookie, a preview frame form, or the published parameter. Other
+ * requests never load it.
  */
-export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
+export function defineContentPreviewPlugin(content: ContentPreviewHost | ContentPreviewHostLoader): (nitroApp: unknown) => void {
   return (nitroApp) => {
-    const preview = content.preview
-    if (!preview || !isObject(nitroApp)) return
-    const frame = frames.get(preview)
+    if (!isObject(nitroApp) || (!(content instanceof Function) && !content.preview)) return
+    const source = previewSource(content)
+    /** Runs `callback` with the preview, or `fallback` when the runtime has none. */
+    const withPreview = (fallback: () => unknown, callback: (preview: ContentPreview) => unknown): unknown => {
+      const preview = source.load()
+      if (preview instanceof Promise) return preview.then(loaded => loaded ? callback(loaded) : fallback())
+      return preview ? callback(preview) : fallback()
+    }
     // ViteHub routes Nitro's cache module through this check (nitroCacheBypass); the grant scope is the request's.
-    const previewing = () => preview.active() || preview.frame() !== undefined || frame?.published() === true
+    const previewing = () => {
+      const preview = source.loaded()
+      return preview !== undefined && (preview.active() || preview.frame() !== undefined || frames.get(preview)?.published() === true)
+    }
     const removeCacheBypass = addCacheBypass(previewing)
     const hooks = nitroApp.hooks
     if (isObject(hooks) && hooks.hook instanceof Function) {
@@ -931,16 +982,22 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     }
     const scoped = (event: unknown, next: () => unknown): unknown => {
       if (!isObject(event)) return next()
-      if (!publishedRequest(event)) return hasPreviewCookie(event) ? preview.run(event, next) : next()
-      // A redirect keeps the request published: the browser follows it with the cookie, but without this URL.
-      markNodeRedirects(event)
-      return preview.run(event, next).then(result => publishedRedirect(result, event))
+      if (!publishedRequest(event)) {
+        return hasPreviewCookie(event) ? withPreview(next, preview => preview.run(event, next)) : next()
+      }
+      return withPreview(next, (preview) => {
+        // A redirect keeps the request published: the browser follows it with the cookie, but without this URL.
+        markNodeRedirects(event)
+        return preview.run(event, next).then(result => publishedRedirect(result, event))
+      })
     }
     /** Checks a preview frame form and runs the page with its grant, or returns the 403 error page. */
     async function runFrame(blocked: boolean, body: string | undefined, next: () => unknown): Promise<unknown> {
       if (blocked) return forbidden("A preview frame must come from this site.")
       if (body === undefined) return forbidden("The preview form was larger than 1 MiB or did not arrive whole.")
       const form = parseContentPreviewFrameForm(body)
+      const preview = form && await source.load()
+      const frame = preview && frames.get(preview)
       const ran = form && frame ? await frame.run(form, next) : undefined
       return ran ? privateResponse(ran.result) : forbidden("The preview expired. Open the preview again.")
     }
@@ -948,7 +1005,8 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     if (nitroApp.fetch instanceof Function) {
       const fetch = nitroApp.fetch
       nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
-        const url = request instanceof Request ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
+        // Only a POST can be a preview frame, so other requests skip parsing their URL.
+        const url = request instanceof Request && String(request.method).toUpperCase() === "POST" ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
         if (!(request instanceof Request) || !isFrameRequest(request.method, url)) {
           return scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
         }
@@ -978,7 +1036,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
         const url = isObject(event) ? frameUrl(request?.url, request?.headers, secureRequest(event)) : undefined
         if (!event || !request || !isFrameRequest(request.method, url)) {
           // The page of a frame runs here through localCall, inside the frame scope.
-          if (isObject(event) && preview.frame() !== undefined) inlineFramePayload(event)
+          if (isObject(event) && source.loaded()?.frame() !== undefined) inlineFramePayload(event)
           return scoped(event, () => Reflect.apply(handler, h3App, [event]))
         }
         return (async () => {
