@@ -52,6 +52,8 @@ export interface PostgresQueueEngineOptions {
   pollIntervalMs?: number
   /** The Queue Definitions whose jobs this process runs. */
   queues: () => readonly string[]
+  /** Rechecks a runtime-owned connection before workers poll for jobs. */
+  refreshConnection?: () => Promise<void>
   /** Milliseconds before the next delivery after `attempts` failed deliveries. Defaults to the local rules. */
   retryDelayMs?: (attempts: number) => number
   /** Table of the jobs. Defaults to `vitehub_queue_jobs`. */
@@ -139,6 +141,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   const times = sql`to_json(run_at) #>> '{}' as run_at, to_json(created_at) #>> '{}' as created_at, to_json(failed_at) #>> '{}' as failed_at`
 
   const running = new Map<string, Promise<void>>()
+  const renewals = new Set<ReturnType<typeof setInterval>>()
   const runningPerQueue = new Map<string, number>()
   const concurrency = new Map<string, number>()
   let ready: Promise<void> | undefined
@@ -220,6 +223,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   async function pump() {
     let wait = pollIntervalMs
     try {
+      if (closed) return
+      await options.refreshConnection?.()
+      if (closed) return
       await ensureTable()
       for (const queue of options.queues()) {
         if (closed) return
@@ -307,12 +313,14 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
         where id = ${row.id} and locked_by = ${workerId} and attempts = ${row.attempts}`.then((result) => {
         if (!result.count && handling) {
           clearInterval(renew)
+          renewals.delete(renew)
           console.warn(`[vitehub:queue] The postgres provider lost the claim of a "${row.queue}" job ${row.message_id}. Another delivery may be running.`)
         }
       }).catch((error: unknown) => {
         console.error(`[vitehub:queue] The postgres provider cannot renew the claim of a "${row.queue}" job.`, error)
       })
     }, Math.max(250, lockSeconds * 1000 / 3))
+    renewals.add(renew)
     renew.unref?.()
     let failure: { error: unknown } | undefined
     try {
@@ -326,6 +334,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     finally {
       handling = false
       clearInterval(renew)
+      renewals.delete(renew)
     }
     try {
       if (!failure) {
@@ -381,6 +390,8 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       closed = true
       if (timer) clearTimeout(timer)
       timer = undefined
+      // A listener that is still starting must also be released.
+      await started
       // A claim in progress adds its jobs to `running` before it ends.
       await pumping
       // Jobs that do not end in time keep their claim. Another instance runs them again when the claim ends.
@@ -392,6 +403,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
         }),
       ])
       clearTimeout(drainTimer)
+      // Keep leases alive during the drain, but let unfinished claims expire after its deadline.
+      for (const renew of renewals) clearInterval(renew)
+      renewals.clear()
       if (running.size) console.warn(`[vitehub:queue] The postgres provider stopped with ${running.size} running job${running.size === 1 ? "" : "s"}. Another instance runs ${running.size === 1 ? "it" : "them"} again in ${lockSeconds} s.`)
       await unlisten?.().catch(() => {})
       // A borrowed client belongs to the Database, which keeps using it.
@@ -468,6 +482,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     },
     rules,
     start() {
+      if (closed) return Promise.resolve()
       started ??= (async () => {
         try {
           const listener = await sql.listen(channel, () => wake())
@@ -495,16 +510,22 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   }
 }
 
-export function createPostgresQueueClient(engine: PostgresQueueEngine, queue: string): PostgresQueueClient {
+export function createPostgresQueueClient(engine: PostgresQueueEngine, queue: string, resolveEngine?: () => Promise<PostgresQueueEngine>): PostgresQueueClient {
+  let activeEngine = engine
+  async function enqueue(entries: readonly LocalQueueEntry[]) {
+    const current = resolveEngine ? await resolveEngine() : engine
+    activeEngine = current
+    return await current.enqueue(queue, entries)
+  }
   return {
     provider: "postgres",
-    native: engine,
+    get native() { return activeEngine },
     queue,
     async send(payload, options) {
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = queueUnsupportedOptionsError(normalized.options, "postgres", engine.rules.unsupportedOptions)
       if (optionsError) return [optionsError, undefined]
-      const [error, ids] = await queueProviderResult("postgres", "send", () => engine.enqueue(queue, [{
+      const [error, ids] = await queueProviderResult("postgres", "send", () => enqueue([{
         delaySeconds: normalized.options.delaySeconds,
         id: normalized.id,
         idempotencyKey: normalized.options.idempotencyKey,
@@ -514,7 +535,7 @@ export function createPostgresQueueClient(engine: PostgresQueueEngine, queue: st
       return [undefined, { messageId: ids[0], status: "queued" }]
     },
     async sendBatch(items, options) {
-      const [error, ids] = await queueProviderResult("postgres", "send-batch", () => engine.enqueue(queue, items.map(item => ({
+      const [error, ids] = await queueProviderResult("postgres", "send-batch", () => enqueue(items.map(item => ({
         delaySeconds: item.delaySeconds ?? options?.delaySeconds,
         id: createQueueMessageId(),
         idempotencyKey: item.idempotencyKey,

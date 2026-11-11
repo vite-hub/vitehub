@@ -10,7 +10,10 @@ import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
 import { queueUnsupportedOptionsError } from "../src/errors.ts"
 import { closePostgresQueues, createPostgresQueueRuntimeClient, resolvePostgresQueueConnection, startPostgresQueue } from "../src/internal/runtime/postgres-client.ts"
-import { getQueueRuntimeJobStore, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
+import { getQueueRuntimeJobStore, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
+import { createLocalQueueRuntimeClient } from "../src/internal/runtime/local-client.ts"
+import { dynamicQueue } from "../src/runtime/client.ts"
+import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createPostgresQueueClient, createPostgresQueueEngine } from "../src/providers/postgres.ts"
 
 import type { ChildProcess } from "node:child_process"
@@ -388,6 +391,78 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     }
   })
 
+  it.each(["send", "job operation", "worker poll"])("follows Database connection replacement through %s", async (refresh) => {
+    tables.push("vitehub_queue_jobs")
+    vi.stubEnv("QUEUE_POSTGRES_URL", undefined)
+    vi.stubEnv("VITEHUB_TEST_QUEUE_DATABASE_URL", url!)
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_QUEUE_DATABASE_URL" } } }, dialect: "postgresql", schema: {} })
+    const db = createPostgresDatabase(definition, { binding: "DB" })
+    const queue = `connection_${randomUUID()}`
+    const ran: unknown[] = []
+    const config = { database: "default", provider: "postgres" } as const
+    setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
+    setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
+    try {
+      startPostgresQueue(config, async () => ({ default: { db } }))
+      const held = await dynamicQueue.use(queue)
+      expect((await held.send("before"))[0]).toBeUndefined()
+      await until(async () => ran, values => values.includes("before"))
+      const previous = Reflect.get(db, "$client")
+      const replacement = new URL(url!)
+      replacement.searchParams.set("application_name", `queue-${randomUUID()}`)
+      process.env.VITEHUB_TEST_QUEUE_DATABASE_URL = replacement.href
+      await db.execute("select 1")
+      expect(Reflect.get(db, "$client")).not.toBe(previous)
+      await previous.end()
+
+      if (refresh === "job operation") await (await getQueueRuntimeJobStore())!.jobs()
+      if (refresh === "worker poll") {
+        // Another instance enqueues, so no local send or job operation can refresh this worker.
+        const producer = engine({ connection: { client: sql! }, table: "vitehub_queue_jobs" })
+        await createPostgresQueueClient(producer, queue).send("external")
+        await until(async () => ran, values => values.includes("external"), 8000)
+      }
+      expect(await dynamicQueue.use(queue)).toBe(held)
+      expect((await held.send("held"))[0]).toBeUndefined()
+      expect((await dynamicQueue.send(queue, "named"))[0]).toBeUndefined()
+      expect((await held.sendBatch([{ body: "batch" }]))[0]).toBeUndefined()
+      await until(async () => ran, values => ["held", "named", "batch"].every(value => values.includes(value)), 8000)
+    }
+    finally {
+      await closePostgresQueues()
+      setQueueRuntimeConfig(undefined)
+      setQueueRuntimeRegistry(undefined)
+      await Reflect.get(db, "$client").end()
+      vi.unstubAllEnvs()
+    }
+  }, 15_000)
+
+  it.each(["standalone", "local app"])("creates a send-only direct Postgres client in a %s", async (mode) => {
+    tables.push("vitehub_queue_jobs")
+    vi.stubEnv("QUEUE_POSTGRES_URL", url!)
+    const queue = `direct_${randomUUID()}`
+    const factory = vi.fn(createLocalQueueRuntimeClient)
+    const handler = vi.fn()
+    setQueueRuntimeRegistry({ [queue]: async () => ({ handler }) })
+    if (mode === "local app") setQueueRuntimeConfig({ provider: "local" }, factory)
+    try {
+      const client = await createQueueClient({ provider: "postgres", queue })
+      expect((await client.send("one"))[0]).toBeUndefined()
+      expect((await client.sendBatch([{ body: "two" }]))[0]).toBeUndefined()
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      expect(factory).not.toHaveBeenCalled()
+      expect(handler).not.toHaveBeenCalled()
+      const rows = await sql!`select status, attempts from vitehub_queue_jobs where queue = ${queue}`
+      expect(rows).toEqual([{ status: "pending", attempts: 0 }, { status: "pending", attempts: 0 }])
+    }
+    finally {
+      await closePostgresQueues()
+      setQueueRuntimeConfig(undefined)
+      setQueueRuntimeRegistry(undefined)
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("reports a dead job whose idempotency key a newer live job holds", async () => {
     const consumer = engine({ handler: () => { throw new Error("boom") }, retryDelayMs: () => 50, table: table() })
     await consumer.start()
@@ -430,6 +505,47 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const [{ count }] = await sql!<{ count: number }[]>`select count(*)::int as count from ${sql!(name)}`
     expect(count).toBe(0)
   })
+
+  it("renews during drain, then lets another worker reclaim after the deadline", async () => {
+    const name = table()
+    const gate = createGate()
+    const nextGate = createGate()
+    const firstRuns: QueueJob[] = []
+    const nextRuns: QueueJob[] = []
+    const first = engine({
+      connection: { client: sql! }, drainTimeoutMs: 1200, lockSeconds: 1, table: name,
+      handler: async (job) => { firstRuns.push(job); await gate.promise },
+    })
+    const next = engine({
+      lockSeconds: 1, table: name,
+      handler: async (job) => { nextRuns.push(job); await nextGate.promise },
+    })
+    try {
+      await first.start()
+      const [, sent] = await createPostgresQueueClient(first, "jobs").send({})
+      await until(async () => firstRuns.length, count => count === 1)
+      const closing = first.close()
+      await new Promise(resolve => setTimeout(resolve, 1050))
+      const [duringDrain] = await sql!`select locked_until > now() as held from ${sql!(name)}`
+      expect(duringDrain!.held).toBe(true)
+      await closing
+      await expect(sql!`select 1`).resolves.toBeDefined()
+      await next.start()
+      await until(async () => nextRuns.length, count => count === 1, 4000)
+      expect(nextRuns[0]).toMatchObject({ attempts: 2, id: sent!.messageId })
+      gate.resolve()
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // A late completion from the closed worker cannot acknowledge the replacement claim.
+      expect(await next.job(sent!.messageId!)).toMatchObject({ attempts: 2, state: "running" })
+      nextGate.resolve()
+      await until(() => next.jobs(), jobs => jobs.length === 0)
+    }
+    finally {
+      gate.resolve()
+      nextGate.resolve()
+      await Promise.all([first.close(), next.close()])
+    }
+  }, 10_000)
 
   it("runs 1,000 jobs exactly once over 3 processes", async () => {
     const name = table()

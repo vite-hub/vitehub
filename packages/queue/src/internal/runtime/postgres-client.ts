@@ -16,11 +16,36 @@ export type PostgresQueueDatabasesLoader = () => Promise<PostgresQueueDatabases>
 const postgresUrl = /^postgres(?:ql)?:\/\//i
 
 let loadDatabases: PostgresQueueDatabasesLoader | undefined
-// The generated server starts workers. A script with a direct client only sends.
-let workers = false
-// One engine per process, so every client shares the workers. A new connection replaces it.
-let current: { engine: PostgresQueueEngine, key: object | string } | undefined
-let pending: Promise<PostgresQueueEngine> | undefined
+interface EngineState {
+  current?: { engine: PostgresQueueEngine, key: object | string }
+  pending?: Promise<PostgresQueueEngine>
+  started?: PostgresQueueEngine
+  workers: boolean
+}
+
+// Clients with the same configuration share delivery. Direct producers with other configurations only send.
+const engines = new Map<string, EngineState>()
+const retiring = new Set<Promise<void>>()
+type EngineConfig = { database?: string, development?: boolean }
+
+function engineState(config: EngineConfig): EngineState {
+  const key = JSON.stringify([config.database ?? null, config.development === true])
+  let state = engines.get(key)
+  if (!state) {
+    state = { workers: false }
+    engines.set(key, state)
+  }
+  return state
+}
+
+function startWorkers(state: EngineState, engine: PostgresQueueEngine) {
+  if (!state.workers || state.started === engine) return
+  state.started = engine
+  console.info(`[vitehub:queue] Queue uses the postgres provider. Jobs are in ${engine.base}. Every instance of the app takes jobs from it.`)
+  engine.start().catch((error: unknown) => {
+    console.error(`[vitehub:queue] The postgres provider cannot start the workers on ${engine.base}.`, error)
+  })
+}
 
 interface ResolvedConnection {
   connection: PostgresQueueConnection
@@ -50,35 +75,37 @@ export async function resolvePostgresQueueConnection(
   throw queueErrorDiagnostics.QUEUE_POSTGRES_MISSING_CONNECTION({ database: config.database })
 }
 
-async function getPostgresQueueEngine(config: { database?: string, development?: boolean }): Promise<PostgresQueueEngine> {
-  // Wait for an engine that is starting, so two first sends do not start two engines.
-  await pending?.catch(() => {})
-  const { connection, key } = await resolvePostgresQueueConnection(config)
-  if (current?.key === key) return current.engine
-  const previous = current?.engine
-  const engine = createPostgresQueueEngine({
-    connection,
-    development: config.development === true,
-    load: loadQueueDefinition,
-    missing: missingQueueDefinitionError,
-    queues: listQueueDefinitionNames,
-  })
-  current = { engine, key }
-  // The old engine finishes its running jobs and closes.
-  void previous?.close()
-  if (workers) {
-    console.info(`[vitehub:queue] Queue uses the postgres provider. Jobs are in ${engine.base}. Every instance of the app takes jobs from it.`)
-    engine.start().catch((error: unknown) => {
-      console.error(`[vitehub:queue] The postgres provider cannot start the workers on ${engine.base}.`, error)
+function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngine> {
+  const state = engineState(config)
+  // Serialize resolution too: concurrent sends must not replace each other's engine.
+  const pending = (state.pending?.catch(() => {}) ?? Promise.resolve()).then(async () => {
+    const { connection, key } = await resolvePostgresQueueConnection(config)
+    if (state.current?.key === key) {
+      startWorkers(state, state.current.engine)
+      return state.current.engine
+    }
+    const previous = state.current?.engine
+    const engine = createPostgresQueueEngine({
+      connection,
+      development: config.development === true,
+      load: loadQueueDefinition,
+      missing: missingQueueDefinitionError,
+      queues: listQueueDefinitionNames,
+      // Workers must follow Database replacement even without a local send or job operation.
+      refreshConnection: async () => { await usePostgresQueueEngine(config) },
     })
-  }
-  return engine
-}
-
-function usePostgresQueueEngine(config: { database?: string, development?: boolean }): Promise<PostgresQueueEngine> {
-  const engine = getPostgresQueueEngine(config)
-  pending = engine
-  return engine
+    state.current = { engine, key }
+    if (previous) {
+      const closing = previous.close().catch((error: unknown) => {
+        console.error("[vitehub:queue] The postgres provider cannot close its previous connection.", error)
+      }).finally(() => retiring.delete(closing))
+      retiring.add(closing)
+    }
+    startWorkers(state, engine)
+    return engine
+  })
+  state.pending = pending
+  return pending
 }
 
 export async function createPostgresQueueRuntimeClient(options: QueueRuntimeProviderOptions): Promise<QueueClient> {
@@ -86,7 +113,7 @@ export async function createPostgresQueueRuntimeClient(options: QueueRuntimeProv
     throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "postgres", provider: options.provider })
   }
   if (!options.queue) throw queueErrorDiagnostics.QUEUE_MISSING_QUEUE()
-  return createPostgresQueueClient(await usePostgresQueueEngine(options), options.queue)
+  return createPostgresQueueClient(await usePostgresQueueEngine(options), options.queue, () => usePostgresQueueEngine(options))
 }
 
 /**
@@ -97,7 +124,7 @@ export async function createPostgresQueueRuntimeClient(options: QueueRuntimeProv
 export function startPostgresQueue(config: false | QueueRuntimeOptions, databases?: PostgresQueueDatabasesLoader): void {
   if (config === false || config.provider !== "postgres") return
   loadDatabases = databases
-  workers = true
+  engineState(config).workers = true
   setQueueRuntimeJobStore(() => usePostgresQueueEngine(config))
   usePostgresQueueEngine(config).catch((error: unknown) => {
     console.error("[vitehub:queue] The postgres provider cannot start the workers.", error)
@@ -106,12 +133,11 @@ export function startPostgresQueue(config: false | QueueRuntimeOptions, database
 
 /** Stops taking jobs, waits for the running jobs up to 10 seconds, and closes the connections it opened. The jobs stay. */
 export async function closePostgresQueues(): Promise<void> {
-  await pending?.catch(() => {})
-  const engine = current?.engine
-  current = undefined
-  pending = undefined
-  loadDatabases = undefined
-  workers = false
+  const states = [...engines.values()]
+  for (const state of states) state.workers = false
   setQueueRuntimeJobStore(undefined)
-  await engine?.close()
+  await Promise.all(states.map(state => state.pending?.catch(() => {})))
+  await Promise.all([...states.map(state => state.current?.engine.close()), ...retiring])
+  engines.clear()
+  loadDatabases = undefined
 }

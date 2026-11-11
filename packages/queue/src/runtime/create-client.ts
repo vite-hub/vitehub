@@ -1,7 +1,4 @@
-import { getQueueRuntimeClientFactory } from "../internal/runtime/state.ts"
-
 import type { QueueClient, QueueProviderOptions } from "../types.ts"
-import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 export async function createQueueClient(options: QueueProviderOptions): Promise<QueueClient> {
   if (options.provider === "cloudflare") {
@@ -21,10 +18,8 @@ export async function createQueueClient(options: QueueProviderOptions): Promise<
   }
 
   if (options.provider === "postgres") {
-    // The generated server installs the postgres client, so an app without it does not bundle the Postgres driver.
-    const createClient = getQueueRuntimeClientFactory()
-    if (!createClient) throw queueErrorDiagnostics.QUEUE_RUNTIME_NOT_INSTALLED()
-    return await createClient(options)
+    const { createPostgresQueueRuntimeClient } = await import("../internal/runtime/postgres-client.ts")
+    return await createPostgresQueueRuntimeClient(options)
   }
 
   const { createVercelQueueRuntimeClient } = await import("../internal/runtime/vercel-client.ts")
