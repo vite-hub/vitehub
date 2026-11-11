@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
 // The Node build of vega-canvas loads the optional `canvas` package with a top-level await, which Nitro's es2019 target rejects.
@@ -9,9 +9,9 @@ const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     alias: { "vega-canvas": vegaCanvasBrowser },
-    copy: [{ from: "styles.css", to: "dist" }],
+    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }],
     deps: {
       alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
       // Keep vega-loader's Node/browser exports selectable by the consuming host.
@@ -55,6 +55,7 @@ export default defineConfig({
       "src/prompt-input.ts",
       "src/trace.ts",
       "src/headless.ts",
+      "src/theme.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",
       "src/runtime/nuxt-plugin.ts",
@@ -70,6 +71,8 @@ export default defineConfig({
       "src/connect-panel.ts",
       "src/browser-support-notice.ts",
       "src/playground.ts",
+      "src/playground-container.ts",
+      "src/playground-render.ts",
     ],
     exports: {
       customExports(exports) {
@@ -88,16 +91,9 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        const remapped = Object.fromEntries(
-          Object.entries(normalized).map(([key, value]) =>
-            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
-          ),
-        );
-        return { ...remapped, "./styles.css": "./dist/styles.css" };
+        return { ...normalized, "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: true,
   },
 });

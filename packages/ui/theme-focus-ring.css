@@ -1,0 +1,5 @@
+/* Shared with styles.css so a control with an invisible native input keeps its theme ring on the documented installation path. */
+:where([data-focus-ring]):has(:focus-visible) {
+  outline: 2px solid var(--vh-focus, var(--vh-primary));
+  outline-offset: 2px;
+}

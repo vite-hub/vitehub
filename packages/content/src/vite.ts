@@ -2,6 +2,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { gzipSync } from "node:zlib"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
@@ -53,7 +54,7 @@ export async function buildContentSnapshotModules(options: {
   // A module id inside the project, so `importBase` resolves from the app as the generated Content routes do.
   const entry = join(options.projectRoot, ".vitehub/content/snapshots.build.mjs")
   const code = [
-    `import { content } from ${JSON.stringify(pathToFileURL(options.file).href)}`,
+    `import content from ${JSON.stringify(pathToFileURL(options.file).href)}`,
     `import { buildContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}`,
     // The parse runs while the module loads: the runner closes when runnerImport() returns.
     "export default await buildContentSnapshots(content)",
@@ -144,10 +145,11 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
         const [name = "", shard] = id.slice(SNAPSHOT_ID.length).split(":")
         const snapshot = built?.snapshots[name]
         if (!snapshot) return
-        // JSON text parses faster than the same data as a JavaScript object literal.
-        if (shard !== undefined) return `export default ${JSON.stringify(snapshot.shards[Number(shard)])}`
+        // Gzipped JSON in base64: a host compiles the module by its gzip size, and the server decodes it on first use.
+        const gzip = (text: string) => JSON.stringify(gzipSync(text, { level: 9 }).toString("base64"))
+        if (shard !== undefined) return `export default ${gzip(snapshot.shards[Number(shard)]!)}`
         const shards = snapshot.shards.map((_, number) => `() => import(${JSON.stringify(`${SNAPSHOT_ID}${name}:${number}`)}).then(module => module.default)`)
-        return `export default { index: ${JSON.stringify(snapshot.index)}, shards: [${shards.join(", ")}] }`
+        return `export default { index: ${gzip(snapshot.index)}, shards: [${shards.join(", ")}] }`
       },
     },
     vitehub: {
@@ -294,7 +296,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
 }
 
 /**
- * Console section for Content. It edits the document collections of the `content` export of `server/content.ts`.
+ * Console section for Content. It edits the document collections of the default export of `server/content.ts`.
  * Every action checks `content.can()` with the signed-in Console user. The Console shows the section only when
  * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
  */
@@ -353,7 +355,7 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
   await mkdir(options.directory, { recursive: true })
   await Promise.all([
     writeFile(definition, [
-      `import { content } from ${JSON.stringify(pathToFileURL(file).href)}`,
+      `import content from ${JSON.stringify(pathToFileURL(file).href)}`,
       `import { contentRealtime } from ${JSON.stringify(options.contentImport)}`,
       ...(options.console
         ? [

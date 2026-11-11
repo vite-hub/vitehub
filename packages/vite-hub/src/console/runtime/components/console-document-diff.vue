@@ -32,10 +32,10 @@ const same = computed(() => oldFile.value.contents === newFile.value.contents);
 </script>
 
 <template>
-  <p v-if="same" class="rounded-md border border-default px-3 py-2 text-xs text-muted">Both versions are the same.</p>
+  <UEmpty v-if="same" size="sm" icon="i-lucide-equal" title="No changes" description="Both versions are the same." />
   <MultiFileDiff
     v-else
-    class="overflow-hidden rounded-md border border-default text-xs tabular-nums"
+    class="overflow-hidden rounded-lg border border-default text-xs tabular-nums"
     :old-file="oldFile"
     :new-file="newFile"
     :options="{ diffStyle: 'unified', disableFileHeader: true, overflow: 'wrap' }"

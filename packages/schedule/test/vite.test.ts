@@ -29,12 +29,19 @@ async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
   await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 }
 
+function hookHandler<T>(hook: unknown): T {
+  const handler: unknown = typeof hook === "function" ? hook : Reflect.get(Object(hook), "handler")
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: Each test passes the argument subset that the hook reads.
+  return handler as T
+}
+
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
-  return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/registry")
+  return hookHandler<(id: string) => unknown>(plugin.resolveId)("#vitehub/schedule/registry")
 }
 
 async function loadScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
-  return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/registry")
+  return await hookHandler<(id: string) => string | Promise<string>>(plugin.load)("\0#vitehub/schedule/registry")
 }
 
 async function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: string) {
@@ -334,12 +341,20 @@ describe("Vite schedule integration", () => {
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
   })
 
+  it("filters the resolveId and load hooks to the Schedule registry", () => {
+    const plugin = hubSchedule({ providerOutput: false })
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const ids = ["#vitehub/schedule/registry", "\0#vitehub/schedule/registry", "#vitehub/schedule/registry.mjs", "\0#vitehub/schedule/targets", "@vite-hub/schedule", "/app/server/schedules/report.ts"]
+    expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/schedule/registry"])
+    expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(["\0#vitehub/schedule/registry"])
+  })
+
   it("gives a built Process Runtime the static cron of each Schedule, so it loads Schedule modules when they are due", async () => {
     const root = await temporaryDirectory("vitehub-schedule-process-timings-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await Promise.all([
       writeFile(join(root, "server", "schedules", "report.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8"),
-      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule('*/5 * * * *', () => {})\n", "utf8"),
+      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '*/5 * * * *', handler: () => {} })\n", "utf8"),
       // A cron that only the module knows: the runtime loads it at startup.
       writeFile(join(root, "server", "schedules", "dynamic.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nconst cron = process.env.CRON ?? '* * * * *'\nexport default defineSchedule({ cron, handler: () => {} })\n", "utf8"),
     ])

@@ -10,7 +10,7 @@ navigation.kind: Guides
 An AI gateway is one object that knows where to send AI requests and how to sign them. Use it three ways:
 
 - **Driver routes:** set it as `driver.gateway`, and a provider Driver (Codex or Claude Code) sends its model requests through it.
-- **AI SDK models:** `languageModel(gateway, modelId)` from `@vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model for `generateText()`, `streamText()`, or any library that takes a model.
+- **AI SDK models:** `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model for `generateText()`, `streamText()`, or any library that takes a model.
 - **`ask()`:** gateways that reach [TypeSafe Jev](https://typesafe.ai) answer typed questions, such as "which category fits this transaction".
 
 A preset is a ready-made gateway for one provider, such as `openrouter()`, and its type says what it can do. `@vite-hub/gateways` has no Agent, Vite, or Nitro code, so it also works in a plain Node script, a Worker, or another framework.
@@ -33,8 +33,8 @@ pnpm add @vite-hub/gateways ai @ai-sdk/openai-compatible
 
 ```ts [answer.ts]
 import { generateText } from 'ai'
-import { openrouter } from '@vite-hub/gateways'
-import { languageModel } from '@vite-hub/gateways/ai-sdk'
+import { openrouter } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 // Reads OPENROUTER_API_KEY when it sends the request.
 const model = languageModel(openrouter(), 'google/gemini-3-flash')
@@ -59,7 +59,7 @@ The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'`
 ## Ask your first question
 
 ```ts [label.ts]
-import { ask, typesafe } from '@vite-hub/gateways'
+import { ask, typesafe } from 'vite-hub/gateways'
 
 // Reads TYPESAFE_API_KEY.
 const gateway = typesafe()
@@ -86,7 +86,7 @@ TypeScript infers answer types from the questions. [Use an ask Driver](/docs/age
 `askWithModel(model)` answers the same questions with any [AI SDK](https://ai-sdk.dev) model, in one structured output request. Use it where a gateway with `ask()` goes. It needs the `ai` package:
 
 ```ts [label.ts]
-import { ask, askWithModel } from '@vite-hub/gateways'
+import { ask, askWithModel } from 'vite-hub/gateways'
 import { openai } from '@ai-sdk/openai'
 
 const answers = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
@@ -123,7 +123,7 @@ Behind Cloudflare Access, pass `cloudflareAccess()` as `headers`, such as `clipr
 A preset reads each value that you did not pass when it sends a request:
 
 - Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table.
-- Provider Drivers, ask Drivers, `llmGate()`, and `llmRoute()` supply [Server Env](/docs/env/configure) with the request's Cloudflare bindings.
+- Provider Drivers and ask Drivers supply [Server Env](/docs/env/configure) with the request's Cloudflare bindings.
 - `languageModel()` reads `process.env`, also in an AI SDK model Driver.
 
 For a direct call that needs provider-backed Server Env or request bindings, load the values yourself and pass them.
@@ -133,7 +133,7 @@ Vercel uses separate Server Env fields: `vercel.apiKey` reads `AI_GATEWAY_API_KE
 A passed value replaces its variable. Pass values when your application stores credentials, such as one key per tenant:
 
 ```ts fragment
-import { cloudflare, typesafe, vercel } from '@vite-hub/gateways'
+import { cloudflare, typesafe, vercel } from 'vite-hub/gateways'
 
 typesafe({ apiKey: tenant.typesafeKey })
 vercel({ apiKey: tenant.aiGatewayKey })
@@ -185,8 +185,6 @@ export default defineAgent({
   },
 })
 ```
-
-[`llmGate()`](/docs/agents/capabilities/llm-gate) and [`llmRoute()`](/docs/agents/capabilities/llm-route) take the same `gateway` option for their Jev decisions.
 
 ViteHub declares gateway variables in Server Env for the presets that Agent files import from `vite-hub/gateways`, as `env.server.<preset>.<field>`, such as `env.server.cloudflare.accountId`. A preset reads its own `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_CLOUDFLARE_TYPESAFE_API_KEY` for the TypeSafe key of `cloudflare()`. The Console shows them, and an [Env provider](/docs/env/server-api#read-external-env-storage) can supply them. They stay optional, so a server that does not use the gateway still starts. For the default `typesafe()` gateway, add `typesafe: typesafeEnv()` from `vite-hub/env` to `env.server`.
 

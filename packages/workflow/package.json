@@ -41,10 +41,10 @@
       "import": "./dist/runtime/openworkflow.js",
       "default": "./dist/runtime/openworkflow.js"
     },
-    "./runtime/openworkflow-worker": {
-      "types": "./dist/runtime/openworkflow-worker.d.ts",
-      "import": "./dist/runtime/openworkflow-worker.js",
-      "default": "./dist/runtime/openworkflow-worker.js"
+    "./openworkflow": {
+      "types": "./dist/openworkflow.d.ts",
+      "import": "./dist/openworkflow.js",
+      "default": "./dist/openworkflow.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
@@ -62,10 +62,10 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/workflow#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
+    "test": "vp run --cache -t @vite-hub/workflow#build && vp run --cache -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:vercel",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
@@ -77,6 +77,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
@@ -86,6 +87,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/database": "workspace:*",
     "@workflow/builders": "catalog:workflow",
     "openworkflow": "catalog:workflow",
@@ -93,6 +95,9 @@
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },

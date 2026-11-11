@@ -7,6 +7,7 @@ import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule } from "./execute.ts"
 import { runStartedSchedules } from "./started.ts"
 import { getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
+import { isRecordOrFunction as isObject } from "@vite-hub/internal/object"
 
 import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
 import type { ScheduleCronRecord } from "./due.ts"
@@ -56,15 +57,10 @@ interface StaticScheduleEntry extends ProcessScheduleTiming {
   name: string
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function isStaticScheduleDefinition(value: unknown): value is CronScheduleDefinition {
   return isObject(value)
     && Object.hasOwn(value, "cron")
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
 }
 

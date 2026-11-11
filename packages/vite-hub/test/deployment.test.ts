@@ -5,7 +5,8 @@ import { join } from "node:path"
 import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { detectPreset } from "../src/deployment.ts"
+import { getDeploymentPreset } from "@vite-hub/internal/build/vite"
+
 import { vitehub } from "../src/index.ts"
 
 const hostVariables = [
@@ -24,35 +25,6 @@ const hostVariables = [
 
 afterEach(() => {
   vi.unstubAllEnvs()
-})
-
-describe("detectPreset", () => {
-  it.each([
-    [{ WORKERS_CI: "1" }, "cloudflare"],
-    [{ VERCEL: "1" }, "vercel"],
-    [{ NETLIFY: "true" }, "netlify"],
-    [{ DENO_DEPLOYMENT_ID: "abc123" }, "deno"],
-  ] as const)("detects the host from the provider variables in %o", (env, preset) => {
-    expect(detectPreset(env)).toBe(preset)
-  })
-
-  it("prefers VITEHUB_HOSTING, then NITRO_PRESET and SERVER_PRESET, over provider variables", () => {
-    expect(detectPreset({ VITEHUB_HOSTING: "netlify", NITRO_PRESET: "vercel", VERCEL: "1" })).toBe("netlify")
-    expect(detectPreset({ NITRO_PRESET: "cloudflare_module", SERVER_PRESET: "vercel", VERCEL: "1" })).toBe("cloudflare")
-    expect(detectPreset({ SERVER_PRESET: "node-server", VERCEL: "1" })).toBe("node")
-  })
-
-  it("returns undefined without a known host, and skips empty values and Cloudflare Pages", () => {
-    expect(detectPreset({})).toBeUndefined()
-    expect(detectPreset({ VITEHUB_HOSTING: " ", VERCEL: "" })).toBeUndefined()
-    expect(detectPreset({ CF_PAGES: "1" })).toBeUndefined()
-  })
-
-  it("reads process.env by default", () => {
-    for (const name of hostVariables) vi.stubEnv(name, "")
-    vi.stubEnv("NETLIFY", "true")
-    expect(detectPreset()).toBe("netlify")
-  })
 })
 
 describe("vitehub() without a preset", () => {
@@ -75,14 +47,14 @@ describe("vitehub() without a preset", () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     vi.stubEnv(name, value)
     const config = await buildConfig()
-    expect(config.vitehub).toEqual({ preset })
+    expect(getDeploymentPreset(config)).toBe(preset)
     expect(config.nitro?.preset).toBe(nitroPreset)
   })
 
   it("builds for Node when no variable names a host", async () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     const config = await buildConfig()
-    expect(config.vitehub).toEqual({ preset: "node" })
+    expect(getDeploymentPreset(config)).toBe("node")
     expect(config.nitro?.preset).toBe("node-server")
   })
 
@@ -91,7 +63,7 @@ describe("vitehub() without a preset", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-no-options-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     const config = await resolveConfig({ root, plugins: [vitehub()] }, "build")
-    expect(config.vitehub).toEqual({ preset: "node" })
+    expect(getDeploymentPreset(config)).toBe("node")
   })
 
   it("follows NITRO_PRESET instead of failing on a conflict", async () => {

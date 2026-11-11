@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 import type { SandboxRequirement } from "@vite-hub/sandbox"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, startAgentInvocation, streamAgent, type AgentErrorCode, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, startAgentInvocation, streamAgent, type AgentErrorCode, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
 import type { Result } from "@vite-hub/runtime"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
@@ -10,8 +10,7 @@ import { access, chat, content, email, git, gmail, inputCommands, mcp, modelsDev
 import { channelAdapter, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
-import { stdioMcpServer } from "../src/mcp/stdio.ts"
-import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
+import { streamAgentOutputToEvents, toAgentRunResult } from "../src/agent-output.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations, defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
 import { registerWorkspaceAgent } from "../src/server/workspace.ts"
 import type { AgentDefinition, AgentInvocationContextValues } from "../src/types.ts"
@@ -20,7 +19,6 @@ import type { AgentInvocationSummary, AgentInvocationContextStore, AgentInvokerP
 import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade, type WorkspaceName } from "@vite-hub/workspace"
 import type { AccessChatOptions, AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -45,7 +43,7 @@ describe("agent public types", () => {
     expectTypeOf<AgentCallbackContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
   })
 
-  it("preserves native Capability context inference beside Eve mounts", () => {
+  it("preserves native Capability context inference in static capabilities", () => {
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
       AgentRuntimeConfig,
@@ -53,7 +51,7 @@ describe("agent public types", () => {
       { invocationContext: { native: string } }
     >
     defineAgent({
-      capabilities: [native, githubExtension({ preset: "code-review" })],
+      capabilities: [native],
       driver: { run({ context }) {
         expectTypeOf(context.get("native")).toEqualTypeOf<string | undefined>()
         return "ok"
@@ -144,20 +142,15 @@ describe("agent public types", () => {
     })
   })
 
-  it("types Eve extensions in static capabilities", () => {
+  it("rejects values that are not Capabilities in static capabilities", () => {
     defineAgent({
-      capabilities: [githubExtension({ preset: "code-review" })],
-      driver: { run: () => "ok" },
-    })
-
-    defineAgent({
-      // @ts-expect-error arbitrary objects are neither Capabilities nor extension mounts
+      // @ts-expect-error arbitrary objects are not Capabilities
       capabilities: [{}],
       driver: { run: () => "ok" },
     })
 
     defineAgent({
-      // @ts-expect-error unrelated symbol-bearing objects are not extension mounts
+      // @ts-expect-error symbol-bearing objects are not Capabilities
       capabilities: [{ *[Symbol.iterator]() {} }],
       driver: { run: () => "ok" },
     })
@@ -173,12 +166,6 @@ describe("agent public types", () => {
     defineAgent({
       // @ts-expect-error readonly open arrays still validate every Capability
       capabilities: readonlyArbitraryCapabilities,
-      driver: { run: () => "ok" },
-    })
-
-    const typedExtensionCapabilities: AgentCapabilitiesInput = [githubExtension({ preset: "code-review" })]
-    defineAgent({
-      capabilities: typedExtensionCapabilities,
       driver: { run: () => "ok" },
     })
   })
@@ -1040,16 +1027,16 @@ describe("agent public types", () => {
   })
 
   it("keeps chat and webhook route ownership out of hubAgent options", () => {
-    const inspectionRoute: AgentModuleOptions = {
+    const inspectionRoute: AgentOptions = {
       routes: { inspection: "/internal/agents/[agent]" },
     }
-    const chatRoute: AgentModuleOptions = {
+    const chatRoute: AgentOptions = {
       routes: {
         // @ts-expect-error Chat route ownership belongs to webChat().
         chat: true,
       },
     }
-    const webhookRoute: AgentModuleOptions = {
+    const webhookRoute: AgentOptions = {
       routes: {
         // @ts-expect-error Webhook route ownership belongs to Channels.
         webhooks: true,
@@ -1061,13 +1048,13 @@ describe("agent public types", () => {
   })
 
   it("keeps Agent Eval configuration as runner options rather than an activation toggle", () => {
-    const evalOptions: AgentModuleOptions = {
+    const evalOptions: AgentOptions = {
       eval: {
         maxConcurrency: 2,
         testTimeout: 60_000,
       },
     }
-    const disabledEval: AgentModuleOptions = {
+    const disabledEval: AgentOptions = {
       // @ts-expect-error Executable Eval files control activation.
       eval: false,
     }
