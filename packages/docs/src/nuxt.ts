@@ -37,6 +37,8 @@ import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type 
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
+import type { Nuxt } from "nuxt/schema"
+
 import type { DocsSource } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
 import type { DocsPage } from "./types.ts"
@@ -553,7 +555,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const docsCss = addTemplate({
       filename: "docs/docs.css",
       write: true,
-      getContents: () => [
+      getContents: (): string => [
         // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
         `@layer theme, base, comark, components, utilities;`,
         ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
@@ -799,10 +801,8 @@ function iconifyName(icon: string): string | null {
   return match ? `${match[1]}:${match[2]}` : icon.includes(":") ? icon : null
 }
 
-type DocsHead = { meta?: Array<{ name?: string, content?: string }>, htmlAttrs?: Record<string, unknown>, titleTemplate?: string | null }
-
 /** The head of every page of a docs site. */
-function setDocsHead(head: DocsHead, siteName: string): void {
+function setDocsHead(head: Nuxt["options"]["app"]["head"], siteName: string): void {
   const meta = head.meta ??= []
   const viewport = meta.find(tag => tag.name === "viewport")
   // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
