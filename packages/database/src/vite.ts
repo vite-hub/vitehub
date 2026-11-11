@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { readFile, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -16,12 +16,13 @@ import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
-import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
@@ -389,15 +390,18 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   function installNitroMigrateOnStart() {
     const database = resolvedOptions()
     const settings = resolveMigrateOnStart(database)
-    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || (database && "nuxtHostResource" in database)) return
+    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || nitroOptions.preset === "nitro-prerender" || (database && "nuxtHostResource" in database)) return
+    const databases = selectMigrateOnStartDatabases(runtimeConfig, settings, resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }))
     const packageDir = computePackageDir(import.meta.url)
-    const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
-    writeFileIfChangedSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
-      ...settings,
+    const source = renderMigrateOnStartPlugin(runtimeConfig, {
+      allowDataLoss: settings.allowDataLoss,
+      databases,
       drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
-      host: resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }),
       runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),
-    }))
+    })
+    if (!source) return
+    const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
+    writeFileIfChangedSync(plugin, source)
     const plugins = nitroOptions.plugins ??= []
     if (!plugins.includes(plugin)) plugins.push(plugin)
   }
@@ -412,17 +416,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   async function copyNitroMigrations(serverDir: string) {
     if (!nitroMigrations.length) return
     await rm(resolve(serverDir, NITRO_MIGRATIONS_DIR), { force: true, recursive: true })
-    await Promise.all(nitroMigrations.map(async ({ source, target }) => {
-      const outputDir = resolve(serverDir, target)
-      const entries = await readdir(source, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return []
-        throw error
-      })
-      await mkdir(outputDir, { recursive: true })
-      await Promise.all(entries
-        .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
-        .map(entry => copyFile(resolve(source, entry.name), resolve(outputDir, entry.name))))
-    }))
+    await Promise.all(nitroMigrations.map(({ source, target }) => copyD1MigrationFiles(source, resolve(serverDir, target))))
   }
 
   return {

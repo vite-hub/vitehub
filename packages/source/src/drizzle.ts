@@ -87,8 +87,10 @@ function isCursorScalar(value: unknown): value is boolean | null | number | stri
 }
 
 function driverType(column: AnySQLiteColumn): "number" | "string" {
-  if (["boolean", "date", "number"].includes(column.dataType)) return "number"
-  if (column.dataType === "string") return "string"
+  // Drizzle 1.0 writes the data type as `<type> <constraint>`, such as `number int53` or `object date`.
+  const [type, constraint] = column.dataType.split(" ")
+  if (type === "boolean" || type === "number" || (type === "object" && constraint === "date")) return "number"
+  if (type === "string") return "string"
   throw sourceErrorDiagnostics.SOURCE_R0029({ message: "[vitehub] Collection orderBy columns must encode as number or string values." })
 }
 

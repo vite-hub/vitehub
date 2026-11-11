@@ -1,10 +1,12 @@
 import { defineNuxtPlugin, nextTick, ref, useHead, watch } from "#imports"
+import { ownsApp } from "#docs/shell"
 
 // The browser bar matches the page canvas: the `--ui-bg` of the design system, read from the page, so the theme stays
 // the only place that names the color. It follows the mode that the reader picks. A plugin, and not `app.vue`, so the
-// error page has it too. Prerendered HTML has no value, and browsers use their own bar color until the app starts.
+// error page has it too. An app with its own `app.vue` keeps its browser bar color. Prerendered HTML has no value, and
+// browsers use their own bar color until the app starts.
 export default defineNuxtPlugin((nuxtApp) => {
-  if (import.meta.server) return
+  if (!ownsApp || import.meta.server) return
   const color = ref<string>()
   const read = () => {
     color.value = getComputedStyle(document.documentElement).backgroundColor || undefined

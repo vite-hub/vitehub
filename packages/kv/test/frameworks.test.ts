@@ -37,7 +37,7 @@ describe("package surface", () => {
 })
 
 describe("hubKV", () => {
-  it("scopes the disabled KV optional-peer resolver to ViteHub's own imports", async () => {
+  it.each(["redis", "upstash"])("scopes the disabled KV %s optional-peer resolver to ViteHub's own imports", async (driver) => {
     const { hubKVOptionalPeerResolver } = await import("../src/vite.ts")
     const plugin = hubKVOptionalPeerResolver()
     const resolveId = testHook(plugin.resolveId, (
@@ -46,13 +46,14 @@ describe("hubKV", () => {
       _options: { ssr: boolean },
     ): unknown | Promise<unknown> => undefined)
 
-    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toEqual({
+    const id = `@vite-hub/kv/runtime/${driver}-driver`
+    expect(await resolveId(id, "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toEqual({
       external: true,
-      id: "@vite-hub/kv/runtime/upstash-driver",
+      id,
     })
     expect(await resolveId("@upstash/redis", "/app/node_modules/unstorage/dist/drivers/upstash.mjs", { ssr: true })).toBeUndefined()
-    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
-    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: false })).toBeUndefined()
+    expect(await resolveId(id, "/app/server/storage.ts", { ssr: true })).toBeUndefined()
+    expect(await resolveId(id, "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: false })).toBeUndefined()
     expect(await resolveId("unstorage/drivers/upstash", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
   })
 
@@ -63,12 +64,12 @@ describe("hubKV", () => {
     const matches = (pattern: RegExp, ids: string[]) => ids.filter(id => pattern.test(id))
 
     const nearMisses = ["@vite-hub/kv/runtime", "@vite-hub/kv/vite", "@vite-hub/kvx", "#vitehub/kv/config.mjs", "cloudflare:sockets", "/app/server/api/kv.ts"]
-    expect(matches(idFilter(plugin.resolveId), ["@vite-hub/kv", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config", ...nearMisses]))
-      .toEqual(["@vite-hub/kv", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config"])
+    expect(matches(idFilter(plugin.resolveId), ["@vite-hub/kv", "@vite-hub/kv/runtime/redis-driver", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config", ...nearMisses]))
+      .toEqual(["@vite-hub/kv", "@vite-hub/kv/runtime/redis-driver", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "#vitehub/kv/config"])
     expect(matches(idFilter(plugin.load), ["\0#vitehub/kv/runtime", "\0#vitehub/kv/config", "#vitehub/kv/config", "\0#vitehub/kv/config.mjs"]))
       .toEqual(["\0#vitehub/kv/runtime", "\0#vitehub/kv/config"])
-    expect(matches(idFilter(hubKVOptionalPeerResolver().resolveId), ["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "@vite-hub/kv", ...nearMisses]))
-      .toEqual(["@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers"])
+    expect(matches(idFilter(hubKVOptionalPeerResolver().resolveId), ["@vite-hub/kv/runtime/redis-driver", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers", "@vite-hub/kv", ...nearMisses]))
+      .toEqual(["@vite-hub/kv/runtime/redis-driver", "@vite-hub/kv/runtime/upstash-driver", "cloudflare:workers"])
   })
 
   it("resolves KV config from the Vite layer", async () => {

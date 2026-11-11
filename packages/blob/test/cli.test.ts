@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createBlobCliNamespaces, runBlobCli } from "../src/cli.ts"
 import { blobDevMaximumUploadBytes } from "../src/results.ts"
 import { hubBlob } from "../src/vite.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
@@ -48,11 +49,11 @@ function context() {
  * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
  */
 function devServer(result: unknown, init: { status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
-    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    if (status < 400) return operationRpcResponse(request?.body, { ok: true, value: result }, { status })
     const error = (result as { error: { code?: string, message: string } }).error
-    return Response.json({ ok: false, code: error.code ?? "BLOB_FAILED", message: error.message, status }, { status })
+    return operationRpcResponse(request?.body, { ok: false, code: error.code ?? "BLOB_FAILED", message: error.message, status })
   })
 }
 
@@ -63,7 +64,7 @@ function fileServer(bytes: Uint8Array, header: { contentType?: string, pathname:
 
 /** The operation and input that a command sent, with the operation name as `operation`. */
 function sentBody(fetch: ReturnType<typeof devServer>): Record<string, unknown> {
-  const { input, operation } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { input: Record<string, unknown>, operation: string }
+  const { input, operation } = operationRpcRequest(fetch.mock.calls[0]?.[1]?.body) as { input: Record<string, unknown>, operation: string }
   return { ...input, operation: operation.replace(/^blob\./, "") }
 }
 
@@ -125,7 +126,7 @@ describe("vitehub blob", () => {
     const output = context()
     const fetch = devServer({ blobs: [], hasMore: false, limit: 100, prefix: "", store: "default", stores: ["default"] })
     await expect(runBlobCli(["list"], output.context, { fetch })).resolves.toBe(0)
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://localhost:5173/_vitehub/rpc/__call")
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://localhost:5173/_vitehub/rpc")
     expect(sentBody(fetch)).toEqual({ operation: "list", showVitehub: true })
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-console")).toBe("1")
   })
@@ -168,7 +169,7 @@ describe("vitehub blob", () => {
       "",
     ].join("\n"))
     expect(human.stderr.output()).toBe("More blobs exist. Next page: --cursor next\n")
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc")
     expect(sentBody(fetch)).toEqual({ limit: 2, operation: "list", prefix: "images/", showVitehub: true })
 
     const json = context()

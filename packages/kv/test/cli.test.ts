@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createKVCliContributor, runKVCli } from "../src/cli.ts"
 import { hubKV } from "../src/vite.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const rootDir = "/app"
 
@@ -34,17 +35,17 @@ function context(cwd = rootDir) {
  * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
  */
 function devServer(result: unknown, init: { status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
-    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    if (status < 400) return operationRpcResponse(request?.body, { ok: true, value: result }, { status })
     const error = (result as { error: { code?: string, message: string } }).error
-    return Response.json({ ok: false, code: error.code ?? "KV_FAILED", message: error.message, status }, { status })
+    return operationRpcResponse(request?.body, { ok: false, code: error.code ?? "KV_FAILED", message: error.message, status })
   })
 }
 
 /** The operation and input that a command sent, with the operation name as `operation`. */
 function sentBody(fetch: ReturnType<typeof devServer>): Record<string, unknown> {
-  const { input, operation } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { input: Record<string, unknown>, operation: string }
+  const { input, operation } = operationRpcRequest(fetch.mock.calls[0]?.[1]?.body) as { input: Record<string, unknown>, operation: string }
   return { ...input, operation: operation.replace(/^kv\./, "") }
 }
 
@@ -291,11 +292,9 @@ describe("vitehub kv", () => {
     expect(human.stdout.output()).toBe("users:1\nusers:2\n")
     expect(human.stderr.output()).toBe("More keys exist. Next page: --cursor next\n")
     const [call] = fetch.mock.calls
-    expect(String(call?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
-    expect(call?.[1]).toMatchObject({
-      body: JSON.stringify({ operation: "kv.list", input: { limit: 2, prefix: "users:" } }),
-      method: "POST",
-    })
+    expect(String(call?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc")
+    expect(call?.[1]).toMatchObject({ method: "POST" })
+    expect(operationRpcRequest(call?.[1]?.body)).toEqual({ operation: "kv.list", input: { limit: 2, prefix: "users:" } })
     expect(new Headers(call?.[1]?.headers).get("x-vitehub-console")).toBe("1")
 
     const json = context()

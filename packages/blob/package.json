@@ -173,6 +173,7 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
+    "birpc": "catalog:runtime",
     "cjs-module-lexer": "2.3.0",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",

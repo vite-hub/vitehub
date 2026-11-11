@@ -23,15 +23,14 @@ The deployment `preset` in `vitehub({ preset: 'node' })` is different. It picks 
 
 ## Select and configure
 
-Import a preset, name it in the Agent's `presets` map, and select that name with `preset`.
+Import a preset and pass it as `extends`. The Agent inherits the preset and overrides only the options you set.
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/presets/babysitter'
 
 export default defineAgent({
-  preset: 'babysitter',
-  presets: { babysitter },
+  extends: babysitter,
   workspace: {},
   options: {
     filter: { repository: { allow: ['acme/app'] } },
@@ -67,12 +66,9 @@ See [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) 
 
 Export a `defineAgent()` definition. If users need workflow settings, add typed `options` and a synchronous `configure` callback. Keep credentials and network calls out of that callback.
 
-Declare `@vite-hub/agent` as a peer dependency. Include instructions and assets explicitly, because selecting a preset does not find files inside its package. See [Named presets](/docs/agents/agent-presets#named-presets) for the API.
+Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Presets from a package](/docs/agents/agent-presets#presets-from-a-package) for the authoring API.
 
-A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process-host`. In package.json:
-
-- List the subpath in `vitehub.agent.processHost`. ViteHub then starts the host and rejects hosts that cannot run it.
-- List subpaths that pick the Codex or Claude Code Driver in `vitehub.agent.providerDriver`. Worker builds then fail early.
+A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it. List subpaths that select the Codex or Claude Code Driver in `vitehub.agent.providerDriver`, so that Worker builds fail early:
 
 ```json [package.json]
 {

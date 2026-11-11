@@ -35,7 +35,6 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
       primary: {
         connection: {},
         dialect: "sqlite",
-        drizzle: {},
         generatedSchemaFile,
         migrationsDir,
         mode: "named",
@@ -101,7 +100,7 @@ describe("hosted Database runtime", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/definition-defaults.mjs"), "utf8"))
       .resolves.toBe('export default {"cloudflare":{},"cloudflareProjections":{}}\n')
     const expression = renderDatabaseConfigExpression("analytics", runtimeConfig, "definition")
-    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ connection: undefined, schema: {} }, resolveRuntimeCloudflareConfig)
     expect(config.cloudflare?.binding).toBe("DB_ANALYTICS")
   })
 
@@ -117,7 +116,7 @@ describe("hosted Database runtime", () => {
     })
     runtimeConfig.definitionDefaults.cloudflareProjections.primary = { resource: "inherited" }
     const expression = renderDatabaseConfigExpression("primary", runtimeConfig, "definition")
-    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ cloudflare: {}, connection: undefined, drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ cloudflare: {}, connection: undefined, schema: {} }, resolveRuntimeCloudflareConfig)
 
     expect(config.cloudflare).toMatchObject({
       binding: "DB_PRIMARY",

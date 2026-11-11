@@ -13,8 +13,6 @@ import {
   invalidRuntimeEnvValue,
   missingRequiredEnv,
 } from "./core/errors.ts"
-import { createEnvBridgeHandler, type EnvBridgeRequestOptions } from "./http.ts"
-import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
 import type { RuntimeEnvEntry, RuntimeProviderEntry } from "./core/registry.ts"
@@ -663,15 +661,4 @@ export async function inspectServerEnv(
   }
   if (options.signal?.aborted) throw abortReason(options.signal)
   return Object.freeze({ entries: Object.freeze(entries.map(entry => Object.freeze(entry))) })
-}
-
-/** Limit management to safe, declared provider paths. Host variables stay read-only. */
-export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response> {
-  const targets = new Map<string, { key: string; management: EnvManagement }>()
-  for (const { entry, path } of runtimeRegistryEntries(registry)) {
-    if (!isRuntimeProviderEntry(entry)) continue
-    const management = Object.hasOwn(providers, entry.source.provider) ? providers[entry.source.provider]?.management : undefined
-    if (inspectionPath(path).path && management) targets.set(path, { key: entry.source.key, management })
-  }
-  return createEnvBridgeHandler(path => targets.get(path))
 }
