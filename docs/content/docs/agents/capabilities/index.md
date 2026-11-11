@@ -65,9 +65,9 @@ To pick Capabilities per run, pass a callback. ViteHub calls it once, after it r
 ```ts [server/agents/support.ts] fragment
 export default defineAgent({
   driver: { model },
-  capabilities: ({ actor }) => [
+  capabilities: ({ invoker }) => [
     workspaceShell({ mode: 'read' }),
-    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+    ...(invoker.meta?.support === true ? [internalDiagnostics] : []),
   ],
 })
 ```

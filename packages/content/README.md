@@ -82,7 +82,7 @@ export default defineContent({
 ```
 
 ```ts fragment
-await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null }
+await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, cache }
 await content.sources.advance("docs") // move to the latest commit of main when every document parses
 await content.sources.pin(sha, "docs") // serve this commit until unpin(), for example to roll back
 await content.sources.unpin("docs")
@@ -97,6 +97,17 @@ await content.sources.unpin("docs")
 - ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
 - Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
 - When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
+
+### Commit cache
+
+The files of a commit never change. Content downloads each commit once per cache key, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so nothing purges a cache, on any host.
+
+- A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- `parserHash` hashes the Comark options, plugin source text, the Source fingerprint, its effective `prefix` and `schema`, and the build. Each build uses new keys.
+- The built-in parser reuses parsed documents from KV. With custom `markdown.plugins` or Content `plugins`, each new runtime parses the cached files again without a download. Function source text cannot identify captured plugin options or implementations. Within one runtime, memory holds the parsed result.
+- Content writes an artifact only after every document parses. A rollback with `pin()` to a valid commit reads it from the cache. A rejected load or failed download stays out of memory, so `advance()` can retry it.
+- Each server instance holds the last 4 commits in memory.
+- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
 ## Types
 
