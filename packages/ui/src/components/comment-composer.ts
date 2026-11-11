@@ -349,6 +349,8 @@ export const CommentComposer = defineComponent({
       // Esc belongs to the composer while it has the focus, so the page does not leave comment mode.
       event.preventDefault();
       event.stopPropagation();
+      // A held Esc repeats. Only a new press counts, so holding the key does not discard the text.
+      if (event.repeat) return;
       if (open) {
         // A lookup that is still on its way must not open the menu again.
         lookup++;
