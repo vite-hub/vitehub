@@ -17,6 +17,7 @@ import {
 } from "../src/console/runtime/client/oauth.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, openConsoleStorage } from "../src/console/runtime/client/projects.ts"
+import { operationRpcFetch, operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleOAuthLock, ConsoleOAuthFetch, ConsoleOAuthPendingSignIn, ConsoleOAuthTokens } from "../src/console/runtime/client/oauth.ts"
 
@@ -116,7 +117,7 @@ function fakeApp(options: { expiresIn?: number, issuerInResponse?: boolean, refr
       refresh.delete(body.get("token") ?? "")
       return new Response(null, { status: 200 })
     }
-    if (url === "https://app.example.com/_vitehub/rpc/__call") {
+    if (url === "https://app.example.com/_vitehub/rpc") {
       const token = headers.get("authorization")?.replace(/^Bearer /, "")
       if (!token) return Response.json({ code: "CONSOLE_SIGN_IN_REQUIRED", ok: false, status: 401 }, { headers: { "www-authenticate": challenge }, status: 401 })
       if (!access.has(token)) return Response.json({ code: "CONSOLE_SIGN_IN_REQUIRED", ok: false, status: 401 }, { headers: { "www-authenticate": `Bearer realm="vitehub-console", error="invalid_token", resource_metadata="${resourceMetadata}"` }, status: 401 })
@@ -499,7 +500,7 @@ describe("refresh across tabs without Web Locks", () => {
 
 describe("OAuth sign-in of a hosted Console", () => {
   async function hosted(server: ReturnType<typeof fakeApp>, storage = memoryProjectStorage(), lock?: ConsoleOAuthLock) {
-    vi.stubGlobal("fetch", server.fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(server.fetch))
     const session = await import("../src/console/runtime/client/project-session.ts")
     // The session sets the transport of its own module graph, which `vi.resetModules()` renews for each test.
     const { projectFetch } = await import("../src/console/runtime/client/project.ts")
@@ -540,10 +541,10 @@ describe("OAuth sign-in of a hosted Console", () => {
         release = resolve
         started()
       }))
-      request = projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
+      request = projectFetch("/_vitehub/rpc", { method: "POST", body: "{}" })
       await sent
     }
-    const upload = operation === "upload" ? await projectRequest("/_vitehub/rpc/__call") : undefined
+    const upload = operation === "upload" ? await projectRequest("/_vitehub/rpc") : undefined
     // The session can select a new project while an earlier request still owns the old transport.
     session.switchConsoleProject(other.id)
     expect(session.useConsoleProjects().current.value?.url).toBe(other.url)
@@ -551,13 +552,13 @@ describe("OAuth sign-in of a hosted Console", () => {
       expect(await transport.authorization?.()).toBe("Bearer access-a")
     }
     else if (upload) {
-      expect(upload.url).toBe(`${app.url}/_vitehub/rpc/__call`)
+      expect(upload.url).toBe(`${app.url}/_vitehub/rpc`)
       expect(await upload.renew('Bearer error="invalid_token"')).toEqual({ authorization: "Bearer access-1" })
     }
     else {
       release(new Response(null, { status: 401, headers: { "www-authenticate": 'Bearer error="invalid_token"' } }))
       const response = await request
-      const sent = server.fetch.mock.calls.filter(([url]) => String(url) === `${app.url}/_vitehub/rpc/__call`)
+      const sent = server.fetch.mock.calls.filter(([url]) => String(url) === `${app.url}/_vitehub/rpc`)
       expect(sent.map(([, init]) => new Headers(init?.headers).get("authorization"))).toEqual(["Bearer access-a", "Bearer access-1"])
       expect(response?.status).toBe(200)
     }
@@ -603,7 +604,7 @@ describe("OAuth sign-in of a hosted Console", () => {
 
   it("does not start a sign-in when the browser storage would not survive the redirect", async () => {
     const server = fakeApp()
-    vi.stubGlobal("fetch", server.fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(server.fetch))
     const session = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const options = { base: "", home: "/", mode: "hosted" as const, navigate, pageOrigin: consoleOrigin, storage: memoryProjectStorage() }
@@ -704,7 +705,7 @@ describe("OAuth sign-in of a hosted Console", () => {
     await session.finishConsoleOAuthSignIn(`?code=${code}&state=${new URL(authorizationUrl).searchParams.get("state")}`)
     expect(createConsoleProjectStore(storage).find(app.url)?.token).toBeUndefined()
     server.calls.length = 0
-    await projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
+    await projectFetch("/_vitehub/rpc", { method: "POST", body: "{}" })
     expect(server.calls.map(call => call.authorization)).toEqual(["Bearer access-1"])
   })
 
@@ -725,10 +726,10 @@ describe("OAuth sign-in of a hosted Console", () => {
     server.expire("access-1")
     server.calls.length = 0
 
-    const responses = await Promise.all([1, 2].map(() => projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })))
+    const responses = await Promise.all([1, 2].map(() => projectFetch("/_vitehub/rpc", { method: "POST", body: "{}" })))
     expect(responses.map(response => response.status)).toEqual([200, 200])
     expect(server.calls.filter(call => call.body.get("grant_type") === "refresh_token")).toHaveLength(1)
-    expect(server.calls.filter(call => call.url.endsWith("/rpc/__call")).map(call => call.authorization)).toEqual(["Bearer access-1", "Bearer access-1", "Bearer access-2", "Bearer access-2"])
+    expect(server.calls.filter(call => call.url.endsWith("/_vitehub/rpc")).map(call => call.authorization)).toEqual(["Bearer access-1", "Bearer access-1", "Bearer access-2", "Bearer access-2"])
     expect(createConsoleProjectStore(storage).find(app.url)?.oauth?.refreshToken).toBe("refresh-2")
   })
 
@@ -739,7 +740,7 @@ describe("OAuth sign-in of a hosted Console", () => {
     server.expire("access-1")
     await server.fetch(`${issuer}/oauth2/revoke`, { method: "POST", body: "token=refresh-1" })
 
-    const response = await projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
+    const response = await projectFetch("/_vitehub/rpc", { method: "POST", body: "{}" })
     expect(response.status).toBe(401)
     expect(createConsoleProjectStore(storage).find(app.url)?.oauth).toBeUndefined()
     expect(session.useConsoleProjects().gate.value).toMatchObject({ kind: "oauth", target: app, problem: { title: "Your sign-in to app.example.com ended" } })
@@ -916,24 +917,24 @@ describe("project snapshot of a request", () => {
   it("sends a token only to the project that it belongs to, also when another project opens during a refresh", async () => {
     const { projectFetch, projectRequest, setConsoleProject: open } = await import("../src/console/runtime/client/project.ts")
     const fetch = vi.fn(async (_input: string, _init?: RequestInit) => new Response(null, { status: 401 }))
-    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
     let refreshed!: (value: string) => void
     const refresh = new Promise<string>((resolve) => { refreshed = resolve })
     const renewed = vi.fn(async () => "Bearer a-2")
     open({ origin: "https://a.example.com", base: "", authorization: () => refresh, renew: renewed })
 
-    const request = projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
-    const upload = projectRequest("/_vitehub/rpc/__call", { "x-vitehub-console": "1" })
+    const request = projectFetch("/_vitehub/rpc", { method: "POST", body: "{}" })
+    const upload = projectRequest("/_vitehub/rpc", { "x-vitehub-console": "1" })
     // Project B opens while the token of project A is still refreshing.
     open({ origin: "https://b.example.com", base: "", authorization: () => "Bearer b-1" })
     refreshed("Bearer a-1")
     await request
 
     const sent = fetch.mock.calls.map(([url, init]) => [url, new Headers(init?.headers).get("authorization")])
-    expect(sent).toEqual([["https://a.example.com/_vitehub/rpc/__call", "Bearer a-1"], ["https://a.example.com/_vitehub/rpc/__call", "Bearer a-2"]])
+    expect(sent).toEqual([["https://a.example.com/_vitehub/rpc", "Bearer a-1"], ["https://a.example.com/_vitehub/rpc", "Bearer a-2"]])
     expect(renewed).toHaveBeenCalledOnce()
     const prepared = await upload
-    expect({ url: prepared.url, headers: prepared.headers }).toEqual({ url: "https://a.example.com/_vitehub/rpc/__call", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
+    expect({ url: prepared.url, headers: prepared.headers }).toEqual({ url: "https://a.example.com/_vitehub/rpc", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
     // The renewal of the upload also belongs to project A.
     expect(await prepared.renew(null)).toEqual({ "x-vitehub-console": "1", authorization: "Bearer a-2" })
   })
@@ -973,7 +974,7 @@ describe("media upload with OAuth", () => {
       addEventListener(type: string, listener: () => void) { this.listeners[type] = listener }
       send(body: string) {
         sent.push(this.headers.authorization)
-        bodies.push(JSON.parse(body))
+        bodies.push(operationRpcRequest(body))
         if (this.headers.authorization === "Bearer old") {
           this.status = 401
           this.challenge = `Bearer realm="vitehub-console", error="invalid_token", resource_metadata="${resourceMetadata}"`
@@ -981,7 +982,7 @@ describe("media upload with OAuth", () => {
         }
         else {
           this.status = 200
-          this.response = { ok: true, value: { duplicate: false, file: { pathname: "a.png" } } }
+          this.response = operationRpcReply(body, { ok: true, value: { duplicate: false, file: { pathname: "a.png" } } })
         }
         queueMicrotask(() => this.listeners.load?.())
       }

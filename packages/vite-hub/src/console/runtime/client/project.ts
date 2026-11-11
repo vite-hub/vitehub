@@ -41,7 +41,7 @@ function urlOf(project: ConsoleProject, path: string): string {
   return `${project.origin}${project.base}${path}`
 }
 
-/** The URL of an app path on the project, such as `/_vitehub/rpc/__call` → `/portal/_vitehub/rpc/__call`. */
+/** The URL of an app path on the project, such as `/_vitehub/rpc` → `/portal/_vitehub/rpc`. */
 export function projectUrl(path: string): string {
   return urlOf(active, path)
 }

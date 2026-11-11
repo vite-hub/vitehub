@@ -30,6 +30,7 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 import { requestEvent, routeRequest } from "./console-event.ts"
 import { consoleEvent } from "./console-event.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
@@ -243,7 +244,7 @@ describe("Console access policies", () => {
         check: async request => request["~standard"].req instanceof Request ? authorizeConsole(request["~standard"].req) : new Response(null, { status: 400 }),
       })
       const route = withConsoleAccess(() => "workspace file", { anySection: true })
-      const call = (cookie?: string) => route(requestEvent(new Request("https://example.com/_vitehub/rpc/__call", { headers: cookie ? { cookie } : {} })))
+      const call = (cookie?: string) => route(requestEvent(new Request("https://example.com/_vitehub/rpc", { headers: cookie ? { cookie } : {} })))
 
       const denied = await signUp("denied@example.com")
       const allowed = await signUp("allowed@example.com")
@@ -282,13 +283,13 @@ describe("Console access grants", () => {
   it("does not run RPC operations with a forged access", async () => {
     installConsoleSections("/console-access", ["agents"])
     const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
-    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: {}, operation: "sections.list" }),
+    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+      body: operationRpcBody("sections.list", {}),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { access: forged })
     expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toMatchObject({ ok: false, status: 403 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: false, status: 403 })
   })
 
   it("reuses the checked access for an internal event once", async () => {
@@ -310,8 +311,8 @@ describe("read-only section access", () => {
   const readOnly: ConsoleAuthorize = () => ({ sections: ["agents:read"] })
 
   function rpc(operation: string, input: unknown = {}) {
-    return handleGuardedRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input, operation }),
+    return handleGuardedRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+      body: operationRpcBody(operation, input),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))
@@ -347,7 +348,7 @@ describe("read-only section access", () => {
     expect((await rpc("invocations.list")).status).not.toBe(403)
     const refused = await rpc("invocations.cancel", { id: "run-1" })
     expect(refused.status).toBe(403)
-    await expect(refused.json()).resolves.toMatchObject({ message: expect.stringContaining("read-only"), ok: false })
+    await expect(operationRpcResponseResult(refused)).resolves.toMatchObject({ message: expect.stringContaining("read-only"), ok: false })
   })
 })
 
@@ -475,7 +476,7 @@ describe("generated Console access", () => {
 
     await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
 
-    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc/**" }))
+    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc" }))
     expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|sign-in|client\.get)\.js$/) }))
     expect(config.nitro.publicAssets).toEqual(assets)
   })
@@ -486,7 +487,7 @@ describe("generated Console access", () => {
     await generatedPlugin({ console: { auth: "token" } }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toContain(`${mount}/_vitehub/rpc/**`)
+    expect(routes).toContain(`${mount}/_vitehub/rpc`)
     expect(routes).toContain(`${mount}/_vitehub/mcp`)
     for (const removed of ["/_vitehub", "/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
       expect(routes, removed).not.toContain(`${mount}${removed}`)

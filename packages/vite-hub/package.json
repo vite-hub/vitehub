@@ -998,6 +998,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "confbox": "^0.2.4",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
