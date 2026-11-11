@@ -100,6 +100,29 @@ Set `mcp: { auth: false }` for a public server in an app with Auth.
 
 MCP clients do not sign in on an address that answers without a token. To give some tools to anyone and all tools to people who sign in, serve two addresses:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { auth: true, mcp: { route: '/mcp/account', publicRoute: '/mcp' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true, mcp: { route: '/mcp/account', publicRoute: '/mcp' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -108,6 +131,8 @@ export default defineConfig({
   plugins: [vitehub({ auth: true, mcp: { route: '/mcp/account', publicRoute: '/mcp' } })],
 })
 ```
+:::
+::
 
 ```ts [server/mcp/tools/search.ts]
 import { defineMcpTool } from 'vite-hub/mcp'
