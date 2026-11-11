@@ -93,7 +93,9 @@ await content.sources.unpin("docs")
 - A pinned head does not move until `unpin()`. `pin()` takes a full 40-character commit SHA and validates it too.
 - Each server instance holds the head in memory for 5 seconds. Other server instances serve a moved head within 5 seconds. `content.get()`, `list()`, `navigation()`, `search()`, and the Content route follow the head.
 - Without a token, the Source is not live: each load reads the latest commit of its branch without validation, and Content logs `CONTENT_R0020` once. The token is `github({ auth })`, or the Server Env `VITEHUB_GITHUB_TOKEN`.
-- The head uses the `default` KV store. On Cloudflare, bind a KV namespace as `KV`. `vitehub kv get content:head:docs` shows the stored head.
+- ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
+- Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
+- When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
 
 ### Commit cache
 
@@ -103,7 +105,7 @@ The files of a commit never change. Content downloads and parses each commit onc
 - `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, and the Source options. A change to a plugin gives new keys, so you do not bump a parser version.
 - Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache.
 - Each server instance holds the last 4 commits in memory.
-- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0022` and other server instances download the commit again.
+- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
 ## Types
 

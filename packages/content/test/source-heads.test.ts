@@ -170,8 +170,44 @@ describe("content.sources", () => {
 
     expect(await title(content, "/guide")).toBe("Guide")
     expect(await content.sources.head("docs")).toMatchObject({ live: false, sha: null })
-    expect(warned("CONTENT_R0021")).toEqual([expect.stringContaining("Enable ViteHub KV")])
+    expect(warned("CONTENT_R0021")).toEqual([expect.stringContaining("Remove `kv: false`")])
     await expect(content.sources.pin(fake.head("main")!, "docs")).rejects.toMatchObject({ code: "CONTENT_R0021" })
+  })
+
+  it("serves the branch and logs CONTENT_R0022 when KV fails on a read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const failing = { get: vi.fn(async () => { throw new Error("KV binding is missing") }), set: vi.fn(async () => [undefined, undefined] as const) }
+    registerContentKV(failing)
+    fake.commit("main", { "guide.md": page("Guide") })
+    const content = server()
+
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect(warned("CONTENT_R0022")).toEqual([expect.stringContaining(`The KV store failed on "content:head:docs" for Content source "docs": KV binding is missing`)])
+    expect(await content.sources.head("docs").catch((error: unknown) => error)).toMatchObject({ code: "CONTENT_R0022" })
+    // Reads wait 5 seconds before they call the failing store again.
+    failing.get.mockClear()
+    vi.advanceTimersByTime(5_500)
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect(failing.get).toHaveBeenCalledTimes(1)
+    expect(failing.set).not.toHaveBeenCalled()
+    // An explicit call reports the failure to the caller.
+    await expect(content.sources.advance("docs")).rejects.toMatchObject({ code: "CONTENT_R0022" })
+  })
+
+  it("keeps the validated commit that it serves when KV starts to fail", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const content = server()
+    expect(await title(content, "/guide")).toBe("Guide")
+
+    registerContentKV({ get: async () => [new Error("KV is down"), null] as const, set: async () => [new Error("KV is down"), null] as const })
+    fake.commit("main", { "guide.md": page("Guide v2") })
+    vi.advanceTimersByTime(5_500)
+    expect(await title(content, "/guide")).toBe("Guide")
+    expect(warned("CONTENT_R0022")).toEqual([expect.stringContaining("KV is down")])
+    // Without the fallback to the served commit, the read would load the latest commit of the branch.
+    expect(fake.head("main")).not.toBe(first)
   })
 
   it("names the Sources that have a head", async () => {
