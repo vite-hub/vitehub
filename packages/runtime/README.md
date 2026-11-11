@@ -300,6 +300,78 @@ Use `isRuntimeDiagnostic(error)` to recognize a live Nostics error from another 
 These helpers produce developer diagnostics. They do not make arbitrary errors
 safe for public responses. Use the `ViteHubError` public contract at that boundary.
 
+### Leases
+
+A lease gives one caller at a time a key, such as one Schedule occurrence or one leader. It ends at `release()` or when its TTL passes, so a holder that crashes blocks the key only until then.
+
+| Store | Use it for | Atomic across |
+| --- | --- | --- |
+| `createMemoryLeaseStore()` | One process and tests | One process |
+| `createSqlLeaseStore(client)` | Several instances on one Database | Every process on the Database |
+
+```ts fragment
+import { createSqlLeaseStore } from '@vite-hub/runtime'
+import postgres from 'postgres'
+
+const sql = postgres(process.env.DATABASE_URL!)
+const leases = createSqlLeaseStore({
+  dialect: 'postgresql',
+  query: async (text, params) => await sql.unsafe(text, params),
+})
+
+const [error, lease] = await leases.acquire('report:2026-11-09', { ttl: 60, owner: 'instance-a' })
+if (error) throw error
+// `lease` is null when another instance holds the key.
+if (lease) {
+  try {
+    await sendReport()
+  }
+  finally {
+    await lease.release()
+  }
+}
+```
+
+On libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (await client.execute({ sql, args })).rows }`. On `node:sqlite`, pass `{ dialect: 'sqlite', query: async (sql, params) => db.prepare(sql).all(...params) }`. A local libSQL `file:` client is for one process only. See the note on SQLite below.
+
+- `acquire(key, { ttl, owner? })` returns `[error, lease]`. `lease` is `null` when another caller holds the key. `ttl` is in seconds, like KV. Fractions are allowed. Leases are not reentrant: the same `owner` also gets `null`.
+- Each acquire gets a new random `id`. `lease.release()` and `lease.renew({ ttl? })` act only when the stored `id` is still this one. They return `false` when the lease expired and another caller took it. `renew()` updates `lease.expiresAt`.
+- `get(key)` returns the live lease with its `owner` and `expiresAt`, or `null`. Use it to inspect who holds a key.
+- `owner` is a label for inspection. Acquire does not compare it.
+- Errors: `RUNTIME_LEASE_INVALID_TTL` when `ttl` is not a positive number, and `RUNTIME_LEASE_FAILED` when the store fails. Read `error.cause` for the Database error.
+
+The SQL store keeps leases in the `vitehub_leases` table and creates it when it is missing. Each operation is one statement. Acquire is one `INSERT ... ON CONFLICT ("key") DO UPDATE ... WHERE expires_at <= now RETURNING`, so of many processes that acquire one key at the same time, exactly one gets it. Expiry uses the clock of the Database, not the clocks of the hosts. Postgres and SQLite 3.35 or later work. The store deletes expired rows at most once a minute.
+
+There is no KV lease store yet. A KV lease store needs atomic compare-and-delete for `release()` and atomic compare-and-set with a TTL for `renew()` on every KV driver it supports, so it can check the holder in the same step. These are follow-ups. The `fs-lite` driver also ignores the TTL, so a lease on it would never expire.
+
+On SQLite, a statement that fails with `SQLITE_BUSY` because another process holds the lock runs again for up to 5 seconds, without blocking the event loop. Contention gives a `null` lease, not `RUNTIME_LEASE_FAILED`.
+
+When several processes share leases, use Postgres, remote libSQL, or `node:sqlite` on one file. Do not use a local libSQL `file:` client in more than one process. After `SQLITE_BUSY`, `@libsql/client` 0.18 keeps the transaction of the failed statement open, and it can lose writes that it reported as done. A busy `timeout` makes this less frequent but does not stop it under load.
+
+#### Provision the SQL table
+
+On PostgreSQL, automatic table creation needs `CREATE` privilege on the schema. If migrations use a separate role, create the table and index before the application uses the store. An accessible existing table skips DDL, so the application role does not need `CREATE`.
+
+These statements work on both PostgreSQL and SQLite 3.35 or later:
+
+```sql
+CREATE TABLE IF NOT EXISTS vitehub_leases (
+  "key" text PRIMARY KEY,
+  id text NOT NULL,
+  owner text,
+  expires_at bigint NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vitehub_leases_expires_at
+  ON vitehub_leases (expires_at);
+```
+
+`expires_at` stores milliseconds since the Unix epoch. Create the table in the schema that the application connection resolves. On PostgreSQL, the application role needs `USAGE` on that schema and `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the table. For example, for the `public` schema and an application role named `lease_app`, run this as the migration role:
+
+```sql
+GRANT USAGE ON SCHEMA public TO lease_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vitehub_leases TO lease_app;
+```
+
 ## Public entry points
 
 | Import                   | Provides                                                                                             |

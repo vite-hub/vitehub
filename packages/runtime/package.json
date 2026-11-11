@@ -96,8 +96,10 @@
     "standard-context": "catalog:runtime"
   },
   "devDependencies": {
+    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

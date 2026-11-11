@@ -103,7 +103,7 @@ build packages only the build machine's native binaries.
 | Feature | Default provider | Durability |
 | --- | --- | --- |
 | Blob | `fs` under `.vitehub/data/blob` | Local files on one host. |
-| KV | `fs-lite` | Local files on one host. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time. |
+| KV | `database` with a Postgres Default Database, else `fs-lite` | Postgres is shared by every process. `fs-lite` is local files on one host. Redis requires `kv: { driver: 'redis' }`, with `REDIS_URL` on every server. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. See [Node picks a shared store](/docs/kv/configure#node-picks-a-shared-store). |
 | Rate Limit | `memory` | One process. Resets on restart. |
 | Queue | None | `queue: true` fails the build. |
 | Sandbox | None | `sandboxTask: true` fails the build. |

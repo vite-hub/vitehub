@@ -23,6 +23,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_R0136: dynamicError,
     VITE_HUB_R0137: dynamicError,
     VITE_HUB_R0141: dynamicError,
+    VITE_HUB_R0142: {
+      why: "This server has no durability report. ViteHub records it when a Node server starts.",
+      fix: "Run the app with the Node preset, then run vitehub durability list against that server.",
+    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,
@@ -107,5 +111,9 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_B0020: dynamicError,
     VITE_HUB_B0021: dynamicError,
     VITE_HUB_B0022: dynamicError,
+    VITE_HUB_B0023: {
+      ...dynamicError,
+      fix: "Upgrade to Nuxt 5, which supplies Nitro 3 and H3 2. Until Nuxt 5 is stable, run pnpm add nuxt@npm:nuxt-nightly@5x.",
+    },
   },
 })

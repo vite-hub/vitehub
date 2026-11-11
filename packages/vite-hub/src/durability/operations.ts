@@ -2,6 +2,8 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import { formatDurabilityTable, getDurabilityReport } from "@vite-hub/runtime/durability"
 import * as v from "valibot"
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+
 import type { AnyOperation } from "@vite-hub/internal/operations"
 import type { DurabilityReport } from "@vite-hub/runtime/durability"
 
@@ -20,7 +22,7 @@ const list = defineOperation<Record<string, never>, DurabilityReport>({
   name: "durability.list",
   run: () => {
     const report = getDurabilityReport()
-    if (!report) throw new Error("This server has no durability report. ViteHub records it when a Node server starts.")
+    if (!report) throw viteHubErrorDiagnostics.VITE_HUB_R0142()
     return report
   },
   section: "durability",

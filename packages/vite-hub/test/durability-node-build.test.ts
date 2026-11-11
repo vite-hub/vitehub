@@ -74,7 +74,7 @@ it("fails at boot when 3 instances would split the fs-lite KV store", async () =
   expect(result.response).toBeUndefined();
   expect(result.code).not.toBe(0);
   expect(result.output).toContain("VITEHUB_INSTANCES is 3, but these primitives keep their state in one process or on one host.");
-  expect(result.output).toContain("  - kv: fs-lite (host). Files in .vitehub/data/kv on this host. Fix: Use Upstash Redis");
+  expect(result.output).toContain("  - kv: fs-lite (host). Files in .vitehub/data/kv on this host. Fix: Set REDIS_URL");
 }, 30_000);
 
 it("prints the durability table and serves with one instance", async () => {
