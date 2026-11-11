@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DocsSidebarGroup } from "@vite-hub/docs"
+import type { DocsAppPage, DocsSidebarGroup } from "@vite-hub/docs"
 
 import { docsCatalog, docsHasRail, docsPanelOf, docsPanelSidebarGroups, docsRelatedSections, docsSectionHome, docsSectionPanels, docsSidebarGroup, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
 
@@ -49,7 +49,7 @@ function isCode(title: string) {
   return /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(title)
 }
 
-function holdsCurrent(pageGroup: DocsSidebarGroup) {
+function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
   return pageGroup.pages.some(page => isActive(page.path))
 }
 </script>

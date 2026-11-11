@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
@@ -57,10 +57,27 @@ const runtimeEntries = [
   ...distributionEntries,
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
+  // Generated code imports these modules by path. They are not package exports.
+  "src/internal/agent-invocations-libsql.ts",
+  "src/internal/database-runtime-state.ts",
+  "src/internal/disabled-upstash-driver.ts",
+  "src/task/operations.ts",
+  "src/comments/realtime.ts",
+  "src/comments/runtime/auth.ts",
+  "src/connections/agent.ts",
+  "src/console/auth-cloudflare-access.ts",
+  "src/console/auth-inline.ts",
+  "src/console/runtime/server/blob.ts",
+  "src/console/runtime/server/database.ts",
+  "src/console/runtime/server/definitions.ts",
+  "src/console/runtime/server/env.ts",
+  "src/console/runtime/server/operation-contributions.ts",
+  "src/console/runtime/server/sections.ts",
   "src/console/auth-types.ts",
+  // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
+  "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/appearance.ts",
-  "src/console/runtime/client/build.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
@@ -110,7 +127,6 @@ const runtimeEntries = [
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
-  "src/console/runtime/server/client.get.ts",
   "src/console/runtime/server/console-preflight.ts",
   "src/console/runtime/server/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
@@ -128,28 +144,20 @@ const runtimeEntries = [
   "src/console/runtime/server/mcp-discovery.ts",
   "src/console/runtime/server/mcp-authorization-server.ts",
   "src/console/runtime/server/mcp-metadata.ts",
-  "src/console/runtime/server/page.get.ts",
-  "src/console/runtime/server/page-session.ts",
   "src/console/runtime/server/schedule-run.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sign-in.ts",
   "src/console/runtime/server/sections.get.ts",
+  "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
 ];
 
-const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
+const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
+// The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
+const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
-const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
-
-function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
-  const matches = readdirSync(consoleAssetRoot)
-    .filter(file => file.startsWith(prefix) && file.endsWith(extension));
-  if (matches.length !== 1) {
-    throw new TypeError(`Expected one hashed Console ${prefix}*${extension} asset, found ${matches.length}.`);
-  }
-  return matches[0]!;
-}
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 export default defineConfig({
   pack: [
@@ -160,9 +168,6 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
-        { from: ".vitehub/console", to: "dist/console/runtime/public" },
-        { from: ".vitehub/skills", to: "dist/console/runtime/public" },
-        { from: ".vitehub/comments-overlay", to: "dist" },
         {
           from: "src/console/runtime/components/console-lazy-views.ts",
           to: "dist/console/runtime/components",
@@ -381,6 +386,7 @@ export default defineConfig({
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
         // The copied invocation helpers import the formatters as TypeScript.
         { from: "src/console/runtime/client/format.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/highlight-languages.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
@@ -426,6 +432,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-date-input.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
@@ -440,30 +447,32 @@ export default defineConfig({
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        // Agent-only apps need the client-free journal constructor without installing the optional Database package.
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
       plugins: [
         {
-          name: "vite-hub-console-assets",
-          generateBundle(_options, bundle) {
-            const page = Object.values(bundle).find(output =>
-              output.type === "chunk"
-              && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
-            );
-            if (!page || page.type !== "chunk") {
-              throw new TypeError("Expected the standalone Console page in the package bundle.");
-            }
-            page.code = page.code
-              .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset("console-", ".css"))
-              .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset("console-", ".js"));
-            const tool = consoleAsset("page-tool-", ".js");
-            for (const output of Object.values(bundle)) {
-              if (output.type === "chunk") output.code = output.code.replaceAll("__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__", tool);
-            }
+          // Emit the skills and the well-known index that `npx skills add <app>/_vitehub` reads. The pack task owns dist,
+          // so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
+          name: "vite-hub-console-skills",
+          generateBundle() {
+            const skills = consoleSkills.map((name) => {
+              const root = resolve(skillsSource, name);
+              const frontmatter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(root, "SKILL.md"), "utf8"))?.[1] ?? "";
+              const field = (key: string) => new RegExp(`^${key}: (.+)$`, "m").exec(frontmatter)?.[1];
+              const description = field("description");
+              if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
+              const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
+              for (const file of files) {
+                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
+              }
+              return { name, description, files };
+            });
+            this.emitFile({ type: "asset", fileName: "console/runtime/public/skills/index.json", source: `${JSON.stringify({ skills }, null, 2)}\n` });
           },
         },
         {
@@ -483,10 +492,10 @@ export default defineConfig({
         customExports(exports) {
           delete exports["./console/auth-pages"];
           delete exports["./console/auth-types"];
+          delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/appearance"];
-          delete exports["./console/runtime/client/build"];
           delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
@@ -533,7 +542,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
           delete exports["./console/runtime/server/channel-replay"];
-          delete exports["./console/runtime/server/client.get"];
           delete exports["./console/runtime/server/database"];
           delete exports["./console/runtime/server/database.get"];
           delete exports["./console/runtime/server/definitions"];
@@ -559,33 +567,26 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/runtime"];
-          delete exports["./console/runtime/server/page.get"];
-          delete exports["./console/runtime/server/page-session"];
-          delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/schedule-run"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sign-in"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
+          delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
-          delete exports["./console/auth-client"];
           delete exports["./console/auth-cloudflare-access"];
           delete exports["./console/auth-inline"];
+          // Generated code imports `src/internal/*` entries by path. They are not public API.
+          for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
+          delete exports["./task/operations"];
+          delete exports["./comments/realtime"];
+          delete exports["./comments/runtime/auth"];
+          delete exports["./connections/agent"];
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
-            "./console/auth/client": "./dist/console/auth-client.js",
-            "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
-            "./console/auth/inline": "./dist/console/auth-inline.js",
-            "./console/blob": "./dist/console/runtime/server/blob.js",
-            "./console/database": "./dist/console/runtime/server/database.js",
-            "./console/definitions": "./dist/console/runtime/server/definitions.js",
-            "./console/documents": "./dist/console/runtime/server/documents.js",
-            "./console/env": "./dist/console/runtime/server/env.js",
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
-            "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
-            "./console/sections": "./dist/console/runtime/server/sections.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",
@@ -598,7 +599,7 @@ export default defineConfig({
         dts: ".d.ts",
         js: ".js",
       }),
-      publint: true,
+      publint: "ci-only",
     },
     {
       clean: false,
@@ -614,8 +615,8 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-        alwaysBundle: [/^@vite-hub\/internal/],
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
           neverBundle: ["esbuild", "vite"],
@@ -623,16 +624,6 @@ export default defineConfig({
         },
       },
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    },
-    {
-      // The shared browser loader bundles independently of the Console's server chunks.
-      deps: { alwaysBundle: [/./], onlyBundle: false },
-      dts: false,
-      entry: { "console/runtime/page/loader": "src/console/page/loader.ts" },
-      minify: true,
-      outExtensions: () => ({ js: ".js" }),
-      platform: "browser",
-      tsconfig: "tsconfig.build.json",
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).

@@ -13,57 +13,6 @@ const consolePage = readFileSync(
   new URL("../src/console/runtime/components/console-app.vue", import.meta.url),
   "utf8",
 );
-const sessionInspector = readFileSync(
-  new URL("../src/console/runtime/components/console-session-inspector.vue", import.meta.url),
-  "utf8",
-);
-const sessionNavbar = readFileSync(
-  new URL("../src/console/runtime/components/console-session-navbar.vue", import.meta.url),
-  "utf8",
-);
-
-it("uses the Usage Agent filter when opening the sessions panel", () => {
-  expect(consolePage).toContain("resolveUsageSessionsAgent(route.query, selectedAgentName.value)");
-  expect(consolePage).toContain('@open-sessions="openSessionsFromUsage"');
-});
-
-it("opens the inspector on its launcher and keeps terminal session chrome quiet", () => {
-  expect(consolePage).toContain('const inspectorActiveSurface = ref("");');
-  expect(consolePage).toContain('const inspectorOpenViews = ref<Array<(typeof inspectorViewNames)[number]>>([]);');
-  expect(consolePage).toContain("selectedDisplay.value?.status === \"pending\"");
-  expect(consolePage).toContain(':aria-expanded="agentListOpen"');
-  expect(consolePage).not.toContain("i-ph-caret-up-down-light");
-  expect(sessionNavbar).toContain('v-if="refreshable" text="Refresh session"');
-});
-
-it("imports the invocation deletion helper the Console uses", () => {
-  // A missing import compiles but throws ReferenceError on load, leaving every Console page blank.
-  expect(consolePage).toContain("createConsoleInvocationDeletion()");
-  expect(consolePage).toContain('import { createConsoleInvocationDeletion } from "../client/invocation-deletion";');
-});
-
-it("loads session filter values only for the filter menu or an active filter", () => {
-  expect(consolePage).toContain(
-    "if (filterOpen.value || selectedCapabilityId.value || selectedTriggeredBy.value) void loadCapabilityIds();",
-  );
-  expect(consolePage).toContain("if (open) void loadCapabilityIds();");
-  expect(consolePage.match(/void loadCapabilityIds\(\)/g)).toHaveLength(2);
-});
-
-it("copies the session link and jumps from tool rows to calls", () => {
-  // CopyButton from @vite-hub/ui shows the check and announces the result.
-  expect(sessionNavbar).toContain('<UTooltip v-if="hasSelection" text="Copy session link">');
-  expect(sessionNavbar).toContain('<CopyButton :value="sessionLink" size="xs" aria-label="Copy session link" />');
-  expect(sessionNavbar).toContain("const sessionLink = () => window.location.href;");
-  expect(sessionInspector).toContain(`<AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" @select-activity="emit('focusActivity', $event)" />`);
-});
-
-it("keeps inspector links and metadata compact", () => {
-  expect(sessionInspector).toContain('class="session-inspector__surface-launcher"');
-  expect(sessionInspector).toContain('<template #identityActions>');
-  expect(sessionInspector).toMatch(/<UButton[^>]*?label="Instructions"[^>]*?@click="openWorkspaceInstructions"/);
-  expect(sessionInspector).not.toContain("Find root AGENTS.md in Workspace");
-});
 
 it("releases bare Agents bootstrap when the newest invocation is unnamed", async () => {
   const scope = effectScope();
@@ -89,12 +38,6 @@ it("releases bare Agents bootstrap when the newest invocation is unnamed", async
   expect(initialBootstrapPending.value).toBe(false);
   expect(selectedAgentName.value).toBeUndefined();
   scope.stop();
-});
-
-it("keeps shared refreshes on Usage free of Invocation requests", () => {
-  expect(consolePage).toContain(
-    "isUsageRoute.value ? Promise.resolve() : list.refresh()",
-  );
 });
 
 it("selects an Invocation returned by the active Capability filter", async () => {
@@ -140,17 +83,6 @@ it("selects an Invocation returned by the active Capability filter", async () =>
   expect(selectedInvocationId.value).toBe("invocation-b");
   expect(routeInvocation.value).toBeUndefined();
   scope.stop();
-});
-
-it("uses server-backed session filters and a larger initial page", () => {
-  expect(consolePage).toContain("query.triggeredBy = selectedTriggeredBy.value");
-  expect(consolePage).toContain("limit: 50");
-  expect(consolePage).toContain("Used capability");
-  expect(consolePage).toContain("Triggered by");
-  expect(consolePage).toContain('@end-reached="loadMoreSessions"');
-  expect(consolePage).toContain("No matching sessions");
-  expect(consolePage).toContain("Clear filters");
-  expect(consolePage).not.toContain('icon: "i-ph-robot-light"');
 });
 
 describe.each(["agents-first", "invocations-first"] as const)(

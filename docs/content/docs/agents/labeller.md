@@ -102,7 +102,6 @@ For each rule, `cleanupLabeller()` searches `label:"<label>" older_than:<days>d 
 
 - Each run moves at most 500 messages per rule, so a large backlog takes several runs.
 - `manual: true` lets `vitehub schedule run cleanup` start a run now.
-- For another Gmail Channel, call `cleanupGmailChannel(channel, { rules, apply })` from `vite-hub/agent/channels`.
 
 ## Label older mail
 

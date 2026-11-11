@@ -13,7 +13,7 @@ The journal gives the model no conversation context. Use [Chat History](/docs/ag
 
 ## Store invocation history
 
-An Agent Definition from `vite-hub/agent` that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
+An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -131,13 +131,19 @@ VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+On the Cloudflare preset, a production build includes the libSQL client only when `databaseUrl` is set. A Worker that stores the journal in D1 or memory does not ship it, so `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` throws `AGENT_R1036` there. To move such a Worker to libSQL at runtime, set `databaseUrl` to a libSQL URL in the build. The variable still wins over it.
+
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
 
 ### AGENT_R1029: Local file on a Cloudflare Worker
 
 The Worker rejects a selected `file:` URL at server start, including a `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` override. Set a remote libSQL URL, or remove the file URL to use the host default journal. This prevents the override from silently replacing D1 with memory.
+
+### AGENT_R1036: libSQL journal without the libSQL driver
+
+The default journal selected a SQLite file or a libSQL URL, but the server was built without the libSQL client. A Cloudflare production build without `agent.invocations.databaseUrl` leaves the client out, because its journal is D1 or memory. Set `databaseUrl` to the libSQL URL in the build, or remove `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` to use D1 or memory.
 
 ## Use one journal for every Agent
 
@@ -189,7 +195,7 @@ export default defineConfig({
 :::
 ::
 
-In Nuxt, use the `vitehub` key. It applies to Agents from `vite-hub/agent` that do not set `invocations`. An Agent's own value replaces it, and `invocations: false` turns it off. `agent.invocations` accepts `'database'` (requires `database` in the ViteHub options), `'memory'`, `false`, or the object form without `redact` and `redactError`, which belong on the Agent.
+In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 
 `agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. Every app-wide journal requires Nitro-hosted Agents. For Netlify and Deno Agent output, set `agent.invocations: false` and configure journals on each Agent Definition. `false` records no app-wide journal. When the Console is enabled, it shows the app-wide journal.
 
@@ -399,14 +405,23 @@ A journal keeps only metadata by default.
 `redact` rewrites or drops an observation before the store gets it. `redactError` rewrites a failed record's error:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
-  store,
+  store: createDatabaseAgentInvocationStore(),
   redact(observation) {
     if (observation.name === 'agent.tool.result') return undefined
     const { 'tool.input': _input, ...attributes } = observation.attributes ?? {}
     return { ...observation, attributes }
   },
   redactError: error => ({ message: error.message, name: error.name }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
 })
 ```
 
@@ -571,23 +586,26 @@ On Vercel, Agents run through the inline Workflow adapter, because Vercel's dete
 
 ## Store invocations in Cloudflare D1
 
-Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load:
+Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load. `useDatabaseBinding()` returns the D1 binding of a [ViteHub Database](/docs/database/server-api#pass-the-d1-binding-to-other-code):
 
 ```ts [server/invocations.ts]
-import { env } from 'cloudflare:workers'
 import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
+import { useDatabaseBinding } from 'vite-hub/database/drizzle'
 
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({
-    database: () => env.DB,
+    database: () => useDatabaseBinding('default'),
+    migrate: false,
     maxAge: '30d',
     maxRecords: 10_000,
   }),
 })
 ```
 
-The store creates its table and indexes on each isolate's first use of a binding, with `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation retries on the next operation. To use your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
+With `cloudflare.readReplication`, `useDatabaseBinding()` returns a new D1 session for each request. The store's automatic setup runs once per database object, so leaving it enabled would run schema writes on the primary in every request. The example sets `migrate: false`; apply the schema with your deployment migrations before serving requests.
+
+Print the schema statements with `d1AgentInvocationSchema()` and apply them to the D1 database:
 
 ```ts [scripts/invocation-schema.ts]
 import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
@@ -595,7 +613,9 @@ import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
 
-`tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub db generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
+When using a stable D1 binding without request sessions, you can omit `migrate: false` to create the table and indexes on first use of each binding in a Worker isolate. The statements use `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation is retried on the next operation.
+
+`tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub database generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
 
 - D1 batches make creation and retention atomic.
 - Conditional updates retry when another Worker changes the record, so concurrent observations survive.

@@ -6,7 +6,7 @@ import {
   normalizeCapabilities,
 } from "./capability-runtime.ts"
 import { AgentHttpError } from "./http-error.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isRuntimeFunction, isRuntimeString } from "./internal/runtime-value.ts"
 import { runInvocationReference } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
@@ -52,7 +52,7 @@ import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 
 export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
-  if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
+  if (!isRuntimeRecord(input) && typeof input !== "function") return false
   if (!Object.hasOwn(input, "~standard")) {
     let prototype = Object.getPrototypeOf(input)
     let classGetterFound = false
@@ -60,8 +60,8 @@ export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<un
       const marker = Object.getOwnPropertyDescriptor(prototype, "~standard")
       if (marker) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        classGetterFound = hasRuntimeType(marker.get, "function")
-          && hasRuntimeType(constructor, "function")
+        classGetterFound = typeof marker.get === "function"
+          && typeof constructor === "function"
           && constructor !== Object
           && constructor.prototype === prototype
         break
@@ -72,7 +72,7 @@ export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<un
   }
   // SAFETY: The runtime checks above establish an object or function with a validated marker location; its value remains unknown until validated below.
   const standard = (input as Record<PropertyKey, unknown>)["~standard"]
-  return isRuntimeRecord(standard) && hasRuntimeType(standard.validate, "function")
+  return isRuntimeRecord(standard) && typeof standard.validate === "function"
 }
 
 const agentTriggerContextKey = "agent.trigger"
@@ -136,13 +136,13 @@ function channelHistoryAnnotations<TRuntimeConfig extends AgentRuntimeConfig>(
   const annotations: NonNullable<AgentRunMetadata["annotations"]> = {}
   try {
     const key = history.key(input)
-    if (hasRuntimeType(key, "string") && key.trim()) annotations["vitehub.channel.key"] = key
+    if (typeof key === "string" && key.trim()) annotations["vitehub.channel.key"] = key
   }
   catch {}
   if (history.thread) {
     try {
       const thread = history.thread(input)
-      if (hasRuntimeType(thread, "string") && thread.trim()) annotations["vitehub.channel.thread"] = thread
+      if (typeof thread === "string" && thread.trim()) annotations["vitehub.channel.thread"] = thread
     }
     catch {}
   }
@@ -165,7 +165,7 @@ function agentChannelTriggerState(request: Request | undefined, channelId: strin
 export type AgentChannelQueuedDispatch = (
   context: ResolvedAgentRuntimeContext,
   items: readonly AgentChannelDispatchItem[],
-  options: AgentChannelDispatchOptions,
+  options: AgentChannelDispatchOptions & { rawBody?: Uint8Array },
 ) => Promise<ReplayChannelResult>
 
 const channelTriggerQueues = new WeakMap<Request, { admit: AgentChannelQueuedDispatch, channelId: string }>()

@@ -11,7 +11,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/actions.ts",
       "src/index.ts",
       "src/internal/chromium.ts",
       "src/internal/chromium.workerd.ts",
@@ -24,8 +23,15 @@ export default defineConfig({
       "src/providers/local.ts",
       "src/vite.ts",
     ],
-    exports: { customExports: normalizePackageExports, inlinedDependencies: false },
+    exports: {
+      customExports(exports) {
+        return normalizePackageExports(Object.fromEntries(
+          Object.entries(exports).filter(([key]) => !key.startsWith("./internal/")),
+        ))
+      },
+      inlinedDependencies: false,
+    },
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
-    publint: true,
+    publint: "ci-only",
   },
 })

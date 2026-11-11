@@ -8,7 +8,7 @@ import { expect, it } from "vitest"
 import type { NuxtConfig } from "nuxt/schema"
 
 const files: Record<string, string> = {
-  "content/index.md": "---\ntitle: Lumen\n---\nRead [the guide](/guide).\n",
+  "content/index.md": "---\ntitle: Lumen\nlayout: home\n---\nRead [the guide](/guide).\n",
   "content/guide/.navigation.yml": "title: Guide\nicon: i-lucide-book-open\norder: 1\n",
   "content/guide/index.md": "---\ntitle: Guide\n---\nStart here.\n",
   "content/guide/wide.md": "---\ntitle: Wide\nsidebar: collapsed\n---\nA page that needs the width.\n",
@@ -37,7 +37,7 @@ it("collapses the sidebar to a strip on pages that opt in, from frontmatter or p
         ogImage: false,
         linkChecker: false,
         site: { name: "Lumen", url: "https://lumen.example.com" },
-        start: { section: "guide" },
+        start: { section: "guide", links: [{ label: "Start", to: "/guide/plain" }] },
       }]],
       nitro: { prerender: { routes: ["/play"] } },
     }
@@ -53,6 +53,8 @@ it("collapses the sidebar to a strip on pages that opt in, from frontmatter or p
     // A page with `sidebar: collapsed` starts as the strip, with no page list, and the site header hides beside it.
     const wide = await page("guide/wide")
     expect({ strip: strip(wide), pages: pages(wide), headerHidden: headerHidden(wide) }).toEqual({ strip: true, pages: false, headerHidden: true })
+    // The collapsed brand follows the configured docs start page, as the open sidebar does.
+    expect(wide.match(/<a[^>]*class="[^"]*vh-docs-strip-brand[^"]*"[^>]*>/)?.[0]).toContain('href="/guide/plain"')
     // An app page sets the same in its page meta.
     const play = await page("play")
     expect({ strip: strip(play), pages: pages(play), headerHidden: headerHidden(play) }).toEqual({ strip: true, pages: false, headerHidden: true })

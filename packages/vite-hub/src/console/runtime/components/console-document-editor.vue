@@ -43,7 +43,7 @@ import {
 } from "../client/schema-form";
 import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
-import { isRemoteProject, projectConsoleUrl } from "../client/project";
+import { isRemoteProject } from "../client/project";
 import { consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
@@ -349,7 +349,7 @@ const liveUnavailableReason = computed(() => {
   if (!hasBody.value || creating.value) return undefined;
   const live = props.setup?.live;
   if (live && "unavailable" in live) return live.unavailable;
-  if (live && remote) return "Live editing works only in the Console that the app serves. Saves still refuse to overwrite a newer version.";
+  if (live && remote) return "Live editing needs the app origin, so this Console saves alone. Saves still refuse to overwrite a newer version.";
   if (liveFallback.value === "unreachable") return "The live session did not answer. Saves still refuse to overwrite a newer version.";
   return undefined;
 });
@@ -2120,19 +2120,8 @@ const menuItems = computed(() => [[
           <span class="hidden sm:inline">{{ local ? "Local only" : "Collaborative" }}</span>
         </UButton>
       </UDropdownMenu>
-      <!-- The preview frame shows pages of the Console origin, so a Console on another origin opens the app's own Console. -->
-      <UTooltip v-if="remote && base && !creating && !missing && !locale" text="The preview works only in the Console that the app serves. Open in the app" :content="{ side: 'bottom' }">
-        <UButton
-          variant="ghost"
-          icon="i-lucide-app-window"
-          trailing-icon="i-lucide-arrow-up-right"
-          aria-label="Preview: open in the app"
-          :to="projectConsoleUrl(`${route.path}?preview`)"
-          target="_blank"
-          external
-        />
-      </UTooltip>
-      <UTooltip v-else-if="base && !creating && !missing && !locale" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
+      <!-- The preview frame shows pages of the Console origin, so a Console on another origin has no preview. -->
+      <UTooltip v-if="!remote && base && !creating && !missing && !locale" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"
           icon="i-lucide-app-window"

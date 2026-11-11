@@ -105,7 +105,7 @@ function externalImports(outputs: Record<string, { imports?: Array<{ external?: 
 }
 
 describe("packed Source capability closures", () => {
-  it("keeps lightweight Workers MCP-free and ships MCP privately when selected", async () => {
+  it("keeps lightweight Workers MCP-free and runs MCP with the SDK the app installs", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-source-closures-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -118,7 +118,7 @@ describe("packed Source capability closures", () => {
           name: "vitehub-source-closure-consumer",
           private: true,
           type: "module",
-          dependencies: { "vite-hub": overrides["vite-hub"] },
+          dependencies: { "@modelcontextprotocol/sdk": "1.32.2", "vite-hub": overrides["vite-hub"] },
           // The facade also exports table(), whose documented peer is Drizzle.
           devDependencies: { "drizzle-orm": "0.45.3", typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
@@ -128,11 +128,7 @@ describe("packed Source capability closures", () => {
           include: ["src/**/*.ts"],
         }, null, 2)),
         writeFile(join(appDir, "src/lightweight.ts"), `
-import { createSource, defineSource } from "vite-hub/source"
-import { file } from "vite-hub/source/file"
-import { github } from "vite-hub/source/github"
-import { glob } from "vite-hub/source/glob"
-import { markdown } from "vite-hub/source/markdown"
+import { createSource, defineSource, file, github, glob, markdown } from "vite-hub/source"
 
 const local = defineSource({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
 const inline = file({ content: "ok", workspacePath: "inline.txt" })
@@ -161,8 +157,7 @@ const sourceTransport: McpResourcesTransport = {
 void sourceTransport
 `),
         writeFile(join(appDir, "mcp-run.mjs"), `
-import { createSource, defineSource } from "vite-hub/source"
-import { file } from "vite-hub/source/file"
+import { createSource, defineSource, file } from "vite-hub/source"
 import { mcpResources } from "vite-hub/source/mcp"
 
 const transport = {
@@ -194,8 +189,9 @@ console.log(item.content)
 
       const lightweight = await buildWorker(appDir, "src/lightweight.ts", "lightweight")
       const lightweightInputs = Object.keys(lightweight.inputs).join("\n")
-      expect(lightweightInputs).not.toMatch(/@modelcontextprotocol|mcp-resources|pkce-challenge/)
-      expect(await readFile(join(appDir, "dist/lightweight.js"), "utf8")).not.toMatch(/@modelcontextprotocol|pkce-challenge/)
+      // pnpm names the peer in Source's store folder, so match SDK files, not the folder name.
+      expect(lightweightInputs).not.toMatch(/@modelcontextprotocol\/|mcp-resources|pkce-challenge/)
+      expect(await readFile(join(appDir, "dist/lightweight.js"), "utf8")).not.toMatch(/@modelcontextprotocol\/|pkce-challenge/)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")

@@ -34,7 +34,7 @@ describe("discoverForms", () => {
 describe("renderFormsHandler", () => {
   it("imports only the services the app has", () => {
     const forms = [{ name: "contact", file: "/app/server/forms/contact.ts" }]
-    const imports = { runtime: "vite-hub/forms/runtime", database: "vite-hub/forms/database", databases: "vite-hub/database/drizzle", email: "vite-hub/email/server", auth: "vite-hub/auth/server", standard: "vite-hub/runtime" }
+    const imports = { runtime: "vite-hub/forms/runtime", operations: "vite-hub/forms/operations", database: "vite-hub/forms/database", databases: "vite-hub/database/drizzle", email: "vite-hub/email/server", auth: "vite-hub/auth/server", standard: "vite-hub/runtime" }
     const bare = renderFormsHandler(forms, { imports })
     expect(bare).not.toContain("databases")
     expect(bare).not.toContain("email")
@@ -65,6 +65,7 @@ describe("createFormsHandler", () => {
     let address = "1.1.1.1"
     const handler = createFormsHandler({ forms: { contact }, context: () => ({ runtime: { clientAddress: address } }) })
     expect((await handler.fetch(post("missing").request)).status).toBe(404)
+    expect((await handler.fetch(post("%E0").request)).status).toBe(404)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
     expect((await handler.fetch(post("contact").request)).status).toBe(429)

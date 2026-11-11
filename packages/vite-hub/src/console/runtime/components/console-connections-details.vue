@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Status } from "@vite-hub/ui";
+import { Markdown, Status } from "@vite-hub/ui";
 import type { ConnectionInspection } from "@vite-hub/connections";
 import { computed, onMounted, ref, watch } from "vue";
 
@@ -33,7 +33,7 @@ const props = defineProps<{
   returnTo?: string;
 }>();
 
-// The connect flow needs the app session, so a Console on another origin sends it to the app's own Console.
+// The connect flow needs the app session, so it runs on the app origin.
 const remote = isRemoteProject();
 const emit = defineEmits<{ changed: [] }>();
 const current = ref<ConnectionInspection>(props.connection);
@@ -179,6 +179,9 @@ onMounted(async () => {
           <template v-else>{{ item.value }}</template>
         </template>
       </ConsolePropertyList>
+      <ConsoleSection v-if="current.docs" heading-id="connection-docs" :level="3" title="Setup">
+        <Markdown class="max-w-[75ch] break-words text-sm [--comark-grain:none] **:text-sm" :value="current.docs" />
+      </ConsoleSection>
       <p v-if="current.credential === 'chatgpt'" class="text-sm text-muted">
         Sign in from the app directory with
         <code class="break-all">vitehub connections connect {{ current.name }}</code>, then reload.

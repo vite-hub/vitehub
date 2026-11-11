@@ -20,7 +20,8 @@ export default defineConfig({
       neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\//, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "nitropack", "h3", "defu", "nuxt-agent-discovery", "nuxt-llms"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/assistant.ts", "src/assistant-worker.ts", "src/link-checker-redirects.ts", "src/navigation.ts", "src/nuxt.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts"],
+    // virtual.d.ts types the Nitro virtual modules for this package only. Shipped, it would add a `#imports` overload to the app.
+    entry: ["src/index.ts", "src/assistant.ts", "src/assistant-worker.ts", "src/link-checker-redirects.ts", "src/navigation.ts", "src/nuxt.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts", "!src/runtime/server/*.d.ts"],
     exports: {
       customExports(exports) {
         // The Nuxt module loads the runtime handlers, the theme, and its link checker helper by path. They are not public entries.
@@ -37,7 +38,7 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    publint: true,
+    publint: "ci-only",
   }, {
     // @nuxtjs/mcp-toolkit gives the MCP tools to Nitro by path. Nitro does not compile TypeScript in node_modules, so
     // the tools ship as JavaScript, with every import left for Nitro to resolve.

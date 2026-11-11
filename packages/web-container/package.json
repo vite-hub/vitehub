@@ -65,8 +65,8 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/web-container#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/web-container#build && vp test",
-    "test:browser": "vp run -t @vite-hub/web-container#build && node --test test/browser/boot.browser.mjs"
+    "test": "vp run --cache -t @vite-hub/web-container#build && vp test",
+    "test:browser": "vp run --cache -t @vite-hub/web-container#build && node --test test/browser/boot.browser.mjs"
   },
   "dependencies": {
     "@msgpack/msgpack": "catalog:browser",

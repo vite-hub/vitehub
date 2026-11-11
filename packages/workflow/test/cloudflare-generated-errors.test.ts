@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 
@@ -44,9 +45,9 @@ function loadGeneratedDispatcher(registry: WorkflowDefinitionRegistry) {
     module,
     require(id: string) {
       switch (id) {
-        case "@vite-hub/workflow/runtime/cloudflare-vite":
+        case workflowRuntimeModule("cloudflare-vite"):
           return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
-        case "@vite-hub/workflow/runtime/cloudflare-runner":
+        case workflowRuntimeModule("cloudflare-runner"):
           return { runCloudflareWorkflow }
         case "./registry.mjs":
           return { default: registry, __esModule: true }
@@ -68,7 +69,7 @@ it("loads without cloudflare:workflows, as the Node.js prerender build of a Nuxt
     module,
     require(id: string) {
       if (id === "cloudflare:workflows") throw new Error("Only URLs with a scheme in: file, data, and node are supported")
-      if (id === "@vite-hub/workflow/runtime/cloudflare-vite") return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
+      if (id === workflowRuntimeModule("cloudflare-vite")) return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
       return {}
     },
   })).not.toThrow()
@@ -82,7 +83,7 @@ function createRegistry(boundary: typeof boundaries[number], original: unknown):
     reject: async () => ({
       default: {
         options: { rootStep: boundary === "root step" },
-        handler: async ({ step }) => {
+        handler: async (_payload, { step }) => {
           const fail = () => { throw original }
           return boundary === "explicit step" ? await step!.do!("validate", stepOptions, fail) : fail()
         },
