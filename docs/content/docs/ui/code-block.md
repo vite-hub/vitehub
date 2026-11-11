@@ -122,7 +122,7 @@ const output = "pnpm test";
       variant="ghost"
       size="xs"
       square
-      icon="i-ph-text-align-left-light"
+      icon="i-lucide-text-align-start"
       aria-label="Wrap lines"
       :aria-pressed="wrap"
       @click="wrap = !wrap"

@@ -3,6 +3,7 @@ import { findViteHubDevServerUrl } from "./cli.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { standardJsonSchema } from "./standard-schema.ts"
 import { withValibotJsonSchema } from "./valibot.ts"
+import { isRecordOrFunction as isObject } from "./object.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -184,10 +185,6 @@ export type OperationResult<Output = unknown> =
 
 const nameFormat = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 const kinds: ReadonlySet<string> = new Set<OperationKind>(["read", "write", "destructive"])
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 function invalidDefinition(name: unknown, reason: string): Error {
   return internalErrorDiagnostics.INTERNAL_R0020({ message: `[vitehub] Operation ${JSON.stringify(name)} is invalid: ${reason}` })
@@ -686,6 +683,8 @@ export async function callOperation(target: OperationTarget, name: string, input
       if (text(json.fix)) failure.fix = text(json.fix)
       if (text(json.docs)) failure.docs = text(json.docs)
       if (isObject(json.details)) failure.details = json.details
+      // A found dev server gets no credentials, so the fix that it sends for a 401 works only with --url.
+      if (target.roots?.length && failure.status === 401) failure.fix = `Pass --url ${base.href.slice(0, -1)} to send credentials. A command sends none to the dev server that it finds. ${failure.fix ?? operationCredentialHint}`
       if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
       return failure
     }
@@ -730,4 +729,10 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
   if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
   return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
+}
+
+/** Align rows of text cells in columns for CLI output. The last column is not padded. */
+export function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }

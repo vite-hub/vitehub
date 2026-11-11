@@ -27,6 +27,7 @@ import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
+import { generatedModules } from "./internal/generated-modules.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
@@ -62,6 +63,7 @@ import type { KVOptions } from "@vite-hub/kv"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
 import type { McpOptions } from "@vite-hub/mcp"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/bundle-options"
+import { cloneRecord } from "@vite-hub/internal/object"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitOptions } from "@vite-hub/rate-limit"
 import type { RealtimeOptions } from "@vite-hub/realtime"
@@ -453,7 +455,7 @@ export interface ViteHubOptions {
    * in the Database that `database` names, and enable `database` when it is unset.
    */
   connections?: boolean | ConnectionsOptions
-  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
+  /** The Console endpoint at `/_vitehub`, which the hosted Console at console.vitehub.dev, the CLI, and MCP clients call. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }` for development only, `{ auth: "token" }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
@@ -568,10 +570,6 @@ function resolveDeploymentIdentity(
     name: normalizeDeploymentName(basename(resolve(process.cwd(), root || "."))) || "vitehub",
     source: "root",
   }
-}
-
-function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
@@ -1307,7 +1305,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
-    connections: options.connections ? "vite-hub/connections/agent" : false,
+    connections: options.connections ? generatedModules.connectionsAgent : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
@@ -1420,7 +1418,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.channels) plugins.push(requireOptionalOwner(channelsVite, "channels").hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
     if (options.connections !== true && options.connections.management && !configuredConsole) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" } or console: { auth: { ... } }. In vite dev, console: { auth: false } also works.' })
     }
     const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
     const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
@@ -1491,12 +1489,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
     imports: {
-      auth: "vite-hub/comments/runtime/auth",
+      auth: generatedModules.commentsRuntimeAuth,
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "vite-hub/database/drizzle",
-      realtime: "vite-hub/comments/realtime",
+      realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },
   })
@@ -1512,7 +1510,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...context,
             contentImport: "vite-hub/content/realtime",
             realtimeImport: "vite-hub/realtime/server",
-            ...(configuredConsole ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+            ...(configuredConsole ? { console: { module: generatedModules.consoleSections, section: "content" } } : {}),
           }),
           commentsPlugin?.api.contributeRealtime(context),
         ])

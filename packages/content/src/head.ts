@@ -1,4 +1,5 @@
 import { servedBlobUrl } from "@vite-hub/blob/served"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 /** Where the site lives and what it is called. */
 export interface ContentHeadSite {
@@ -103,10 +104,6 @@ export interface ContentHeadDocument {
 
 const descriptionFields = ["description", "summary", "excerpt"]
 const titleFields = ["title", "name", "label", "heading"]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
 
 function text(value: unknown): string | undefined {
   return String(value) === value && value.trim() ? value.trim() : undefined

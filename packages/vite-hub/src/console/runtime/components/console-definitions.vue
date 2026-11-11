@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -11,8 +12,7 @@ import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
-import { consoleStatusValue } from "../client/format";
-import { consoleInitials } from "../client/presence";
+import { consoleInitials, consoleStatusValue } from "../client/format";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePropertyList from "./console-property-list.vue";
@@ -21,10 +21,10 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{
   agentsBase: string;
@@ -63,6 +63,9 @@ const section = computed(() => props.details.id);
 const { q: search } = useConsoleQuery({ q: queryText() }, {
   active: current => current.meta.consoleSection === props.details.id,
 });
+function clearSearch(): void {
+  search.value = "";
+}
 const sectionReadOnly = ref(false);
 const sectionDetails = computed(() => props.details);
 const catalogView = computed(() => props.details.view.kind === "definition-catalog");
@@ -335,12 +338,18 @@ onBeforeUnmount(() => request?.abort());
               v-model="search"
               class="mb-1 w-full"
               icon="i-lucide-search"
-              size="sm"
               :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
               :aria-label="`Filter ${sectionDetails.label}`"
-              :ui="{ base: 'text-base sm:text-sm' }"
             />
-            <p v-if="!visibleEntries.length" class="px-2 py-1.5 text-xs text-muted">No match for “{{ search.trim() }}”.</p>
+            <UEmpty
+              v-if="!visibleEntries.length"
+              variant="naked"
+              size="xs"
+              icon="i-lucide-search"
+              :title="`No match for “${search.trim()}”`"
+              description="Try another name."
+              :actions="[{ label: 'Clear filter', variant: 'ghost', onClick: clearSearch }]"
+            />
             <UTooltip v-for="entry in visibleEntries" :key="entry.id" :text="entry.id" :content="{ side: 'right' }" :disabled="!collapsed">
               <button
                 type="button"
@@ -358,9 +367,14 @@ onBeforeUnmount(() => request?.abort());
               </button>
             </UTooltip>
           </template>
-          <p v-else-if="!collapsed && !loading && !error" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
-            No {{ sectionDetails.label }} Definitions in this project yet.
-          </p>
+          <UEmpty
+            v-else-if="!collapsed && !loading && !error"
+            variant="naked"
+            size="xs"
+            :icon="sectionDetails.icon"
+            :title="`No ${sectionDetails.label} Definitions yet`"
+            description="Define one in the project, then reload the Console."
+          />
         </nav>
       </template>
     </UDashboardSidebar>
@@ -375,7 +389,6 @@ onBeforeUnmount(() => request?.abort());
 
     <UDashboardPanel
       :id="`${section}-definition`"
-      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <ConsolePageHeader :title="(catalogView && selectedEntry?.id) || sectionDetails.label" :toggle="catalogView">
         <template #right>
@@ -384,14 +397,13 @@ onBeforeUnmount(() => request?.abort());
             v-if="canRunSelected && catalogView"
             icon="i-lucide-play"
             label="Run now"
-            size="sm"
             variant="outline"
             :disabled="Boolean(runningSchedule)"
             :loading="runningSchedule === selectedName"
             @click="runSelectedSchedule"
           />
           <UTooltip v-if="!catalogView" text="Refresh">
-            <UButton aria-label="Refresh records" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="loadDefinitions" />
+            <UButton aria-label="Refresh records" icon="i-lucide-refresh-cw" variant="ghost" :loading="loading" @click="loadDefinitions" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
@@ -403,23 +415,20 @@ onBeforeUnmount(() => request?.abort());
           :disabled="!records.length"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
           :aria-label="`Filter ${sectionDetails.label}`"
-          :ui="{ base: 'text-base sm:text-sm' }"
         />
         <USelect
           v-for="column in filterColumns"
           :key="column.key"
           :model-value="columnFilters[column.key] ?? anyValue"
           class="w-40"
-          size="sm"
           :items="filterItems(column)"
           :aria-label="`Filter by ${column.label.toLowerCase()}`"
           @update:model-value="setColumnFilter(column.key, $event)"
         />
         <span v-if="recordsFiltered" class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ visibleRecords.length }} of {{ records.length }}</span>
-        <UButton v-if="recordsFiltered" label="Clear filters" size="sm" variant="ghost" @click="clearRecordFilters" />
+        <UButton v-if="recordsFiltered" label="Clear filters" variant="ghost" @click="clearRecordFilters" />
       </ConsolePageToolbar>
 
       <!-- Only the load state is announced. A live region around the whole list would read every refreshed row. -->
@@ -451,7 +460,7 @@ onBeforeUnmount(() => request?.abort());
               :description="search.trim() ? `Nothing matches “${search.trim()}”.` : 'Nothing matches this filter.'"
               :actions="[{ label: 'Clear filters', color: 'neutral', variant: 'outline', onClick: clearRecordFilters }]"
             />
-            <section v-else class="overflow-x-auto rounded-md border border-default" :aria-label="sectionDetails.label">
+            <section v-else class="overflow-x-auto rounded-lg border border-default" :aria-label="sectionDetails.label">
               <table class="w-full text-left text-[13px]">
                 <thead>
                   <tr class="border-b border-default bg-elevated/30">
@@ -465,7 +474,7 @@ onBeforeUnmount(() => request?.abort());
                   <tr
                     v-for="row in visibleRecords"
                     :key="row.id"
-                    class="relative h-11 border-b border-default last:border-b-0 hover:bg-elevated/50"
+                    class="relative h-11 border-b border-default last:border-b-0 hover:bg-elevated"
                     :class="{ 'bg-elevated': row.id === selectedName }"
                     :aria-selected="row.id === selectedName"
                   >
@@ -474,7 +483,7 @@ onBeforeUnmount(() => request?.abort());
                       <button
                         v-if="!index"
                         type="button"
-                        class="text-start font-medium outline-none after:absolute after:inset-0 focus-visible:after:ring-1 focus-visible:after:ring-inset focus-visible:after:ring-(--vitehub-console-focus)"
+                        class="rounded-md text-start font-medium after:absolute after:inset-0"
                         @click="selectRecord(row.id)"
                       >
                         {{ row.cells[column.key] || row.id }}
@@ -490,7 +499,6 @@ onBeforeUnmount(() => request?.abort());
                           external
                           target="_blank"
                           rel="noopener"
-                          color="neutral"
                           icon="i-lucide-arrow-up-right"
                           size="xs"
                           variant="ghost"
@@ -530,7 +538,7 @@ onBeforeUnmount(() => request?.abort());
               </div>
             </dl>
             <div v-if="selectedRun" class="grid gap-1" role="status">
-              <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+              <Status :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pulse="runStatus(selectedRun).pending" />
               <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
             </div>
           </header>
@@ -555,7 +563,7 @@ onBeforeUnmount(() => request?.abort());
         <article v-if="selectedRecord" class="grid gap-6">
           <div v-if="canRunSelected || selectedRun" class="flex flex-wrap items-start justify-between gap-3">
             <div v-if="selectedRun" class="grid gap-1" role="status">
-              <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+              <Status :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pulse="runStatus(selectedRun).pending" />
               <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
             </div>
             <UButton
@@ -563,7 +571,6 @@ onBeforeUnmount(() => request?.abort());
               class="ms-auto"
               icon="i-lucide-play"
               label="Run now"
-              size="sm"
               variant="outline"
               :disabled="Boolean(runningSchedule)"
               :loading="runningSchedule === selectedName"
@@ -579,15 +586,9 @@ onBeforeUnmount(() => request?.abort());
             rel="noopener"
             :label="selectedRecord.link.label"
             trailing-icon="i-lucide-arrow-up-right"
-            color="neutral"
-            size="sm"
             variant="outline"
           />
-          <section v-if="selectedRecord.activity?.length" class="grid gap-3" aria-label="Activity">
-            <h3 class="flex items-center gap-2 text-xs font-medium text-highlighted">
-              Activity
-              <span class="font-normal text-dimmed tabular-nums">{{ selectedRecord.activity.length }}</span>
-            </h3>
+          <ConsoleSection v-if="selectedRecord.activity?.length" :level="3" title="Activity" :count="selectedRecord.activity.length">
             <ol class="grid gap-4">
               <li v-for="(entry, index) in selectedRecord.activity" :key="index" class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5">
                 <UAvatar :text="consoleInitials(entry.author)" :alt="entry.author" size="xs" class="row-span-2" />
@@ -598,7 +599,7 @@ onBeforeUnmount(() => request?.abort());
                 <p class="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-pretty text-default">{{ entry.text }}</p>
               </li>
             </ol>
-          </section>
+          </ConsoleSection>
           <ConsolePropertyList :title="selectedRecord.activity?.length ? 'Details' : 'Fields'" :items="selectedRecord.fields" />
         </article>
       </template>
