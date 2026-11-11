@@ -27,11 +27,11 @@ function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv:
   if (input.database) {
     followUps.push(
       { message: "Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist." },
-      { message: `Create the migration baseline with \`${run} vitehub db generate --name baseline\`. It writes server/databases/migrations/. Do not copy NuxtHub's server/db/migrations/ there.` },
+      { message: `Create the migration baseline with \`${run} vitehub database generate --name baseline\`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.` },
       { message: "Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline .sql file, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep its file name and the meta/ files." },
       input.d1
-        ? { message: `Run \`${run} nuxt build\`, then record the baseline on D1 with \`${run} wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json\`. Check first with \`migrations list\` that only the baseline is pending. For the local SQLite copy, run \`${run} vitehub db migrate\`.` }
-        : { message: `Record the baseline with \`${run} vitehub db migrate\`. Run it a second time to check that it applies nothing.` },
+        ? { message: `Run \`${run} nuxt build\`, then record the baseline on D1 with \`${run} wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json\`. Check first with \`migrations list\` that only the baseline is pending. For the local SQLite copy, run \`${run} vitehub database migrate\`.` }
+        : { message: `Record the baseline with \`${run} vitehub database migrate\`. Run it a second time to check that it applies nothing.` },
     )
   }
   if (input.kv) {
@@ -74,11 +74,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     "vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.",
     "Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.",
   ]
-  if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
+  if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
   if (features.cache) notes.push("Cached handlers come from Nitro and use the cache store of cache: true. In Nitro 3, import defineCachedHandler() (formerly cachedEventHandler()) and defineCachedFunction() from nitro/cache.")
   const installed = features.database ? "vite-hub and @vite-hub/database" : "vite-hub"
   return {
-    summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.preset ? ` with preset "${configResult.preset}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/` : ""}.`,
+    summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.preset ? ` with preset "${configResult.preset}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
     followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob })],
     notes,

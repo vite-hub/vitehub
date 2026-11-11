@@ -182,7 +182,7 @@ export async function planWrangler(cwd: string, file: string | undefined, featur
     if (resource.kind === "d1_databases" && features.database && binding) {
       d1 = true
       const fields = [`binding: "${binding}"`, ...(databaseId ? [`databaseId: "${databaseId}"`] : []), `databaseName: "${databaseName ?? "<D1 database name>"}"`]
-      followUps.push({ file, line: resource.line, message: `${keep} To keep this D1 database, set cloudflare: { ${fields.join(", ")} } in defineDatabase() in server/databases/config.ts. ViteHub writes migrations_dir for server/databases/migrations. ${remove}` })
+      followUps.push({ file, line: resource.line, message: `${keep} To keep this D1 database, set cloudflare: { ${fields.join(", ")} } in defineDatabase() in server/databases/default/index.ts. ViteHub writes migrations_dir for server/databases/default/migrations. ${remove}` })
     }
     const key = resource.kind === "r2_buckets" ? "blob" : resource.kind === "kv_namespaces" ? binding === "CACHE" ? "cache" : "kv" : undefined
     const kept = key !== undefined && written[key]?.binding === binding

@@ -32,9 +32,11 @@ it.each([["serve", false], ["serve", undefined], ["build", false], ["build", und
   let alias: Record<string, string>
   if (command === "serve") {
     // Nitro's runtime resolver replays these Vite hooks in development.
-    if (!(plugin.resolveId instanceof Function) || !(plugin.load instanceof Function)) throw new Error("Expected Email runtime hooks")
-    const id: unknown = await Reflect.apply(plugin.resolveId, undefined, [EMAIL_DEFINITION_ID])
-    const source: unknown = await Reflect.apply(plugin.load, undefined, [id])
+    const resolveId: unknown = Reflect.get(Object(plugin.resolveId), "handler")
+    const load: unknown = Reflect.get(Object(plugin.load), "handler")
+    if (!(resolveId instanceof Function) || !(load instanceof Function)) throw new Error("Expected Email runtime hooks")
+    const id: unknown = await Reflect.apply(resolveId, undefined, [EMAIL_DEFINITION_ID])
+    const source: unknown = await Reflect.apply(load, undefined, [id])
     if (typeof source !== "string") throw new Error("Expected generated runtime source")
     const virtual = join(root, "virtual-definition.mjs")
     await writeFile(virtual, source)

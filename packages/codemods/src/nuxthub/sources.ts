@@ -44,7 +44,7 @@ const tupleMethods: Record<Feature, ReadonlySet<string>> = {
 const legacyHelpers: Record<string, (features: HubFeatures) => string> = {
   hubBlob: features => `hubBlob() was removed in NuxtHub 0.10. Import blob from "vite-hub/blob" and call its methods; each returns an [error, value] tuple.${features.blob ? "" : " Set blob: true under vitehub too."}`,
   hubKV: features => `hubKV() was removed in NuxtHub 0.10. Import kv from "vite-hub/kv" and call its methods; each returns an [error, value] tuple.${features.kv ? "" : " Set kv: true under vitehub too."}`,
-  hubDatabase: features => `hubDatabase() was removed in NuxtHub 0.10. Query the Database Definition with db from "vite-hub/database/drizzle".${features.database ? "" : " Set database: true under vitehub and write server/databases/config.ts too."}`,
+  hubDatabase: features => `hubDatabase() was removed in NuxtHub 0.10. Query the Database Definition with db from "vite-hub/database/drizzle".${features.database ? "" : " Set database: true under vitehub and write server/databases/default/index.ts too."}`,
   hubAI: () => "hubAI() was removed in NuxtHub 0.10, and ViteHub has no AI feature. Call the AI provider SDK directly.",
   hubAutoRAG: () => "hubAutoRAG() was removed in NuxtHub 0.10, and ViteHub has no AutoRAG feature.",
   hubVectorize: () => "hubVectorize() was removed in NuxtHub 0.10, and ViteHub has no Vectorize feature.",

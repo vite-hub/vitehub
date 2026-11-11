@@ -8,6 +8,7 @@ import { consoleMcpCallbackPath } from "../mcp-client.ts"
 import { readConsoleOperationUser } from "./access.ts"
 import { consoleMcpRecords, resetConsoleMcpRecords } from "./mcp-client-store.ts"
 import { consoleRequestError, consolePublicURL } from "./request.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -139,10 +140,6 @@ function randomId(bytes = 16): string {
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 /** The claims of a JWT, without checking its signature. The token came straight from the token endpoint. */

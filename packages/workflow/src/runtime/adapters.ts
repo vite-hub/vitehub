@@ -1,5 +1,4 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { createWorkflowError } from "../errors.ts"
@@ -9,11 +8,11 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
-import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
+import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
+import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import type { WorkflowOperationName } from "../errors.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
@@ -21,7 +20,7 @@ interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   event: unknown
   id: string
   name: string
-  options: WorkflowDeferOptions
+  options: WorkflowStartOptions
   payload: TPayload | undefined
 }
 
@@ -39,31 +38,31 @@ interface WorkflowRuntimeAdapter {
 }
 
 function resolveDispatchObserver(event: unknown): (() => void) | undefined {
-  if (!event || !hasRuntimeType(event, "object")) return undefined
+  if (!event || typeof event !== "object") return undefined
   const candidate = Object.hasOwn(event, "onDispatch")
     ? Reflect.get(event, "onDispatch")
     : undefined
   // SAFETY: The runtime event member is callable and takes no provider data.
-  return hasRuntimeType(candidate, "function") ? candidate as () => void : undefined
+  return typeof candidate === "function" ? candidate as () => void : undefined
 }
 
 function resolveSettlementObserver(event: unknown): ((promise: PromiseLike<unknown>) => void) | undefined {
-  if (!event || !hasRuntimeType(event, "object")) return undefined
+  if (!event || typeof event !== "object") return undefined
   const candidate = Object.hasOwn(event, "settled")
     ? Reflect.get(event, "settled")
     : undefined
-  // SAFETY: hasRuntimeType establishes that the runtime event member is callable.
-  if (hasRuntimeType(candidate, "function")) return candidate as (promise: PromiseLike<unknown>) => void
+  // SAFETY: The typeof check establishes that the runtime event member is callable.
+  if (typeof candidate === "function") return candidate as (promise: PromiseLike<unknown>) => void
   const context = Object.hasOwn(event, "context")
     ? Reflect.get(event, "context")
     : undefined
-  if (!context || !hasRuntimeType(context, "object")) return undefined
+  if (!context || typeof context !== "object") return undefined
   const contextObject = Object(context)
   const nested = Object.hasOwn(contextObject, "settled")
     ? Reflect.get(contextObject, "settled")
     : undefined
-  // SAFETY: hasRuntimeType establishes that the nested runtime event member is callable.
-  return hasRuntimeType(nested, "function") ? nested as (promise: PromiseLike<unknown>) => void : undefined
+  // SAFETY: The typeof check establishes that the nested runtime event member is callable.
+  return typeof nested === "function" ? nested as (promise: PromiseLike<unknown>) => void : undefined
 }
 
 function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel", operation: WorkflowOperationName): never {
@@ -89,7 +88,7 @@ function resolveCloudflareInspectionBinding(event: unknown, binding: string | un
 }
 
 function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): { id: string } {
-  if (!hasRuntimeType(value, "object") || value === null) {
+  if (typeof value !== "object" || value === null) {
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
   }
 
@@ -101,7 +100,7 @@ function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): {
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.", { cause })
   }
 
-  if (!hasRuntimeType(id, "string") || !id || id !== expectedId) {
+  if (typeof id !== "string" || !id || id !== expectedId) {
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
   }
 
@@ -122,7 +121,7 @@ const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
-  const value = hasRuntimeType(status, "object") && status && Object.hasOwn(status, "status")
+  const value = typeof status === "object" && status && Object.hasOwn(status, "status")
     ? (status as { status?: unknown }).status
     : status
   const normalized = String(value || "").toLowerCase()
@@ -130,17 +129,17 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
 }
 
 function ownSerializedOutput(metadata: unknown) {
-  if (!hasRuntimeType(metadata, "object") || metadata === null || !Object.hasOwn(metadata, "output")) return undefined
+  if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "output")) return undefined
   // SAFETY: The guards establish a non-null object with an own output property, whose value remains unknown.
   const output = (metadata as { output?: unknown }).output
   return isSerializedResponse(output) ? output : undefined
 }
 
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
-  if (!error || !hasRuntimeType(error, "object")) return false
+  if (!error || typeof error !== "object") return false
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
   const details = (error as { details?: unknown }).details
-  return Boolean(details && hasRuntimeType(details, "object")
+  return Boolean(details && typeof details === "object"
     // SAFETY: Workflow provider normalization establishes the asserted run contract.
     && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
 }
@@ -175,7 +174,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
           { acknowledgementUnknown: (_error, status) => status === undefined },
         )
-        const creation = start().catch(async (firstError) => {
+        const instance = await start().catch(async (firstError) => {
           try {
             return await start()
           }
@@ -184,11 +183,6 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
             throw retryError
           }
         })
-        const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
-        if (waitUntil) {
-          waitUntil(creation)
-        }
-        const instance = await creation
         return {
           id: instance.id,
           payload,
@@ -305,12 +299,6 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     async run({ definition, event, id, name, options, payload }) {
       if (!definition.options?.native) {
         return await fallback.run({ definition, event, id, name, options, payload })
-      }
-      if (options.id) {
-        throw createWorkflowError({
-          code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-          details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
-        })
       }
       return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
     },

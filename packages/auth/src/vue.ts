@@ -14,10 +14,19 @@ type Callable = (...args: unknown[]) => unknown
 type NuxtApp = { runWithContext<T>(run: () => T): T }
 
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
+let sessionSeedResolver: (() => unknown) | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
   nuxtAppResolver = resolver
+}
+
+/**
+ * Internal bridge installed by the Nuxt module. The resolver returns the session that the server read for this
+ * request, `null` when the request had none, or `undefined` when nobody knows yet, such as on a prerendered page.
+ */
+export function setSessionSeedResolver(resolver: (() => unknown) | undefined): void {
+  sessionSeedResolver = resolver
 }
 
 /** The state of a client hook, such as `useSession()`, before Better Auth's client has loaded. */
@@ -27,7 +36,8 @@ const pendingState = (refetch: Callable) => ({ data: null, error: null, isPendin
  * Better Auth's Vue client with the same options, types, and calls, which loads `better-auth/vue` the first time it is
  * used. Creating one costs nothing, so an app can create it up front and only pages that sign in pay for Better Auth.
  * Calls such as `signIn.social()` wait for the load. Hooks such as `useSession()` return a ref at once that is
- * pending until then, and stays pending during server rendering. Use `loadAuthClient()` for anything else, such as `$store`.
+ * pending until then. In Nuxt, `useSession()` starts with the session that the server read for the request, so it is
+ * settled during server rendering and hydration. Use `loadAuthClient()` for anything else, such as `$store`.
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
@@ -40,16 +50,23 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
     const real = (client: VueAuthClient<Option>) => (Reflect.get(client, name) as Callable)(...args)
     // Better Auth's `useSession(useFetch)` for Nuxt answers with a promise, so it can wait for the load too.
     if (typeof args[0] === "function") return load().then(client => runIn(scope, () => nuxtApp ? nuxtApp.runWithContext(() => real(client)) : real(client)))
-    const pending = pendingState(async (...query: unknown[]) => {
+    const refetch = async (...query: unknown[]) => {
       await load()
       const current = state.value as { refetch?: Callable }
-      return current === pending ? undefined : current.refetch?.(...query)
-    })
-    const state = shallowRef<unknown>(pending)
+      return current === initial ? undefined : current.refetch?.(...query)
+    }
+    // With a session that the server rendered, the hook starts settled, so the page does not flash signed out.
+    const seed = name === "useSession" ? sessionSeedResolver?.() : undefined
+    const initial = seed === undefined ? pendingState(refetch) : { data: seed, error: null, isPending: false, isRefetching: false, refetch }
+    const state = shallowRef<unknown>(initial)
     if (!("window" in globalThis)) return state
     void load().then((client) => {
       if (scope && !scope.active) return
-      runIn(scope, () => watch(real(client) as Ref<unknown>, value => (state.value = value), { immediate: true }))
+      runIn(scope, () => watch(real(client) as Ref<unknown>, (value) => {
+        // Better Auth starts pending with no data. Keep the server's answer until Better Auth has its own.
+        if (seed !== undefined && isPendingWithoutData(value)) return
+        state.value = value
+      }, { immediate: true }))
     })
     return state
   }
@@ -74,6 +91,10 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
 
   // SAFETY: the proxy answers every member of Better Auth's Vue client: calls through `apply`, hooks through `hook`.
   return call([]) as VueAuthClient<Option>
+}
+
+function isPendingWithoutData(value: unknown): boolean {
+  return typeof value === "object" && value !== null && Reflect.get(value, "isPending") === true && !Reflect.get(value, "data")
 }
 
 /** Run `run` in the scope the hook was called in, so its watchers stop with the component that called it. */
@@ -151,12 +172,4 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
     },
     user: computed(() => state.value.data?.user ?? null),
   }
-}
-
-export function useSignIn(): typeof authClient.signIn {
-  return authClient.signIn
-}
-
-export function useSignUp(): typeof authClient.signUp {
-  return authClient.signUp
 }

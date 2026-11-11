@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto"
 
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 import { lineageDigest, readDerivedFrom } from "@vite-hub/workspace/lineage"
 
@@ -28,11 +27,11 @@ import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } 
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
 import { mergeContentDocument } from "./merge.ts"
-import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
+import { contentLeaseHeld, contentLeasesHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
-import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace/files"
+import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteCommit, WorkspaceWriteInput } from "@vite-hub/workspace/files"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
 import type {
   CompiledDocumentsPath,
@@ -782,7 +781,7 @@ function writeMetadata(metadata: Record<string, unknown> | undefined, content: R
 /** The text of a write, or undefined when it has no content or its bytes are not UTF-8. */
 function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   if (content === undefined) return
-  if (hasRuntimeType(content, "string")) return content
+  if (typeof content === "string") return content
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(content)
   }
@@ -810,8 +809,11 @@ function defaultRoute(id: string): string {
   return `/${path.split("/").map(segment => encodeURIComponent(segment)).join("/")}`
 }
 
-/** Set while Content's own `publish()` commits, the one writer that may delete documents from `published`. */
-const contentPublishes = new AsyncLocalStorage<true>()
+/**
+ * Set while Content commits. `publish`: its own `publish()`, the one writer that may delete documents from `published`.
+ * `write`: a save, a seed, or a sync of the draft, which checked the edit lease of its caller already.
+ */
+const contentWrites = new AsyncLocalStorage<"publish" | "write">()
 
 /** Create the document runtime for every collection and install validation on their Workspace paths. */
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
@@ -871,7 +873,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
    * `schedules` ref holds files that are not documents, so schedules open every file.
    */
   async function openRevision(revision: WorkspaceRevision | string, scope: "documents" | "all" = "documents"): Promise<OpenedRevision> {
-    const id = hasRuntimeType(revision, "string") ? revision : revision.id
+    const id = typeof revision === "string" ? revision : revision.id
     return await memoize(revisions, scope === "all" ? `all:${id}` : id, async () => {
       const view = await (await history()).open(id)
       const files = new Map<string, string>()
@@ -1141,7 +1143,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   async function syncDraft(): Promise<void> {
     const retained = await history()
     const publishedRef = await retained.forksFrom?.("draft")
-    if (publishedRef === undefined || !retained.merge) return
+    const merge = retained.merge
+    if (publishedRef === undefined || !merge) return
     try {
       const [draftHead, publishedHead] = await Promise.all([retained.head({ ref: "draft" }), retained.head({ ref: publishedRef })])
       if (!draftHead || !publishedHead || draftSynced(draftHead) === publishedHead.id) return
@@ -1158,7 +1161,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       const content = { action: "sync", synced: publishedHead.id }
       try {
-        await retained.merge({
+        await contentWrites.run("write", () => merge({
           from: publishedRef,
           into: "draft",
           message: "Bring published content into the draft",
@@ -1195,7 +1198,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
               ...(paths.length ? { files: merged } : {}),
             }
           },
-        })
+        }))
       }
       catch (error) {
         if (!isWorkspaceConflict(error)) throw error
@@ -1250,7 +1253,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const paths = (await view.list("", { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
     const files = Object.fromEntries(await mapLimit(paths, 8, async path => [path, await view.readFile(path, { encoding: "binary" })] as const))
     try {
-      await retained.commit({ ref: "draft", ifHead: null, files, message: "Start the draft from published content", metadata: { content: { action: "seed", from: published.id } } })
+      await contentWrites.run("write", () => retained.commit({ ref: "draft", ifHead: null, files, message: "Start the draft from published content", metadata: { content: { action: "seed", from: published.id } } }))
     }
     catch (error) {
       if (!isWorkspaceConflict(error)) throw error
@@ -1267,6 +1270,39 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     await previous
     return release
   }
+
+  /** One lease check per Workspace commit, for all of its documents, so the error names every held one. */
+  const commitLeaseChecks = new WeakMap<WorkspaceWriteCommit, Promise<void>>()
+
+  /**
+   * A Workspace commit to the draft from outside Content, such as `vitehub push` or an Agent, fails while another
+   * session holds the edit lease of a document that it writes. Content's own writes checked the lease of their caller.
+   * `lease: "override"` in the revision metadata writes anyway.
+   */
+  async function assertNoHeldLeases(input: WorkspaceWriteInput): Promise<void> {
+    const commit = input.commit
+    if (input.ref !== "draft" || !commit || contentWrites.getStore() || commit.metadata.lease === "override") return
+    let check = commitLeaseChecks.get(commit)
+    if (!check) {
+      check = heldLeases(commit.paths)
+      commitLeaseChecks.set(commit, check)
+    }
+    await check
+  }
+
+  async function heldLeases(paths: readonly string[]): Promise<void> {
+    const documents = paths.flatMap((path) => {
+      const collection = [...collections.values()].find(candidate => candidate.sessionCollection.lease && candidate.compiled.match(path))
+      return collection ? [{ collection, id: collection.idFor(path) }] : []
+    })
+    const holders = await mapLimit(documents, 8, async ({ collection, id }) => {
+      const holder = await sessions.holder(collection.sessionCollection, id, undefined)
+      return holder ? [{ collection: collection.name, id, holder }] : []
+    })
+    const [first, ...rest] = holders.flat()
+    if (first) throw contentLeasesHeld([first, ...rest])
+  }
+
   const plugin = registerWorkspacePlugin(workspaceName, {
     id: "vitehub.content",
     // A rule for each collection glob. A Workspace at a repository root denies every other path with a `**` rule, and
@@ -1281,9 +1317,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         for (const collection of collections.values()) {
           if (!collection.compiled.match(path)) continue
           const id = collection.idFor(path)
+          await assertNoHeldLeases(input)
           if (input.operation === "rm") {
             // Like remove(): a document leaves the draft, and leaves `published` only when publish() publishes that.
-            if (input.ref === "published" && !contentPublishes.getStore()) {
+            if (input.ref === "published" && contentWrites.getStore() !== "publish") {
               throw contentErrorDiagnostics.CONTENT_R0013({
                 message: `[vitehub] Content document ${JSON.stringify(`${collection.name}/${id}`)} leaves the published site only through content.publish(). Remove it from the draft with remove(), then publish the deletion.`,
               })
@@ -1709,7 +1746,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           let revision: WorkspaceRevision
           try {
             const recorded = baseRef === undefined ? undefined : await nextBases(published, head, opened, path, current, writeOptions.ifPublishedDigest)
-            revision = await retained.commit({
+            revision = await contentWrites.run("write", () => retained.commit({
               ref: "draft",
               ifHead: head?.id ?? null,
               ...(writeOptions.ifPublishedDigest !== undefined ? { ifHeads: { [baseRef ?? "published"]: publishedHead?.id ?? null } } : {}),
@@ -1717,7 +1754,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
               changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
               message,
               metadata: recorded ? writeMetadata(writeOptions.metadata, { action, documents, ...recorded }) : metadata,
-            })
+            }))
           }
           finally { release() }
           if (!translation) {
@@ -1854,7 +1891,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function status(id: string, options?: ContentStatusOptions): Promise<ContentDocumentStatus | null>
     function status(options?: ContentStatusOptions): Promise<ContentDocumentStatus[]>
     async function status(first?: string | ContentStatusOptions, second?: ContentStatusOptions): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
-      const id = hasRuntimeType(first, "string") ? first : undefined
+      const id = typeof first === "string" ? first : undefined
       const statusOptions: unknown = id === undefined ? first : second
       const locale = localeOf(statusOptions !== null && Object(statusOptions) === statusOptions ? Reflect.get(Object(statusOptions), "locale") : undefined)
       if (id !== undefined) pathFor(id, locale)
@@ -2221,7 +2258,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       /** Commit the changes to `published`, or to a branch with a pull request into it. */
       const land = async (ifHeads: { draft: string } | undefined): Promise<ContentPublishResult> => {
         if (options.publish !== "pr") {
-          const revision = await contentPublishes.run(true, () => retained.commit({
+          const revision = await contentWrites.run("publish", () => retained.commit({
             ref: "published",
             ifHead: publishedHead?.id ?? null,
             ...(ifHeads ? { ifHeads } : {}),
@@ -2249,7 +2286,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         // The branch starts from the published head that the changes were checked against.
         const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14)
         const branch = `${publishBranchPrefix}${draftHead.id.slice(0, 7)}-${stamp}-${randomUUID()}`
-        const revision = await contentPublishes.run(true, () => retained.commit({
+        const revision = await contentWrites.run("publish", () => retained.commit({
           ref: branch,
           ifHead: null,
           ...(publishedHead ? { startFrom: publishedHead.id } : {}),

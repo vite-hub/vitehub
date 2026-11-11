@@ -14,6 +14,8 @@ The `Review image attachments` session covers persisted input and output images 
 
 `meal-logger` is a retired Agent. Its session stays in invocation history, so search lists it under Invocation history and the Agents list does not show it.
 
+`channels-fixture.ts` answers the `channels.*` operations. `release-engineer` has simulated Slack and Discord Channels, as `agent.channels.simulate` gives them in `vite dev`, and `product-reviewer` has a real Telegram Channel with a durable State. The simulated Channels serve the real chat page of `@vite-hub/agent` on their webhook route, but no Agent answers a message sent there.
+
 The `Inspect MCP tools and title` session provides synthetic server groups, tool contracts, skipped and empty servers, and a completed Title view for the Capabilities tab.
 
 The `Share one empty state across primitive pages` session is the happy path: a configured Agent, a prepared workspace, reasoning, file reads, commands with output, a file change with diffs, commentary, a Markdown answer, a GitHub reply, and usage with cost. The `Sync docs for the 0.0.5 release` session fails while it prepares the workspace, so the preparation group shows a failed step.
@@ -22,7 +24,7 @@ The Agent Invocation records live in `console.fixture.json`. `mock-api.ts` adds
 the read-only Usage, KV, Workflow, Queue, and search responses needed by the
 Console. `rpc.ts` connects the Console's SSE RPC transport to those local fixture
 routes. It also serves a synthetic Connections management API
-with three OAuth Connections, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
+with three OAuth Connections, one of them with setup docs, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
 Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. Comments answers the `comments.*` operations from three synthetic threads in `comments.ts`, in memory, as a signed-in Maxi who may write, so its rows open the thread panel with replies, resolve, and `@` mentions. A restart resets the threads. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader.
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.

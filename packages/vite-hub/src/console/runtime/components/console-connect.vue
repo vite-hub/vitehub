@@ -78,7 +78,7 @@ onBeforeUnmount(() => unsubscribe?.());
 
 <template>
   <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
-  <UDashboardPanel id="console-connect" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0' }">
+  <UDashboardPanel id="console-connect">
     <template #header>
       <ConsolePageHeader title="Connect an agent" :toggle="false">
         <template #right>
@@ -89,8 +89,6 @@ onBeforeUnmount(() => unsubscribe?.());
             rel="noopener noreferrer"
             icon="i-lucide-arrow-up-right"
             :ui="{ label: 'hidden sm:inline' }"
-            size="sm"
-            color="neutral"
             variant="ghost"
             aria-label="Open the MCP guide"
           />
@@ -130,7 +128,7 @@ onBeforeUnmount(() => unsubscribe?.());
               <h2 id="console-connect-sign-in" class="vitehub-console__connect-label">Sign in</h2>
               <ol class="grid gap-3 sm:pt-2.5">
                 <li v-for="(step, index) in steps" :key="step" class="flex gap-3 text-sm">
-                  <span class="grid size-5 shrink-0 place-items-center rounded-full border border-default font-mono text-[11px] text-muted" aria-hidden="true">{{ index + 1 }}</span>
+                  <span class="grid size-5 shrink-0 place-items-center rounded-full border border-default font-mono text-xs text-muted" aria-hidden="true">{{ index + 1 }}</span>
                   <span class="text-pretty">{{ step }}</span>
                 </li>
               </ol>

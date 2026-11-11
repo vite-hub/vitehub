@@ -53,7 +53,18 @@ describe("nuxthub", () => {
       ["nuxthub", "nuxt.config.ts lists @nuxthub/core in modules", undefined],
     ])
     const files = await glob(["server/db/**", "server/databases/**"], { cwd: directory })
-    expect(files.sort()).toEqual(["server/databases/config.ts", "server/databases/schema.ts"])
+    expect(files.sort()).toEqual(["server/databases/default/index.ts", "server/databases/default/schema.ts"])
+  })
+
+  it.each(["server/databases/default.ts", "server/databases/default/index.ts"])("preserves an existing default Database at %s", async (definition) => {
+    const directory = await app(`existing-${definition.endsWith("index.ts") ? "folder" : "file"}`, {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
+      "server/db/schema.ts": "export const tables = {}\n",
+      [definition]: "export default defineDatabase({ schema: {} })\n",
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    expect(run.result.edits.some(edit => edit.path.startsWith("server/"))).toBe(false)
+    expect(run.result.followUps).toContainEqual({ file: definition, message: `${definition} already exists, so the codemod did not move the schema in server/db/schema.ts. Add its tables to this Definition by hand.` })
   })
 
   it("rewrites the statement and async return forms of KV and Blob calls", async () => {
@@ -196,14 +207,14 @@ describe("nuxthub", () => {
       })
       "
     `)
-    expect(after("server/databases/schema/users.ts")).toContain("from '../../utils/slug'")
-    expect(after("server/databases/schema/index.ts")).toBe("export * from './users'\n")
-    expect(after("server/databases/config.ts")).toContain("dialect: 'postgresql'")
-    expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/schema'\nimport type { User } from '../databases/schema/users'\n\nexport { users }\n")
+    expect(after("server/databases/default/schema/users.ts")).toContain("from '../../../utils/slug'")
+    expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
+    expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
+    expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
     expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": "^0.1.0", "drizzle-orm": "^0.45.3", "vite-hub": "^0.1.0" } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
-        "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/config.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",
+        "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",
         "hub.kv was { driver: 'upstash' }. The codemod set kv: true, which uses the default driver of the preset. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.kv by hand. See https://vitehub.dev/docs/kv.",
         "hub.dir set the local data folder. ViteHub keeps local data in .vitehub/data/. Set dataDir under vitehub to keep another folder. The codemod dropped it.",
       ]

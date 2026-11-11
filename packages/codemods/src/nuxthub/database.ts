@@ -12,12 +12,12 @@ import type { FileEdit, FollowUp } from "../types.ts"
 import type { Dialect } from "./config.ts"
 
 const scriptExtension = /\.(?:ts|mts|js|mjs)$/
-const definitionFile = "server/databases/config.ts"
+const definitionFile = "server/databases/default/index.ts"
 
 export interface SchemaMove {
   /** Old path of each moved file, by new path. */
   moved: Map<string, string>
-  /** The module that holds the schema now, without extension, such as `server/databases/schema`. */
+  /** The module that holds the schema now, without extension, such as `server/databases/default/schema`. */
   schemaModule?: string
   /** Old schema module, without extension, such as `server/db/schema`. */
   oldModule?: string
@@ -62,30 +62,31 @@ async function findSchema(cwd: string, dialect: Dialect): Promise<{ files: strin
 }
 
 /**
- * Moves the NuxtHub schema to `server/databases/` and writes the Database Definition. Relative imports in the
+ * Moves the NuxtHub schema to `server/databases/default/` and writes the Database Definition. Relative imports in the
  * moved files are rewritten when they point outside the moved set.
  */
 export async function moveSchema(cwd: string, dialect: Dialect): Promise<SchemaMove> {
   const result: SchemaMove = { moved: new Map(), edits: [], followUps: [] }
   const schema = await findSchema(cwd, dialect)
   for (const other of schema.others) {
-    result.followUps.push({ file: other, message: `The codemod moved the ${dialect} schema only and left this file. Move it to server/databases/ by hand if the app uses it.` })
+    result.followUps.push({ file: other, message: `The codemod moved the ${dialect} schema only and left this file. Move it to server/databases/default/ by hand if the app uses it.` })
   }
   if (!schema.files.length) {
     result.followUps.push({ file: "server/db", message: `The codemod found no schema in server/db/. Write the Drizzle tables in a Database Definition at ${definitionFile} with defineDatabase({ schema }) from "vite-hub/database".` })
     return result
   }
-  if (existsSync(join(cwd, definitionFile))) {
-    result.followUps.push({ file: definitionFile, message: `${definitionFile} already exists, so the codemod did not move the schema in ${schema.files.join(", ")}. Add its tables to this Definition by hand.` })
+  const [existingDefinition] = await glob(["server/databases/default.{ts,mts,js,mjs}", "server/databases/default/index.{ts,mts,js,mjs}"], { cwd })
+  if (existingDefinition) {
+    result.followUps.push({ file: existingDefinition, message: `${existingDefinition} already exists, so the codemod did not move the schema in ${schema.files.join(", ")}. Add its tables to this Definition by hand.` })
     return result
   }
   const targetOf = (file: string) => schema.folder
-    ? file.replace(/^server\/db\/schema\//, "server/databases/schema/")
-    : file.replace(/^server\/db\/schema(?:\.\w+)?\.(\w+)$/, "server/databases/schema.$1")
+    ? file.replace(/^server\/db\/schema\//, "server/databases/default/schema/")
+    : file.replace(/^server\/db\/schema(?:\.\w+)?\.(\w+)$/, "server/databases/default/schema.$1")
   const targets = schema.files.map(targetOf)
   const taken = targets.find(target => existsSync(join(cwd, target)))
   if (taken) {
-    result.followUps.push({ file: taken, message: `${taken} already exists, so the codemod did not move the schema. Move it to server/databases/ and write ${definitionFile} by hand.` })
+    result.followUps.push({ file: taken, message: `${taken} already exists, so the codemod did not move the schema. Move it to server/databases/default/ and write ${definitionFile} by hand.` })
     return result
   }
   const oldFiles = new Set(schema.files)
@@ -119,15 +120,15 @@ export async function moveSchema(cwd: string, dialect: Dialect): Promise<SchemaM
   }
   const extension = /\.m?js$/.test(schema.files[0]!) ? "js" : "ts"
   if (schema.folder) {
-    result.schemaModule = "server/databases/schema"
+    result.schemaModule = "server/databases/default/schema"
     result.oldModule = "server/db/schema"
-    if (!targets.some(target => /^server\/databases\/schema\/index\.\w+$/.test(target))) {
-      const exports = targets.map(target => `export * from ${quoteString(relativeSpecifier("server/databases/schema/index.ts", target.replace(scriptExtension, "")), style)}${style.semicolons ? ";" : ""}`)
-      result.edits.push({ path: `server/databases/schema/index.${extension}`, before: undefined, after: `${exports.join("\n")}\n` })
+    if (!targets.some(target => /^server\/databases\/default\/schema\/index\.\w+$/.test(target))) {
+      const exports = targets.map(target => `export * from ${quoteString(relativeSpecifier("server/databases/default/schema/index.ts", target.replace(scriptExtension, "")), style)}${style.semicolons ? ";" : ""}`)
+      result.edits.push({ path: `server/databases/default/schema/index.${extension}`, before: undefined, after: `${exports.join("\n")}\n` })
     }
   }
   else {
-    result.schemaModule = "server/databases/schema"
+    result.schemaModule = "server/databases/default/schema"
     result.oldModule = schema.files[0]!.replace(scriptExtension, "")
   }
   const semicolon = style.semicolons ? ";" : ""

@@ -30,8 +30,10 @@
   let exit
   let toolWindow
   let cases = 0
-  const stop = () => {
+  // The pill folds into its hexagon before the off mark takes its place.
+  const stop = async () => {
     exit?.()
+    while (document.querySelector("vitehub-pill")) await new Promise(resolve => setTimeout(resolve, 20))
     document.querySelector("vitehub-tools-off")?.remove()
     localStorage.removeItem(offKey)
   }
@@ -93,7 +95,7 @@
         assert((getComputedStyle(tabs).visibility === "hidden") === collapsed, `${edge} ${at}%: the tab and its scrollbars hide with the pill`)
       }
       cases++
-      stop()
+      await stop()
     }
     for (const { safe, collapsed, edge, at } of scenarios) {
       result.textContent = `Running… ${cases}/${scenarios.length}: ${edge} ${at}%, collapsed=${collapsed}`
@@ -151,7 +153,7 @@
       bounds("expanded")
       cases++
       toolWindow.destroy()
-      stop()
+      await stop()
     }
     // The mark only translates to the hexagon, so the bar keeps its size and the resize glide never cancels the morph.
     for (const edge of ["top", "right", "bottom", "left"]) {
@@ -181,7 +183,7 @@
         }
       }
       cases++
-      stop()
+      await stop()
     }
     result.textContent = `PASS: ${cases} dock states keep tabs reachable and windows aligned at default and oversized sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds; the hexagon morph keeps the bar size on every edge`
   } catch (error) {
@@ -189,7 +191,7 @@
     throw error
   } finally {
     toolWindow?.destroy()
-    stop()
+    await stop()
     window.fetch = originalFetch
     for (const [index, key] of [dockKey, collapsedKey, offKey].entries()) {
       if (saved[index] === null) localStorage.removeItem(key)

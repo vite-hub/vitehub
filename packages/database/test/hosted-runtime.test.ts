@@ -27,7 +27,7 @@ async function createTempDir(prefix: string) {
 function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatabaseConfig, "cloudflare" | "connection">): ResolvedDBViteConfig {
   const migrationsDir = "server/databases/primary/migrations"
   const generatedSchemaFile = join(rootDir, ".vitehub", "database", "primary-schema.ts")
-  const handler = join(rootDir, "server", "databases", "primary", "config.ts")
+  const handler = join(rootDir, "server", "databases", "primary", "index.ts")
   const cloudflare = database.cloudflare ? { binding: "DB_PRIMARY", ...database.cloudflare, migrationsDir } : undefined
   return {
     databaseNames: ["primary"],
@@ -130,7 +130,7 @@ describe("hosted Database runtime", () => {
 
   it("gives sibling Vercel host functions the hosted Database runtime module", async () => {
     const rootDir = await createTempDir("vitehub-db-sibling-runtime-")
-    const definition = join(rootDir, "server", "databases", "config.ts")
+    const definition = join(rootDir, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await Promise.all([
       writeFile(join(rootDir, "package.json"), "{}\n"),
@@ -163,7 +163,7 @@ describe("hosted Database runtime", () => {
 
   it("keeps sibling Provider Output on a host without a hosted Database runtime", async () => {
     const rootDir = await createTempDir("vitehub-db-sibling-output-")
-    const definition = join(rootDir, "server", "databases", "config.ts")
+    const definition = join(rootDir, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await Promise.all([
       writeFile(join(rootDir, "package.json"), "{}\n"),

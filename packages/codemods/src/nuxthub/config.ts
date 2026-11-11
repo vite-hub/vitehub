@@ -61,7 +61,7 @@ function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]):
   const dialect = dialectProperty ? readDatabase(config, dialectProperty.value, notes) : "sqlite"
   const others = object.properties.filter(property => property !== dialectProperty)
   if (others.length) {
-    notes.push({ path: ["database"], message: `hub.db also set ${others.map(property => optionText(config, property)).join(", ")}. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/config.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.` })
+    notes.push({ path: ["database"], message: `hub.db also set ${others.map(property => optionText(config, property)).join(", ")}. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.` })
   }
   return dialect ?? "sqlite"
 }

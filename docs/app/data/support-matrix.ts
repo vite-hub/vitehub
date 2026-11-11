@@ -199,9 +199,9 @@ const serverPrimitives: SupportMatrixGroup = {
       "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host.",
       "Cloudflare / Vercel",
     ), "sandbox"),
-    featureRow("schedule", "Static and runtime schedules", cell(
+    featureRow("schedule", "Static schedules and schedules that code starts", cell(
       "available",
-      "Nitro Provider Wake, or the process runtime on a long-lived host.",
+      "Nitro Provider Wake, or the process runtime on a long-lived host. `startSchedule()` needs KV.",
       "Provider Wake",
     )),
     featureRow("workflow", "Durable execution", cell(
@@ -248,7 +248,7 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console routes run in the Nitro output of the selected preset.",
+      "The Console endpoint runs in the Nitro output of the selected preset. The hosted Console calls it.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(
@@ -256,12 +256,17 @@ const applicationFeatures: SupportMatrixGroup = {
       "Variables are validated at build and in the Nitro output of the selected preset.",
       "Nitro runtime",
     )),
-    featureRow("logs", "Log sources and the development buffer", cell(
-      "package",
-      "Logs read the log source that the app configures for the deployment host.",
-      "Host source",
+    featureRow("i18n", "Source-text messages in the request locale", cell(
+      "available",
+      "Requires Nitro 3 with request async context, or Nuxt 5.",
+      "Nitro 3",
     )),
-    featureRow("observability", "Agent telemetry and request logs", cell(
+    featureRow("mcp", "The app's own MCP server", cell(
+      "package",
+      "The MCP route runs in the Nitro output of the selected preset.",
+      "Nitro route",
+    )),
+    featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
       "package",
       "Evlog runs in the Nitro output of the selected preset.",
       "Evlog",
