@@ -354,7 +354,7 @@ describe("Vite schedule integration", () => {
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await Promise.all([
       writeFile(join(root, "server", "schedules", "report.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8"),
-      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule('*/5 * * * *', () => {})\n", "utf8"),
+      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '*/5 * * * *', handler: () => {} })\n", "utf8"),
       // A cron that only the module knows: the runtime loads it at startup.
       writeFile(join(root, "server", "schedules", "dynamic.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nconst cron = process.env.CRON ?? '* * * * *'\nexport default defineSchedule({ cron, handler: () => {} })\n", "utf8"),
     ])

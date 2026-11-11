@@ -89,7 +89,7 @@ import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { cmsCan } from 'vite-hub/cms/access'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   // Agents may draft, but only people publish.

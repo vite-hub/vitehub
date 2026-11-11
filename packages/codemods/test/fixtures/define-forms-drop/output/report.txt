@@ -1,0 +1,28 @@
+define-forms: moved 1 Schedule(s) to `defineSchedule({ cron, handler })`, 1 Content file(s) to a default export, 1 import(s) of `server/content.ts`, 4 Database file(s) to `server/databases/<name>/`
+Dry run: no files were written.
+
+Files to change (14):
+  drizzle.config.ts
+  server/api/docs.get.ts
+  server/content.ts
+  server/database-migrate.ts
+  server/databases/config.ts (deleted)
+  server/databases/default/index.ts (new)
+  server/databases/teams.ts (deleted)
+  server/databases/default/teams.ts (new)
+  server/schedules/cleanup.ts
+  server/utils/trust.ts
+  server/databases/migrations/0000_init.sql (deleted)
+  server/databases/default/migrations/0000_init.sql (new)
+  server/databases/migrations/meta/_journal.json (deleted)
+  server/databases/default/migrations/meta/_journal.json (new)
+
+Manual follow-ups (1):
+  1. package.json:7 This line names a former Database path. Database Definitions are now `server/databases/<name>/index.ts`, with migrations in `server/databases/<name>/migrations/`.
+
+Notes:
+  - `server/databases/config.ts` was the `default` Database. It is now `server/databases/default/index.ts`, and the files beside it moved with it.
+
+Next steps:
+  - Run your typecheck and build.
+  - Commit the moved Database files with `git add -A`, so Git records them as renames.
