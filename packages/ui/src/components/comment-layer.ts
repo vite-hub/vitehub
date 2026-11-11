@@ -1,9 +1,10 @@
 import type { CommentsClient, ResolvedAnchor, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, type PropType, ref, shallowRef, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, type PropType, reactive, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
+import { threadRow } from "../internal/comment-row.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -20,6 +21,14 @@ const clickSlop = 6;
 const pinSpacing = 32;
 // A drag in comment mode draws an area. A smaller one is a slip, not an area.
 const minimumArea = 8;
+// Margin placement needs this much screen. A narrower one puts each thread beside its pin.
+const marginMinWidth = 900;
+// The room between two cards in the margin, and the height a card takes until it is measured.
+const marginGap = 8;
+const marginCardHeight = 72;
+
+/** Where a thread opens: in a card beside its pin, or in a column of cards on the right edge of the screen. */
+export type CommentPlacement = "pin" | "margin";
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -68,6 +77,13 @@ export const CommentLayer = defineComponent({
     accept: { type: String },
     /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
     attachmentUrl: { type: Function as PropType<CommentAttachmentUrl> },
+    /**
+     * Where threads open. `"pin"` opens a thread in a card beside its pin. `"margin"` shows every thread as a card in a
+     * column on the right edge of the screen, level with its pin, and opens it in that card, with the reply box there.
+     * A new comment is written there too. On a screen narrower than 900px, `"margin"` works as `"pin"`.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    placement: { default: "pin", type: String as PropType<CommentPlacement> },
   },
   setup(props, { slots }) {
     const { client, subject } = props;
@@ -240,6 +256,73 @@ export const CommentLayer = defineComponent({
       "data-flip-y": y + popoverHeight > window.innerHeight ? "true" : undefined,
     });
 
+    // The box of a new comment: beside its pin, or in the margin.
+    const composerView = (draft: CommentDraft) =>
+      h(CommentComposer, {
+        accept: props.accept,
+        attachments: attachmentsOn.value,
+        busy: draft.busy || uploadingDraft.value === draft,
+        error: draft.error,
+        mentions: draft.mentions,
+        modelValue: draft.body,
+        onCancel: () => state.cancelDraft(),
+        files: draftFiles.value,
+        onSubmit: async (submit: CommentComposerSubmit) => {
+          if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
+          uploadingDraft.value = draft;
+          draft.error = undefined;
+          draft.mentions = submit.mentions;
+          const submitted = draftFiles.value;
+          const body = draft.body;
+          const mentions = draft.mentions;
+          try {
+            const attachments = await keys(submit.files);
+            // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
+            if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
+            draft.attachments = attachments;
+            if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
+          } catch (error) {
+            draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
+          } finally {
+            if (uploadingDraft.value === draft) uploadingDraft.value = null;
+          }
+        },
+        "onUpdate:files": (value: File[]) => (draftFiles.value = value),
+        "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
+        "onUpdate:modelValue": (value: string) => (draft.body = value),
+        people: user.value ? [user.value] : [],
+        user: user.value,
+        users: state.users,
+      });
+
+    // Margin placement: the width of the screen decides whether there is room for it.
+    const screenWidth = ref(typeof window === "undefined" ? 0 : window.innerWidth);
+    const onResize = () => (screenWidth.value = window.innerWidth);
+    onMounted(() => window.addEventListener("resize", onResize, { passive: true }));
+    onBeforeUnmount(() => window.removeEventListener("resize", onResize));
+    const inMargin = computed(() => props.placement === "margin" && screenWidth.value >= marginMinWidth);
+    // Each card in the margin is measured, so the cards under it move down when it grows, such as when it opens.
+    const cardHeights = reactive(new Map<string, number>());
+    const cards = new Map<string, Element>();
+    const measure = typeof ResizeObserver === "function"
+      ? new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const key = entry.target.getAttribute("data-margin-key");
+            const height = Math.round(entry.target.getBoundingClientRect().height);
+            if (key && height && cardHeights.get(key) !== height) cardHeights.set(key, height);
+          }
+        })
+      : undefined;
+    onBeforeUnmount(() => measure?.disconnect());
+    const measured = (key: string) => (element: unknown) => {
+      const before = cards.get(key);
+      if (before && before !== element) measure?.unobserve(before);
+      if (element instanceof Element) {
+        cards.set(key, element);
+        measure?.observe(element);
+      } else cards.delete(key);
+    };
+
     // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
@@ -264,6 +347,52 @@ export const CommentLayer = defineComponent({
         user: user.value,
       });
 
+    const marginCards = (spots: Map<string, ResolvedAnchor>, draft?: { draft: CommentDraft; y: number }) => {
+      type Entry = { key: string; y: number; thread?: CommentThreadModel };
+      const entries: Entry[] = pinned.value.flatMap((thread) => {
+        const spot = spots.get(thread.id);
+        return spot ? [{ key: thread.id, thread, y: spot.y }] : [];
+      });
+      if (draft) entries.push({ key: draftPositionKey, y: draft.y });
+      entries.sort((a, b) => a.y - b.y);
+      let below = -Infinity;
+      const children = entries.map((entry) => {
+        // Level with the pin's tip, which is the spot, and never over the card above.
+        const top = Math.max(entry.y - 16, below + marginGap);
+        below = top + (cardHeights.get(entry.key) ?? marginCardHeight);
+        const style = { top: `${top}px` };
+        const thread = entry.thread;
+        if (!thread) {
+          return h("div", { "data-draft": "true", "data-margin-key": entry.key, "data-slot": "comment-margin-card", key: entry.key, ref: measured(entry.key), style }, draft ? [composerView(draft.draft)] : []);
+        }
+        if (state.openId.value === thread.id) {
+          return h("div", { "data-margin-key": entry.key, "data-open": "true", "data-slot": "comment-margin-card", key: entry.key, ref: measured(entry.key), style }, threadView(thread));
+        }
+        return h(
+          "button",
+          {
+            "aria-label": `Comment ${thread.n}: ${excerpt(thread.messages[0]?.body ?? "")}`,
+            "data-margin-key": entry.key,
+            "data-slot": "comment-margin-card",
+            "data-status": thread.status,
+            key: entry.key,
+            onClick: () => state.open(thread),
+            onPointerenter: () => {
+              if (!state.draft.value) state.hoverId.value = thread.id;
+            },
+            onPointerleave: () => {
+              if (state.hoverId.value === thread.id) state.hoverId.value = null;
+            },
+            ref: measured(entry.key),
+            style,
+            type: "button",
+          },
+          threadRow(thread),
+        );
+      });
+      return h("div", { "data-slot": "comment-margin" }, children);
+    };
+
     return () => {
       // Pins that would cover each other, such as two quotes of one paragraph in its gutter, stack downward, or upward
       // at the bottom of the screen, so each stays visible and takes its own click.
@@ -285,7 +414,7 @@ export const CommentLayer = defineComponent({
         const position = spots.get(thread.id);
         if (!position) return [];
         const open = state.openId.value === thread.id;
-        const hover = state.hoverId.value === thread.id && !open && !state.draft.value;
+        const hover = state.hoverId.value === thread.id && !open && !state.draft.value && !inMargin.value;
         return [
           h(
             "div",
@@ -324,7 +453,8 @@ export const CommentLayer = defineComponent({
       const opened = state.opened.value;
       const openedPosition = opened && state.positions.value.get(opened.id);
       const pointForThread = openedPosition && !openedPosition.detached && !openedPosition.clipped && opened?.anchor.kind !== "page" ? (spots.get(opened.id) ?? openedPosition) : undefined;
-      const openThread = opened
+      // In the margin, a thread with a spot opens in its card there instead.
+      const openThread = opened && !(inMargin.value && pointForThread)
         ? h("div", {
             ...(pointForThread ? side(pointForThread.x, pointForThread.y) : {}),
             "data-kind": opened.anchor.kind,
@@ -338,6 +468,7 @@ export const CommentLayer = defineComponent({
       const draftPosition = draft && state.positions.value.get(draftPositionKey);
       // A comment on the whole page has no spot, so its composer stays where it opened.
       const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
+      const draftInMargin = inMargin.value && draft && point && draft.anchor.kind !== "page" ? { draft, y: point.y } : undefined;
       const composing =
         draft && point
           ? h(
@@ -353,49 +484,20 @@ export const CommentLayer = defineComponent({
               },
               [
                 h(CommentPin, { author: user.value, draft: true }),
-                h(
-                  "div",
-                  { "data-slot": "comment-layer-popover", ref: draftCard },
-                  h(CommentComposer, {
-                    accept: props.accept,
-                    attachments: attachmentsOn.value,
-                    busy: draft.busy || uploadingDraft.value === draft,
-                    error: draft.error,
-                    mentions: draft.mentions,
-                    modelValue: draft.body,
-                    onCancel: () => state.cancelDraft(),
-                    files: draftFiles.value,
-                    onSubmit: async (submit: CommentComposerSubmit) => {
-                      if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
-                      uploadingDraft.value = draft;
-                      draft.error = undefined;
-                      draft.mentions = submit.mentions;
-                      const submitted = draftFiles.value;
-                      const body = draft.body;
-                      const mentions = draft.mentions;
-                      try {
-                        const attachments = await keys(submit.files);
-                        // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
-                        if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
-                        draft.attachments = attachments;
-                        if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
-                      } catch (error) {
-                        draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
-                      } finally {
-                        if (uploadingDraft.value === draft) uploadingDraft.value = null;
-                      }
-                    },
-                    "onUpdate:files": (value: File[]) => (draftFiles.value = value),
-                    "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
-                    "onUpdate:modelValue": (value: string) => (draft.body = value),
-                    people: user.value ? [user.value] : [],
-                    user: user.value,
-                    users: state.users,
-                  }),
-                ),
+                draftInMargin
+                  ? null
+                  : h(
+                      "div",
+                      { "data-slot": "comment-layer-popover", ref: draftCard },
+                      composerView(draft),
+                    ),
               ],
             )
           : null;
+
+      // The margin: a card per thread with a spot, and the new comment's box, each level with its pin and below the card
+      // above it.
+      const margin = inMargin.value ? marginCards(spots, draftInMargin) : null;
 
       return h(
         "div",
@@ -415,12 +517,17 @@ export const CommentLayer = defineComponent({
                 ? [h("div", {
                     "data-slot": "comment-layer-area",
                     style: { left: `${drawing.value.left}px`, top: `${drawing.value.top}px`, width: `${drawing.value.width}px`, height: `${drawing.value.height}px` },
-                  })]
+                  }, [
+                    // Its corners and its size, while the drag lasts.
+                    ...["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => h("span", { "data-corner": corner, "data-slot": "comment-layer-area-handle", key: corner })),
+                    h("span", { "data-slot": "comment-layer-area-size" }, `${Math.round(drawing.value.width)} × ${Math.round(drawing.value.height)}`),
+                  ])]
                 : [])
             : null,
           ...items,
           composing,
           openThread,
+          margin,
           slots.default?.({ comments: state }) ?? [
             h(CommentToolbar, { comments: state, people: props.people }),
             state.listOpen.value ? h(CommentList, { comments: state, navigate: props.navigate }) : null,
