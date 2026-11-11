@@ -26,12 +26,42 @@ export function addConsoleAppRoutes(
   ]
 }
 
+const consoleRouteGuardName = "vite-hub/console-route-guard"
+
+interface ConsoleRouteGuardNitro {
+  hooks: { hook: (name: "build:before", callback: () => void) => unknown }
+  scannedHandlers: ReadonlyArray<{ handler: string, middleware?: boolean, route?: string }>
+}
+
+/**
+ * A Nitro module that refuses an app route file, such as `server/routes/_vitehub/rpc.post.ts`, on a Console route.
+ * Nitro picks a handler of one method before a handler of every method, so that file would answer instead of the
+ * Console, and app Auth access rules leave the Console POST route to the Console's own check. Nitro scans the route
+ * files after the config hooks, so the check runs before the build.
+ */
+function consoleRouteGuard(routes: readonly string[]): { name: string, setup: (nitro: ConsoleRouteGuardNitro) => void } {
+  return {
+    name: consoleRouteGuardName,
+    setup(nitro) {
+      nitro.hooks.hook("build:before", () => {
+        const conflict = nitro.scannedHandlers.find(candidate => !candidate.middleware && candidate.route !== undefined && routes.includes(candidate.route))
+        if (!conflict) return
+        throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${conflict.route}" because the app route "${conflict.handler}" uses that path. Move the app route to another path.` })
+      })
+    },
+  }
+}
+
+function isConsoleRouteGuard(value: unknown): boolean {
+  return value instanceof Object && "name" in value && value.name === consoleRouteGuardName
+}
+
 /**
  * Add the Console routes of the app: `POST /_vitehub/rpc`, which the ViteHub Console and the CLI call with signed
  * requests, and `POST /_vitehub/auth/manage` for impersonation when the app has Auth.
  */
 export function addConsoleRpcHandler(
-  nitro: { handlers?: Array<{ handler: string; route?: string }>; plugins?: string[] },
+  nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[] },
   consoleRuntimeRoot: string,
   base?: string,
   sections: readonly string[] = [],
@@ -53,9 +83,11 @@ export function addConsoleRpcHandler(
   })
   handlers.splice(0, handlers.length, ...retainedHandlers)
 
+  const routes: string[] = []
   for (const registration of registrations) {
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue
     const route = mountPath(base, registration.suffix)
+    routes.push(route)
     const conflict = retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
     if (conflict) {
       const message = registration.suffix === "/_vitehub/rpc"
@@ -73,6 +105,8 @@ export function addConsoleRpcHandler(
 
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console routes.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
+  // A second registration, such as a config reload, replaces the guard with the current routes.
+  nitro.modules = [...(nitro.modules ?? []).filter(module => !isConsoleRouteGuard(module)), consoleRouteGuard(routes)]
   // SAFETY: The kit preserves the caller's Nitro plugin registrations.
   const plugins = kit.config.plugins as string[]
   // Preserve an outer kit's plugin array so subsequent registrations use the same list.
