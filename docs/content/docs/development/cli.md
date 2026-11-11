@@ -820,7 +820,7 @@ A Chat SDK export holds only history the adapter or its State Adapter can give. 
 
 `vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox` records each run with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` for several values, as with `--filter`. Labels are not part of the history query. They must be non-empty, at most 512 characters. For a query field named `label`, use `--query label=value`.
 
-Replay needs the development project token or deployed Console authentication. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
+Replay needs the development project token or deployed Console authentication. With `--url`, the command calls the `channels.replay` operation on the Console RPC of the deployed app, one page per call. The Agent must allow Console invocation. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
 
 ## Manage Database migrations
 
@@ -1227,7 +1227,7 @@ pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 ```
 
-Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
+Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
 
 | Variable | Value |
 | --- | --- |

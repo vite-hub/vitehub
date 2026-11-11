@@ -60,4 +60,4 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
 }
 
 /** The Console data routes below `/_vitehub` that a hosted Console calls with an OAuth access token, next to MCP. */
-export const consoleOAuthDataRoutes: readonly string[] = ["/rpc/__call", "/rpc/__upload", "/auth/manage", "/env/manage", "/channels/replay", "/schedules/run"]
+export const consoleOAuthDataRoutes: readonly string[] = ["/rpc", "/auth/manage", "/env/manage", "/schedules/run"]

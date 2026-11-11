@@ -166,8 +166,8 @@ operation of the Console endpoint for the Agent:
 ```bash
 curl -X POST -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
   -H 'Content-Type: application/json' -H 'x-vitehub-console: 1' \
-  --data '{"operation":"status.get","input":{"agent":"support"}}' \
-  'http://localhost:5173/_vitehub/rpc/__call'
+  --data '{"m":"status.get","a":[{"agent":"support"}],"t":"q","i":"1"}' \
+  'http://localhost:5173/_vitehub/rpc'
 ```
 
 `VITEHUB_CONSOLE_COOKIE` is a session cookie of the app Auth or Console Auth

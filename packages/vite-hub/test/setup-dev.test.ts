@@ -66,7 +66,7 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
   // SAFETY: The plugin reads only `config.root`, `config.server`, `middlewares`, `resolvedUrls`, and `close`.
   await hook.call(undefined as never, fake as unknown as ViteDevServer)
   const http: Server = createServer((req, res) => {
-    if (req.url === `${base}/_vitehub/rpc/__call`) {
+    if (req.url === `${base}/_vitehub/rpc`) {
       void (async () => {
         const chunks: Buffer[] = []
         for await (const chunk of req) chunks.push(Buffer.from(chunk))

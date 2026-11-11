@@ -4,15 +4,18 @@
  */
 
 /** The data routes of a project: the operation RPC, the Console API routes, and the page tools session. */
-const forwardedPath = /^\/_vitehub\/(?:rpc\/.|api\/.|page\/session$)/
+const forwardedPath = /^\/_vitehub\/(?:rpc$|api\/.|page\/session$)/
 const forwardedMethods = new Set(["GET", "HEAD", "POST", "PUT", "DELETE"])
 /** Cookies, `Origin`, and `Authorization` of the Console page never reach the project. */
 const requestHeaders = ["accept", "content-type", "if-none-match", "x-vitehub-console"]
 /** Set-Cookie never reaches the Console page. Fetch decodes the body, so the encoding and length headers stay out. */
 const responseHeaders = ["cache-control", "etag", "last-modified", "www-authenticate"]
 
-/** A Blob upload sends up to 8 MiB of file in its JSON body. */
-export const maxForwardBodyBytes = 9 * 1024 * 1024
+/** Largest file of one call. Files travel as base64 in the JSON body, such as in `media.upload` and `blob.put`. */
+export const maxForwardFileBytes = 9 * 1024 * 1024
+/** Base64 makes a file a third larger. The other 64 KiB hold the rest of the JSON envelope. */
+export const maxForwardBodyBytes = Math.ceil(maxForwardFileBytes / 3) * 4 + 64 * 1024
+const tooLarge = () => problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is too large. The Console sends files of up to 9 MiB.")
 
 export interface ForwardTarget {
   /** The project URL: its origin and its application mount, such as `https://app.example.com/portal`. */
@@ -27,7 +30,7 @@ function problem(status: number, code: string, message: string): Response {
 
 /**
  * Send one Console call to a project. `path` is the app path after the project prefix, with its query, such as
- * `/_vitehub/rpc/__call`. Only the data routes go through. The project's answer comes back with its status and body,
+ * `/_vitehub/rpc`. Only the data routes go through. The project's answer comes back with its status and body,
  * and without cookies. The Console contains project content so it cannot execute on the Console origin.
  */
 export async function forwardProjectRequest(request: Request, target: ForwardTarget, path: string, send: typeof fetch = fetch): Promise<Response> {
@@ -43,9 +46,9 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
   let body: ArrayBuffer | undefined
   if (request.method !== "GET" && request.method !== "HEAD") {
     const declared = Number(request.headers.get("content-length") ?? 0)
-    if (declared > maxForwardBodyBytes) return problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is larger than 9 MiB.")
+    if (declared > maxForwardBodyBytes) return tooLarge()
     body = await request.arrayBuffer()
-    if (body.byteLength > maxForwardBodyBytes) return problem(413, "CONSOLE_FORWARD_TOO_LARGE", "The request body is larger than 9 MiB.")
+    if (body.byteLength > maxForwardBodyBytes) return tooLarge()
   }
 
   const headers = new Headers({ authorization: `Bearer ${target.token}` })

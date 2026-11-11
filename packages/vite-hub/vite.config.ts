@@ -78,6 +78,8 @@ const runtimeEntries = [
   // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
   "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
+  "src/console/runtime/client/account.ts",
+  "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",
@@ -117,6 +119,7 @@ const runtimeEntries = [
   "src/console/runtime/client/sign-in.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
+  "src/console/runtime/auth-operations.ts",
   "src/console/runtime/definitions.ts",
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
@@ -243,6 +246,46 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-invocation-composer.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-menu.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-setup.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-sign-in.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-settings.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-shell.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-home.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-snippet.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-team.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-unlink.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -492,6 +535,8 @@ export default defineConfig({
           delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
+          delete exports["./console/runtime/client/account"];
+          delete exports["./console/runtime/client/account-views"];
           delete exports["./console/runtime/client/appearance"];
           delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];
@@ -531,6 +576,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/sign-in"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
+          delete exports["./console/runtime/auth-operations"];
           delete exports["./console/runtime/definitions"];
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];

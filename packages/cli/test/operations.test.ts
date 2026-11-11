@@ -7,6 +7,7 @@ import { writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
+import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
 
 const list = defineOperation({
   cli: { positional: ["team"] },
@@ -94,12 +95,12 @@ const operationList = [list, remove, failing, rich, digest]
 function server(origin = "http://localhost:5173", headers: Record<string, string> = {}, operations: readonly AnyOperation[] = operationList) {
   const registry = createOperationRegistry([{ operations }])
   return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
-    expect(String(url)).toBe(`${origin}/_vitehub/rpc/__call`)
+    const { input, operation } = operationRpcRequest(init?.body)
+    expect(String(url)).toBe(`${origin}/_vitehub/rpc`)
     expect(new Headers(init?.headers).get("x-vitehub-console")).toBe("1")
     expect(new Headers(init?.headers).get("x-vitehub-surface")).toBe("cli")
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
-    return Response.json(result, { headers, status: result.ok ? 200 : result.status })
+    return operationRpcResponse(init?.body, result, { headers, status: result.ok ? 200 : result.status })
   })
 }
 
@@ -147,7 +148,7 @@ describe("generated operation commands", () => {
     const result = await run(["reports", "list", "acme", "--limit", "5", "--tags", "a,b", "--tags", "c"])
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({ limit: 5, team: "acme" })
-    expect(JSON.parse(String(result.fetch.mock.calls[0]![1]!.body))).toEqual({ input: { limit: 5, tags: ["a", "b", "c"], team: "acme" }, operation: "reports.list" })
+    expect(operationRpcRequest(result.fetch.mock.calls[0]![1]!.body)).toEqual({ input: { limit: 5, tags: ["a", "b", "c"], team: "acme" }, operation: "reports.list" })
   })
 
   it("lists the command in the namespace help and prints usage from the schema", async () => {
@@ -167,7 +168,7 @@ describe("generated operation commands", () => {
     const listed = await run(["work", "jobs", "list", "--state", "dead"], options)
     expect(listed.code).toBe(0)
     expect(JSON.parse(listed.stdout)).toEqual({ jobs: [], state: "dead" })
-    expect(JSON.parse(String(listed.fetch.mock.calls[0]![1]!.body))).toEqual({ input: { state: "dead" }, operation: "work.jobs-list" })
+    expect(operationRpcRequest(listed.fetch.mock.calls[0]![1]!.body)).toEqual({ input: { state: "dead" }, operation: "work.jobs-list" })
 
     expect((await run(["work"], options)).stdout).toContain("jobs")
     const help = await run(["work", "jobs", "--help"], options)
@@ -213,7 +214,7 @@ describe("generated operation commands", () => {
     const dryRun = await run(["reports", "delete", "r1", "--dry-run"])
     expect(dryRun.code).toBe(0)
     expect(new Headers(dryRun.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("required")
-    expect(JSON.parse(String(dryRun.fetch.mock.calls[0]![1]!.body)).input).toEqual({ dryRun: true, id: "r1" })
+    expect(operationRpcRequest(dryRun.fetch.mock.calls[0]![1]!.body).input).toEqual({ dryRun: true, id: "r1" })
   })
 
   it("reports missing nested input before calling readOnlyWhen", async () => {
@@ -240,7 +241,7 @@ describe("generated operation commands", () => {
     const result = await run(["reports", "normalized"], { operations: [operation], fetch })
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({ options: { dryRun: true } })
-    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body)).input).toEqual({})
+    expect(operationRpcRequest(fetch.mock.calls[0]![1]!.body).input).toEqual({})
   })
 
   it.each(["inspect", "provision"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
@@ -278,17 +279,17 @@ describe("generated operation commands", () => {
   ] as const)("preserves boolean flag %s", async (flag, expected) => {
     const result = await run(["reports", "list", "acme", flag])
     expect(result.code).toBe(0)
-    expect(JSON.parse(String(result.fetch.mock.calls[0]![1]!.body)).input.dryRun).toBe(expected)
+    expect(Reflect.get(Object(operationRpcRequest(result.fetch.mock.calls[0]![1]!.body).input), "dryRun")).toBe(expected)
   })
 
   it("sends the credentials to the deployed app named by --url", async () => {
     const stdout = stream()
     const stderr = stream()
     const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      expect(String(url)).toBe("https://app.example.com/_vitehub/rpc/__call")
+      expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
       expect(new Headers(init?.headers).has(operationExpectedRootsHeader)).toBe(false)
-      return Response.json({ ok: true, value: { deployed: true } })
+      return operationRpcResponse(init?.body, { ok: true, value: { deployed: true } })
     })
     const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => [list], module: "fixture/operations" }] } }
     const code = await runViteHubCli({ args: ["reports", "list", "acme", "--url", "https://app.example.com"], cwd: "/app", env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
@@ -324,11 +325,11 @@ describe("generated operation commands", () => {
         expect(headers.get("cf-access-client-id")).toBe(env.CF_ACCESS_CLIENT_ID)
         expect(headers.get("cf-access-client-secret")).toBe(env.CF_ACCESS_CLIENT_SECRET)
         expect(headers.has(operationExpectedRootsHeader)).toBe(false)
-        return Response.json({ ok: true, value: { deployed: true } })
+        return operationRpcResponse(init?.body, { ok: true, value: { deployed: true } })
       })
       const result = await run(["reports", "list", "acme", "--url", url], { env, fetch })
       expect(result.code).toBe(0)
-      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc/__call`, expect.any(Object))
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc`, expect.any(Object))
       expect(JSON.parse(result.stdout)).toEqual({ deployed: true })
     })
   })
@@ -413,14 +414,14 @@ describe("generated operation commands", () => {
         expect(headers.get("cookie")).toBe("session=example")
         expect(headers.get("cf-access-client-id")).toBe("access-id")
         expect(headers.get("cf-access-client-secret")).toBe("access-secret")
-        return Response.json({ ok: true, value: { run: { id: "r2" } } })
+        return operationRpcResponse(init?.body, { ok: true, value: { run: { id: "r2" } } })
       })
       const result = await runTrigger({
         VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token", VITEHUB_CONSOLE_COOKIE: "session=example",
         CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
       }, fetch, url)
       expect(result.code).toBe(0)
-      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc/__call`, expect.any(Object))
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc`, expect.any(Object))
     })
 
     it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts dispatch URL %s", async (url) => {
@@ -469,9 +470,9 @@ describe("generated operation commands", () => {
 
     it("uses the RPC with Console credentials when no key is set", async () => {
       const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc/__call")
+        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
         expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
-        return Response.json({ ok: true, value: { run: { id: "r2" } } })
+        return operationRpcResponse(init?.body, { ok: true, value: { run: { id: "r2" } } })
       })
       const result = await runTrigger({ VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch)
       expect(result.code).toBe(0)
@@ -540,7 +541,7 @@ describe("generated operation commands", () => {
   })
 
   it("reads every kind of input from flags", async () => {
-    const sent = async (...args: string[]) => JSON.parse(String((await run(["reports", "rich", ...args])).fetch.mock.calls[0]![1]!.body)).input
+    const sent = async (...args: string[]) => operationRpcRequest((await run(["reports", "rich", ...args])).fetch.mock.calls[0]![1]!.body).input
     // JSON for objects, unknown values, and lists of objects.
     expect(await sent("--body", '{"a":[1]}', "--items", '[{"id":"x"}]')).toEqual({ body: { a: [1] }, items: [{ id: "x" }] })
     // A nullable value takes the literal null.
@@ -557,7 +558,7 @@ describe("generated operation commands", () => {
   it("takes the whole input from --input, as JSON or from a file, and lets flags override it", async () => {
     const root = await project()
     await writeFile(join(root, "input.json"), JSON.stringify({ limit: 7, team: "from-file" }))
-    const sent = async (...args: string[]) => JSON.parse(String((await run(["reports", "list", ...args], { cwd: root, root })).fetch.mock.calls[0]![1]!.body)).input
+    const sent = async (...args: string[]) => operationRpcRequest((await run(["reports", "list", ...args], { cwd: root, root })).fetch.mock.calls[0]![1]!.body).input
     expect(await sent("--input", '{"team":"inline","limit":2}')).toEqual({ limit: 2, team: "inline" })
     expect(await sent("--input", "@input.json")).toEqual({ limit: 7, team: "from-file" })
     expect(await sent("--input", "@input.json", "--limit", "9")).toEqual({ limit: 9, team: "from-file" })

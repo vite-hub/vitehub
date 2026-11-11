@@ -220,8 +220,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
         "/**",
-        "/_vitehub/rpc/**",
-        "/_vitehub/channels/replay",
+        "/_vitehub/rpc",
         "/_vitehub/mcp",
       ])
       expect(config.nitro.publicAssets).toEqual([
@@ -364,8 +363,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        `${mount}/_vitehub/rpc/**`,
-        `${mount}/_vitehub/channels/replay`,
+        `${mount}/_vitehub/rpc`,
         `${mount}/_vitehub/mcp`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
@@ -396,8 +394,7 @@ describe("Agent invocation console", () => {
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        "/portal/_vitehub/rpc/**",
-        "/portal/_vitehub/channels/replay",
+        "/portal/_vitehub/rpc",
         "/portal/_vitehub/mcp",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
@@ -467,7 +464,7 @@ describe("Agent invocation console", () => {
 
     expect(config.handlers.map(handler => handler.route)).toEqual([
       undefined,
-      "/portal/_vitehub/rpc/**",
+      "/portal/_vitehub/rpc",
       "/portal/_vitehub/env/manage",
       "/portal/_vitehub/mcp",
       "/.well-known/oauth-protected-resource",
@@ -510,7 +507,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
       ])
@@ -548,7 +545,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro.handlers).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/_vitehub/api/blob" }),
-        expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+        expect.objectContaining({ route: "/_vitehub/rpc" }),
       ]))
     }
     finally {
@@ -576,7 +573,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/**", "/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/mcp"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/**", "/_vitehub/rpc", "/_vitehub/env/manage", "/_vitehub/mcp"])
       expect(config.nitro?.handlers.find(handler => handler.route === "/_vitehub/env/manage")).toMatchObject({ method: "post" })
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -650,11 +647,11 @@ describe("Agent invocation console", () => {
       } = { queue: true, root }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc")
       setResolvedFeatureOptions(config, "queue", false)
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc")
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).not.toContain("installConsoleDefinitions")
     }
@@ -761,7 +758,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
       ])
@@ -809,7 +806,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
       ])
@@ -856,7 +853,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/env/manage",
         "/_vitehub/mcp",
       ])
@@ -938,7 +935,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/**",
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ])
@@ -1211,7 +1208,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(protectedHandler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+          expect.objectContaining({ route: "/_vitehub/rpc" }),
           expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" }),
         ]),
       )
@@ -1255,7 +1252,7 @@ describe("Agent invocation console", () => {
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1274,7 +1271,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
       expect(config.nitro?.handlers).not.toContainEqual(expect.objectContaining({ route: "/_vitehub" }))
     }
     finally {

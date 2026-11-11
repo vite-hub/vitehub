@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
@@ -463,38 +464,43 @@ function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */
 async function consoleCall<T>(target: ConsoleTarget, operation: string, input: Record<string, unknown>, parseResponse: ResponseParser<T>): Promise<T> {
   const url = new URL(operationRpcPath.slice(1), target.base)
-  let response: Response
+  let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
   try {
-    response = await target.fetch(url.href, {
-      // The operation comes first so the server can find large calls within the first bytes.
-      body: JSON.stringify({ operation, input }),
-      headers: operationHeaders(target.env),
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(target.timeout),
+    outcome = await callOperationRpc(operation, input, async (body) => {
+      const response = await target.fetch(url.href, {
+        body,
+        headers: operationHeaders(target.env),
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(target.timeout),
+      })
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = text ? JSON.parse(text) : undefined
+      }
+      catch {
+        json = undefined
+      }
+      return { body: json, response }
     })
   }
   catch (error) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}` })
   }
-  const text = await response.text()
-  let json: unknown
-  try {
-    json = text ? JSON.parse(text) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && isRuntimeRecord(json) && json.ok === true) return parseResponse(json.value)
-  const message = isRuntimeRecord(json) && typeof json.message === "string" && json.message ? json.message.replace(/\.$/, "") : undefined
-  const status = response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status
+  if (outcome.ok) return parseResponse(outcome.value)
+  const { body: json, response } = outcome.answer
+  // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+  const failure: unknown = outcome.error ?? json
+  const message = isRuntimeRecord(failure) && typeof failure.message === "string" && failure.message ? failure.message.replace(/\.$/, "") : undefined
+  const status = outcome.error?.status ?? (response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status)
   if (status === 401 || (status >= 300 && status < 400)) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${consoleCredentialHint}` })
   }
   if (status === 403) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${consoleCredentialHint}`}` })
   }
-  if (!isRuntimeRecord(json)) {
+  if (!isRuntimeRecord(failure)) {
     throw agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
   }
   throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })

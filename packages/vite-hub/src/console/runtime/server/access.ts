@@ -539,7 +539,7 @@ export async function consoleOperationAccess(context: OperationContext): Promise
   }
   let allowed: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
-    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    const request = new Request("http://vitehub.local/_vitehub/rpc", { method: "POST" })
     const result = await policy.authorize({ request, via: "agent", ...(context.user ? { user: context.user } : {}) })
     if (result !== true) {
       const sections = consoleAuthorizedSections(result)
