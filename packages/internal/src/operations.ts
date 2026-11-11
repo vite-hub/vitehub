@@ -4,11 +4,11 @@ import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { standardJsonSchema } from "./standard-schema.ts"
 import { withValibotJsonSchema } from "./valibot.ts"
 import { isRecordOrFunction as isObject } from "./object.ts"
+import { callOperationRpc, operationRpcPath, readOperationRpcError } from "./operation-rpc.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
-/** Path of the operation RPC under the app. Dev servers and deployed apps serve it the same way. */
-export const operationRpcPath = "/_vitehub/rpc/__call"
+export { operationRpcPath }
 /** Header that proves the caller is not a browser page. A foreign page cannot send it without a CORS preflight. */
 export const operationRpcHeader = "x-vitehub-console"
 /** Response header of the local dev RPC. Its value is {@link projectRootHash} of the project that the server runs. */
@@ -667,38 +667,39 @@ export async function callOperation(target: OperationTarget, name: string, input
     const headers = operationHeaders(env)
     if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
     if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
-    const response = await (target.fetch ?? fetch)(url.href, {
-      // The operation comes first so the server can find large calls within the first bytes.
-      body: JSON.stringify({ operation: name, input: input ?? {} }),
-      headers,
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(target.timeout ?? 30_000),
+    const outcome = await callOperationRpc(name, input ?? {}, async (body) => {
+      const response = await (target.fetch ?? fetch)(url.href, {
+        body,
+        headers,
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(target.timeout ?? 30_000),
+      })
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = text ? JSON.parse(text) : undefined
+      }
+      catch {
+        json = undefined
+      }
+      return { body: json, response }
     })
+    const { response } = outcome.answer
     const served = response.headers.get(operationRootHeader)
     if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
       const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
       const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
       return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
     }
-    const body = await response.text()
-    let json: unknown
-    try {
-      json = body ? JSON.parse(body) : undefined
-    }
-    catch {
-      json = undefined
-    }
-    if (isObject(json) && json.ok === true) return { ok: true, value: json.value }
-    if (isObject(json) && String(json.code) === json.code && String(json.message) === json.message) {
-      const failure: OperationResult = { ok: false, code: json.code, message: json.message, status: Number.isInteger(json.status) ? Number(json.status) : response.status }
-      if (text(json.fix)) failure.fix = text(json.fix)
-      if (text(json.docs)) failure.docs = text(json.docs)
-      if (isObject(json.details)) failure.details = json.details
+    if (outcome.ok) return { ok: true, value: outcome.value }
+    // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+    const failure = outcome.error ?? readOperationRpcError(isObject(outcome.answer.body) ? { status: response.status, ...outcome.answer.body } : undefined)
+    if (failure) {
       // A found dev server gets no credentials, so the fix that it sends for a 401 works only with --url.
       if (target.roots?.length && failure.status === 401) failure.fix = `Pass --url ${base.href.slice(0, -1)} to send credentials. A command sends none to the dev server that it finds. ${failure.fix ?? operationCredentialHint}`
       if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
-      return failure
+      return { ok: false, ...failure }
     }
     if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
       return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)

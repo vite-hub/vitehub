@@ -31,6 +31,7 @@ export default defineConfig({
       "src/inspect.ts",
       "src/object.ts",
       "src/operation-registry.ts",
+      "src/operation-rpc.ts",
       "src/operations.ts",
       "src/operations-vite.ts",
       "src/operations-dev.ts",
