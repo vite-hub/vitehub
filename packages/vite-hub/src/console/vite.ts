@@ -43,7 +43,8 @@ type ConsoleNitroConfig = {
  * The Console options. `auth` is required in every environment, so the Console is never open by accident.
  * - `auth: false`: no sign-in, for development only. A production build fails.
  * - `auth: "app"`: the app Auth Session. The app Auth access routes or `authorize` decide who may use the Console.
- * - `auth: "token"`: `Authorization: Bearer` with a token whose SHA-256 is in the `VITEHUB_CONSOLE_TOKEN_SHA256` runtime env var.
+ * - `auth: "token"`: requests signed with Ed25519 keys whose public keys are in `VITEHUB_CONSOLE_KEY_<NAME>` runtime env
+ *   vars. The ViteHub Console and the CLI sign their calls.
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
  */
 export interface ConsoleOptions {
@@ -65,9 +66,9 @@ export interface ConsoleOptions {
   /**
    * Browser origins that may call the Console data routes from another origin, such as a hosted or self-hosted Console.
    * Defaults to `["https://console.vitehub.dev"]`. `[]` turns cross-origin calls off. An entry is an `https://` origin,
-   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a bearer token in
-   * `Authorization: Bearer`: the `auth: "token"` secret, or an OAuth access token for the Console resource from the app
-   * Auth. With `consoleMcpOAuth()`, it is also the allow list of OAuth clients: a client ID Metadata Document URL must be
+   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs an OAuth access token
+   * for the Console resource from the app Auth in `Authorization: Bearer`. Browsers do not sign, so `auth: "token"`
+   * takes no cross-origin call. With `consoleMcpOAuth()`, it is also the allow list of OAuth clients: a client ID Metadata Document URL must be
    * on a listed `https://` origin. Development without sign-in needs no token. Cookies never authorize a cross-origin call.
    */
   origins?: string[]
@@ -129,10 +130,10 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (value === undefined || value === false) return undefined
   if (value === true) return { auth: "app" }
   if (!(value instanceof Object) || Array.isArray(value)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, console: { auth: "token" } for a bearer token checked against VITEHUB_CONSOLE_TOKEN_SHA256, or console: { auth: { ... } } for Console Auth.' })
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, console: { auth: "token" } for requests signed by the ViteHub Console or the CLI with a key in VITEHUB_CONSOLE_KEY_<NAME>, or console: { auth: { ... } } for Console Auth.' })
   }
   if (!("auth" in value)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, console: { auth: "token" } for a bearer token checked against VITEHUB_CONSOLE_TOKEN_SHA256, or console: { auth: { ... } } for Console Auth.' })
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, console: { auth: "token" } for requests signed by the ViteHub Console or the CLI with a key in VITEHUB_CONSOLE_KEY_<NAME>, or console: { auth: { ... } } for Console Auth.' })
   }
   for (const key of ["databaseUrl", "observations", "retention"]) {
     if (Reflect.get(value, key) !== undefined) {
@@ -292,7 +293,7 @@ function authRouteProtects(
 /** Reject unauthenticated Console access in production, including host-managed access. */
 export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
   if (configured.auth !== false) return
-  throw viteHubErrorDiagnostics.VITE_HUB_B0022({ message: '[vitehub] console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256 (create a token with openssl rand -hex 32, store printf %s "$TOKEN" | sha256sum), or auth: "app".' })
+  throw viteHubErrorDiagnostics.VITE_HUB_B0022({ message: '[vitehub] console.auth false is for development. Use auth: "token" and set the VITEHUB_CONSOLE_KEY_<NAME> line that the ViteHub Console shows when you link the app (or that vitehub secret console-key prints), or auth: "app".' })
 }
 
 /** Resolve the `console.authorize` file. A configured path must exist. */

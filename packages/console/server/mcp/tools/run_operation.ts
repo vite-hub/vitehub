@@ -5,7 +5,7 @@ import { projectOperation } from "../../utils/mcp.ts"
 
 export default defineMcpTool({
   title: "Run an operation",
-  description: "Run one operation of a linked app, such as kv.list or logs.list, with the Console token of the app. list_operations names the operations. The app refuses an operation that deletes or publishes data unless confirm is true: tell the person what it changes, and set confirm only when they agree.",
+  description: "Run one operation of a linked app, such as kv.list or logs.list, signed by the Console for you. list_operations names the operations. The app runs it as an MCP call: it refuses operations that it keeps from MCP clients, and an operation that deletes or publishes data unless confirm is true. Tell the person what it changes, and set confirm only when they agree.",
   input: z.object({
     id: z.string().describe("The app id from list_apps"),
     operation: z.string().describe("The operation name from list_operations, such as kv.list"),

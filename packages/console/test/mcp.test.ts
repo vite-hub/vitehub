@@ -12,9 +12,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { authSqliteSchema } from "vite-hub/auth/schema"
 import { mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "vite-hub/auth/mcp"
 import { createMcpHandler } from "@vite-hub/mcp/runtime"
+import { readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 
-import { consoleSchema, createConsoleProjectStore } from "../src/projects.ts"
+import { consoleSchema } from "../src/projects.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
+import type { ConsoleCaller } from "@vite-hub/internal/console-signature"
 import type { McpOAuthAuth } from "vite-hub/auth/mcp"
 import type { McpToolDefinition } from "vite-hub/mcp"
 import type { H3Event } from "h3"
@@ -43,8 +46,9 @@ const upstreamTools = [
 let auth: McpOAuthAuth & { handler: (request: Request) => Promise<Response> }
 let teamId = ""
 let tokens: Record<"ada" | "bob", string>
-const appCalls: Array<{ body: unknown, headers: Headers }> = []
-let linkToken = ""
+const appCalls: Array<{ caller: ConsoleCaller, headers: Headers, input: unknown, operation: string }> = []
+/** The env line of the link, as the app keeps it: `VITEHUB_CONSOLE_KEY_<NAME>=<public key>`. */
+let linkVariable = ""
 
 async function migrate() {
   const client = createClient({ url: ":memory:" })
@@ -109,8 +113,8 @@ beforeAll(async () => {
   ])
   tokens = { ada: await signInAgent("ada@example.com"), bob: await signInAgent("bob@example.com") }
 
-  vi.stubGlobal("fetch", vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
-    const url = String(input)
+  vi.stubGlobal("fetch", vi.fn(async (target: Request | string | URL, init?: RequestInit) => {
+    const url = String(target)
     // The forward sends the body as bytes.
     const body: unknown = JSON.parse(init?.body instanceof ArrayBuffer ? new TextDecoder().decode(init.body) : String(init?.body ?? "{}"))
     if (url === "https://vitehub.dev/mcp") {
@@ -118,17 +122,24 @@ beforeAll(async () => {
       const result = { content: [{ text: `# ${params.name} ${JSON.stringify(params.arguments)}`, type: "text" }], isError: false }
       return new Response(`event: message\ndata: ${JSON.stringify({ id: 1, jsonrpc: "2.0", result })}\n\n`, { headers: { "content-type": "text/event-stream" } })
     }
-    expect(url).toBe(`${appUrl}/_vitehub/rpc/__call`)
+    // A stand-in app: it checks the signature with the public key of the link, then applies the MCP rules of
+    // vite-hub's Operations endpoint to a call that the Console MCP signed (see the vite-hub console-signature tests).
+    expect(url).toBe(`${appUrl}/_vitehub/rpc`)
     const headers = new Headers(init?.headers)
-    appCalls.push({ body, headers })
-    if (headers.get("authorization") !== `Bearer ${linkToken}`) return Response.json({ code: "CONSOLE_TOKEN_INVALID", message: "Unknown token.", ok: false, status: 401 }, { status: 401 })
-    const { operation } = body as { operation: string }
-    if (operation === "project.get") return Response.json({ ok: true, value: { name: "probe", operations: ["kv.list", "kv.delete"], protocol: 1, sections: ["kv"], vitehub: "0.0.1" } })
-    // The app's own rule: a destructive call from the CLI surface needs confirmation.
-    if (operation === "kv.delete" && headers.get("x-vitehub-surface") === "cli" && headers.get("x-vitehub-confirmation") === "required") {
-      return Response.json({ code: "INTERNAL_R0026", fix: "Run it again with --yes.", message: "Confirm the change.", ok: false, status: 409 }, { status: 409 })
-    }
-    return Response.json({ ok: true, value: { deleted: 1 } })
+    const [name, value] = linkVariable.split("=")
+    const keys = readConsolePublicKeys({ [name!]: value })
+    const verified = keys instanceof Map ? await verifyConsoleSignature({ headers, keys, method: "POST", origin: appUrl, url }) : keys
+    const answer = (result: Parameters<typeof operationRpcResponse>[1]) => operationRpcResponse(body, result)
+    if (!("caller" in verified)) return Response.json({ code: verified.code, message: verified.message, ok: false, status: 401 }, { status: 401 })
+    const { input, operation } = operationRpcRequest(body)
+    appCalls.push({ caller: verified.caller, headers, input, operation })
+    const mcp = verified.caller.via === "console" && verified.caller.surface === "mcp"
+    const confirmed = verified.caller.via === "console" && verified.caller.confirmed === true
+    if (operation === "project.get") return answer({ ok: true, value: { name: "probe", operations: ["kv.list", "kv.del", "content.save"], protocol: 1, sections: ["kv", "content"], vitehub: "0.0.1" } })
+    if (mcp && operation === "documents.action") return answer({ code: "CONSOLE_ACCESS_DENIED", message: "documents.action is not open to MCP clients. Use it from the Console.", ok: false, status: 403 })
+    if (mcp && operation === "content.save" && Reflect.get(Object(input), "ifDigest") === undefined) return answer({ code: "CONTENT_R0009", message: "content.save requires ifDigest on MCP calls.", ok: false, status: 400 })
+    if (mcp && operation === "kv.del" && !confirmed) return answer({ code: "INTERNAL_R0026", message: "Confirm the change.", ok: false, status: 409 })
+    return answer({ ok: true, value: { deleted: 1 } })
   }))
 })
 
@@ -205,8 +216,9 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect(denied.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team link projects." }], isError: true })
 
     const { body } = await call("link_app", { label: "Probe", url: appUrl }, tokens.ada)
-    const linked = body!.result.structuredContent as { app: { id: string, tokenSha256: string, tokenVariable: string }, variable: string }
-    expect(linked.variable).toBe(`${linked.app.tokenVariable}=${linked.app.tokenSha256}`)
+    const linked = body!.result.structuredContent as { app: { id: string, keyVariable: string, publicKey: string }, variable: string }
+    expect(linked.variable).toBe(`${linked.app.keyVariable}=${linked.app.publicKey}`)
+    expect(linked.variable).toMatch(/^VITEHUB_CONSOLE_KEY_CONSOLE_[0-9A-F]{8}=[\w-]{43}$/)
 
     const kept = await call("unlink_app", { id: linked.app.id }, tokens.bob)
     expect(kept.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team unlink projects." }], isError: true })
@@ -215,28 +227,40 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect((await call("list_apps", {}, tokens.ada)).body!.result.structuredContent).toMatchObject({ apps: [] })
   })
 
-  it("runs operations through the link token and keeps the app's confirmation rule", async () => {
+  it("signs operations for the person as the mcp surface, and keeps the app's MCP rules", async () => {
     const { body } = await call("link_app", { url: appUrl }, tokens.ada)
-    const { id } = (body!.result.structuredContent as { app: { id: string } }).app
-    linkToken = (await createConsoleProjectStore(state.db as Parameters<typeof createConsoleProjectStore>[0], secret, teamId).target(id))!.token
+    const { app, variable } = body!.result.structuredContent as { app: { id: string }, variable: string }
+    const { id } = app
+    linkVariable = variable
 
     expect((await call("check_app", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ linked: true, status: 200 })
-    expect((await call("list_operations", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ operations: ["kv.list", "kv.delete"] })
+    expect((await call("list_operations", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ operations: ["kv.list", "kv.del", "content.save"] })
 
-    const refused = await call("run_operation", { id, input: { key: "a" }, operation: "kv.delete" }, tokens.bob)
+    const refused = await call("run_operation", { id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
     expect(refused.body!.result.isError).toBe(true)
     expect(refused.body!.result.content[0]!.text).toContain("confirm: true")
-    const confirmed = await call("run_operation", { confirm: true, id, input: { key: "a" }, operation: "kv.delete" }, tokens.bob)
+    const confirmed = await call("run_operation", { confirm: true, id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
     expect(confirmed.body!.result).toMatchObject({ isError: false, structuredContent: { deleted: 1 } })
 
-    // The app gets the token of the link, never the access token of the Agent.
-    for (const { headers } of appCalls) {
-      expect(headers.get("authorization")).toBe(`Bearer ${linkToken}`)
-      expect(headers.get("authorization")).not.toContain(tokens.bob)
+    const hidden = await call("run_operation", { confirm: true, id, input: { action: "remove", body: {}, section: "content" }, operation: "documents.action" }, tokens.bob)
+    expect(hidden.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("CONSOLE_ACCESS_DENIED: documents.action is not open to MCP clients") }], isError: true })
+    const save = await call("run_operation", { id, input: { collection: "posts", id: "hello", text: "# Hi" }, operation: "content.save" }, tokens.bob)
+    expect(save.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("CONTENT_R0009") }], isError: true })
+
+    // Every call is signed for the person as the MCP: no bearer token, no CLI surface, and the confirmation is signed.
+    for (const { caller, headers } of appCalls) {
+      expect(headers.has("authorization")).toBe(false)
+      expect(headers.has("x-vitehub-surface")).toBe(false)
+      expect(caller).toMatchObject({ team: { id: teamId, role: "member" }, user: { email: "bob@example.com" }, via: "console" })
     }
-    expect(appCalls.at(-2)?.headers.get("x-vitehub-confirmation")).toBe("required")
-    expect(appCalls.at(-1)?.headers.get("x-vitehub-confirmation")).toBe("confirmed")
-    expect(appCalls.at(-1)?.body).toEqual({ input: { key: "a" }, operation: "kv.delete" })
+    const runs = appCalls.filter(entry => entry.operation !== "project.get")
+    expect(runs.map(entry => entry.caller.via === "console" && [entry.caller.surface, entry.caller.confirmed])).toEqual([
+      ["mcp", undefined],
+      ["mcp", true],
+      ["mcp", true],
+      ["mcp", undefined],
+    ])
+    expect(appCalls.filter(entry => entry.operation === "project.get").map(entry => entry.caller.via === "console" && entry.caller.surface)).toEqual(["mcp", "mcp"])
   })
 
   it("acts on the team that the person opened last", async () => {

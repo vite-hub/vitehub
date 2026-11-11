@@ -1,6 +1,6 @@
 import { HTTPError } from "h3"
 
-import { callProjectOperation, consoleActiveTeam, consoleTeamCaller, projectNotFound } from "./console.ts"
+import { callProjectOperation, consoleActiveTeam, consoleCallerUser, consoleTeamCaller, projectNotFound } from "./console.ts"
 
 import type { McpToolCaller } from "vite-hub/mcp"
 import type { ConsoleTeamCaller } from "./console.ts"
@@ -31,7 +31,7 @@ export async function mcpTeamCaller(caller: McpToolCaller | undefined): Promise<
   if (!caller) throw new HTTPError({ message: "This tool needs a Console account. Connect to /mcp/account and sign in.", status: 401 })
   const team = await consoleActiveTeam(caller.user.id)
   if (!team) throw new HTTPError({ message: "CONSOLE_TEAM_REQUIRED: You are not a member of a team. Open the Console to make one.", status: 403 })
-  const member = await consoleTeamCaller(caller.user.id, team.id)
+  const member = await consoleTeamCaller(consoleCallerUser(caller.user), team.id)
   if (member instanceof Response) throw await consoleToolError(member)
   return { ...member, team: { ...team, role: member.roles.join(",") } }
 }
@@ -43,34 +43,20 @@ export async function consoleToolAnswer(response: Response): Promise<unknown> {
 }
 
 /**
- * The confirmation rule of an app's Operations endpoint (`@vite-hub/internal/operations`): a call from the `cli`
- * surface with `x-vitehub-confirmation: required` gets `409` `INTERNAL_R0026` for a destructive call, and runs with
- * `confirmed`. The app decides which calls are destructive, including calls that only some inputs make destructive.
- */
-const confirmationHeaders = (confirmed: boolean) => ({ "x-vitehub-confirmation": confirmed ? "confirmed" : "required", "x-vitehub-surface": "cli" })
-
-function field(body: unknown, name: string): string | undefined {
-  const value: unknown = body instanceof Object ? Reflect.get(body, name) : undefined
-  return typeof value === "string" && value ? value : undefined
-}
-
-/**
- * Run one operation of a team's app through the forward, with the token of the link. The Agent's access token never
- * reaches the app. The app checks the operation, its input, and its confirmation rule; `confirmed` is the `confirm`
- * input of the Agent.
+ * Run one operation of a team's app through the forward, signed with the key of the link for the person, as the `mcp`
+ * surface. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with
+ * `mcp: false`, keeps its MCP checks such as `ifDigest` on Content saves, and refuses a destructive call until
+ * `confirmed` is the `confirm: true` of the Agent.
  */
 export async function projectOperation(caller: McpToolCaller | undefined, id: string, operation: string, input: unknown, confirmed = false): Promise<unknown> {
   const member = await mcpTeamCaller(caller)
-  const response = await callProjectOperation(member, id, operation, input, confirmationHeaders(confirmed))
-  if (!response) throw await consoleToolError(projectNotFound())
-  const body: unknown = await response.json().catch(() => undefined)
-  if (response.ok && body instanceof Object && Reflect.get(body, "ok") === true) return Reflect.get(body, "value") ?? null
-  const code = field(body, "code")
+  const result = await callProjectOperation(member, id, operation, input, { confirmed, surface: "mcp" })
+  if (!result) throw await consoleToolError(projectNotFound())
+  if (result.ok) return result.value ?? null
+  const { code, fix, message } = result.error
   if (code === "INTERNAL_R0026") {
     throw new HTTPError({ message: `${operation} deletes or publishes data, so the app asks for confirmation. Tell the person what it changes, then call run_operation again with confirm: true.`, status: 409 })
   }
-  const fix = field(body, "fix")
-  const message = field(body, "message") ?? "The app sent no message."
   // The app already hides its server errors, so its message is safe to show. A 4xx keeps the text for the Agent.
-  throw new HTTPError({ message: `The app answered ${response.status}${code ? ` ${code}` : ""}: ${message}${fix ? ` Fix: ${fix}` : ""}`, status: 400 })
+  throw new HTTPError({ message: `The app answered ${result.status}${code ? ` ${code}` : ""}: ${message}${fix ? ` Fix: ${fix}` : ""}`, status: 400 })
 }

@@ -44,7 +44,7 @@ async function refresh() {
   loading.value = true;
   error.value = undefined;
   try {
-    const value = await readAuthConsole(props.base, "user", { id: props.id });
+    const value = await readAuthConsole("user", { id: props.id });
     if (current === sequence) {
       detail.value = value;
       revision.value++;
@@ -87,7 +87,7 @@ async function page(kind: "sessions" | "agents", direction: number) {
   paging.value = true;
   try {
     const current = detail.value[kind];
-    const next = await readAuthConsole(props.base, kind, {
+    const next = await readAuthConsole(kind, {
       query: { userId: props.id, offset: current.offset + direction * current.limit },
     });
     if (currentSequence !== sequence || !detail.value) return;
@@ -331,7 +331,6 @@ const impersonation = computed(() => {
         </ConsoleSection>
         <ConsoleAuthUserEvents
           v-if="description.events.enabled"
-          :base="base"
           :user-id="detail.user.id"
           :revision="revision"
         />

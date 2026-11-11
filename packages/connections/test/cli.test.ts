@@ -3,6 +3,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { operationCredentialHint } from "@vite-hub/internal/operations"
 import { describe, expect, it, vi } from "vitest"
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
@@ -294,7 +295,7 @@ describe("vitehub connections", () => {
     const fetch = (async () => Response.json({ code: "CONSOLE_UNAUTHORIZED", message: "Sign in to the Console.", ok: false, status: 401 }, { status: 401 })) as typeof globalThis.fetch
     expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
     expect(output.stderr).toContain("Sign in to the Console. (CONSOLE_UNAUTHORIZED)")
-    expect(output.stderr).toContain("Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET. Or pass --cookie.")
+    expect(output.stderr).toContain(`${operationCredentialHint} Or pass --cookie.`)
   })
 
   it("lists, approves, and revokes", async () => {

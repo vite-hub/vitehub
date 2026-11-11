@@ -11,7 +11,7 @@ export { consoleAccessTokenSeconds, consoleMcpNativeClients, consoleMcpOAuth, co
 export type { ConsoleMcpOAuthOptions, ConsoleOAuthClientsOptions } from "./auth-oauth.ts"
 export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleSignedInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
-export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleTokenAuthorizeContext, ConsoleUser } from "./auth-types.ts"
+export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleSignedCliAuthorizeContext, ConsoleSignedConsoleAuthorizeContext, ConsoleUser } from "./auth-types.ts"
 
 export interface ConsoleAuthDefinition {
   auth: AuthDefinition

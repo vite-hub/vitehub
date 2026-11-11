@@ -3,11 +3,14 @@ import { authSqliteSchema } from "vite-hub/auth/schema"
 import { withAuthorization } from "vite-hub/auth/server"
 import { useDatabase } from "vite-hub/database/drizzle"
 
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
+
 import { forwardProjectRequest } from "../../src/forward.ts"
 import { createConsoleProjectStore } from "../../src/projects.ts"
 import { allowPrivateVariable, parseProjectUrl } from "../../src/project-url.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../src/token-box.ts"
 
+import type { ConsoleCaller, ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { ConsoleProjectStore } from "../../src/projects.ts"
 
 const { member, organization, session } = authSqliteSchema
@@ -22,11 +25,41 @@ export function consoleJson(value: unknown, status = 200): Response {
 
 /** The caller of a team route: the person, their team, their role in it, and the projects of that team. */
 export interface ConsoleTeamCaller {
-  userId: string
+  user: ConsoleCallerUser
   teamId: string
   /** Better Auth roles, such as `owner`, `admin`, or `member`. A member can have several, with commas between them. */
   roles: string[]
   projects: ConsoleProjectStore
+}
+
+/** How the Console calls an app for a person: from the Console page, or from the ViteHub MCP. */
+export interface ConsoleCallOptions {
+  /**
+   * `"mcp"` when the ViteHub MCP calls for the person. The app then applies its MCP rules: it refuses operations with
+   * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
+   */
+  surface?: "mcp"
+  /** The person agreed to this destructive call. Only for `surface: "mcp"`. */
+  confirmed?: boolean
+}
+
+/**
+ * The person that the Console signs into each call to a project: the signed-in user, the team, and the role. The app's
+ * `console.authorize` receives them with `via: "console"`.
+ */
+export function consoleCallerOf(caller: ConsoleTeamCaller, options: ConsoleCallOptions = {}): ConsoleCaller {
+  return {
+    team: { id: caller.teamId, role: caller.roles.join(",") },
+    user: caller.user,
+    via: "console",
+    ...(options.surface ? { surface: options.surface, ...(options.confirmed ? { confirmed: true } : {}) } : {}),
+  }
+}
+
+/** The signed fields of a person: the id, and the name and email when they have them. */
+export function consoleCallerUser(user: { id: string, name?: unknown, email?: unknown }): ConsoleCallerUser {
+  const { email, name } = user
+  return { id: user.id, ...(typeof name === "string" && name ? { name } : {}), ...(typeof email === "string" && email ? { email } : {}) }
 }
 
 /** Owners and admins link and unlink projects. Every member opens them. */
@@ -35,7 +68,8 @@ export function canManageProjects(caller: ConsoleTeamCaller): boolean {
 }
 
 /** The caller in a team, or `403` when the person is not a member of it. */
-export async function consoleTeamCaller(userId: string, teamId: string): Promise<ConsoleTeamCaller | Response> {
+export async function consoleTeamCaller(user: ConsoleCallerUser, teamId: string): Promise<ConsoleTeamCaller | Response> {
+  const userId = user.id
   const { db } = useDatabase("default")
   const [membership] = teamId
     ? await db.select({ role: member.role }).from(member).where(and(eq(member.organizationId, teamId), eq(member.userId, userId))).limit(1)
@@ -43,7 +77,7 @@ export async function consoleTeamCaller(userId: string, teamId: string): Promise
   if (!membership) return consoleProblem(403, "CONSOLE_TEAM_REQUIRED", "Choose a team that you are a member of.")
   const projects = useConsoleProjects(teamId)
   if (projects instanceof Response) return projects
-  return { projects, roles: String(membership.role).split(",").map(role => role.trim()), teamId, userId }
+  return { projects, roles: String(membership.role).split(",").map(role => role.trim()), teamId, user }
 }
 
 /**
@@ -54,7 +88,7 @@ export function consoleTeamRoute(handler: (request: Request, caller: ConsoleTeam
   return {
     fetch: withAuthorization(true, async (request, authorization) => {
       const active: unknown = Reflect.get(authorization.session, "activeOrganizationId")
-      const caller = await consoleTeamCaller(authorization.user.id, typeof active === "string" ? active : "")
+      const caller = await consoleTeamCaller(consoleCallerUser(authorization.user), typeof active === "string" ? active : "")
       return caller instanceof Response ? caller : handler(request, caller)
     }),
   }
@@ -102,8 +136,8 @@ export function allowPrivateProjects(): boolean {
 export const projectNotFound = (): Response => consoleProblem(404, "CONSOLE_PROJECT_NOT_FOUND", "There is no such project, or VITEHUB_CONSOLE_SECRET changed since it was linked.")
 
 /**
- * Link a project to the team. The answer has the SHA-256 of the new token: set it in the project's
- * `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>`. The token itself stays on the Console server.
+ * Link a project to the team with a new key pair. The answer has its public key: set it in the project's
+ * `VITEHUB_CONSOLE_KEY_<NAME>`, named by `keyVariable`. The private key stays on the Console server.
  */
 export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Promise<Response> {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team link projects.")
@@ -114,40 +148,59 @@ export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Pro
   }
   const parsed = parseProjectUrl(url, { allowPrivate: allowPrivateProjects() })
   if ("error" in parsed) return consoleProblem(400, "CONSOLE_PROJECT_URL", parsed.error)
-  const project = await caller.projects.create({ url: parsed.url, label, createdBy: caller.userId })
+  const project = await caller.projects.create({ url: parsed.url, label, createdBy: caller.user.id })
   if (!project) return consoleProblem(409, "CONSOLE_PROJECT_EXISTS", `This team already linked ${parsed.url}.`)
   return consoleJson({ project }, 201)
 }
 
-/** Unlink a project. Its token stops working only when the project removes the hash from its variable. */
+/** Unlink a project. The Console deletes the private key of the link, so no call can be signed for it again. */
 export async function unlinkProject(caller: ConsoleTeamCaller, id: string): Promise<Response> {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team unlink projects.")
   if (!await caller.projects.remove(id)) return consoleProblem(404, "CONSOLE_PROJECT_NOT_FOUND", "There is no such project.")
   return new Response(null, { status: 204 })
 }
 
-/**
- * Call one operation of a team's project with its token, through the forward, or `undefined` when the team has no such
- * project. `headers` are set by the Console server, such as the confirmation of an MCP call.
- */
-export async function callProjectOperation(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, headers: Record<string, string> = {}): Promise<Response | undefined> {
-  const target = await caller.projects.target(id)
-  if (!target) return undefined
-  const call = new Request("https://console.invalid/", {
-    body: JSON.stringify({ input, operation }),
-    headers: { "content-type": "application/json", "x-vitehub-console": "1" },
-    method: "POST",
-  })
-  return forwardProjectRequest(call, { headers, token: target.token, url: target.project.url }, "/_vitehub/rpc/__call")
+/** The answer of one operation call to a project: the value, or the failure and the HTTP status. */
+export type ProjectOperationResult =
+  | { ok: true, status: number, value: unknown }
+  | { ok: false, status: number, error: { code?: string, message: string, fix?: string } }
+
+function failureOf(value: unknown, status: number): { code?: string, message: string, fix?: string } {
+  const field = (name: string) => {
+    const found: unknown = value instanceof Object ? Reflect.get(value, name) : undefined
+    return typeof found === "string" && found ? found : undefined
+  }
+  const code = field("code")
+  const fix = field("fix")
+  return { ...(code ? { code } : {}), message: field("message") ?? `The app answered ${status}.`, ...(fix ? { fix } : {}) }
 }
 
 /**
- * Call `project.get` on the project with its token. A linked project answers `200`. Before the project has the hash
- * of the token, it answers `401` with `CONSOLE_TOKEN_INVALID`.
+ * Call one operation of a team's project through the forward, signed with the key of the link for the person, or
+ * `undefined` when the team has no such project.
  */
-export async function checkProject(caller: ConsoleTeamCaller, id: string): Promise<Response> {
-  const response = await callProjectOperation(caller, id, "project.get", {})
-  if (!response) return projectNotFound()
-  const answer: unknown = await response.json().catch(() => undefined)
-  return consoleJson({ answer, linked: response.ok, status: response.status })
+export async function callProjectOperation(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions = {}): Promise<ProjectOperationResult | undefined> {
+  const target = await caller.projects.target(id)
+  if (!target) return undefined
+  const outcome = await callOperationRpc(operation, input, async (body) => {
+    const call = new Request("https://console.invalid/", { body, headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
+    // The forwarder signs the exact body that birpc wrote, so the signature covers this call.
+    const response = await forwardProjectRequest(call, { caller: consoleCallerOf(caller, options), key: target.key, url: target.project.url }, operationRpcPath)
+    return { body: await response.json().catch(() => undefined), response }
+  })
+  const { body, response } = outcome.answer
+  if (outcome.ok) return { ok: true, status: response.status, value: outcome.value }
+  // Host middleware, such as the signature check, answers with the diagnostic body and no birpc reply.
+  return { error: failureOf(outcome.error ?? body, response.status), ok: false, status: response.status }
+}
+
+/**
+ * Call `project.get` on the project with a signed request. A linked project answers `200`. Before the project has the
+ * public key of the link, it answers `401` with `CONSOLE_KEY_UNKNOWN`, or `500` with `CONSOLE_KEY_NOT_CONFIGURED`.
+ * `answer` is the value, or the diagnostic of the failure.
+ */
+export async function checkProject(caller: ConsoleTeamCaller, id: string, options: ConsoleCallOptions = {}): Promise<Response> {
+  const result = await callProjectOperation(caller, id, "project.get", {}, options)
+  if (!result) return projectNotFound()
+  return consoleJson({ answer: result.ok ? result.value : result.error, linked: result.ok, status: result.status })
 }

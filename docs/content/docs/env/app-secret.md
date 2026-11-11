@@ -110,7 +110,6 @@ export async function readCredentials(stored: string, secret: string) {
 | `vitehub:seal:<purpose>` | The key of each [`seal()`](#seal-a-value) purpose | Hand-written AES-GCM keys |
 | `vitehub:auth` | [Auth](/docs/auth/configure#secret) session signing when the app sets no Better Auth secret | `BETTER_AUTH_SECRET`, which still wins when it is set, as do `secret` and `secrets` in the Auth Definition |
 | `vitehub:console-auth` | Inline [Console Auth](/docs/development/console) session signing | `BETTER_AUTH_SECRET`, which still wins when it is set |
-| `vitehub:dispatch` | [Signed dispatch](/docs/development/cli#run-a-schedule-on-demand) from the CLI to a deployment | A pasted Console session cookie |
 
 ## Development
 

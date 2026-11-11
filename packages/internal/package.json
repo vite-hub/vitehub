@@ -23,6 +23,11 @@
       "import": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
+    "./console-signature": {
+      "types": "./dist/console-signature.d.ts",
+      "import": "./dist/console-signature.js",
+      "default": "./dist/console-signature.js"
+    },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
@@ -102,6 +107,11 @@
       "types": "./dist/operation-registry.d.ts",
       "import": "./dist/operation-registry.js",
       "default": "./dist/operation-registry.js"
+    },
+    "./operation-rpc": {
+      "types": "./dist/operation-rpc.d.ts",
+      "import": "./dist/operation-rpc.js",
+      "default": "./dist/operation-rpc.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
@@ -364,11 +374,6 @@
       "import": "./dist/presets.js",
       "default": "./dist/presets.js"
     },
-    "./dispatch": {
-      "types": "./dist/dispatch.d.ts",
-      "import": "./dist/dispatch.js",
-      "default": "./dist/dispatch.js"
-    },
     "./operations-vite": {
       "types": "./dist/operations-vite.d.ts",
       "import": "./dist/operations-vite.js",
@@ -391,6 +396,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",

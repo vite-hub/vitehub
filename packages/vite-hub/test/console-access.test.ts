@@ -30,13 +30,14 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 import { requestEvent, routeRequest } from "./console-event.ts"
 import { consoleEvent } from "./console-event.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // The sign-in page and OAuth discovery carry no protected project data.
 // The Schedule run route checks Console access only for a bearer call. Signed dispatches and other requests read no
 // Console data. The preflight plugin answers only CORS preflights.
-const shellRoutes = new Set(["mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "schedule-run.ts", "sign-in.ts"])
+const shellRoutes = new Set(["mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "sign-in.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
@@ -87,13 +88,6 @@ describe("Console data route contract", () => {
       expect(result, `${file} must call withConsoleAccess() before it reads data`).toBeInstanceOf(Response)
       await expect(rejection(result), file).resolves.toMatchObject({ code: "CONSOLE_ACCESS_NOT_CONFIGURED", message: expect.stringContaining("Console access is not configured"), status: 500 })
     }
-  })
-
-  it("takes only signed dispatches on the Schedule run route", async () => {
-    const route = (await import("../src/console/runtime/server/schedule-run.ts")).default
-    const response = await route.fetch(routeRequest(event()))
-    expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toMatchObject({ message: expect.stringMatching(/signed dispatches only.*VITEHUB_DISPATCH_KEY.*Console credentials/) })
   })
 })
 
@@ -243,7 +237,7 @@ describe("Console access policies", () => {
         check: async request => request["~standard"].req instanceof Request ? authorizeConsole(request["~standard"].req) : new Response(null, { status: 400 }),
       })
       const route = withConsoleAccess(() => "workspace file", { anySection: true })
-      const call = (cookie?: string) => route(requestEvent(new Request("https://example.com/_vitehub/rpc/__call", { headers: cookie ? { cookie } : {} })))
+      const call = (cookie?: string) => route(requestEvent(new Request("https://example.com/_vitehub/rpc", { headers: cookie ? { cookie } : {} })))
 
       const denied = await signUp("denied@example.com")
       const allowed = await signUp("allowed@example.com")
@@ -282,13 +276,13 @@ describe("Console access grants", () => {
   it("does not run RPC operations with a forged access", async () => {
     installConsoleSections("/console-access", ["agents"])
     const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
-    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: {}, operation: "sections.list" }),
+    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+      body: operationRpcBody("sections.list", {}),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { access: forged })
     expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toMatchObject({ ok: false, status: 403 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: false, status: 403 })
   })
 
   it("reuses the checked access for an internal event once", async () => {
@@ -310,8 +304,8 @@ describe("read-only section access", () => {
   const readOnly: ConsoleAuthorize = () => ({ sections: ["agents:read"] })
 
   function rpc(operation: string, input: unknown = {}) {
-    return handleGuardedRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input, operation }),
+    return handleGuardedRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+      body: operationRpcBody(operation, input),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }))
@@ -347,7 +341,7 @@ describe("read-only section access", () => {
     expect((await rpc("invocations.list")).status).not.toBe(403)
     const refused = await rpc("invocations.cancel", { id: "run-1" })
     expect(refused.status).toBe(403)
-    await expect(refused.json()).resolves.toMatchObject({ message: expect.stringContaining("read-only"), ok: false })
+    await expect(operationRpcResponseResult(refused)).resolves.toMatchObject({ message: expect.stringContaining("read-only"), ok: false })
   })
 })
 
@@ -475,7 +469,7 @@ describe("generated Console access", () => {
 
     await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
 
-    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc/**" }))
+    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc" }))
     expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|sign-in|client\.get)\.js$/) }))
     expect(config.nitro.publicAssets).toEqual(assets)
   })
@@ -486,7 +480,7 @@ describe("generated Console access", () => {
     await generatedPlugin({ console: { auth: "token" } }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toContain(`${mount}/_vitehub/rpc/**`)
+    expect(routes).toContain(`${mount}/_vitehub/rpc`)
     expect(routes).toContain(`${mount}/_vitehub/mcp`)
     for (const removed of ["/_vitehub", "/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
       expect(routes, removed).not.toContain(`${mount}${removed}`)

@@ -4,6 +4,7 @@ import { consoleMediaFileUrl, consoleMediaUrl } from "../src/console/runtime/cli
 import { consoleProject, projectFetch, projectUrl, resolveProjectUrl, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { requestConsoleOperation } from "../src/console/runtime/client/request.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { operationRpcFetch } from "../../internal/test-utils/operation-rpc.ts"
 
 const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => Response.json({ ok: true, value: [] }))
 const pageProject = consoleProject()
@@ -16,20 +17,20 @@ afterEach(() => {
 
 describe("Console project transport", () => {
   it("sends requests to the page origin by default, as before", async () => {
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", operationRpcFetch(fetchMock))
     expect(consoleProject()).toEqual({ origin: "", base: "" })
 
     await requestConsoleOperation("kv.list", { store: "default" })
 
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toBe("/_vitehub/rpc/__call")
+    expect(url).toBe("/_vitehub/rpc")
     expect(init?.credentials).toBe("same-origin")
     expect(init?.headers).toEqual({ "content-type": "application/json", [consoleRpcHeader]: "1" })
   })
 
   it("keeps the application mount of the page", async () => {
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", operationRpcFetch(fetchMock))
     setConsoleProject({ origin: "", base: "/portal" })
 
     await projectFetch("/_vitehub/page/session")
@@ -39,7 +40,7 @@ describe("Console project transport", () => {
   })
 
   it("builds absolute URLs and sends the authorization of a remote project", async () => {
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", operationRpcFetch(fetchMock))
     let token = "first"
     setConsoleProject({ origin: "https://agents.example.com", base: "/portal", authorization: () => `Bearer ${token}` })
 
@@ -48,7 +49,7 @@ describe("Console project transport", () => {
     await projectFetch("/_vitehub/env/manage", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
 
     const [rpcUrl, rpcInit] = fetchMock.mock.calls[0]!
-    expect(rpcUrl).toBe("https://agents.example.com/portal/_vitehub/rpc/__call")
+    expect(rpcUrl).toBe("https://agents.example.com/portal/_vitehub/rpc")
     expect(rpcInit?.headers).toMatchObject({ authorization: "Bearer first", [consoleRpcHeader]: "1" })
     // Cookies never go to another origin. The bearer token authorizes the call.
     expect(rpcInit?.credentials).toBe("same-origin")
@@ -59,7 +60,7 @@ describe("Console project transport", () => {
   })
 
   it("sends no authorization header when the project has no token", async () => {
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", operationRpcFetch(fetchMock))
     setConsoleProject({ origin: "https://agents.example.com", base: "", authorization: () => undefined })
 
     await projectFetch("/_vitehub/page/session", { headers: { accept: "application/json" } })

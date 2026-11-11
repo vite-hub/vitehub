@@ -135,9 +135,9 @@ claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
 
 The client opens the Console in your browser. Sign in with GitHub or a passkey, and allow the client. The tools act on the team that you opened last in the Console, with your role in it.
 
-To link an app, ask the agent to call `link_app` with the URL of the app. Only owners and admins of the team can link. The answer has one variable line, such as `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_3F9A12BC=<sha-256>`. Set it in the environment of the app, set `console: { auth: 'token' }` in its ViteHub config, and deploy. Then `check_app` answers `linked: true`.
+To link an app, ask the agent to call `link_app` with the URL of the app. Only owners and admins of the team can link. The answer has one variable line with the public key of the link, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`. Set it in the environment of the app, set `console: { auth: 'token' }` in its ViteHub config, and deploy. Then `check_app` answers `linked: true`.
 
-`run_operation` runs one operation of the app, such as `kv.list`, with the token of the link. The agent's sign-in never reaches your app. An operation that deletes or publishes data runs only when the agent sends `confirm: true`, so the agent asks you first.
+`run_operation` runs one operation of the app, such as `kv.list`. The Console signs the call for you as an MCP call, and the agent's sign-in never reaches your app. Your app applies its MCP rules: it refuses operations that it keeps from MCP clients, and runs an operation that deletes or publishes data only when the agent sends `confirm: true`, so the agent asks you first.
 
 ## Use the server with the skill
 

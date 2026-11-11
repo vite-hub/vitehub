@@ -118,6 +118,7 @@ const runtimeEntries = [
   "src/console/runtime/client/sign-in.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
+  "src/console/runtime/auth-operations.ts",
   "src/console/runtime/definitions.ts",
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
@@ -146,7 +147,6 @@ const runtimeEntries = [
   "src/console/runtime/server/mcp-discovery.ts",
   "src/console/runtime/server/mcp-authorization-server.ts",
   "src/console/runtime/server/mcp-metadata.ts",
-  "src/console/runtime/server/schedule-run.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sign-in.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -574,6 +574,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/sign-in"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
+          delete exports["./console/runtime/auth-operations"];
           delete exports["./console/runtime/definitions"];
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
@@ -607,7 +608,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/runtime"];
-          delete exports["./console/runtime/server/schedule-run"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sign-in"];
           delete exports["./console/runtime/server/sections.get"];

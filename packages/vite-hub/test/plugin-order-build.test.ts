@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process"
-import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
@@ -11,9 +10,10 @@ import { describe, expect, it } from "vitest"
 
 // Generated server modules also import the package, so use one built module graph for request grants.
 import { vitehub } from "vite-hub"
-import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
+import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
-const token = "plugin-order-console-token-0123456789abcdef"
+const ci = await consoleTestKey("CI")
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -24,10 +24,10 @@ async function freePort(): Promise<number> {
   return address.port
 }
 
-async function withBuiltServer<T>(root: string, run: (fetchServer: (path: string, init?: RequestInit) => Promise<Response>) => Promise<T>): Promise<T> {
+async function withBuiltServer<T>(root: string, run: (fetchServer: (path: string, init?: RequestInit) => Promise<Response>, origin: string) => Promise<T>): Promise<T> {
   const port = await freePort()
   const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
-    env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") },
+    env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), ...ci.env },
     stdio: "ignore",
   })
   const fetchServer = async (path: string, init?: RequestInit): Promise<Response> => {
@@ -43,7 +43,7 @@ async function withBuiltServer<T>(root: string, run: (fetchServer: (path: string
     }
   }
   try {
-    return await run(fetchServer)
+    return await run(fetchServer, `http://127.0.0.1:${port}`)
   }
   finally {
     server.kill()
@@ -67,18 +67,15 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await builder.buildApp()
       expect(existsSync(join(root, ".output/public/_vitehub/assets"))).toBe(false)
 
-      await withBuiltServer(root, async (fetchServer) => {
+      await withBuiltServer(root, async (fetchServer, origin) => {
         // Apps no longer serve the Console page; this SPA serves its own fallback instead.
         const page = await fetchServer("/_vitehub")
         expect(page.status).toBe(200)
         expect(await page.text()).not.toContain("ViteHub Console")
-        const rpc = await fetchServer("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ operation: "sections.list", input: {} }),
-          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", [consoleRpcHeader]: "1" },
-          method: "POST",
-        })
+        const signed = await signedRpcRequest({ key: ci.key, url: `${origin}/_vitehub/rpc` })
+        const rpc = await fetchServer("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         expect(rpc.status, await rpc.clone().text()).toBe(200)
-        expect(await rpc.json()).toMatchObject({ ok: true })
+        expect(await operationRpcResponseResult(rpc)).toMatchObject({ ok: true })
       })
     }
     finally {
