@@ -342,6 +342,10 @@ interface ContentSourceHeadsRuntime {
   read<T>(target: ContentSourceRef, read: (view: ComarkContent) => Promise<T>): Promise<T>
   /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
+  /** Run `work` after the push webhook moves the head of a Source, such as computing page dates. */
+  onMove(work: (source: string) => Promise<void>): void
+  /** The work of `onMove()` for a Source whose head moved. The push webhook runs it in `waitUntil`. */
+  moved(source: string): Promise<void>
 }
 
 const runtimes = new WeakMap<object, ContentSourceHeadsRuntime>()
@@ -962,6 +966,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     return { repo, ref: typeof ref === "string" && ref !== "default" ? ref : undefined }
   }
 
+  const onMoved: Array<(source: string) => Promise<void>> = []
   const runtime: ContentSourceHeadsRuntime = {
     api,
     async dispose() {
@@ -1089,6 +1094,12 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         if (error) throw error
       }
       return delivery
+    },
+    onMove(work) {
+      onMoved.push(work)
+    },
+    async moved(name) {
+      await Promise.all(onMoved.map(work => work(name)))
     },
   }
   runtimes.set(api, runtime)

@@ -1,4 +1,5 @@
 import { formatDiagnostic } from "nostics"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
@@ -627,12 +628,12 @@ export function defineContent<
    * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
    * `github()` Source, so only the first read after a head moves calls GitHub, and then only for the pages that changed.
    */
-  async function routedPages(site: string | undefined): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
+  async function routedPages(site: string | undefined, waitUntil: ContentSitemapOptions["waitUntil"]): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
     const pages = await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)
     const dates = new Map<ContentRoutedPage, string>()
     await Promise.all([...new Set(routedSources.map(source => source.name))].map(async (name) => {
       const dated = pages.filter(page => page.collection === name && page.key !== undefined)
-      const found = await historyApi.dates(name, dated.map(page => page.key!))
+      const found = await historyApi.dates(name, dated.map(page => page.key!), waitUntil ? { waitUntil } : {})
       for (const page of dated) {
         const date = found.get(page.key!)
         if (date) dates.set(page, date)
@@ -640,6 +641,15 @@ export function defineContent<
     }))
     return { pages, dates }
   }
+  /** Compute the page dates of a `github()` Source at its new head, so no feed or sitemap request waits for them. */
+  async function warmDates(name: string): Promise<void> {
+    if (!seo?.sitemap && !seo?.rss) return
+    const source = routedSources.filter(routed => routed.name === name)
+    if (!source.length) return
+    const pages = await contentRoutedPages([], undefined, source)
+    await historyApi.refresh(name, pages.flatMap(page => page.key === undefined ? [] : [page.key]))
+  }
+  heads.onMove(warmDates)
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
@@ -650,13 +660,13 @@ export function defineContent<
     route,
     hasPolicy: policy !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) => {
-      const { pages, dates } = await routedPages(siteFor(sitemapOptions))
+      const { pages, dates } = await routedPages(siteFor(sitemapOptions), sitemapOptions?.waitUntil)
       return contentSitemapEntries(pages, dates)
     },
     rss: async (rssOptions?: ContentSitemapOptions) => {
       const site = siteFor(rssOptions) ?? "http://localhost"
       const options = seo?.rss !== null && typeof seo?.rss === "object" ? seo.rss : {}
-      const { pages, dates } = await routedPages(site)
+      const { pages, dates } = await routedPages(site, rssOptions?.waitUntil)
       return renderContentRss(contentRssChannel(options, site), contentRssItems(pages, dates, options.limit ?? contentRssLimit))
     },
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
@@ -872,6 +882,26 @@ export function defineContentHandler(
 type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "rss" | "seo" | "sitemap">
 
 /**
+ * The `waitUntil` of a request for `content.sitemap()` and `content.rss()`, and the `Cache-Control` of the answer. An
+ * answer that left work for after the response has dates of the previous head, so no cache keeps it.
+ */
+function deferredWork(request: Request): { options: { waitUntil?: (promise: Promise<unknown>) => void }, cacheControl(): string } {
+  const waitUntil = getStandardContext(request).waitUntil
+  let deferred = false
+  return {
+    options: waitUntil
+      ? {
+          waitUntil: (promise) => {
+            deferred = true
+            waitUntil(promise)
+          },
+        }
+      : {},
+    cacheControl: () => deferred ? "no-store" : "public, max-age=0, must-revalidate",
+  }
+}
+
+/**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
  * ViteHub generates this route when `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
  */
@@ -880,9 +910,9 @@ export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler
     async fetch(request) {
       if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
       const site = content.seo.site ?? new URL(request.url).origin
-      return new Response(renderContentSitemap(await content.sitemap({ site })), {
-        headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-      })
+      const later = deferredWork(request)
+      const xml = renderContentSitemap(await content.sitemap({ site, ...later.options }))
+      return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": later.cacheControl() } })
     },
   }
 }
@@ -896,9 +926,9 @@ export function defineContentRssHandler(content: SeoRuntime): ContentHandler {
     async fetch(request) {
       const rss = content.seo?.rss
       if (rss === undefined || rss === false) return new Response("Not Found", { status: 404 })
-      return new Response(await content.rss({ site: content.seo?.site ?? new URL(request.url).origin }), {
-        headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-      })
+      const later = deferredWork(request)
+      const xml = await content.rss({ site: content.seo?.site ?? new URL(request.url).origin, ...later.options })
+      return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": later.cacheControl() } })
     },
   }
 }
