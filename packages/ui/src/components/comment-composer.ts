@@ -123,6 +123,12 @@ export const CommentComposer = defineComponent({
     accept: { type: String },
     /** Send files without text. Default: on for a reply, off for a new comment. */
     allowEmpty: { default: undefined, type: Boolean },
+    /**
+     * `box` is a bordered field. `row` is one line with attach, the text and send, for a box that already sits inside a
+     * card, as the reply box of a thread and the box at the bottom of a panel do.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    layout: { default: "box", type: String as PropType<"box" | "row"> },
   },
   emits: ["update:modelValue", "update:mentions", "update:files", "submit", "cancel"],
   // SAFETY: Vue uses Object as its runtime slots marker.
@@ -385,6 +391,7 @@ export const CommentComposer = defineComponent({
           "data-busy": props.busy ? "true" : undefined,
           "data-dirty": hasContent() ? "true" : undefined,
           "data-dragging": dragging.value ? "true" : undefined,
+          "data-layout": props.layout,
           "data-shake": shaking.value ?? undefined,
           "data-slot": "comment-composer",
           "data-variant": props.variant,
@@ -425,6 +432,7 @@ export const CommentComposer = defineComponent({
               accept: props.accept,
               "aria-label": labels[props.variant],
               attachments: attachmentsOn.value,
+              attachVariant: props.layout === "row" ? "ghost" : "outline",
               files: fileParts.value,
               filesDisabled: props.busy,
               filterFiles: (list: readonly File[]) => {

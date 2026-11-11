@@ -22,6 +22,7 @@ import {
   type CommentRowSlotScope,
 } from "../src/index.ts";
 import { mentionQuery, rankPeople } from "../src/internal/comment-mentions.ts";
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
 const ben: CommentUser = { id: "ben", name: "Ben Soto" };
@@ -631,8 +632,8 @@ describe("layer draft uploads", () => {
 describe("RPC attachments", () => {
   it.each<Component>([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const { operation, input } = JSON.parse(String(init?.body));
-      return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
+      const { operation, input } = operationRpcRequest(init?.body) as { operation: string, input: { attachments: string[], body: string } };
+      return operationRpcResponse(init?.body, { ok: true, value: operation === "comments.list" ? [] : thread(1, {
         messages: [message("message-1", { attachments: input.attachments, body: input.body })],
       }) });
     });
@@ -660,7 +661,7 @@ describe("RPC attachments", () => {
   });
 
   it.each<Component>([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
-    const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+    const transport = createRpcTransport({ fetch: async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: [] }) });
     transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });
     const upload = vi.fn(async () => ["uploads/shot.png"]);
@@ -990,5 +991,32 @@ describe("agent messages and replies since resolved", () => {
     expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
     expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
     expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
+});
+
+describe("composer layout", () => {
+  it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
+    const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
+    expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const comments = client([thread(1)]);
+    const panel = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(panel.get("[data-slot=comment-panel-composer] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const box = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get("[data-slot=comment-composer]").attributes("data-layout");
+    expect(box()).toBe("box");
+    expect(box("row")).toBe("row");
+  });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
   });
 });

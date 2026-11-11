@@ -48,7 +48,7 @@ export interface DefaultAgentInvocationsD1 {
   env: () => Promise<Record<string, unknown>> | Record<string, unknown>
 }
 
-/** Loads the libSQL driver of the default journal: `() => import("@vite-hub/agent/invocations/default-libsql")`. */
+/** Loads the libSQL driver of the default journal: `() => import("@vite-hub/agent/internal/default-invocations-libsql")`. */
 export type DefaultAgentInvocationsLibsql = () => Promise<{ openDefaultLibsqlJournal: typeof openDefaultLibsqlJournal }>
 
 export interface DefaultAgentInvocationsOptions {
@@ -245,7 +245,7 @@ function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAg
 
 /**
  * The journal that ViteHub installs for Agents that set no journal, with the Console on or off.
- * This entry selects SQLite and libSQL only through `libsql`. `@vite-hub/agent/invocations/default` always passes it.
+ * This entry selects SQLite and libSQL only through `libsql`. `@vite-hub/agent/internal/default-invocations` always passes it.
  * It keeps prompts, messages, results, and tool input and output, like `configuration: "content"` with the
  * `defaultAgentInvocationsMetadataContent` attributes.
  * - Local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the `databaseUrl` libSQL URL.

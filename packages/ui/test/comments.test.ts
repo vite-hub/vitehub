@@ -1571,3 +1571,119 @@ it("gates thread actions independently, including moderation and owner edits wit
   await wrapper.setProps({ readOnly: true })
   expect(wrapper.find("textarea").exists()).toBe(false)
 })
+
+describe("margin placement", () => {
+  const setWidth = (width: number) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    window.dispatchEvent(new Event("resize"));
+  };
+  afterEach(() => setWidth(1024));
+  const inMargin = "[data-slot=comment-layer-popover][data-margin=true]";
+
+  it("shows each thread as a card in the margin and opens it there, with the reply box, not beside the pin", async () => {
+    setWidth(1280);
+    const reply = { ...thread(1).messages[0]!, body: "A reply", id: "message-1b" };
+    const { client, wrapper } = await layer([thread(1, { messages: [...thread(1).messages, reply] })], { placement: "margin" });
+    const card = wrapper.get("[data-slot=comment-margin] button[data-slot=comment-margin-card]");
+    expect(card.text()).toContain("Comment 1");
+    expect(card.text()).toContain("1 reply");
+
+    // No hover preview beside the pin: the card already shows the start of the thread.
+    await wrapper.get("[data-slot=comment-pin]").trigger("pointerenter");
+    expect(wrapper.find("[data-preview]").exists()).toBe(false);
+
+    await card.trigger("click");
+    await flushPromises();
+    // The open thread takes its card's place in the column.
+    expect(wrapper.find("[data-slot=comment-margin-card]").exists()).toBe(false);
+    const open = wrapper.get(inMargin);
+    expect((open.element as HTMLElement).style.top).toBe(card.attributes("style")!.match(/top: ([\d.]+px)/)![1]);
+
+    const field = open.get("[data-variant=reply] textarea");
+    await field.setValue("Thanks");
+    await field.trigger("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(client.threads[0]!.messages).toHaveLength(3));
+    await flushPromises();
+    expect(wrapper.get(inMargin).findAll("[data-slot=comment-reply]")).toHaveLength(3);
+  });
+
+  it("opens a thread in the column from the pin too, and stacks the cards so none covers another", async () => {
+    setWidth(1280);
+    const { wrapper } = await layer([thread(1), thread(2)], { placement: "margin" });
+    const cards = wrapper.findAll("[data-slot=comment-margin-card]");
+    expect(cards).toHaveLength(2);
+    const tops = cards.map((card) => Number.parseFloat((card.element as HTMLElement).style.top));
+    // Both pins are on one spot, so the second card waits below the first one's height.
+    expect(tops[1]! - tops[0]!).toBeGreaterThanOrEqual(72 + 8);
+
+    await wrapper.findAll("[data-slot=comment-pin]")[0]!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(`${inMargin} [data-slot=comment-thread]`).exists()).toBe(true);
+  });
+
+  it("keeps the open card inside the screen, so its reply box is never below it", async () => {
+    setWidth(1280);
+    vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(function (this: Element) {
+      const box = this === target ? { ...rect, top: window.innerHeight - 60 } : { height: 0, left: 0, top: 0, width: 0 };
+      return { ...box, bottom: box.top + box.height, right: box.left + box.width, toJSON: () => box, x: box.left, y: box.top };
+    });
+    const { wrapper } = await layer([thread(1)], { placement: "margin" });
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await flushPromises();
+    const top = Number.parseFloat((wrapper.get(inMargin).element as HTMLElement).style.top);
+    // Until it is measured, an open card counts as tall as a popover (420px).
+    expect(top + 420).toBeLessThanOrEqual(window.innerHeight - 8);
+  });
+
+  it("keeps an unsent reply when the screen narrows and the thread moves beside its pin, and back", async () => {
+    setWidth(1280);
+    const { wrapper } = await layer([thread(1)], { placement: "margin" });
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await flushPromises();
+    const field = wrapper.get(`${inMargin} [data-variant=reply] textarea`);
+    await field.setValue("Keep this text");
+    setWidth(600);
+    await flushPromises();
+    expect(wrapper.find(inMargin).exists()).toBe(false);
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep this text");
+    setWidth(1280);
+    await flushPromises();
+    expect(wrapper.find(inMargin).exists()).toBe(true);
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep this text");
+  });
+
+  it("writes a new comment in the margin", async () => {
+    setWidth(1280);
+    const { wrapper } = await layer([], { placement: "margin" });
+    await drop(wrapper);
+    expect(wrapper.find(`${inMargin} [data-slot=comment-composer]`).exists()).toBe(true);
+    expect(wrapper.find("[data-slot=comment-pin][data-draft=true]").exists()).toBe(true);
+  });
+
+  it("puts threads beside their pins on a narrow screen", async () => {
+    setWidth(600);
+    const { wrapper } = await layer([thread(1)], { placement: "margin" });
+    expect(wrapper.find("[data-slot=comment-margin]").exists()).toBe(false);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    expect(wrapper.find("[data-slot=comment-layer-popover]:not([data-margin]) [data-slot=comment-thread]").exists()).toBe(true);
+  });
+});
+
+describe("drawing an area", () => {
+  it("shows the area's corners and size while the drag lasts", async () => {
+    const { wrapper } = await layer();
+    press("c");
+    await flushPromises();
+    const overlay = wrapper.get("[data-slot=comment-layer-overlay]");
+    await overlay.trigger("pointerdown", { button: 0, clientX: 110, clientY: 105, pointerType: "mouse" });
+    await overlay.trigger("pointermove", { clientX: 210, clientY: 135, pointerType: "mouse" });
+    const area = wrapper.get("[data-slot=comment-layer-area]");
+    expect(area.findAll("[data-slot=comment-layer-area-handle]")).toHaveLength(4);
+    expect(area.get("[data-slot=comment-layer-area-size]").text()).toBe("100 × 30");
+    await overlay.trigger("pointerup", { button: 0, clientX: 210, clientY: 135, pointerType: "mouse" });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-layer-area-size]").exists()).toBe(false);
+  });
+});
