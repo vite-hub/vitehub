@@ -1,6 +1,6 @@
-import { defineEventHandler } from "#imports"
+import { defineHandler } from "nitro/h3"
 
-import type { EventHandler, EventHandlerRequest } from "h3"
+import type { EventHandler, EventHandlerRequest } from "nitro/h3"
 import manifest from "#docs/manifest"
 import { docsIndexedPages, docsUnindexedSearchSections } from "../../navigation.ts"
 import { docsSearchSections } from "../../markdown.ts"
@@ -26,7 +26,7 @@ async function buildIndex(): Promise<DocsSearchSection[]> {
 }
 
 let indexed: Promise<DocsSearchSection[]> | undefined
-const handler: EventHandler<EventHandlerRequest, Promise<DocsSearchSection[]>> = defineEventHandler(() => {
+const handler: EventHandler<EventHandlerRequest, Promise<DocsSearchSection[]>> = defineHandler(() => {
   if (import.meta.dev) return buildIndex()
   return indexed ??= buildIndex().catch((error) => {
     indexed = undefined
