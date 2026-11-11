@@ -427,6 +427,10 @@ function assertEvent(event: unknown, method: string): asserts event is ContentPr
 }
 
 interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R | Promise<R> }
+/** An async request scope. Disabled, it holds nothing. Enabled, it throws `CONTENT_R0008` without AsyncLocalStorage. */
+export function createRequestScope<T>(enabled: boolean): Scope<T> {
+  return createScope(enabled)
+}
 function createScope<T>(enabled: boolean): Scope<T> {
   if (!enabled) return { getStore: () => undefined, run: (_value, callback) => callback() }
   const runtimeGlobal = globalThis as {
