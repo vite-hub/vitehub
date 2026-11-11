@@ -80,7 +80,7 @@ export interface SourceVitePluginOptions {
   importBase?: string
 }
 
-/** The discovered `server/content.ts` file. It exports the Content runtime as `content`. */
+/** The discovered `server/content.ts` file. Its default export is the Content runtime. */
 export interface ContentDefinitionFile {
   handler: string
 }
@@ -344,7 +344,7 @@ async function writeCollectionArtifacts(
 }
 
 /**
- * Find the `server/content.{ts,js}` file that exports the application Content runtime as `content`. Returns undefined when
+ * Find the `server/content.{ts,js}` file whose default export is the application Content runtime. Returns undefined when
  * the project has none. The generated `/api/content/**` route and the Console content editor import the same file.
  */
 export async function findContentEntry(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
@@ -369,8 +369,14 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
   if (candidates.length > 1) throw sourceErrorDiagnostics.SOURCE_B0007({ message: "[vitehub] Content is defined in more than one server directory." })
   const file = candidates[0]
   if (!file) return
-  if (!exportNames(await readFile(file, "utf8"), file).includes("content")) {
-    throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".` })
+  const exports = exportNames(await readFile(file, "utf8"), file)
+  if (!exports.includes("default")) {
+    const name = JSON.stringify(relative(options.projectRoot, file))
+    // A named `content` export was the form before the default export.
+    if (exports.includes("content")) {
+      throw sourceErrorDiagnostics.SOURCE_B0009({ message: `[vitehub] Content file ${name} exports \`content\` by name. Content is now the default export: \`export default defineContent({ ... })\`.` })
+    }
+    throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${name} must default-export the result of defineContent(): \`export default defineContent({ ... })\`.` })
   }
   return file
 }
@@ -421,7 +427,7 @@ function unwrapAst(node: unknown): unknown {
 }
 
 /**
- * Read the `defineContent()` call that initializes the `content` export. Collections count as present unless the call
+ * Read the `defineContent()` call that the default export holds. Collections count as present unless the call
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
  * `sitemap`, `robots`, or `markdown` that is not `false`, or a `seo` value that discovery cannot follow.
  */
@@ -463,14 +469,17 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
     if (isAstNode(declaration) && declaration.type === "VariableDeclaration") {
       for (const declarator of astNodes(declaration.declarations)) {
         const local = astName(declarator.id)
-        if (!local) continue
-        if (declaration.kind === "const") constants.set(local, declarator.init)
-        if (exported && local === "content") contentInit = declarator.init
+        if (local && declaration.kind === "const") constants.set(local, declarator.init)
       }
+    }
+    if (statement.type === "ExportDefaultDeclaration") {
+      const value = unwrapAst(statement.declaration)
+      if (isAstNode(value) && value.type === "Identifier") contentLocal = astName(value)
+      else contentInit = statement.declaration
     }
     if (exported && !statement.source) {
       for (const specifier of astNodes(statement.specifiers)) {
-        if (astName(specifier.exported) === "content") contentLocal = astName(specifier.local)
+        if (astName(specifier.exported) === "default") contentLocal = astName(specifier.local)
       }
     }
   }
@@ -568,7 +577,7 @@ async function writeContentArtifact(
   const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
-    `import { content } from ${contentModule}`,
+    `import content from ${contentModule}`,
     "",
     "export default defineContentHandler(content)",
     "",
@@ -582,7 +591,7 @@ async function writeContentArtifact(
     await writeFileIfChanged(preview, [
       `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
       "",
-      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.content))`,
+      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.default))`,
       "",
     ].join("\n"))
     handlers.push({ handler: preview, plugin: true })
@@ -611,7 +620,7 @@ async function writeContentArtifact(
     '  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })',
     '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
     "}",
-    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).content, write, { moduleName: ${importBase} }) : () => {}`,
+    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).default, write, { moduleName: ${importBase} }) : () => {}`,
     "",
   ].join("\n"))
   handlers.push({ handler: typesPlugin, plugin: true })
@@ -631,7 +640,7 @@ async function writeContentArtifact(
     }
     await writeFileIfChanged(path, [
       `import { ${helper} } from ${importBase}`,
-      `import { content } from ${contentModule}`,
+      `import content from ${contentModule}`,
       "",
       `export default ${helper}(content)`,
       "",

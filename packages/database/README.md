@@ -85,7 +85,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
+Each Database is `server/databases/<name>.ts`, or `server/databases/<name>/index.ts` when it has other files such as schema modules. `server/databases/default.ts` is the default database, and every other Definition sets the same `name` option. Its migrations are in `server/databases/<name>/migrations/`. The Vite forms `src/database.ts` and `src/<name>.database.ts` also work, but `src/database.ts` cannot be used beside named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. The former `config.ts` files fail with `DATABASE_LEGACY_CONFIG_FILE`; `npx @vite-hub/codemods define-forms` moves them. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/default/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
 
@@ -147,7 +147,7 @@ A Nuxt module adds the same plugin to `nuxt.options.vite.plugins` during setup.
 
 A package that keeps data in a Database with its own SQL, and has no Drizzle tables, contributes an entry without `definition`: `{ name, reason?, database?, dialect? }`. ViteHub checks its target and dialect as for tables, and `vitehub inspect` lists it as `Used by`.
 
-A package can also contribute a whole Database with `{ name, definition, reason? }`, where `definition` is the absolute path of a module that default exports `defineDatabase({ schema })`. Use it for a named Database that the package owns. For the default Database, read [The default Database](#the-default-database). The contributed Database behaves like one in `server/databases/`, keeps its migrations where that Definition would (`server/databases/migrations/` for `default`), and shows `Contributed by`, `Reason`, and `Migrations` in `vitehub inspect`. A name that the application already defines fails with `DATABASE_DUPLICATE_DEFINITION`.
+A package can also contribute a whole Database with `{ name, definition, reason? }`, where `definition` is the absolute path of a module that default exports `defineDatabase({ schema })`. Use it for a named Database that the package owns. For the default Database, read [The default Database](#the-default-database). The contributed Database behaves like one in `server/databases/`, keeps its migrations where that Definition would (`server/databases/default/migrations/` for `default`), and shows `Contributed by`, `Reason`, and `Migrations` in `vitehub inspect`. A name that the application already defines fails with `DATABASE_DUPLICATE_DEFINITION`.
 
 Contributed tables are in the generated Drizzle schema, so `vitehub database generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
 
@@ -155,9 +155,9 @@ Contributed tables are in the generated Drizzle schema, so `vitehub database gen
 
 A package that needs a Database does not add one. It contributes its tables, or a use without tables, and leaves `database` unset (or sets `"default"`). When the app has no Database Definition, the Database integration adds the implicit `default` Database once, for all of them, in Vite and in Nuxt:
 
-- It has no tables of its own, keeps migrations in `server/databases/migrations/`, and uses the `dialect` of the contributions for it (SQLite when none sets one). Two different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
+- It has no tables of its own, keeps migrations in `server/databases/default/migrations/`, and uses the `dialect` of the contributions for it (SQLite when none sets one). Two different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
 - `vitehub inspect definitions --kind database` shows `Definition: Implicit` with the plugins that need it, and each contribution with its `reason`.
-- When the app adds `server/databases/config.ts`, the tables move to it and keep the same migrations directory.
+- When the app adds `server/databases/default.ts`, the tables move to it and keep the same migrations directory.
 - Several Database Definitions without one named `default` are ambiguous for a contribution without `database`, and fail with `DATABASE_INVALID_CONTRIBUTION_TARGET` with the names to choose from.
 
 The CMS preset, Comments, Connections, and Auth's `authDatabase()` use this rule.
@@ -211,7 +211,7 @@ that are still in flight.
 Set `dialect: "postgresql"`, declare tables with `drizzle-orm/pg-core`, and install `postgres` in the app.
 
 ```ts
-// server/databases/config.ts
+// server/databases/default.ts
 import { defineDatabase } from "@vite-hub/database"
 import { pgTable, serial, text } from "drizzle-orm/pg-core"
 

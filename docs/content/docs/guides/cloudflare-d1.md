@@ -35,7 +35,7 @@ Do not use a database that has its own migration history.
 Set `preset: 'cloudflare'` and `database: true` in your ViteHub config. Add
 this `cloudflare` block to the Database Definition:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
