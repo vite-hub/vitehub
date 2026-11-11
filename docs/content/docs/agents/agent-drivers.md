@@ -368,7 +368,7 @@ Only `codexDriver()` and `claudeCodeDriver()` import the runtime, so the build f
 Self-hosted Node apps can admit work by current machine load instead of a fixed limit. Share one capacity object between the Agents that use the same host:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const agentCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -394,7 +394,7 @@ export default defineAgent({
 })
 ```
 
-The callback gets the input, messages, tools, Workspace access, Invocation context, and the Actor (who made the call) as `actor` and `invoker`. It can call a model, but ViteHub treats that work and usage as your app's.
+The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 ViteHub cannot stop this callback. On cancel, `input.abortSignal` aborts and the result shows `notEnforcedBy: 'run'`. Pass the signal to your I/O or throw `input.abortSignal.reason` to stop. Model and provider Drivers stop on cancel. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation).
 

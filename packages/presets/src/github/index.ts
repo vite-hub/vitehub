@@ -20,8 +20,8 @@ export type {
 export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState } from './pull-requests.ts'
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './pull-requests.ts'
 
-export { createGitHubPullRequestOperations, normalizeGitHubMentionAllowlist } from './auto-merge.ts'
-export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './auto-merge.ts'
+export { createGitHubPullRequestOperations, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from './auto-merge.ts'
+export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot, ReviewThreadAnswer, ReviewThreadOutcome } from './auto-merge.ts'
 export { prepareGitHubPullRequestWorkspace } from "./checkout.ts"
 export { validateGitHubInstallInputs } from "./install-inputs.ts"
 
