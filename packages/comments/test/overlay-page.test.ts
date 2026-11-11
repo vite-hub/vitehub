@@ -150,6 +150,26 @@ describe("the Comments overlay on a page", () => {
     expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("false")
   })
 
+  it("keeps edit mode when edit mode, pressed after comment mode while the new page loads, came last", async () => {
+    await open()
+    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
+    const session = vi.mocked(api.session).getMockImplementation()!
+    const held = deferred<void>()
+    vi.mocked(api.session).mockImplementation(async (next) => {
+      if (next === "/next") await held.promise
+      return await session(next)
+    })
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/next"))
+    press(document.body, "c")
+    tool(tools.bar, "Edit text (E)")!.click()
+    held.resolve()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer']")).not.toBeNull())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(tool(tools.bar, "Edit text (E)")!.getAttribute("aria-pressed")).toBe("true")
+    expect(commentsButton(tools.bar)!.getAttribute("aria-pressed")).toBe("false")
+  })
+
   it("ignores an older inline field lookup after a new selection", async () => {
     await open()
     const first = document.querySelector("h1")!

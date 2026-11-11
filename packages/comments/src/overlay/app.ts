@@ -328,10 +328,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (next !== "mark") stopMarking()
-    if (resolving.value && next !== "edit") {
-      paused.value = next === "comment" && canComment.value
-      return
-    }
+    // While the new page loads, the last choice wins: any mode but comment ends the paused comment mode.
+    if (resolving.value) paused.value = next === "comment" && canComment.value
+    if (resolving.value && next !== "edit") return
     if (next === "mark") {
       if (!canComment.value || marking.value) return
       if (needsName.value) {
