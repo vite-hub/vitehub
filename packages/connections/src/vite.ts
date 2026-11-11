@@ -18,6 +18,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
+import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
@@ -296,8 +297,14 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   nitro: {
     name: string;
     /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
+    setup: (nitro: ConnectionsNitro) => void;
   };
+};
+
+/** The parts of a Nitro instance that the management route reads and changes. */
+type ConnectionsNitro = {
+  options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
+  routing?: { sync: () => void };
 };
 
 /** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
@@ -478,6 +485,9 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       name: "@vite-hub/connections/management",
       setup(nitro) {
         nitroInstance = nitro;
+        // The development policy trusts only this machine. Nitro's dev worker never sees the client address, so the
+        // front process signs loopback requests for it.
+        if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers ??= []);
       },
     },
     vitehub: {
