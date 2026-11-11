@@ -21,10 +21,10 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
     const zeroConfig = () => vitehub({ preset: "node" })
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
 
-    const generate = await runCli(root, zeroConfig(), ["db", "generate"])
+    const generate = await runCli(root, zeroConfig(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrationsDir = join(root, "server/databases/migrations")
+    const migrationsDir = join(root, "server/databases/default/migrations")
     const migration = (await readdir(migrationsDir)).find(file => /^\d{14}_/.test(file))!
     expect((await readFile(join(migrationsDir, migration, "migration.sql"), "utf8")).match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
       "CREATE TABLE `vitehub_content_sessions`",
@@ -35,7 +35,7 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
       "CREATE TABLE `workspace_history_workspaces`",
     ])
     await expect(readFile(join(root, ".vitehub/content/database.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-    const migrate = await runCli(root, zeroConfig(), ["db", "migrate"])
+    const migrate = await runCli(root, zeroConfig(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 

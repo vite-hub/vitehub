@@ -166,7 +166,7 @@ describe("relations of contributed tables", () => {
       "  tags: { postTags: r.many.postTags() },",
       "}))",
     ])
-    await writeProjectFile(rootDir, "server/databases/config.ts", [
+    await writeProjectFile(rootDir, "server/databases/default.ts", [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { defineRelations } from 'drizzle-orm'",
       "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",

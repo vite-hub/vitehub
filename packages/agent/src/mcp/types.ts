@@ -117,4 +117,6 @@ export interface McpAvailabilityWarning {
   phase: "discovery" | "resolve"
   server: string
   statusCode?: number
+  /** The Connection error code, such as `CONNECTIONS_NEEDS_RECONNECT`, when the server's Connection failed. */
+  code?: string
 }

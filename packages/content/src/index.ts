@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
@@ -16,7 +15,7 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
-import { contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
@@ -72,7 +71,7 @@ export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
 export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
@@ -103,8 +102,8 @@ export type {
 export { optional } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
 // Blob owns the reference schemas. Content re-exports them so one import covers every field helper.
-export { file, image } from "@vite-hub/blob/reference"
-export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
+export { file, image } from "@vite-hub/blob"
+export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
 export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
@@ -402,7 +401,6 @@ export function defineContent<
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
   if (authorize !== undefined && typeof authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -439,7 +437,7 @@ export function defineContent<
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
     const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
-    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance })
+    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
@@ -589,9 +587,9 @@ export function defineContent<
     unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
     publishDue: (dueOptions?: ContentPublishDueOptions) => requireDocuments().publishDue(dueOptions),
     revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
-      if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
+      if (typeof collectionOrOptions !== "string") return requireDocuments().history(collectionOrOptions)
       // Without a string id, the second argument is the options of a singleton.
-      return hasRuntimeType(id, "string") ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
+      return typeof id === "string" ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
     },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {

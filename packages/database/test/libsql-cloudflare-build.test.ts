@@ -20,7 +20,7 @@ const d1 = "cloudflare: { databaseId: 'database-id', databaseName: 'app' },"
 async function createProject(definition: string) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-db-libsql-build-"))
   tempDirs.push(root)
-  const file = join(root, "server/databases/config.ts")
+  const file = join(root, "server/databases/default.ts")
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vite-hub/database'",
@@ -34,9 +34,9 @@ async function createProject(definition: string) {
 /** Runs the Vite plugin as a Vite build or dev server for `preset`, and returns how it resolves `#vitehub/database/libsql`. */
 async function resolveLibsql(root: string, preset: string, command: "build" | "serve" = "build") {
   const plugin = hubDb()
-  // SAFETY: hubDb exposes configResolved and resolveId as callable Vite hooks.
+  // SAFETY: hubDb exposes configResolved and resolveId.handler as callable Vite hooks.
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command, nitro: { preset }, plugins: [{ name: "nitro:main" }], root })
-  const resolveId = plugin.resolveId as (id: string) => string | undefined
+  const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
   return { config: plugin.api.getConfig(), id: resolveId("#vitehub/database/libsql") }
 }
 

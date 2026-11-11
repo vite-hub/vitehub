@@ -6,12 +6,12 @@ import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vit
 import { defineAgent } from "../src/agent.ts"
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
