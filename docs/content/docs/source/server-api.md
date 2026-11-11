@@ -278,6 +278,7 @@ ViteHub finds modules in `server/collections` and generates their types and read
 - Export a Collection named like the file: `articles.ts` exports `articles` and serves `/api/articles`. Do not add a matching `server/api` handler.
 - Nuxt auto-imports `useCollection`. Elsewhere, import it from `vite-hub/source/client`.
 - Restart Nuxt after you add, remove, or rename a Collection, so Nitro rebuilds its handler list.
+- Set `route: false` to keep a Collection server-only. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
 
 To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
 

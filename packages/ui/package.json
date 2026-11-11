@@ -182,6 +182,11 @@
       "import": "./dist/playground.js",
       "default": "./dist/playground.js"
     },
+    "./playground-container": {
+      "types": "./dist/playground-container.d.ts",
+      "import": "./dist/playground-container.js",
+      "default": "./dist/playground-container.js"
+    },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",
