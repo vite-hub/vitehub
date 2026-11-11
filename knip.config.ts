@@ -190,7 +190,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       // The bundled `@pierre/diffs` imports these, and `neverBundle` keeps `vega-loader` external for the bundled Vega code.
       "@shikijs/langs",
       "@shikijs/themes",
-      "@pierre/theme",
       "vega-loader",
       // remove when the unused @vite-hub/agent devDependency of ui is fixed
       "@vite-hub/agent",
@@ -285,8 +284,6 @@ const config: KnipConfiguration = {
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
     },
     ...packageWorkspaces,
-    // Workflows run these binaries by path: `./.github/ci-tools/node_modules/.bin/<name>`.
-    ".github/ci-tools": { ignoreDependencies: ["pkg-pr-new", "wrangler"] },
     docs: {
       entry: [
         // Markdown pages render these components by name.

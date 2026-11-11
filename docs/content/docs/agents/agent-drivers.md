@@ -237,41 +237,6 @@ launch: ({ command, providerCommand }) => ({
 })
 ```
 
-### Limit the Codex Home size
-
-Codex keeps every session in its Home (rollout files, `logs_N.sqlite`, `thread_history_N.sqlite`, `state_N.sqlite`, shell snapshots, `.tmp` Git directories) and never removes them. Set `retention` to bound the Home:
-
-```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from 'vite-hub/agent'
-
-export default defineAgent({
-  driver: codexDriver({
-    retention: { maxAge: '14d', maxSize: '45%' },
-  }),
-})
-```
-
-- `maxAge` takes a duration such as `'14d'`. It applies to sessions, log rows, and shell snapshots.
-- `maxRecords` keeps the newest sessions.
-- `maxSize` takes bytes, a size such as `'2GB'`, or a percent of the Home's volume, such as `'45%'`. It counts only the Home's files, live SQLite pages, and WAL files.
-
-Every limit you set applies. Retention removes, in order: `.tmp` entries older than 24 hours, data older than `maxAge`, the oldest sessions past `maxRecords`, then the oldest sessions and hourly log rows until the Home fits `maxSize`. A removed session also loses its thread history and state rows. ViteHub runs `PRAGMA incremental_vacuum` so the files shrink. It never runs a full `VACUUM` or removes a database file.
-
-Retention never removes a thread running in this process or a file changed in the last 10 minutes. Sessions that a resume cursor still references, in memory or in `sessionStorePath`, and their fork parents, go last, only if a limit still fails. That conversation's next Invocation then sends the full history, as for any failed resume.
-
-Retention runs in the background on the first Codex Invocation, then at most every 10 minutes, and never fails an Invocation. It logs one `[vitehub] Codex home retention` line when it removes data or the Home stays over budget. The lock file `<home>/.vitehub-retention.lock` keeps processes apart.
-
-Retention needs a persistent Home: a `credentialProfile`, `providerSettings.homePath`, `CODEX_HOME` in `driver.env` or the process environment, or a gateway with one of these. Plain `credentials` without a profile use a temporary Home, so `defineAgent()` rejects `retention` with `AGENT_R1006`. ViteHub does not prune the implicit `~/.codex` and warns once. With `launch`, the app must reach the Home at the same path, for example on a shared volume, or ViteHub warns once and skips it. Agents that share a Home get the strictest value of each limit.
-
-Inspect and prune a Home from the CLI:
-
-```sh
-vitehub agent codex-home status --home /var/lib/app/codex --max-size 45%
-vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-size 45% --session-store .vitehub/provider-sessions.sqlite --dry-run
-```
-
-`prune` uses the same rules and lock file. Without `--dry-run`, it removes data. `--json` prints the report.
-
 ### Route model requests through a gateway
 
 Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/agents/ai-gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
@@ -366,7 +331,6 @@ Threads resume with the provider's opaque cursor. ViteHub turns provider output 
 | `cwd` | Existing directory or per-Invocation resolver. No Workspace session, write-back, or removal. See [Run in an existing directory](#run-in-an-existing-directory). |
 | `permissions` | `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"`. Defaults to `"ask"`. `"allow-edits-unattended"` keeps edit mode and denies native escalation without a prompt. Host-bound MCP tools keep their own authorization. Only an explicit `"allow-all"` skips approval. |
 | `providerSettings` | Advanced runtime settings. They override the installed Codex executable fallback. |
-| `retention` | Codex only. `{ maxAge, maxRecords, maxSize }` Home limits. Needs a persistent Home. See [Limit the Codex Home size](#limit-the-codex-home-size). |
 | `requirements` | Commands that `status()` checks, reported in `missingCommands`. In a child Agent, a function gets the inherited list: `inherited => [...inherited, 'kubectl']`. |
 | `sessionStorePath` | SQLite file for session cursors, so threads continue after a restart on the same persistent volume. |
 | `toolchain` | `"project"` or `{ node, packageManager, fallbackNode }`. Installs the project's pinned Node.js and package manager. See [Provision the project toolchain](#provision-the-project-toolchain). |
