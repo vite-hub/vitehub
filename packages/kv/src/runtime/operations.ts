@@ -46,6 +46,8 @@ export interface KVDevStore {
 export interface KVDevListResult {
   /** Present when more keys exist. Pass it as `--cursor` to read the next page. */
   cursor?: string
+  /** The build-selected driver that this store uses. */
+  driver?: KVDriver
   keys: string[]
   limit: number
   prefix: string
@@ -194,6 +196,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       if (input.cursor) listOptions.cursor = input.cursor
       const page = unwrap(await selected.storage.list(listOptions))
       const result: KVDevListResult = {
+        driver: selected.driver,
         keys: page.keys,
         limit,
         prefix: input.prefix ?? "",

@@ -14,6 +14,7 @@ import { useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
 import { githubHeadCacheMs } from "../src/providers/github/history.ts"
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
 import type { GitHubWorkspaceRefs, WorkspaceDefinition } from "../src/core/types.ts"
@@ -58,11 +59,11 @@ function app(options: { refs?: GitHubWorkspaceRefs, user?: OperationUser | null 
   const { history } = useWorkspace("content", { definition, mode: "write" })
   const calls: string[] = []
   const fetch = async (url: string | URL | Request, init?: RequestInit) => {
-    expect(String(url)).toBe(`${remote}/_vitehub/rpc/__call`)
-    const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
+    expect(String(url)).toBe(`${remote}/_vitehub/rpc`)
+    const { input, operation } = operationRpcRequest(init!.body)
     calls.push(operation)
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: options.user ?? null })
-    return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
+    return operationRpcResponse(init!.body, result)
   }
   /** An edit in the Console of this instance: one commit on `ref`. */
   const edit = async (changes: { put?: Record<string, string | Uint8Array>, delete?: string[] }, ref = "main") => {
@@ -255,7 +256,7 @@ describe("workspace checkout on the GitHub Store", { timeout: 60_000 }, () => {
     const server = app()
     let raced = false
     const local = await project(async (url, init) => {
-      const body = JSON.parse(String(init!.body)) as { operation: string }
+      const body = operationRpcRequest(init!.body)
       if (body.operation === "workspace.commit" && !raced) {
         raced = true
         await server.edit({ put: { "posts/race.md": post("Race", "Console.") } })

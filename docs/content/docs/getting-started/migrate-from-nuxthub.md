@@ -27,7 +27,7 @@ through [Capabilities](/docs/agents/capabilities).
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. |
 | `hosting` auto-detection | `preset` | You must select the host. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
-| Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | The module adds them for each enabled feature when Nitro auto-imports are on. Explicit imports also work. |
+| Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
 
 NuxtHub v0.10 removed `hubAI()`, AutoRAG, Vectorize, and `hubBrowser()`.
 ViteHub has no AI or Vectorize feature either. For browser work on Cloudflare,
@@ -44,13 +44,14 @@ pnpm add vite-hub
 
 Add the package of each feature that you use. For Database, also keep or add
 `drizzle-orm` as a direct dependency because your schema imports it.
-`@vite-hub/database` needs `drizzle-orm` 0.45.3 or newer. With an older
+`@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or newer, and
+`drizzle-kit` 1.0.0-rc.5 or newer for the migration commands. With an older
 version, the package manager installs a second copy, and the query types stop
-matching. Add `drizzle-kit` for the migration commands.
+matching.
 
 ```bash [Terminal]
-pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.
@@ -224,7 +225,7 @@ generated SQL alone does not create a baseline.
 `vitehub database generate --custom` creates a migration you write by hand. NuxtHub
 applied migrations during `nuxt dev` and `nuxt build`, except at build time for
 D1 binding deployments. ViteHub never applies app migrations during
-development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, and D1 HTTP migrations. A Node server build can apply them at startup with [`migrateOnStart`](/docs/database/configure#migrate-when-the-server-starts).
+development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, D1 HTTP, and Postgres migrations. A Node server build applies Postgres migrations when it starts, and SQLite migrations with `migrateOnStart: true`. See [Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts). Until the Postgres baseline is in place, build with `migrateOnStart: false`.
 
 ### Baseline an existing SQLite database
 
@@ -243,10 +244,10 @@ pnpm vitehub database generate --name baseline
 
 Compare the generated SQL with the existing tables, columns, indexes, and
 constraints. Once they match, add `IF NOT EXISTS` to each `CREATE` statement in
-the baseline `.sql` file. Keep its filename and the generated `meta/` files
-unchanged.
+the `migration.sql` of the baseline folder. Keep the folder name and its
+`snapshot.json` unchanged.
 
-```diff [server/databases/default/migrations/0000_baseline.sql]
+```diff [server/databases/default/migrations/20261109120000_baseline/migration.sql]
 -CREATE TABLE `users` (
 +CREATE TABLE IF NOT EXISTS `users` (
  	`id` integer PRIMARY KEY NOT NULL,
@@ -265,10 +266,10 @@ with a no-op such as `SELECT 1;`: a new database then gets no tables, and the
 next migration fails.
 
 Now change the Definition's schema and run `pnpm vitehub database generate` again.
-The next SQL file must hold only the new change. Review it, apply it with
-`pnpm vitehub database migrate`, and check the existing rows. Run the command again
-to confirm that it does not apply the same migration twice. Keep the SQL and
-`meta/` files in version control.
+The next migration folder must hold only the new change. Review it, apply
+it with `pnpm vitehub database migrate`, and check the existing rows. Run the command
+again to confirm that it does not apply the same migration twice. Keep the
+migration folders in version control.
 
 ### Baseline an existing Cloudflare D1 database
 
@@ -288,18 +289,21 @@ apply any new migration to an existing D1 database:
    pending NuxtHub migrations before the switch. Do not add schema changes yet.
 3. Start with a new `server/databases/default/migrations/` directory, without copied
    NuxtHub SQL files. Run `pnpm vitehub database generate --name baseline` to capture
-   the current schema in Drizzle's snapshot and journal.
+   the current schema in a migration folder with Drizzle's snapshot.
 4. Compare the generated SQL with the existing database. Once every table,
    column, index, and constraint matches, add `IF NOT EXISTS` to each `CREATE`
-   statement in the baseline `.sql` file, as in the SQLite section. Keep its
-   filename and the generated `meta/` files unchanged. The baseline must not
-   create existing tables or change data.
+   statement in the `migration.sql` of the baseline folder, as in the SQLite
+   section. Keep the folder name and its `snapshot.json` unchanged. The
+   baseline must not create existing tables or change data.
 5. Remove `migrations_table: "_hub_migrations"` from the D1 entry of the
    project's Wrangler config. NuxtHub's templates set it, and Wrangler would
    then read NuxtHub's history instead of its own.
 6. Run `pnpm nuxt build` to generate `.output/server/wrangler.json`. Check that
    its D1 resource identity and `migrations_dir` refer to the existing database
-   and the new directory, and that it has no `migrations_table`. ViteHub writes
+   and the copied migrations, and that it has no `migrations_table`. The build
+   writes each migration folder there as one `NNNN_<name>.sql` file, because
+   Wrangler reads flat files, and keeps the names in `d1-migrations.json` next
+   to your migrations. Commit that file with the migrations. ViteHub writes
    the D1, KV, and R2 bindings, so you can remove them from the project's
    Wrangler config; if you keep one, it must name the same resource (see
    [Database hosts](/docs/database/hosts)). Then list the pending migrations:
@@ -320,7 +324,7 @@ Run `migrations list` again to confirm the baseline is recorded. Only then chang
 the Definition's schema and run `pnpm vitehub database generate` for subsequent
 changes. Drizzle compares them with the retained baseline snapshot, so the next
 migration contains only those changes. Review that SQL, rebuild, and apply it
-with Wrangler. Keep the baseline SQL and `meta/` files in version control.
+with Wrangler. Keep the migration folders in version control.
 The same baseline creates the schema in a new empty D1 database, such as a
 preview database. Read [Database](/docs/database).
 
