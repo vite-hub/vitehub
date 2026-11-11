@@ -52,6 +52,12 @@ export interface ContentSitemapEntry {
 export interface ContentSitemapOptions {
   /** Public origin. Defaults to `defineContent({ seo: { site } })`. */
   site?: string
+  /**
+   * The `waitUntil` of the request, such as `getStandardContext(request).waitUntil`. After a `github()` Source head
+   * moves, the answer then uses the page dates of the previous head at once, and Content computes the new dates after
+   * the response. Without it, the first answer after a head move waits for GitHub.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 /** One sitemap file holds at most this many URLs. */

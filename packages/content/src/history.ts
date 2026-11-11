@@ -94,7 +94,17 @@ export interface ContentHistoryApi {
    * The date of the latest commit of each Source page at the published commit, by Source key. Empty without history or
    * a GitHub token. A key without commits has no entry.
    */
-  dates(source: string, keys: readonly string[]): Promise<Map<string, string>>
+  dates(source: string, keys: readonly string[], options?: ContentDatesOptions): Promise<Map<string, string>>
+  /** Compute the date set of the published commit of a Source, as `dates()` with `waitUntil` does after the response. */
+  refresh(source: string, keys: readonly string[]): Promise<void>
+}
+
+export interface ContentDatesOptions {
+  /**
+   * The `waitUntil` of the request. When the dates of the published commit are not ready, `dates()` answers at once
+   * with the dates of the previous head and computes the new set in `waitUntil`. Without it, `dates()` waits for them.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 /** The latest commit dates of the pages of one Source at one commit. Null for a page without commits. */
@@ -102,6 +112,11 @@ type SourceDates = { sha: string, dates: Record<string, string | null> }
 
 /** Date sets that one server instance holds in memory. */
 const memoryDates = 8
+/** How long one server instance may compute a date set before another one tries. A cold set takes about 20 seconds. */
+const datesLease = 60_000
+
+/** The KV value that marks a date set as being computed. */
+type DatesLease = { sha: string, until: number }
 
 /** Create `content.history()`. */
 export function createContentHistory(runtime: ContentHistoryRuntime): ContentHistoryApi {
@@ -110,6 +125,8 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
   const dateSets = new Map<string, Promise<SourceDates>>()
   /** The newest date set of each Source and origin, so the next commit reads only the pages that changed. */
   const lastDates = new Map<string, SourceDates>()
+  /** The date sets this instance computes after a response, by KV prefix and commit. */
+  const refreshing = new Map<string, Promise<void>>()
 
   /** One page of commits, from memory, then KV, then GitHub. A failed read is not kept. */
   async function commitPage(cacheKey: string, load: () => Promise<CommitPage>): Promise<CommitPage> {
@@ -202,22 +219,30 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
     return page ? await sourceHistory(page.source, page.key, limit, options.cursor) : null
   }
 
+  async function readSet(key: string): Promise<SourceDates | undefined> {
+    const kv = contentKV()
+    if (!kv) return
+    const [error, stored] = await kv.get<SourceDates>(key).catch((cause: unknown) => [cause, undefined] as const)
+    return !error && stored && stored.sha && stored.dates ? stored : undefined
+  }
+
+  /** The date set of `sha` from memory or KV, when it has every key. */
+  async function readySet(prefix: string, sha: string, keys: readonly string[]): Promise<SourceDates | undefined> {
+    const current = lastDates.get(prefix)?.sha === sha ? lastDates.get(prefix) : await readSet(`${prefix}:${sha}`)
+    return current && keys.every(key => Object.hasOwn(current.dates, key)) ? current : undefined
+  }
+
   /**
    * The dates of `keys` at `sha`, from memory, then KV, then GitHub. GitHub gets the pages that changed since the last
    * date set (one compare request), or every page when there is none, in GraphQL requests of 150 pages.
    */
   async function sourceDates(definition: GitHubDefinition, prefix: string, sha: string, keys: readonly string[]): Promise<SourceDates> {
     const kv = contentKV()
-    const read = async (key: string): Promise<SourceDates | undefined> => {
-      if (!kv) return
-      const [error, stored] = await kv.get<SourceDates>(key).catch((cause: unknown) => [cause, undefined] as const)
-      return !error && stored && stored.sha && stored.dates ? stored : undefined
-    }
-    let current = lastDates.get(prefix)?.sha === sha ? lastDates.get(prefix) : await read(`${prefix}:${sha}`)
+    let current = lastDates.get(prefix)?.sha === sha ? lastDates.get(prefix) : await readSet(`${prefix}:${sha}`)
     if (current && keys.every(key => Object.hasOwn(current!.dates, key))) return current
     let known: Record<string, string | null> = current?.dates ?? {}
     if (!current) {
-      const previous = lastDates.get(prefix) ?? await read(`${prefix}:last`)
+      const previous = lastDates.get(prefix) ?? await readSet(`${prefix}:last`)
       const changed = previous && previous.sha !== sha ? await definition.changes!(previous.sha, sha) : undefined
       if (previous && changed) {
         known = { ...previous.dates }
@@ -234,26 +259,87 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
     return current
   }
 
-  async function dates(source: string, keys: readonly string[]): Promise<Map<string, string>> {
-    if (!keys.length || !await readable(source)) return new Map()
-    const definition = runtime.github(source)!
-    if (!definition.latest || !definition.changes) return new Map()
-    const sha = await runtime.published(source)
-    if (!sha) return new Map()
-    const prefix = `content:dates:${source}:${await parserHash(definition.fingerprint ?? null)}`
-    const cacheKey = `${prefix}:${sha}:${await parserHash([...keys].sort())}`
-    let pending = dateSets.get(cacheKey)
-    if (!pending) {
-      pending = sourceDates(definition, prefix, sha, keys)
-      dateSets.set(cacheKey, pending)
-      pending.catch(() => {
-        if (dateSets.get(cacheKey) === pending) dateSets.delete(cacheKey)
-      })
-      while (dateSets.size > memoryDates) dateSets.delete(dateSets.keys().next().value!)
-    }
-    const { dates: stored } = await pending
-    return new Map(keys.flatMap(key => Object.hasOwn(stored, key) && stored[key] ? [[key, stored[key]] as const] : []))
+  /**
+   * Compute the date set of `sha` once. A KV lease of `datesLease` milliseconds keeps other server instances from
+   * computing the same set at the same time. A failure logs and frees the lease, so the next request tries again.
+   */
+  function refreshSet(definition: GitHubDefinition, prefix: string, sha: string, keys: readonly string[]): Promise<void> {
+    const id = `${prefix}:${sha}`
+    const running = refreshing.get(id)
+    if (running) return running
+    const leaseKey = `${prefix}:lease`
+    const task = (async () => {
+      const kv = contentKV()
+      if (kv) {
+        const [error, lease] = await kv.get<DatesLease>(leaseKey).catch((cause: unknown) => [cause, undefined] as const)
+        if (!error && lease?.sha === sha && lease.until > Date.now()) return
+        await kv.set(leaseKey, { sha, until: Date.now() + datesLease } satisfies DatesLease).catch(() => undefined)
+      }
+      try {
+        await sourceDates(definition, prefix, sha, keys)
+      }
+      catch (error) {
+        await kv?.set(leaseKey, { sha, until: 0 } satisfies DatesLease).catch(() => undefined)
+        console.error(error)
+      }
+    })().finally(() => refreshing.delete(id))
+    refreshing.set(id, task)
+    return task
   }
 
-  return { history, dates }
+  /** The `github()` definition, published commit, and KV prefix of a Source with dates, or undefined. */
+  async function datesTarget(source: string): Promise<{ definition: GitHubDefinition, sha: string, prefix: string } | undefined> {
+    if (!await readable(source)) return
+    const definition = runtime.github(source)!
+    if (!definition.latest || !definition.changes) return
+    const sha = await runtime.published(source)
+    if (!sha) return
+    return { definition, sha, prefix: `content:dates:${source}:${await parserHash(definition.fingerprint ?? null)}` }
+  }
+
+  async function dates(source: string, keys: readonly string[], options: ContentDatesOptions = {}): Promise<Map<string, string>> {
+    if (!keys.length) return new Map()
+    const pick = (stored: Record<string, string | null>) => new Map(keys.flatMap(key => Object.hasOwn(stored, key) && stored[key] ? [[key, stored[key]] as const] : []))
+    const previousSet = async (prefix: string) => lastDates.get(prefix) ?? await readSet(`${prefix}:last`)
+    let prefix: string | undefined
+    try {
+      const target = await datesTarget(source)
+      if (!target) return new Map()
+      const { definition, sha } = target
+      prefix = target.prefix
+      if (options.waitUntil) {
+        const ready = await readySet(prefix, sha, keys)
+        if (ready) return pick(ready.dates)
+        // Answer now with the dates of the previous head, and compute this head after the response.
+        options.waitUntil(refreshSet(definition, prefix, sha, keys))
+        const previous = await previousSet(prefix)
+        return previous ? pick(previous.dates) : new Map()
+      }
+      const cacheKey = `${prefix}:${sha}:${await parserHash([...keys].sort())}`
+      let pending = dateSets.get(cacheKey)
+      if (!pending) {
+        pending = sourceDates(definition, prefix, sha, keys)
+        dateSets.set(cacheKey, pending)
+        pending.catch(() => {
+          if (dateSets.get(cacheKey) === pending) dateSets.delete(cacheKey)
+        })
+        while (dateSets.size > memoryDates) dateSets.delete(dateSets.keys().next().value!)
+      }
+      return pick((await pending).dates)
+    }
+    catch (error) {
+      // The dates only enrich the sitemap and the feed, so a GitHub failure keeps the dates of the previous head, or
+      // none. The failed set is not stored, so the next request asks again.
+      console.warn(`[vitehub] Content could not read the page dates of Source ${JSON.stringify(source)}, so its pages keep older dates or none: ${error instanceof Error ? error.message : String(error)}`)
+      const previous = prefix ? await previousSet(prefix) : undefined
+      return previous ? pick(previous.dates) : new Map()
+    }
+  }
+
+  async function refresh(source: string, keys: readonly string[]): Promise<void> {
+    const target = keys.length ? await datesTarget(source) : undefined
+    if (target) await refreshSet(target.definition, target.prefix, target.sha, keys)
+  }
+
+  return { history, dates, refresh }
 }

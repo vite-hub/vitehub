@@ -91,8 +91,10 @@ export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>
    */
   latest(keys: readonly string[], options: { sha: string }): Promise<Map<string, GitHubFileCommit>>
   /**
-   * The keys of the Source that changed from commit `base` to commit `head`, with the old key of a renamed file. One
-   * compare request. Undefined when `head` does not descend from `base`, or when more files changed than GitHub lists.
+   * The keys of the Source that a commit from `base` to `head` changed, with the old key of a renamed file. A file that
+   * one commit edits and a later one reverts is in the list. One compare request, plus one commit request per commit
+   * when there is more than one. Undefined when `head` does not descend from `base`, when more than 20 commits lie
+   * between them, or when more files changed than GitHub lists.
    */
   changes(base: string, head: string): Promise<string[] | undefined>
   /**
