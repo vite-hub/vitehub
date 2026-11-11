@@ -241,7 +241,7 @@ export function readConsolePublicKeys(env: Readonly<Record<string, unknown>>): M
     }
     keys.set(name, key)
   }
-  if (!keys.size) return failure("CONSOLE_KEY_NOT_CONFIGURED", `\`console: { auth: "token" }\` needs at least one \`${consolePublicKeyPrefix}<NAME>\` variable in the server environment, and none is set.`, 500)
+  if (!keys.size) return failure("CONSOLE_KEY_NOT_CONFIGURED", `\`console: true\` needs at least one \`${consolePublicKeyPrefix}<NAME>\` variable in the server environment, and none is set.`, 500)
   return keys
 }
 

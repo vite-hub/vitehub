@@ -42,16 +42,7 @@ export function nitroOptionalPeers(config: { alias?: unknown } = {}): Plugin {
       catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND")) return
         // Node's default lookup ignores registered resolvers such as Yarn PnP.
-        try {
-          return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { id: source, external: true }
-        }
-        catch (resolveError) {
-          // Nitro 2's Worker resolver throws instead of returning null for unresolved imports.
-          if (resolveError instanceof Error && resolveError.message === `Cannot resolve ${JSON.stringify(source)} from ${JSON.stringify(importer)} and externals are not allowed!`) {
-            return { id: source, external: true }
-          }
-          throw resolveError
-        }
+        return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { id: source, external: true }
       }
     },
   }

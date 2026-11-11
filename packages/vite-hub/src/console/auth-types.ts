@@ -4,16 +4,15 @@ import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 /** The signed-in user that the Console gives `console.authorize`. */
 export type ConsoleUser = AccessAuthorizationContext["user"]
 
-/** The request that `console.authorize` checks, from a session, an open Console, or Cloudflare Access. */
-export interface ConsoleSessionAuthorizeContext {
+/** The request that `console.authorize` checks with `console: { auth: false }` in development. It has no signature and no user. */
+export interface ConsoleOpenAuthorizeContext {
   request: Request
-  /** The signed-in user with `auth: "app"` or a session-based Console Auth. Not set with `auth: false` or Cloudflare Access. */
-  user?: ConsoleUser
+  user?: undefined
   via?: undefined
 }
 
 /**
- * The request that `console.authorize` checks with `auth: "token"` when the ViteHub Console signed it. The Console signs
+ * The request that `console.authorize` checks when the ViteHub Console signed it. The Console signs
  * the person who called, so the app can check who edits. The holder of the key asserts the person: trust it as much as
  * the key.
  */
@@ -30,7 +29,7 @@ export interface ConsoleSignedConsoleAuthorizeContext {
   via: "console"
 }
 
-/** The request that `console.authorize` checks with `auth: "token"` when the CLI signed it. The CLI has no user. */
+/** The request that `console.authorize` checks when the CLI signed it. The CLI has no user. */
 export interface ConsoleSignedCliAuthorizeContext {
   request: Request
   user?: undefined
@@ -50,10 +49,10 @@ export interface ConsoleAgentAuthorizeContext {
 }
 
 /**
- * The request that `console.authorize` checks. With `auth: "token"`, `via` is `"console"` or `"cli"`: who signed the
- * request. `via` is `"agent"` when an Agent calls Console operations as tools.
+ * The request that `console.authorize` checks. `via` is `"console"` or `"cli"`: who signed the request. `via` is
+ * `"agent"` when an Agent calls Console operations as tools, and not set for an open Console in development.
  */
-export type ConsoleAuthorizeContext = ConsoleSessionAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext
+export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext
 
 /**
  * What `console.authorize` returns for one request.

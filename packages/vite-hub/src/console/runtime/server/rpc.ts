@@ -5,9 +5,8 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleRpcPath } from "./console-signature.ts"
-import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
@@ -152,7 +151,9 @@ async function readConsoleEnvelope(request: Request, bodySha256?: string): Promi
 /** Check the request and read its one birpc call. A failure here has no call id. */
 async function readConsoleCall(request: Request, access: ConsoleAccess): Promise<OperationRpcCall> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginCall(request, access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
+  // A browser cannot sign, so a signed call needs no browser check. A call without a signature must come from a page of
+  // the app itself, or from a client that sends a header that other pages cannot send without a CORS preflight.
+  if (access.mode !== "token" && !isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertOperationProject(request, installedConsoleProjectRoot())
   if (!isConsoleRpcPath(url.pathname)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
@@ -187,12 +188,6 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
   if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
-  }
-  // An OAuth access token runs reads with `vitehub:read`, and writes and destructive calls with `vitehub:write`.
-  if (!consoleScopesAllow(context.access, classification)) {
-    context.response.headers = consoleScopeRejection(classification, operation.name).headers
-    const scope = classification.kind === "read" || classification.readOnly ? "vitehub:read" : "vitehub:write"
-    throw consoleRequestError(403, `The access token does not have the ${scope} scope, which ${operation.name} needs. Sign in again and grant it.`, "CONSOLE_ACCESS_DENIED")
   }
   assertOperationConfirmation(request, classification)
   // An MCP call is unconfirmed unless the signed caller says that the person agreed.
@@ -244,10 +239,20 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   return Response.json(reply, { headers, status: "e" in reply ? reply.e.status : response.status ?? 200 })
 }
 
-/** `<base>/_vitehub/rpc`: one Console operation for each request. Each operation checks its own section. */
-const consoleRpcRoute: ConsoleRoute = consoleRoute(withConsoleCors(withConsoleAccess((event, access) => {
+const guardedRpc = withConsoleAccess((event, access) => {
   const { req, runtime, waitUntil } = getStandardContext(event)
   return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, waitUntil })
-}, { anySection: true })))
+}, { anySection: true })
+
+/**
+ * `<base>/_vitehub/rpc`: one Console operation for each signed `POST`. Each operation checks its own section. A browser
+ * that opens `GET <base>/_vitehub/rpc?ticket=<ticket>` redeems a one-time ticket that an operation made, such as for
+ * impersonation. The ticket is the only proof that a `GET` needs. See `tickets.ts`.
+ */
+const consoleRpcRoute: ConsoleRoute = consoleRoute(async (event) => {
+  const request = getStandardContext(event).req
+  if (request.method === "GET" && new URL(request.url).searchParams.has("ticket")) return (await import("./tickets.ts")).redeemConsoleTicket(event)
+  return guardedRpc(event)
+})
 
 export default consoleRpcRoute

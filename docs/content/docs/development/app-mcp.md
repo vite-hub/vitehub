@@ -9,7 +9,7 @@ icon: i-lucide-plug-zap
 
 Your app can serve its own [MCP](https://modelcontextprotocol.io) server, so Agents such as Claude Code, Codex, or ChatGPT call your code. Each file in `server/mcp/tools/` is one tool. The server answers at `/mcp`.
 
-This is not the [Console MCP](/docs/development/mcp) at `/_vitehub/mcp`, which gives the operations of ViteHub to the people of the Console.
+This is not the [ViteHub MCP](/docs/development/mcp) of the Console, which gives the operations of your apps to the people of your Console team.
 
 ## Turn it on
 

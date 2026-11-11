@@ -12,8 +12,6 @@ import { forwardProjectRequest } from "../../console/src/forward.ts"
 import { consoleCallerOf, consoleCallerUser } from "../../console/src/caller.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import envManageHandler from "../src/console/runtime/server/env-manage.ts"
-import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -258,10 +256,9 @@ describe("signed Console requests", () => {
   it("lets signed requests reach only POST /_vitehub/rpc", async () => {
     stubKeys(ci.env)
     install()
-    installConsoleSections("/console-signature-env", ["env"])
-    installConsoleEnv("/console-signature-env", { entries: [] }, async () => Response.json({ ok: true }))
-    const signed = await signedRpcRequest({ body: JSON.stringify({ action: "inspect", path: "x" }), key: ci.key, url: `${app}/_vitehub/env/manage` })
-    const response = await defineHandler(envManageHandler).fetch(signed)
+    installConsoleSections("/console-signature-auth", ["auth"])
+    const signed = await signedRpcRequest({ body: JSON.stringify({ action: "stopImpersonating" }), key: ci.key, url: `${app}/_vitehub/rpc/__call` })
+    const response = await defineHandler(consoleRpcHandler).fetch(signed)
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_SIGNATURE_INVALID", message: "Signed requests reach only POST /_vitehub/rpc." })
   })
