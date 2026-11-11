@@ -183,7 +183,8 @@ function applyTransport(target: Pick<ConsoleProjectTarget, "base" | "origin">): 
   const projects = useState()
   const projectUrl = projects.current.value?.url
   if (projects.mode === "account") {
-    setConsoleProject({ ...target, remote: true })
+    const app = projects.current.value ? consoleProjectTarget(projects.current.value) : undefined
+    setConsoleProject({ ...target, ...(app ? { app: { origin: app.origin, base: app.base } } : {}), remote: true })
     return
   }
   setConsoleProject({

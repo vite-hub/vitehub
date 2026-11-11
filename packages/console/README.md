@@ -25,6 +25,8 @@ Sign-in uses Better Auth with `authDatabase()`, `organization()`, and `passkey()
 - **Passkeys**: the first passkey makes the account, with the name the person types. Such an account has no email address. Its email is a placeholder on the reserved `passkey.invalid` domain, so it cannot accept an invitation until the person signs in with GitHub. A signed-in person adds passkeys and GitHub from the account menu.
 - **Teams**: every session opens a team. The first sign-in makes a personal team with the person as `owner`. Owners and admins link and unlink projects and invite people. Members open the projects. An invitation is a link to `/invite/<id>` for the email of a GitHub account, valid for 48 hours. The Console sends no email.
 
+The server keeps at least one passkey or linked GitHub account when a sign-in method is removed, including concurrent requests from other tabs. Apply the database migrations on each host: they enforce this rule in the same statement as the deletion.
+
 ## Configure
 
 | Variable | Use |

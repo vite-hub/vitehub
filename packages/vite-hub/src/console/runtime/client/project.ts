@@ -3,10 +3,12 @@
  * reach an app on another origin.
  */
 export interface ConsoleProject {
-  /** The app origin, such as `https://agents.example.com`. An empty string is the origin of the Console page. */
+  /** The request origin, such as `https://agents.example.com`. An empty string is the Console page origin. */
   origin: string
-  /** The application mount, such as `/portal`, or an empty string when the app is at the root. */
+  /** The request mount, such as `/portal` or `/p/<project>`, or an empty string at the origin root. */
   base: string
+  /** The original app location when requests go through the Console server. Links and served media use it. */
+  app?: { origin: string, base: string }
   /**
    * The `authorization` header of each request, such as `Bearer <token>`. Cookies go only to the origin of the Console
    * page, so a project on another origin needs it. It can wait, such as for an OAuth refresh before the token expires.
@@ -44,12 +46,18 @@ export function projectUrl(path: string): string {
   return urlOf(active, path)
 }
 
+/** An app link, such as a provider sign-in page or the MCP endpoint, without the Console request forward. */
+export function projectAppUrl(path: string): string {
+  return urlOf(active.app ?? active, path)
+}
+
 /**
  * A URL that the app returned, such as the served URL of a Blob file, on the project origin. A path such as
  * `/api/_vitehub/blob/a.png` gets the project origin. An absolute URL stays as it is.
  */
 export function resolveProjectUrl(url: string): string {
-  return active.origin && url.startsWith("/") && !url.startsWith("//") ? `${active.origin}${url}` : url
+  const origin = (active.app ?? active).origin
+  return origin && url.startsWith("/") && !url.startsWith("//") ? `${origin}${url}` : url
 }
 
 /**

@@ -21,7 +21,7 @@ import {
   readAuthConsole,
 } from "../client/auth-management";
 import { queryChoice, queryInteger, querySelection, queryText, useConsoleQuery } from "../client/route-query";
-import { projectUrl } from "../client/project";
+import { projectAppUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
@@ -91,7 +91,7 @@ const icons: Record<AuthConsolePage, string> = {
 };
 // With Console Auth, the app session of this browser can be an impersonation session while the Console stays open.
 const impersonating = computed(() => description.value?.impersonation?.active ?? undefined);
-const appRoot = computed(() => (impersonating.value ? projectUrl("/") : "/"));
+const appRoot = computed(() => (impersonating.value ? projectAppUrl("/") : "/"));
 const stopping = ref(false);
 const stopError = ref("");
 async function stopImpersonating() {

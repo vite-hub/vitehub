@@ -4,6 +4,7 @@ import { defineAuth } from "vite-hub/auth"
 import { authDatabase } from "vite-hub/auth/database"
 
 import { adoptGitHubEmail, passkeySignUp, sessionTeam } from "../src/accounts.ts"
+import { keepConsoleSignInMethod } from "../src/sign-in-methods.ts"
 
 // Anyone can sign up with GitHub or a passkey. Each account gets a personal team, and projects belong to teams.
 export default defineAuth(({ env }) => ({
@@ -41,5 +42,6 @@ export default defineAuth(({ env }) => ({
   plugins: [
     organization({ creatorRole: "owner" }),
     passkey({ rpName: "ViteHub Console", registration: passkeySignUp }),
+    keepConsoleSignInMethod(),
   ],
 }))

@@ -10,7 +10,7 @@ import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
-import { isRemoteProject, projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
+import { isRemoteProject, projectFetch, projectAppUrl, resolveProjectUrl } from "../client/project";
 import { signOutConsoleProject, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
@@ -42,8 +42,8 @@ const signOutFailed = ref(false);
 const accessIdentity = ref<{ label?: string; signOutURL: string }>();
 const userIdentity = ref<{ email?: string; image?: string; name?: string }>();
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
-const authClientURL = projectUrl(props.sectionsBase.replace(/\/sections$/, "/client.js"));
-const signInURL = projectUrl("/_vitehub/sign-in");
+const authClientURL = projectAppUrl(props.sectionsBase.replace(/\/sections$/, "/client.js"));
+const signInURL = projectAppUrl("/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 let unsubscribe: (() => void) | undefined;
 
@@ -202,7 +202,7 @@ async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>>
     .then((configured) => {
       // The page's Auth base already holds the app mount, such as `/portal/api/auth`. Only the Console route gets the project mount.
       const pageAuthBase = document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content");
-      return configured ?? createAuthClient({ basePath: pageAuthBase || projectUrl(authBase) });
+      return configured ?? createAuthClient({ basePath: pageAuthBase || projectAppUrl(authBase) });
     });
   return await authClientRequest;
 }

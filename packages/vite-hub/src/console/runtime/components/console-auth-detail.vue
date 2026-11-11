@@ -9,7 +9,7 @@ import type {
 import { computed, ref, shallowRef, watch } from "vue";
 import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
 import { consoleDurationWords } from "../client/format";
-import { isRemoteProject, projectUrl } from "../client/project";
+import { isRemoteProject, projectAppUrl } from "../client/project";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
 import type { ConsoleProperty } from "./console-facts";
@@ -78,7 +78,7 @@ async function changed(name: AuthConsoleAction) {
   emit("changed");
   if (name === "remove") emit("close");
   else if (name === "impersonate")
-    window.location.assign(projectUrl("/"));
+    window.location.assign(projectAppUrl("/"));
   else await refresh();
 }
 async function page(kind: "sessions" | "agents", direction: number) {

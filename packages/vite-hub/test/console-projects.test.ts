@@ -247,7 +247,7 @@ describe("project.get probe", () => {
 })
 
 describe("account Console", () => {
-  const linked = { id: "p-1", url: "https://app.example.com", label: "Docs", tokenSha256: "a".repeat(64), tokenVariable: "VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_P1" }
+  const linked = { id: "p-1", url: "https://app.example.com/portal", label: "Docs", tokenSha256: "a".repeat(64), tokenVariable: "VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_P1" }
 
   async function account(fetch: (url: string, init: RequestInit) => Promise<Response>) {
     vi.stubGlobal("fetch", fetch)
@@ -272,6 +272,19 @@ describe("account Console", () => {
     const transport = await import("../src/console/runtime/client/project.ts")
     expect(transport.consoleProject()).toMatchObject({ origin: "", base: "/p/p-1", remote: true })
     expect(transport.isRemoteProject()).toBe(true)
+  })
+
+  it("keeps media and provider sign-in links on the app while forwarding data requests", async () => {
+    const { module } = await account(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
+    await module.openConsoleProject()
+    const media = await import("../src/console/runtime/client/media-library.ts")
+    const connections = await import("../src/console/runtime/client/connections-management.ts")
+    const transport = await import("../src/console/runtime/client/project.ts")
+    expect(media.consoleMediaUrl("/portal/images/", "photo.png")).toBe("https://app.example.com/portal/images/photo.png")
+    expect(connections.connectionConnectURL("/_vitehub/api/connections", "github", "/home")).toBe("https://app.example.com/portal/_vitehub/api/connections/connect/github")
+    expect(transport.projectAppUrl("/_vitehub/connections")).toBe("https://app.example.com/portal/_vitehub/connections")
+    expect(transport.projectAppUrl("/_vitehub/mcp")).toBe("https://app.example.com/portal/_vitehub/mcp")
+    expect(transport.projectUrl("/_vitehub/rpc/__call")).toBe("/p/p-1/_vitehub/rpc/__call")
   })
 
   it("shows the variable to set while the project has no hash, or another one", async () => {
