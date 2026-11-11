@@ -50,6 +50,10 @@ const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = ownModule(import.meta.url, "runtime
 export const kvNitroCacheDriver: string = ownModule(import.meta.url, "runtime/nitro-cache")
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const OPTIONAL_PEER_ID_PATTERN = /^(?:@vite-hub\/kv\/runtime\/upstash-driver|cloudflare:workers)$/
+const RESOLVE_ID_PATTERN = /^(?:@vite-hub\/kv(?:\/runtime\/upstash-driver)?|cloudflare:workers|#vitehub\/kv\/config)$/
+const LOAD_ID_PATTERN = /^\0#vitehub\/kv\/(?:runtime|config)$/
 
 export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
 export type { KVViteRuntimeConfig } from "./vite-config.ts"
@@ -71,9 +75,12 @@ export function hubKVOptionalPeerResolver(): Plugin {
   return {
     name: "@vite-hub/kv/optional-peers",
     enforce: "pre",
-    resolveId(id, importer, resolveOptions) {
-      if (!resolveOptions?.ssr) return
-      if (isKVOptionalUpstashImport(id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
+    resolveId: {
+      filter: { id: OPTIONAL_PEER_ID_PATTERN },
+      handler(id, importer, resolveOptions) {
+        if (!resolveOptions?.ssr) return
+        if (isKVOptionalUpstashImport(id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
+      },
     },
   }
 }
@@ -379,6 +386,7 @@ export function hubKV(options?: KVOptions, input: Pick<KVResolutionInput, "hosti
     },
     resolveId: {
       order: "pre",
+      filter: { id: RESOLVE_ID_PATTERN },
       handler(id, importer, resolveOptions) {
         if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv) && isKVOptionalUpstashImport(id, importer)) {
           return { external: true, id }
@@ -391,6 +399,7 @@ export function hubKV(options?: KVOptions, input: Pick<KVResolutionInput, "hosti
     },
     load: {
       order: "pre",
+      filter: { id: LOAD_ID_PATTERN },
       handler(id, options) {
         if (id === RESOLVED_KV_RUNTIME_ID) {
           const kv = getConfig().kv
