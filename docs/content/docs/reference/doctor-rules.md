@@ -372,6 +372,14 @@ The rule reads provider-backed paths from `.vitehub/env/description.mjs`, and do
 
 The examples read this key from a `crm` Env provider:
 
+```ts [server/env/crm.ts]
+import type { EnvProvider } from 'vite-hub/env'
+
+export default {
+  read: async () => ({ 'api-key': process.env.CRM_API_KEY }),
+} satisfies EnvProvider
+```
+
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -380,6 +388,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [vitehub({
     env: {
+      providers: { crm: './server/env/crm.ts' },
       server: {
         crm: { key: env({ secret: true, source: env.provider('crm', 'api-key') }) },
       },

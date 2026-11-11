@@ -222,7 +222,6 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
     && Object.hasOwn(value, "cron")
 }

@@ -137,6 +137,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/forge": true,
   "@vite-hub/forms": true,
   "@vite-hub/gateways": true,
   "@vite-hub/i18n": true,

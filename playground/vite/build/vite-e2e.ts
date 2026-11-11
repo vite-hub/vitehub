@@ -175,6 +175,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
 
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
+    `import { createDatabaseBindingLookup } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/agent")))}`,
     "",
     ...schemaImports,
     "export const databases = {",
@@ -184,6 +185,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     "  if (!Object.hasOwn(databases, name)) throw new Error(`The database \"${name}\" is not configured.`)",
     "  return databases[name]",
     "}",
+    "export const useDatabaseBinding = createDatabaseBindingLookup(databases)",
     "",
     // The Database root re-exports `db` and `schema`, so the registry has them also without a default Database.
     "export const db = databases.default?.db ?? new Proxy({}, { get() { throw new Error('The database \"default\" is not configured.') } })",

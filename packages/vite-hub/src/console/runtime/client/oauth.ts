@@ -85,7 +85,6 @@ export function createConsoleOAuthState(): string {
   return base64url(globalThis.crypto.getRandomValues(new Uint8Array(16)))
 }
 
-// doctor-disable-next-line typescript/strict/no-runtime-typeof -- OAuth documents and stored JSON are untrusted.
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined
 
 function field(value: unknown, key: string): unknown {
