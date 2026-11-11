@@ -9,6 +9,7 @@ describe("signOut() of useUserSession()", () => {
     expectTypeOf(signOut).toBeCallableWith()
     expectTypeOf(signOut).toBeCallableWith({ redirectTo: "/goodbye", fetchOptions: { headers: { "x-reason": "menu" } } })
     expectTypeOf(signOut).toBeCallableWith({ callbackURL: "/goodbye" })
+    expectTypeOf(signOut).toBeCallableWith(undefined, { onSuccess: () => {} })
     expectTypeOf<SignOutOptions>().toHaveProperty("redirectTo").toEqualTypeOf<string | undefined>()
     expectTypeOf(signOut).returns.toEqualTypeOf<ReturnType<typeof authClient.signOut>>()
     // @ts-expect-error `redirectTo` is a path or a URL.

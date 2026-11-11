@@ -461,6 +461,16 @@ describe("signOut() of useUserSession()", () => {
     expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
   })
 
+  it("gives Better Auth its second argument, the fetch options", async () => {
+    signedIn()
+    const onSuccess = vi.fn()
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut(undefined, { onSuccess })
+
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", {}, { onSuccess }]])
+  })
+
   it("lets the Nuxt module open the next page", async () => {
     signedIn()
     const handler = vi.fn()

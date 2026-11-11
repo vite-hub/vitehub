@@ -520,9 +520,10 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   signIn: Client["signIn"]
   /**
    * Signs out with Better Auth, sets the session to `null` at once, then opens `redirectTo`. Returns Better Auth's
-   * result. When the sign-out fails, the session and the page stay.
+   * result. When the sign-out fails, the session and the page stay. Better Auth gets `fetchOptions`, as its own
+   * `signOut()` does.
    */
-  signOut: (options?: SignOutOptions<Client>) => ReturnType<Client["signOut"]>
+  signOut: (options?: SignOutOptions<Client>, fetchOptions?: Parameters<Client["signOut"]>[1]) => ReturnType<Client["signOut"]>
   signUp: Client["signUp"]
   /** End the impersonation session and restore the administrator's own session. */
   stopImpersonating: () => Promise<void>
@@ -558,7 +559,7 @@ function createUserSession<Client extends VueAuthClient<any>>(client: Client, st
     refresh,
     session: computed(() => state.value.data?.session ?? null),
     signIn: client.signIn,
-    signOut: options => signOut(client, store, options) as ReturnType<Client["signOut"]>,
+    signOut: (options, ...fetchOptions) => signOut(client, store, options, fetchOptions) as ReturnType<Client["signOut"]>,
     signUp: client.signUp,
     async stopImpersonating() {
       // The path works without Better Auth's `adminClient()` plugin on the client.
@@ -569,9 +570,9 @@ function createUserSession<Client extends VueAuthClient<any>>(client: Client, st
   }
 }
 
-async function signOut(client: { signOut(options: object): Promise<unknown> }, store: SessionStore, options: { redirectTo?: string } = {}): Promise<unknown> {
+async function signOut(client: { signOut(...args: unknown[]): Promise<unknown> }, store: SessionStore, options: { redirectTo?: string } = {}, fetchOptions: unknown[] = []): Promise<unknown> {
   const { redirectTo, ...betterAuthOptions } = options
-  const result = await client.signOut(betterAuthOptions)
+  const result = await client.signOut(betterAuthOptions, ...fetchOptions)
   // Better Auth returns `{ data, error }`, and only the data with `fetchOptions.throw`, which throws on an error.
   const answer = typeof result === "object" && result !== null && "data" in result && "error" in result ? result : { data: result, error: null }
   if (answer.error) return result
