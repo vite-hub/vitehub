@@ -13,7 +13,6 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
 const tempDirs: string[] = []
@@ -570,7 +569,7 @@ describe("workspace public API", () => {
         "/docs/**/*.md": {
           mediaType: "text/markdown",
           validate(input) {
-            if (hasRuntimeType(input.content, "string") && input.content.includes("<script")) return false
+            if (typeof input.content === "string" && input.content.includes("<script")) return false
           },
           write: true,
         },

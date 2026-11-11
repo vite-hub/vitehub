@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 import { filesSdkDriverPeers } from "./src/internal/files-sdk-peers.ts";
 
@@ -29,6 +29,7 @@ const vercelOidcTokenReader = fileURLToPath(new URL(
 
 export default defineConfig({
   pack: {
+    ...packDefaults,
     alias: {
       "@vercel/oidc": vercelOidcTokenReader,
       "async-retry": fileURLToPath(new URL("./src/internal/vercel-retry.ts", import.meta.url)),
@@ -36,7 +37,6 @@ export default defineConfig({
       throttleit: fileURLToPath(new URL("./src/internal/vercel-throttle.ts", import.meta.url)),
       undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
     },
-    tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "vue", "esbuild", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
@@ -105,10 +105,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });
