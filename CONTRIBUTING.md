@@ -230,4 +230,8 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 
 Pull request work belongs in a dedicated worktree. Reuse an isolated task worktree, or create one from the refreshed target base. Inspect collisions and preserve other agents' work.
 
+Before you open a pull request that removes public API, commit the change and run `vp run consumers:check`. It finds the package subpaths and exported names that the branch removes compared with `origin/main`, and searches your own projects for them, in the working tree and on the default branch. Add `--name <text>` for what the diff cannot find, such as a config key, a CLI flag, an env var, or a diagnostic code. The list of projects stays on your machine: put one path per line in `~/.config/vitehub/consumer-roots`, or set `VITEHUB_CONSUMER_ROOTS`. The check fails with the project, file, and line of each use. A hit inside `patches/` does not fail, but read the patch: a patch that edits the removed feature is a use. CI does not run this check, because it has no consumer checkouts.
+
+When an entry loses its default export, the check searches its module specifier, since default imports can use any local name. Missing roots or failed searches exit 2. Fix the setup and run the check again.
+
 Do not commit temporary plans, raw thread exports, or scratch files. Keep durable, cited research in the issue or pull request that supports a project decision. Remove task-created temporary files and worktrees after their remote state is safe; never remove pre-existing work without authorization.
