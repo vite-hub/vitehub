@@ -545,6 +545,8 @@ describe("generated Console access", () => {
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub/sign-in` },
     ])
     expect(config.nitro.handlers[2]).toEqual(appHandler)
+    // App Auth can sign Consoles on `console.origins` in with OAuth, so a plugin answers their preflights first.
+    expect((config.nitro as { plugins?: string[] }).plugins).toContainEqual(expect.stringMatching(/server\/console-preflight\.js$/))
   })
 
   it.each([undefined, "/portal/"])("accepts exact GET rules for the registered Console API endpoints with base %s", async (base) => {
