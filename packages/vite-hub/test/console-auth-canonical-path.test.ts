@@ -1,7 +1,7 @@
 import { H3Event, normalizeRoute } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth-pages.ts"
-import { consoleEventPath } from "../src/console/auth-path.ts"
+import { consoleEventPath, consoleEventRequest } from "../src/console/auth-path.ts"
 import { handleCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
 import { installStandardContext } from "../src/runtime/h3.ts"
 import { requestEvent } from "./console-event.ts"
@@ -22,6 +22,13 @@ function appAccess() {
 }
 
 describe("Console canonical authorization paths", () => {
+  it("explains how to replace an unsupported request event", () => {
+    expect(() => consoleEventRequest({})).toThrow(expect.objectContaining({
+      code: "VITE_HUB_R0142",
+      fix: "Pass a Web Request or an H3 2 event with its Web Request in req.",
+    }))
+  })
+
   it.each(["H3 2", "Request"])("authorizes canonical paths for %s", async (kind) => {
     const request = new Request("https://app.example.com/_%76itehub/rpc/__call", { method: "POST" })
     const event = kind === "H3 2" ? new H3Event(request) : requestEvent(request)
