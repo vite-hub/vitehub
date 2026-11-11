@@ -1,6 +1,6 @@
 import { defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 
 import type {
   AgentCapabilityCliContribution,
@@ -109,7 +109,7 @@ function createPapercutId(): string {
 }
 
 function normalizePapercutMessage(value: unknown): string {
-  if (!hasRuntimeType(value, "string") || !value.trim()) {
+  if (typeof value !== "string" || !value.trim()) {
     throw new TypeError("[vitehub] report_papercut requires a non-empty message.")
   }
   const message = value.trim()
@@ -199,7 +199,7 @@ export function posthogPapercuts(options: PosthogPapercutsOptions): PapercutBack
 function papercutCliMessage(input: unknown): unknown {
   if (!isRuntimeRecord(input)) return undefined
   const argv = input.argv
-  if (!Array.isArray(argv) || argv.some(value => !hasRuntimeType(value, "string"))) return undefined
+  if (!Array.isArray(argv) || argv.some(value => typeof value !== "string")) return undefined
   return argv.join(" ")
 }
 
@@ -233,10 +233,10 @@ export function papercuts<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(options: PapercutsOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  if (!options || (!hasRuntimeType(options.report, "function") && !hasRuntimeType(options.backend?.report, "function"))) {
+  if (!options || (typeof options.report !== "function" && typeof options.backend?.report !== "function")) {
     throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
   }
-  if (options.cli !== undefined && !hasRuntimeType(options.cli, "boolean")) {
+  if (options.cli !== undefined && typeof options.cli !== "boolean") {
     throw new TypeError("[vitehub] papercuts({ cli }) must be a boolean.")
   }
 

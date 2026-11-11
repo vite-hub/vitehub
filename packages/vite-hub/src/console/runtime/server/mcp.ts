@@ -1,19 +1,19 @@
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
+import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
 import { checkViteHubMcpInput, getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { serveMcp } from "./mcp-protocol.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
+import type { McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 import type { ConsoleAccess } from "./access.ts"
-import type { McpTool, McpToolResult } from "./mcp-protocol.ts"
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const serverInfo = { name: "vitehub", title: "ViteHub MCP", version: "1" }
@@ -23,6 +23,12 @@ const instructions = "ViteHub MCP gives Agents the operations and server primiti
 
 const registeredToolRequestBytes = 256 * 1_024
 const inputSchemas = new WeakMap<AnyOperation, Record<string, unknown>>()
+
+/** What is wrong with the arguments, or nothing when they match the tool's schema. */
+function invalidInput(tool: ViteHubMcpTool, input: Record<string, unknown>): string | undefined {
+  const problem = checkViteHubMcpInput(tool.inputSchema, input)
+  return problem ? `Invalid arguments for ${tool.name}: ${problem}` : undefined
+}
 
 interface ToolContext {
   access: ConsoleAccess
@@ -119,7 +125,7 @@ function registeredTools({ access, event }: ToolContext, tools: readonly ViteHub
       description: tool.description,
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,
-      checkInput: input => checkViteHubMcpInput(tool.inputSchema, input),
+      validate: input => invalidInput(tool, input),
       maxRequestBytes: registeredToolRequestBytes,
       scopes: [consoleOperationScope({ kind: tool.annotations?.readOnlyHint === true ? "read" : "write" })],
       async handler(input) {
