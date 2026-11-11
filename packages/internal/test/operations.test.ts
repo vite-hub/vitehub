@@ -276,6 +276,15 @@ describe("operations", () => {
     expect(publish.readOnlyWhen?.({ name: "x" })).toBe(true)
     expect(() => defineOperation({ ...greet, readOnlyWhen: "yes" as never })).toThrowError(/readOnlyWhen must be a function/)
   })
+
+  it("keeps the MCP title and text format of an operation, and checks them", () => {
+    const titled = defineOperation({ ...greet, mcp: { format: () => "Hello.", title: "Greet someone" } })
+    expect(titled.mcp).toMatchObject({ title: "Greet someone" })
+    expect(defineOperation({ ...greet, mcp: false }).mcp).toBe(false)
+    for (const mcp of [true, { title: "" }, { format: "text" }]) {
+      expect(() => defineOperation({ ...greet, mcp: mcp as never })).toThrowError(/mcp must be false, or an object/)
+    }
+  })
 })
 
 

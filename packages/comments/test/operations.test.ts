@@ -167,6 +167,29 @@ async function create(user = member, value: CommentCreateInput = input): Promise
   return result.value as CommentThread
 }
 
+it("lists page threads with comments.threads, with search, a page filter, and a text line per thread for MCP", async () => {
+  setup(defineComments({
+    authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body !== "hidden",
+    subjects: [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })],
+  }))
+  const pricing = await create(member, { ...input, body: "The price is wrong." })
+  await create(member, { ...input, body: "hidden" })
+  const home = await create(member, { ...input, body: "Fix the logo.", subject: { id: "/", kind: "page" } })
+  await create(member, { ...input, body: "Not a page.", subject: { id: "guide", kind: "doc" } })
+
+  const all = await call("comments.threads", {})
+  expect(all).toMatchObject({ ok: true, value: { status: "open", threads: [{ id: home.id }, { id: pricing.id }] } })
+  expect(await call("comments.threads", { search: "PRICE" })).toMatchObject({ ok: true, value: { threads: [{ comment: "The price is wrong.", id: pricing.id, page: "/pricing" }] } })
+  expect(await call("comments.threads", { page: "/" })).toMatchObject({ ok: true, value: { threads: [{ id: home.id }] } })
+  expect(await call("comments.threads", { limit: 1 })).toMatchObject({ ok: true, value: { threads: [{ id: home.id }] } })
+  expect(await call("comments.threads", { status: "resolved" })).toEqual({ ok: true, value: { status: "resolved", threads: [] } })
+
+  const format = registry.get("comments.threads")?.mcp
+  if (!format || !format.format) throw new TypeError("Expected the MCP format of comments.threads.")
+  const text = (format.format as (output: unknown) => string)(all.ok ? all.value : undefined)
+  expect(text).toBe(`- ${home.id} /: Fix the logo. (Ana, 0 replies)\n- ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
+})
+
 it("passes custom user fields to policies without storing them in comments", async () => {
   const store = setup(defineComments({ authorize: ({ user, action }) => Boolean(user) && (action !== "delete" || user?.role === "admin") }))
   const thread = await create()
