@@ -791,11 +791,12 @@ function headNames(heads: ContentSourceHeads): string[] {
   return contentSourceHeadsRuntime(heads)?.names() ?? []
 }
 
-/** The Source that a call names. Without a name, the only `github()` Source, else `default`. */
+/** The Source that a call names. Without a name, the only `github()` Source. A call that moves a head names one of many. */
 function headSource(heads: ContentSourceHeads, source: string | undefined): string | undefined {
   if (source !== undefined) return source
   const names = headNames(heads)
-  return names.length === 1 ? names[0] : undefined
+  if (names.length > 1) throw invalid(`This app has ${names.length} github() Sources: ${names.join(", ")}. Name the Source, such as \`vitehub content advance ${names[0]}\`.`)
+  return names[0]
 }
 
 const sourceName = v.optional(text)

@@ -779,7 +779,8 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   function diagnostic(state: HeadState, head: StoredHead | null, live: boolean): ContentSourceHeadDiagnostic | null {
     if (!live) return state.offline ?? null
     if (state.limited) return state.limited
-    if (head?.rejected) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha }))
+    // A rejection from before the head last moved, such as a pin or a later valid push, is history, not a problem now.
+    if (head?.rejected && (!head.movedAt || head.rejected.at >= head.movedAt)) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha }))
     return null
   }
 

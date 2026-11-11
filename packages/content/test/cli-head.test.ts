@@ -108,6 +108,32 @@ describe("vitehub content head", { timeout: 30_000 }, () => {
     expect(JSON.parse(json.stdout)).toMatchObject({ heads: [{ source: "docs", live: true, sha: second, rejected: { sha: bad }, diagnostic: { code: "CONTENT_R0019" } }] })
   })
 
+  it("asks for the Source name when a call moves one of many heads", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { content, run } = app({ default: github({ repo: "acme/docs", ref: "main" }), blog: github({ repo: "acme/docs", ref: "main" }) })
+    await content.sources.head("default")
+    for (const args of [["pin", first], ["advance"], ["unpin"]]) {
+      const result = await run(...args)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("Name the Source")
+    }
+    expect(await content.sources.head("default")).toMatchObject({ pinned: false })
+  })
+
+  it("does not report a rejection from before the head moved", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const { content, run } = app()
+    await content.sources.head("docs")
+    const bad = fake.commit("main", { "broken.md": broken })
+    expect((await run("advance")).code).toBe(1)
+    const fixed = fake.commit("main", { "broken.md": page("Fixed") })
+    expect(await run("pin", fixed)).toMatchObject({ code: 0 })
+    const unpinned = await run("unpin", "--json")
+    expect(unpinned.code).toBe(0)
+    expect(JSON.parse(unpinned.stdout)).toMatchObject({ sha: fixed, pinned: false, rejected: { sha: bad }, diagnostic: null })
+    expect(await run("advance")).toMatchObject({ code: 0 })
+  })
+
   it("pins a commit for a rollback and unpins it", async () => {
     const first = fake.commit("main", { "guide.md": page("Guide") })
     const { content, run } = app()
@@ -187,7 +213,7 @@ describe("vitehub content head", { timeout: 30_000 }, () => {
     expect(shown.stdout).toMatch(/^docs\n[\s\S]*\n\nblog\n/)
     const ambiguous = await run("advance")
     expect(ambiguous.code).toBe(1)
-    expect(ambiguous.stderr).toContain("Content source \"default\" has no head. Only github() Sources have one. Sources with a head: docs, blog.")
+    expect(ambiguous.stderr).toContain("This app has 2 github() Sources: docs, blog. Name the Source")
     expect(await run("advance", "blog")).toMatchObject({ code: 0 })
   })
 
