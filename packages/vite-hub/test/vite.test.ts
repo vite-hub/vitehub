@@ -104,7 +104,10 @@ vi.mock("@vite-hub/blob/vite", () => ({
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
-vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
+vi.mock("@vite-hub/database/vite", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/database/vite")>(),
+  hubDb: integrationMocks.hubDb,
+}))
 vi.mock("@vite-hub/email/vite", () => ({
   emailConsoleSection: integrationMocks.consoleSection("email"),
   hubEmail: integrationMocks.hubEmail,
@@ -422,7 +425,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","skills","usage","channels","workflows"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","workflows"])`,
       )
     }
     finally {
@@ -517,6 +520,33 @@ describe("vitehub", () => {
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleBlob(')
       expect(generated).toContain('["archive","media"]')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps local operation runtime installers with Setup-only navigation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-setup-operations-"))
+    try {
+      await writeFile(join(root, "package.json"), '{"type":"module"}\n')
+      await mkdir(join(root, "server"), { recursive: true })
+      await writeFile(join(root, "server/content.ts"), [
+        "import { defineContent } from 'vite-hub/content'",
+        "import { documents } from 'vite-hub/content/collections'",
+        "import cms from 'vite-hub/cms'",
+        "export const content = defineContent({ extends: cms, collections: { posts: documents({ path: 'posts/*.md', fields: {} }) } })",
+        "export default content",
+      ].join("\n"))
+      const plugin = dependencyPluginByName(vitehub({ blob: true, database: true, preset: "node", workspace: true }), "vite-hub/console")
+      const config = { root, [VITEHUB_FEATURES]: { database: { connection: { url: "file::memory:" } } } }
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+      await callHook(plugin.configResolved, [config])
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
+      expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
+      expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
+      expect(generated).toMatch(/installConsoleSections\([^\n]+"blob"[^\n]+false, \["setup"\]\)/)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -749,6 +779,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/setup-dev",
       "vite-hub/operations",
       "vite-hub/console",
       "@vite-hub/auth/vite",

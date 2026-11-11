@@ -411,6 +411,28 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("starts development Setup without a Console client package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-setup-client-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ rpcOnly: true, preset: "node", sections: [] })
+      const config = { root, nitro: { handlers: [], plugins: [], publicAssets: [] } }
+      await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger({ ...config, base: "/" })])
+
+      const file = config.nitro.plugins.find((file: string) => file.endsWith("/console/plugin.mjs"))
+      expect(file).toBeDefined()
+      const generated = await readFile(file!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], false, ["setup"])`)
+      expect(generated).toContain(`true, "/__vitehub/setup")`)
+      expect(generated).not.toContain("installConsoleClient(")
+      expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringContaining("server/page.get.js") }))
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each(["open", "cloudflare-access", "rpc-only"] as const)("preserves application OAuth discovery routes with %s Console access", async (mode) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-discovery-"))
     try {
