@@ -557,7 +557,7 @@ describe("resolveDBViteConfig", () => {
     const resolved = resolveDBViteConfig(undefined, rootDir)!
     for (const name of resolved.databaseNames) {
       expect(resolved.definitionDefaults.cloudflareProjections[name]?.resource).toBe("opaque")
-      const definition = { cloudflare: { databaseId: `${name}-id`, databaseName: `${name}-db`, http: true as const }, drizzle: {}, name, schema: {} }
+      const definition = { cloudflare: { databaseId: `${name}-id`, databaseName: `${name}-db`, http: true as const }, name, schema: {} }
       expect(runtimeConfig(definition, resolved.definitionDefaults).cloudflare?.binding).toBeUndefined()
     }
   })
@@ -1038,7 +1038,7 @@ describe("resolveDBViteConfig", () => {
       driver: "d1",
       previewDatabaseId: "host-preview-id",
     }, rootDir)!
-    const definition = { cloudflare: resource, drizzle: {}, name: "default", schema: {} }
+    const definition = { cloudflare: resource, name: "default", schema: {} }
     const config = access === "build" ? resolved.databases.default
       : access === "definition" ? runtimeConfig(definition, resolved.definitionDefaults)
         : Function("definition", "resolveRuntimeCloudflareConfig", `return (${renderDatabaseConfigExpression("default", resolved, "definition")})`)(definition, resolveRuntimeCloudflareConfig)
@@ -1070,7 +1070,7 @@ describe("resolveDBViteConfig", () => {
       expect(resolved.definitionDefaults.cloudflareProjections.default?.resource).toBe("configured")
       const expression = renderDatabaseConfigExpression("default", resolved, "definition")
       const configs = () => {
-        const definition = { cloudflare: { [field]: process.env.VITEHUB_TEST_OWNED_RESOURCE }, drizzle: {}, name: "default", schema: {} }
+        const definition = { cloudflare: { [field]: process.env.VITEHUB_TEST_OWNED_RESOURCE }, name: "default", schema: {} }
         return [Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(definition, resolveRuntimeCloudflareConfig), runtimeConfig(definition, resolved.definitionDefaults)]
       }
       for (const config of configs()) {
@@ -1125,7 +1125,7 @@ describe("resolveDBViteConfig", () => {
         databaseName: "host-db",
         driver: "d1",
       }, rootDir)!
-      const definition = { drizzle: {}, name, schema: {} }
+      const definition = { name, schema: {} }
       const expression = renderDatabaseConfigExpression(name, resolved, "definition")
       const registry = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(definition, resolveRuntimeCloudflareConfig)
       const direct = runtimeConfig(definition, resolved.definitionDefaults)
@@ -1152,7 +1152,7 @@ describe("resolveDBViteConfig", () => {
       databaseName: "host-name",
       driver: "d1",
     }, rootDir)!
-    const definition = { cloudflare: { http: { url: "https://application-proxy.example/raw" } }, drizzle: {}, name: "default", schema: {} }
+    const definition = { cloudflare: { http: { url: "https://application-proxy.example/raw" } }, name: "default", schema: {} }
     const expression = renderDatabaseConfigExpression("default", resolved, "definition")
     const registry = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(definition, resolveRuntimeCloudflareConfig)
     for (const config of [resolved.databases.default, runtimeConfig(definition, resolved.definitionDefaults), registry]) {
@@ -1167,7 +1167,7 @@ describe("resolveDBViteConfig", () => {
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify(provisionState))
     const resolved = resolveDBViteConfig({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-name", driver: "d1" }, rootDir)!
-    const definition = { cloudflare: { databaseName: "application-name" }, drizzle: {}, name: "default", schema: {} }
+    const definition = { cloudflare: { databaseName: "application-name" }, name: "default", schema: {} }
     const expression = renderDatabaseConfigExpression("default", resolved, "definition")
     const registry = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(definition, resolveRuntimeCloudflareConfig)
 

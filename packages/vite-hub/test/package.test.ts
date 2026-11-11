@@ -31,7 +31,7 @@ import * as frameworkAgentMcp from "vite-hub/agent/mcp";
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
-import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
+import * as consoleAuth from "vite-hub/console/auth";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -78,10 +78,8 @@ const manifest = parseDistributionManifest(
 );
 
 describe("Console Auth package exports", () => {
-  it("resolves the public imports used by generated and user code", () => {
-    expect(typeof defineConsoleAuth).toBe("function");
-    expect(typeof createConsoleAppAuthAccess).toBe("function");
-    expect(typeof createConsoleAppAuthPages).toBe("function");
+  it("exports only defineConsoleAuthorize, without Better Auth", () => {
+    expect(Object.keys(consoleAuth)).toEqual(["defineConsoleAuthorize"]);
   });
 });
 
@@ -154,6 +152,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/email/runtime/console",
+  "@vite-hub/kv/runtime/redis-driver",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
@@ -767,13 +766,9 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve the Console endpoints only: no Console page, client script, or page tools session.
+      // Apps serve one Console route only: no Console page, client script, MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/channels/replay",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

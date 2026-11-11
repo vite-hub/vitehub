@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { readFile, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -16,6 +16,7 @@ import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
@@ -411,17 +412,7 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
   async function copyNitroMigrations(serverDir: string) {
     if (!nitroMigrations.length) return
     await rm(resolve(serverDir, NITRO_MIGRATIONS_DIR), { force: true, recursive: true })
-    await Promise.all(nitroMigrations.map(async ({ source, target }) => {
-      const outputDir = resolve(serverDir, target)
-      const entries = await readdir(source, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return []
-        throw error
-      })
-      await mkdir(outputDir, { recursive: true })
-      await Promise.all(entries
-        .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
-        .map(entry => copyFile(resolve(source, entry.name), resolve(outputDir, entry.name))))
-    }))
+    await Promise.all(nitroMigrations.map(({ source, target }) => copyD1MigrationFiles(source, resolve(serverDir, target))))
   }
 
   return {

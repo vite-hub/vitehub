@@ -3,12 +3,16 @@ import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
 import { loadConsoleMedia } from "./blob.ts"
-import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
+import { consoleAttachmentRequestBytes, consoleDocumentActionNames, consoleMediaUploadRequestBytes, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { authConsoleActionOperations, authConsoleReadOperations } from "../auth-operations.ts"
 
-import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
+import type { AuthConsole, AuthConsoleErrorCode, AuthConsoleMutation } from "@vite-hub/auth/console-runtime"
+import type { AnyOperation, OperationContext, OperationDefinition, OperationKind } from "@vite-hub/internal/operations"
+import type { Result } from "@vite-hub/runtime"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
@@ -16,7 +20,9 @@ import type { ConsoleRequestEvent } from "./request.ts"
 declare global {
   interface ImportMeta {
     viteHubConsoleAgents?: boolean
+    viteHubConsoleAuth?: boolean
     viteHubConsoleDatabase?: boolean
+    viteHubConsoleDocuments?: boolean
   }
 }
 
@@ -86,6 +92,7 @@ export const consoleOperationRequestBytes = {
   "agents.invoke": consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes,
   "documents.action": maximumConsoleDocumentRequestBytes + maximumConsoleRpcRequestBytes,
   "media.action": maximumConsoleMediaRequestBytes + maximumConsoleRpcRequestBytes,
+  "media.upload": consoleMediaUploadRequestBytes,
 } as const
 
 // The handlers of these operations read the signed-in user themselves, when they need it.
@@ -132,6 +139,103 @@ const agentsInvoke = defineConsoleOperation({
   run: async ({ agent, agentRoute, ...body }, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./agent-invocations.post.ts"))).default(legacyEvent(`agents/${agent}/invocations`, "POST", { agent, body, query: { agentRoute } }, context)),
   section: "agents",
 })
+
+const channelsReplay = defineConsoleOperation({
+  // The hand-written `vitehub channels replay` command pages through the history and calls this operation with --url.
+  cli: { command: "replay", namespace: "channels" },
+  description: "Replay one page of a Channel's history through its trigger, or describe its history query with describe: true.",
+  input: v.strictObject({
+    agent: v.pipe(text, v.minLength(1)),
+    channel: v.pipe(text, v.minLength(1)),
+    cursor: optionalText,
+    describe: v.optional(v.boolean()),
+    dryRun: v.optional(v.boolean()),
+    force: v.optional(v.boolean()),
+    label: v.optional(v.pipe(text, v.check(label => label.trim() !== "", "Use a label with text."), v.maxLength(512))),
+    limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+    query: v.optional(v.record(v.string(), v.union([text, v.array(text)]))),
+  }),
+  kind: "write",
+  mcp: false,
+  name: "channels.replay",
+  readOnlyWhen: input => input.describe === true,
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./channel-replay.ts"))).replayConsoleChannel(input, context),
+  section: "agents",
+})
+
+const authId = v.pipe(text, v.minLength(1), v.maxLength(512))
+const authQuery = {
+  filter: v.optional(v.picklist(["all", "admins", "banned", "agents"])),
+  limit: v.optional(v.number()),
+  offset: v.optional(v.number()),
+  search: v.optional(v.pipe(text, v.maxLength(200))),
+  userId: v.optional(authId),
+}
+const authValue = v.union([text, v.number(), v.boolean(), v.null(), v.array(text), v.array(v.number())])
+
+/** One read of the Auth section. The Auth Console of `@vite-hub/auth` loads on the first call. */
+function authRead<Input>(
+  name: keyof typeof authConsoleReadOperations,
+  description: string,
+  input: StandardSchemaV1<unknown, Input>,
+  read: (api: AuthConsole, request: Request, input: Input) => Promise<Result<unknown, AuthConsoleErrorCode>>,
+): OperationDefinition<Input, unknown> {
+  return defineConsoleOperation({
+    description,
+    input,
+    kind: "read",
+    mcp: false,
+    name: authConsoleReadOperations[name],
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleRead(context, (api, request) => read(api, request, value)),
+    section: "auth",
+  })
+}
+
+/** One action of the Auth section. Impersonation is not one: it stays on `POST /_vitehub/auth/manage`. */
+function authAction<Input>(
+  action: keyof typeof authConsoleActionOperations,
+  description: string,
+  kind: Exclude<OperationKind, "read">,
+  input: StandardSchemaV1<unknown, Input>,
+  mutation: (input: Input) => AuthConsoleMutation,
+  positional: string,
+): OperationDefinition<Input, unknown> {
+  return defineConsoleOperation({
+    cli: { positional: [positional] },
+    description,
+    input,
+    kind,
+    mcp: false,
+    name: authConsoleActionOperations[action],
+    run: async (value, context) => (await (import.meta.viteHubConsoleAuth === false ? disabledConsoleFeature("Auth") : import("./auth-manage.ts"))).runAuthConsoleAction(context, mutation(value)),
+    section: "auth",
+  })
+}
+
+const authOperations = [
+  authRead("describe", "Describe the Auth of the app: its pages, user fields, and the actions that this access may run.", v.strictObject({}), (api, request) => api.describe(request)),
+  authRead("overview", "Count the users, new users, active sessions, and approved Agents of the app, with its recent Auth events.", v.strictObject({}), api => api.overview()),
+  authRead("activity", "List recent Auth events, newest first, one page at a time.", v.strictObject({
+    cursor: v.optional(v.pipe(text, v.maxLength(2048))),
+    group: v.optional(v.picklist(["sign-in", "admin", "agents", "organizations"])),
+    limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
+    userId: v.optional(authId),
+  }), (api, _request, input) => api.activity(input)),
+  authRead("users", "List the users of the app, one page at a time.", v.strictObject(authQuery), (api, _request, input) => api.users(input)),
+  authRead("user", "Read one user with its sessions, accounts, Agent clients, and organizations.", v.strictObject({ id: authId }), (api, request, input) => api.user(input.id, request)),
+  authRead("sessions", "List the active sessions of the app, one page at a time.", v.strictObject(authQuery), (api, _request, input) => api.sessions(input)),
+  authRead("organizations", "List the organizations of the app, one page at a time.", v.strictObject(authQuery), (api, _request, input) => api.organizations(input)),
+  authRead("organization", "Read one organization with its members and invitations, one page at a time.", v.strictObject({ ...authQuery, id: authId }), (api, _request, { id, ...query }) => api.organization(id, query)),
+  authRead("agents", "List the Agent clients that users granted access, one page at a time.", v.strictObject(authQuery), (api, _request, input) => api.agents(input)),
+  authAction("ban", "Ban a user, with an optional reason and expiry in seconds.", "write", v.strictObject({ expiresIn: v.optional(v.number()), reason: v.optional(v.pipe(text, v.maxLength(1000))), userId: authId }), input => ({ action: "ban", ...input }), "userId"),
+  authAction("unban", "Lift the ban of a user.", "write", v.strictObject({ userId: authId }), input => ({ action: "unban", ...input }), "userId"),
+  authAction("remove", "Delete a user and its sessions and accounts.", "destructive", v.strictObject({ userId: authId }), input => ({ action: "remove", ...input }), "userId"),
+  authAction("revokeSessions", "Sign a user out of every session.", "destructive", v.strictObject({ userId: authId }), input => ({ action: "revokeSessions", ...input }), "userId"),
+  authAction("setRole", "Set the role of a user.", "write", v.strictObject({ role: authId, userId: authId }), input => ({ action: "setRole", ...input }), "userId"),
+  authAction("editField", "Change one field of a user.", "write", v.strictObject({ field: authId, userId: authId, value: authValue }), input => ({ action: "editField", ...input }), "userId"),
+  authAction("revokeSession", "End one session.", "destructive", v.strictObject({ id: authId }), input => ({ action: "revokeSession", ...input }), "id"),
+  authAction("revokeConsent", "Revoke the access that a user granted an Agent client.", "destructive", v.strictObject({ id: authId }), input => ({ action: "revokeConsent", ...input }), "id"),
+]
 
 const databasesBrowse = defineConsoleOperation({
   cli: { namespace: "database", command: "rows", positional: ["table"] },
@@ -197,7 +301,7 @@ const documentsAction = defineConsoleOperation({
     : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
-    const documents = await import("./documents.ts")
+    const documents = await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : import("./documents.ts"))
     // JSON cannot preserve an omitted body. Use the checked operation's access for that call.
     if (body === undefined) {
       const actions = await documents.loadConsoleDocumentActions(section)
@@ -297,7 +401,27 @@ const mediaAction = defineConsoleOperation({
   // A read-only grant still browses the library.
   readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
-  run: async ({ action, body, section }, context) => (await loadConsoleMedia()).runConsoleMediaAction(section, action, body, context.access),
+  run: async ({ action, body, section }, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : loadConsoleMedia())).runConsoleMediaAction(section, action, body, context.access),
+  section: input => input.section,
+})
+
+const mediaUpload = defineConsoleOperation({
+  mcp: false,
+  description: "Upload one file, given as base64, to the media library of a Console section.",
+  input: v.strictObject({
+    contentType: optionalText,
+    // Each crop of an image may have its own replacement file, such as a portrait version for phones.
+    crop: optionalText,
+    data: text,
+    filename: v.pipe(text, v.minLength(1), v.maxLength(255)),
+    folder: optionalText,
+    pathname: optionalText,
+    section: text,
+  }),
+  kind: "write",
+  maxRequestBytes: consoleOperationRequestBytes["media.upload"],
+  name: "media.upload",
+  run: async (input, context) => (await (import.meta.viteHubConsoleDocuments === false ? disabledConsoleFeature("document editor") : loadConsoleMedia())).uploadConsoleMedia(input, context.access),
   section: input => input.section,
 })
 
@@ -390,6 +514,8 @@ async function searchError(response: Response): Promise<Error> {
 export const consoleOperations: readonly AnyOperation[] = [
   agentsInvoke,
   agentsList,
+  ...authOperations,
+  channelsReplay,
   databasesBrowse,
   databasesTables,
   definitionsList,
@@ -403,6 +529,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  mediaUpload,
   projectGet,
   searchQuery,
   sectionsList,
