@@ -8,7 +8,6 @@ import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { SetupCatalogFeature, SetupClient, SetupFeatureState, SetupLevel, SetupMissing, SetupPlanDocument, SetupPlanRequest, SetupStatusDocument } from "../client/setup";
 
@@ -310,7 +309,7 @@ onBeforeUnmount(() => events?.abort());
             @click="select(feature.id)"
           >
             <span class="min-w-0 flex-1 truncate text-sm" :class="group.id === 'unsupported' ? 'text-muted' : undefined">{{ feature.title }}</span>
-            <ConsoleStatus :label="stateLabel(feature).label" :tone="stateLabel(feature).tone" />
+            <UBadge :label="stateLabel(feature).label" :color="stateLabel(feature).tone" size="sm" variant="subtle" />
           </button>
         </section>
       </nav>
@@ -325,7 +324,7 @@ onBeforeUnmount(() => events?.abort());
             <header class="grid gap-1.5">
               <div class="flex flex-wrap items-center gap-2">
                 <h2 class="text-base font-semibold text-highlighted">{{ selected.title }}</h2>
-                <ConsoleStatus :label="stateLabel(selected).label" :tone="stateLabel(selected).tone" />
+                <UBadge :label="stateLabel(selected).label" :color="stateLabel(selected).tone" size="sm" variant="subtle" />
               </div>
               <p class="text-sm text-muted">{{ selected.summary }}</p>
               <p v-if="readOnly" class="text-xs text-muted">This access can only read Setup. You can preview changes but cannot apply them.</p>

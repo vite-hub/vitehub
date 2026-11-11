@@ -11,7 +11,7 @@ describe("sandbox public api", () => {
     const sandboxTaskPackage = await import("../../src/task/index.ts")
     const definition = defineSandboxTask({
       env: { FOO: "bar" },
-      run: async (payload?: { value?: string }) => payload?.value,
+      handler: async (payload?: { value?: string }) => payload?.value,
       timeout: 1_000,
     })
 
@@ -26,15 +26,20 @@ describe("sandbox public api", () => {
   it("keeps the project policy out of runtime Definition options", () => {
     const definition = defineSandboxTask({
       project: false,
-      run: async () => "self-contained",
+      handler: async () => "self-contained",
       timeout: 1_000,
     })
 
     expect(definition.options).toEqual({ timeout: 1_000 })
     expect(() => defineSandboxTask({
       project: "auto",
-      run: async () => null,
+      handler: async () => null,
     } as never)).toThrow("project must be a boolean")
+  })
+
+  it("names `handler` when a Definition still passes `run`", () => {
+    expect(() => defineSandboxTask({ run: async () => null } as never))
+      .toThrow(expect.objectContaining({ code: "SANDBOX_TASK_C0014", message: expect.stringContaining("`defineSandboxTask({ handler })`") }))
   })
 
   it("returns an HTTP response for failures", async () => {

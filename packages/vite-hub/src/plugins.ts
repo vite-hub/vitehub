@@ -136,6 +136,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/forge": true,
   "@vite-hub/forms": true,
   "@vite-hub/gateways": true,
   "@vite-hub/i18n": true,
@@ -1315,7 +1316,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 
-  plugins.push(setupDevPlugin())
+  plugins.push(setupDevPlugin({ origins: configuredConsole?.origins }))
   plugins.push(operationsCheckPlugin())
   // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
   const devOperationsOnly = configuredConsole === undefined

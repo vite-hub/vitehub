@@ -355,11 +355,11 @@ The package manager exited with an error after ViteHub deleted the starter files
 
 ## Use Setup in the development Console
 
-Run `vite dev` and open `/_vitehub/setup` to plan and apply the same feature changes as `vitehub add` and `vitehub remove`. Setup is available only during development.
+Run `vite dev`, open its printed hosted Console link, and select **Setup** to plan and apply the same feature changes as `vitehub add` and `vitehub remove`. Setup is available only during development.
 
-The page uses `@vite-hub/console-client`, the optional Console app. If it is not installed, the server still starts and the page shows `pnpm add @vite-hub/console-client`. No `console` option is needed.
+No `console` option or local Console client package is needed. Setup connects to the selected project's development server. Only exact origins in `console.origins` may connect from another origin; the default is `https://console.vitehub.dev`. Set `console.origins: []` to turn cross-origin access off. Apply also requires writable Setup access under the project's Console policy.
 
-The page obtains its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then open `http://localhost:5173/_vitehub/setup`. A host name listed explicitly in `server.allowedHosts` also works over the local connection, including HTTP. Listing a host does not grant network clients access to the session token.
+The page obtains its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then link `http://localhost:5173` in the hosted Console. A host name listed explicitly in `server.allowedHosts` also works over the local connection, including HTTP. Listing a host does not grant network clients access to the session token.
 
 ## Link a project to its host
 
@@ -964,7 +964,7 @@ A task is a [Nitro task](https://nitro.build/docs/tasks): a file in `server/task
 
 This seed task adds a row to the `notes` table of the default Database:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 

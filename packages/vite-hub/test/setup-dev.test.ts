@@ -1,20 +1,22 @@
 import { createServer, request as httpRequest } from "node:http"
+import { createHash } from "node:crypto"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { networkInterfaces, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { readViteHubDevToken } from "@vite-hub/internal/dev-token"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { connectSetup } from "../src/console/runtime/client/setup.ts"
+import { connectSetup, readSetupSession, waitForSetupRestart } from "../src/console/runtime/client/setup.ts"
 import { setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleRequest, installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleDevelopment, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { isSetupDevRequestAllowed, setupDevPlugin, setupDevRoute, setupDevTokenNamespace } from "../src/setup-dev.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
-import type { IncomingMessage, Server, ServerResponse } from "node:http"
+import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http"
 import type { SetupCommandRunner } from "@vite-hub/cli/setup"
 import type { ViteDevServer } from "vite"
 
@@ -35,8 +37,9 @@ afterEach(async () => {
 })
 
 /** The Setup plugin on a minimal dev server: the parts of a Vite server that `registerViteHubDevEndpoint` uses. */
-async function start(allowedHosts: readonly string[] | true = [], listenHost = "127.0.0.1", base = ""): Promise<Running> {
+async function start(allowedHosts: readonly string[] | true = [], listenHost = "127.0.0.1", base = "", origins?: readonly string[]): Promise<Running> {
   installConsoleAccess({ mode: "open" })
+  installConsoleOrigins(origins ?? ["https://console.vitehub.dev"])
   installConsoleDevelopment("/test/setup-dev", true, setupDevRoute)
   installConsoleSections("/test/setup-dev", ["setup"])
   installConsoleOperations()
@@ -57,7 +60,7 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
     middlewares: { use: (handler: Middleware) => middlewares.push(handler) },
     resolvedUrls: { local: ["http://localhost:5173/"] },
   }
-  const plugin = setupDevPlugin({ run })
+  const plugin = setupDevPlugin({ run, origins })
   const hook = plugin.configureServer
   if (typeof hook !== "function") throw new TypeError("Expected a configureServer hook.")
   // SAFETY: The plugin reads only `config.root`, `config.server`, `middlewares`, `resolvedUrls`, and `close`.
@@ -104,11 +107,11 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
 }
 
 /** One HTTP request with exact headers. `fetch` cannot send a custom `Host`. */
-async function send(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: unknown, connectHost = "127.0.0.1"): Promise<{ body: string, status: number }> {
+async function send(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: unknown, connectHost = "127.0.0.1"): Promise<{ body: string, headers: IncomingHttpHeaders, status: number }> {
   return await new Promise((done, fail) => {
     const req = httpRequest({ headers: { host: `localhost:${port}`, ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) }, host: connectHost, method, path: `${setupDevRoute}/${path}`, port }, (res) => {
       let text = ""
-      res.setEncoding("utf8").on("data", (chunk: string) => { text += chunk }).on("end", () => done({ body: text, status: res.statusCode ?? 0 }))
+      res.setEncoding("utf8").on("data", (chunk: string) => { text += chunk }).on("end", () => done({ body: text, headers: res.headers, status: res.statusCode ?? 0 }))
     })
     req.once("error", fail)
     req.end(body === undefined ? undefined : JSON.stringify(body))
@@ -120,7 +123,63 @@ function auth(running: Running, headers: Record<string, string> = {}): Record<st
 }
 
 describe("dev Setup endpoints", () => {
-  it.each(["", "/portal"])("checks the current Console grant before direct HTTP writes (mount: '%s')", async (base) => {
+  it("permits only listed Console origins and supported preflights over a local connection", async () => {
+    const running = await start()
+    const origin = "https://console.vitehub.dev"
+    for (const [path, method] of [["session", "GET"], ["catalog", "GET"], ["status", "GET"], ["plan", "POST"], ["apply", "POST"], ["events", "GET"]] as const) {
+      const preflight = { origin, "access-control-request-method": method, "access-control-request-headers": "authorization, content-type, x-vitehub-dev-token, x-vitehub-setup", "access-control-request-private-network": "true" }
+      expect(await send(running.port, "OPTIONS", path, preflight)).toMatchObject({ status: 204, headers: { "access-control-allow-origin": origin, "access-control-allow-methods": method, "access-control-allow-private-network": "true" } })
+      expect((await send(running.port, "OPTIONS", path, { ...preflight, origin: "https://evil.example" })).headers).not.toHaveProperty("access-control-allow-origin")
+    }
+    expect(await send(running.port, "OPTIONS", "apply", { origin, "access-control-request-method": "DELETE" })).toMatchObject({ status: 403 })
+    expect(await send(running.port, "OPTIONS", "apply", { origin, "access-control-request-method": "POST", "access-control-request-headers": "x-unexpected" })).toMatchObject({ status: 403 })
+    expect(await send(running.port, "GET", "session", { origin, "sec-fetch-site": "cross-site", "x-vitehub-setup": "session" })).toMatchObject({ status: 200, headers: { "access-control-allow-origin": origin } })
+    expect(await send(running.port, "GET", "status", { origin })).toMatchObject({ status: 403, headers: { "access-control-allow-origin": origin } })
+    const disabled = await start([], "127.0.0.1", "", [])
+    expect(await send(disabled.port, "GET", "session", { origin, "x-vitehub-setup": "session" })).toMatchObject({ status: 403 })
+    const custom = await start([], "127.0.0.1", "", ["https://console.example.com"])
+    expect(await send(custom.port, "GET", "session", { origin: "https://console.example.com", "sec-fetch-site": "cross-site", "x-vitehub-setup": "session" })).toMatchObject({ status: 200 })
+  })
+
+  it("uses the selected project for hosted Setup requests, events, and restart polling", async () => {
+    const running = await start([], "127.0.0.1", "/portal")
+    const origin = "https://console.vitehub.dev"
+    const project = `http://127.0.0.1:${running.port}`
+    const credential = "test-setup-token-0123456789abcdef0123"
+    const fetch = globalThis.fetch
+    const requests: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      requests.push(String(input))
+      const headers = new Headers(init?.headers)
+      headers.set("origin", origin)
+      headers.set("sec-fetch-site", "cross-site")
+      return await fetch(input, { ...init, headers })
+    })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", createHash("sha256").update(credential).digest("hex"))
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
+    setConsoleProject({ origin: project, base: "/portal", authorization: () => `Bearer ${credential}` })
+    try {
+      const client = await connectSetup(setupDevRoute)
+      expect(await client.catalog()).toHaveProperty("features")
+      expect(await client.status()).toMatchObject({ root: running.root })
+      const controller = new AbortController()
+      const events: string[] = []
+      await client.events((event) => { events.push(event); controller.abort() }, controller.signal).catch(error => { if (!controller.signal.aborted) throw error })
+      expect(events).toContain("hello")
+      const plan = await client.plan({ action: "add", features: ["kv"] })
+      expect(await client.apply(plan.planId!)).toMatchObject({ status: "applied" })
+      expect(await readSetupSession(setupDevRoute)).toMatchObject({ serverId: running.serverId })
+      expect(await waitForSetupRestart(setupDevRoute, "previous-server", 2_000)).toBe(running.serverId)
+      expect(requests.every(url => url.startsWith(`${project}${setupDevRoute}/`))).toBe(true)
+    }
+    finally {
+      vi.restoreAllMocks()
+      vi.unstubAllEnvs()
+      setConsoleProject({ origin: "", base: "" })
+    }
+  })
+
+  it.each([["", undefined], ["/portal", undefined], ["", "https://console.vitehub.dev"], ["/portal", "https://console.vitehub.dev"]] as const)("checks the current Console grant before direct HTTP writes (mount: '%s', origin: %s)", async (base, origin) => {
     const running = await start([], "127.0.0.1", base)
     const before = await readFile(join(running.root, "vite.config.ts"), "utf8")
     let sections = ["setup:read"]
@@ -129,7 +188,7 @@ describe("dev Setup endpoints", () => {
       credentials.push(request.headers.get("cookie") ?? "")
       return { sections }
     } })
-    const headers = auth(running, { cookie: "session=reader" })
+    const headers = auth(running, { cookie: "session=reader", ...(origin ? { origin } : {}) })
     const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
     expect(planned.status).toBe(200)
     const { planId } = JSON.parse(planned.body) as { planId: string }
@@ -207,6 +266,8 @@ describe("dev Setup endpoints", () => {
       }, undefined, networkAddress)
       expect(response.status).toBe(403)
       expect(response.body).not.toContain(running.token)
+      expect(await send(running.port, "GET", "session", { host, origin: "https://console.vitehub.dev", "x-vitehub-setup": "session" }, undefined, networkAddress)).toMatchObject({ status: 403 })
+      expect(await send(running.port, "OPTIONS", "session", { host, origin: "https://console.vitehub.dev", "access-control-request-method": "GET" }, undefined, networkAddress)).toMatchObject({ status: 403 })
     }
   })
 
@@ -231,19 +292,20 @@ describe("dev Setup endpoints", () => {
     expect(JSON.parse(session.body)).toMatchObject({ serverId: running.serverId, token: running.token })
   })
 
-  it("plans, applies a plan once, and streams the install output", async () => {
+  it.each([undefined, "https://console.vitehub.dev"])("plans, applies a plan once, and streams the install output (origin: %s)", async (origin) => {
     const running = await start()
-    const catalog = JSON.parse((await send(running.port, "GET", "catalog", auth(running))).body) as { features: { id: string }[] }
+    const headers = auth(running, origin ? { origin } : {})
+    const catalog = JSON.parse((await send(running.port, "GET", "catalog", headers)).body) as { features: { id: string }[] }
     expect(catalog.features.map(feature => feature.id)).toContain("kv")
 
-    const planned = await send(running.port, "POST", "plan", auth(running), { action: "add", features: ["workspace"] })
+    const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["workspace"] })
     expect(planned.status).toBe(200)
     const plan = JSON.parse(planned.body) as { changes: { path: string }[], command: string, planId: string, restart: boolean, schemaVersion: 1, status: string }
     expect(plan).toMatchObject({ command: "vitehub add workspace --yes", restart: true, schemaVersion: 1, status: "planned" })
     expect(plan.changes.map(change => change.path)).toEqual(["vite.config.ts"])
 
     const events: string[] = []
-    const stream = httpRequest({ headers: { host: `localhost:${running.port}`, ...auth(running) }, host: "127.0.0.1", path: `${setupDevRoute}/events`, port: running.port })
+    const stream = httpRequest({ headers: { host: `localhost:${running.port}`, ...headers }, host: "127.0.0.1", path: `${setupDevRoute}/events`, port: running.port })
     const opened = new Promise<void>((done) => {
       stream.on("response", (res) => {
         res.setEncoding("utf8").on("data", (chunk: string) => {
@@ -255,7 +317,7 @@ describe("dev Setup endpoints", () => {
     stream.end()
     await opened
 
-    const applied = await send(running.port, "POST", "apply", auth(running), { planId: plan.planId })
+    const applied = await send(running.port, "POST", "apply", headers, { planId: plan.planId })
     expect(applied.status).toBe(200)
     expect(JSON.parse(applied.body)).toMatchObject({ restart: true, status: "applied" })
     expect(running.calls).toEqual([{ args: ["add", "@vite-hub/workspace"], command: "pnpm", cwd: running.root }])
@@ -267,7 +329,7 @@ describe("dev Setup endpoints", () => {
     expect(text).toContain("event: applied")
     stream.destroy()
 
-    const replayed = await send(running.port, "POST", "apply", auth(running), { planId: plan.planId })
+    const replayed = await send(running.port, "POST", "apply", headers, { planId: plan.planId })
     expect(replayed.status).toBe(404)
     expect(JSON.parse(replayed.body)).toMatchObject({ error: { code: "SETUP_PLAN_UNKNOWN" } })
   })

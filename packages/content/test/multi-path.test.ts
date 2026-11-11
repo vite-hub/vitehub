@@ -120,7 +120,7 @@ describe("Console collections with several globs", () => {
       logger: false,
     })
     cleanup.push(() => content.dispose())
-    const collections = await createContentConsoleActions({ content }).collections({ user: { id: "ada" } } as never)
+    const collections = await createContentConsoleActions({ default: content }).collections({ user: { id: "ada" } } as never)
     expect(collections.find(entry => entry.name === "pages")).toMatchObject({ path: "docs/pages/**/*.md, packages/*/docs/**/*.md", paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"] })
     expect(collections.find(entry => entry.name === "notes")).toMatchObject({ paths: ["notes/*.md"] })
   })

@@ -69,7 +69,7 @@ describe("vitehub remove", () => {
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
     expect(json.references).toEqual([])
     expect(json.changes.filter(change => change.kind === "delete").map(change => change.path)).toEqual([
-      `${serverDir}/databases/jobs/config.ts`,
+      `${serverDir}/databases/jobs.ts`,
       `${serverDir}/queues/jobs.ts`,
     ])
     expect(await snapshot(root)).toEqual(original)
@@ -251,7 +251,7 @@ describe("vitehub remove", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
     const pm = fakePackageManager(root)
     expect((await add(["database", "--name", "default"], root, pm.spawn)).exitCode).toBe(0)
-    const path = "server/databases/config.ts"
+    const path = "server/databases/default.ts"
     const edited = `${await readFile(join(root, path), "utf8")}// app schema\n`
     await writeFile(join(root, path), edited)
 

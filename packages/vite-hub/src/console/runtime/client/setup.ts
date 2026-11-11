@@ -1,6 +1,6 @@
 /** The dev Setup endpoints of the Vite dev server, as the Setup section calls them. */
 
-import { projectRequest } from "./project"
+import { consoleProject, resolveProjectUrl } from "./project"
 
 export type SetupLevel = "native" | "explicit" | "unsupported" | "unknown"
 
@@ -112,19 +112,25 @@ export class SetupRequestError extends Error {
 
 /** The id of the running dev server. It changes when the server restarts. */
 export async function readSetupSession(route: string): Promise<{ serverId: string, token: string }> {
-  const response = await fetch(`${route}/session`, { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json", "x-vitehub-setup": "session" } })
+  const response = await fetch(`${resolveProjectUrl(route)}/session`, { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json", "x-vitehub-setup": "session" } })
   if (!response.ok) throw new SetupRequestError(response.status, (await response.text()) || `The Setup session answered ${response.status}.`)
   // SAFETY: The Setup session route answers `{ serverId, token }`.
   return await response.json() as { serverId: string, token: string }
 }
 
 export async function connectSetup(route: string): Promise<SetupClient> {
-  const { serverId, token } = await readSetupSession(route)
+  const project = consoleProject()
+  const endpoint = resolveProjectUrl(route)
+  const { serverId, token } = await readSetupSession(endpoint)
   const headers = { accept: "application/json", "x-vitehub-dev-token": token }
+  const requestHeaders = async (headers: Record<string, string>) => {
+    const authorization = await project.authorization?.()
+    return authorization ? { ...headers, authorization } : headers
+  }
   const request = async <T>(path: string, body?: unknown): Promise<T> => {
-    const response = await fetch(`${route}/${path}`, body === undefined
-      ? { cache: "no-store", credentials: "same-origin", headers: (await projectRequest("", headers)).headers }
-      : { body: JSON.stringify(body), cache: "no-store", credentials: "same-origin", headers: (await projectRequest("", { ...headers, "content-type": "application/json" })).headers, method: "POST" })
+    const response = await fetch(`${endpoint}/${path}`, body === undefined
+      ? { cache: "no-store", credentials: "same-origin", headers: await requestHeaders(headers) }
+      : { body: JSON.stringify(body), cache: "no-store", credentials: "same-origin", headers: await requestHeaders({ ...headers, "content-type": "application/json" }), method: "POST" })
     const text = await response.text()
     let value: unknown
     try {
@@ -142,7 +148,7 @@ export async function connectSetup(route: string): Promise<SetupClient> {
     apply: async planId => await request<SetupPlanDocument>("apply", { planId }),
     catalog: async () => await request<SetupCatalogDocument>("catalog"),
     events: async (onEvent, signal) => {
-      const response = await fetch(`${route}/events`, { cache: "no-store", headers: { ...headers, accept: "text/event-stream" }, signal })
+      const response = await fetch(`${endpoint}/events`, { cache: "no-store", credentials: "same-origin", headers: await requestHeaders({ ...headers, accept: "text/event-stream" }), signal })
       if (!response.ok || !response.body) throw new SetupRequestError(response.status, "The Setup event stream did not open.")
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
       let buffer = ""
@@ -172,11 +178,12 @@ export async function connectSetup(route: string): Promise<SetupClient> {
  * `timeout` milliseconds.
  */
 export async function waitForSetupRestart(route: string, serverId: string, timeout = 90_000): Promise<string | undefined> {
+  const endpoint = resolveProjectUrl(route)
   const end = Date.now() + timeout
   while (Date.now() < end) {
     await new Promise(done => setTimeout(done, 700))
     try {
-      const session = await readSetupSession(route)
+      const session = await readSetupSession(endpoint)
       if (session.serverId !== serverId) return session.serverId
     }
     catch {

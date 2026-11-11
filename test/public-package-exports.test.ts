@@ -89,6 +89,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/forge", "@vite-hub/forge"],
       ["vite-hub/i18n", "@vite-hub/i18n"],
       ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
       ["vite-hub/i18n/server", "@vite-hub/i18n"],

@@ -1,5 +1,4 @@
 import { isAsyncIterable } from "./stream-result.ts";
-import { isRuntimeString } from "./runtime-value.ts";
 import type { AgentChatMessage } from "../types.ts";
 import type { CardChild, CardElement } from "chat";
 import type { Nodes } from "mdast";
@@ -116,7 +115,7 @@ export function transformChannelTextStream(
 
 function formatCitationAst<T extends Nodes>(node: T): T {
   let formatted = { ...node };
-  if ("value" in node && isRuntimeString(node.value))
+  if ("value" in node && typeof node.value === "string")
     formatted = { ...formatted, value: formatChannelCitationText(node.value) };
   if ("alt" in node && node.alt)
     formatted = { ...formatted, alt: formatChannelCitationText(node.alt) };
@@ -228,7 +227,7 @@ function formatCitationCard<T extends CardNode>(node: T): T {
 }
 
 export function formatChannelCitationMessage(message: AgentChatMessage): AgentChatMessage {
-  if (isRuntimeString(message)) return formatChannelCitationText(message);
+  if (typeof message === "string") return formatChannelCitationText(message);
   if (isAsyncIterable(message)) {
     // SAFETY: AgentChatMessage streams yield string chunks at this delivery boundary.
     return formatChannelCitationStream(message as AsyncIterable<string>);

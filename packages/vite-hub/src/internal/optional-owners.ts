@@ -24,6 +24,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/database"
     | "@vite-hub/decisions"
     | "@vite-hub/email"
+    | "@vite-hub/forge"
     | "@vite-hub/forms"
     | "@vite-hub/gateways"
     | "@vite-hub/i18n"
@@ -68,6 +69,8 @@ export const optionalFeaturePackages = {
   "database": features.database.packages,
   "decisions": ["@vite-hub/decisions"],
   "email": features.email.packages,
+  // `vite-hub/forge`: `useForge()` and the Forge helpers.
+  "forge": ["@vite-hub/forge"],
   // `server/forms/` turns Forms on, and its submissions go to the Database.
   "forms": ["@vite-hub/forms"],
   "gateways": ["@vite-hub/gateways"],
