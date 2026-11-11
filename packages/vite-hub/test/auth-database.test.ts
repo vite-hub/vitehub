@@ -3,7 +3,8 @@ import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { admin } from "better-auth/plugins"
-import { generateSQLiteDrizzleJson, generateSQLiteMigration } from "drizzle-kit/api"
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/payload/sqlite"
+import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
@@ -25,9 +26,9 @@ beforeAll(async () => {
   directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "vitehub-auth-database-"))
   client = createClient({ url: `file:${join(directory, "auth.db")}` })
   // The migration that `vitehub database generate` writes for the contributed tables.
-  const statements = await generateSQLiteMigration(await generateSQLiteDrizzleJson({}), await generateSQLiteDrizzleJson({ ...authSqliteSchema }))
+  const statements = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...authSqliteSchema }))
   for (const statement of statements) await client.execute(statement)
-  state.databases.default = { db: drizzle(client, { schema: authSqliteSchema }), schema: { ...authSqliteSchema } }
+  state.databases.default = { db: drizzle({ client: client, relations: defineRelations(authSqliteSchema) }), schema: { ...authSqliteSchema } }
 })
 
 afterAll(async () => {

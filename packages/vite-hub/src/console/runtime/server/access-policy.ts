@@ -44,8 +44,8 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   installOperationSectionResolver(async ({ user }) => {
     if (policy.mode === "local" || !policy.authorize) return "all"
     // Agents have no browser request and no token, so `authorize` gets a request without headers, `via: "agent"`, and
-    // the user that the Actor stands for. It never sees `via: "token"` here: that means a verified Console token.
-    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    // the user that the Actor stands for. It never sees `via: "console"` or `via: "cli"` here: those mean a verified signature.
+    const request = new Request("http://vitehub.local/_vitehub/rpc", { method: "POST" })
     const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser, via: "agent" } : { request, via: "agent" })
     if (result === true) return "all"
     return isRuntimeResponse(result) ? [] : consoleAuthorizedSections(result) ?? []
