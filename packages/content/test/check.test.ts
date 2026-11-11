@@ -72,6 +72,55 @@ async function cli(cwd: string, args: string[], fetch?: typeof globalThis.fetch)
 }
 
 describe("content.sources.advance() with the check", { timeout: 30_000 }, () => {
+  it("resolves links and headings across Sources for checks, initial heads, advances, and pins", async () => {
+    const generated = [{ key: "docs/setup.md", path: "docs/setup.md", content: page("Project setup", "## Installation\n") }]
+    const first = fake.commit("main", { "docs/guide.md": page("Getting started", "See [setup](/docs/setup#installation).\n") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource({ items: async () => generated }, { url: "/:id" }),
+    } })
+    expect(await content.check()).toMatchObject({ ok: true, errors: 0, warnings: 0, sources: [{ source: "docs", pages: 1 }, { source: "generated", pages: 1 }] })
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    expect(await content.get("/docs/setup")).toBeTruthy()
+
+    const next = fake.commit("main", { "docs/guide.md": page("Updated guide", "See [setup](/docs/setup#installation).\n") })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: next, rejected: null })
+    expect(await content.sources.pin(first, "docs")).toMatchObject({ sha: first, rejected: null })
+
+    generated.splice(0)
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: false, errors: 1 })
+  })
+
+  it("uses the other GitHub Source's published head for a gate and selected checks", async () => {
+    const docs = fake.commit("main", { "docs/guide.md": page("Getting started", "See [setup](/docs/setup#installation).\n") })
+    const generated = fake.commit("generated", { "docs/setup.md": page("Project setup", "## Installation\n") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource(github({ repo: "acme/docs", ref: "generated" }), { url: "/:id" }),
+    } })
+    expect(await content.check()).toMatchObject({ ok: true, warnings: 0 })
+    expect((await content.sources.head("generated")).sha).toBe(generated)
+    await content.sources.pin(generated, "generated")
+    fake.commit("generated", { "docs/setup.md": null })
+    expect(await content.check({ source: "docs" })).toMatchObject({ ok: true, warnings: 0 })
+    expect((await content.sources.head("docs")).sha).toBe(docs)
+    // Aggregate checks inspect both branch candidates, even when one published head is pinned.
+    expect(await content.check()).toMatchObject({ ok: false, errors: 1 })
+  })
+
+  it("does not use the previous head to resolve a page removed by the candidate commit", async () => {
+    const first = fake.commit("main", { "docs/setup.md": page("Project setup") })
+    const content = server({ sources: {
+      docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }),
+      generated: contentSource({ items: async () => [{ key: "extra.md", content: page("Extra document") }] }, { url: "/:id" }),
+    } })
+    expect((await content.sources.head("docs")).sha).toBe(first)
+    const bad = fake.commit("main", { "docs/setup.md": null, "docs/guide.md": page("Getting started", "See [setup](/docs/setup).\n") })
+    expect(await content.check()).toMatchObject({ ok: false, errors: 1 })
+    expect(await content.sources.advance("docs")).toMatchObject({ sha: first, rejected: { sha: bad } })
+  })
+
   it("keeps the head when a push links to a page that does not exist", async () => {
     const first = fake.commit("main", { "docs/guide.md": page("Getting started") })
     const content = server()

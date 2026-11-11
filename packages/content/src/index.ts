@@ -19,7 +19,7 @@ import type {
 } from "comark-content"
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { checkContentDocuments, contentCheckResult, parseContentFiles } from "./check.ts"
-import type { ContentCheckFinding, ContentCheckOptions, ContentCheckResult } from "./check.ts"
+import type { ContentCheckFinding, ContentCheckInput, ContentCheckOptions, ContentCheckResult } from "./check.ts"
 import { contentSource, contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import { createContentHistory } from "./history.ts"
@@ -504,7 +504,29 @@ export function defineContent<
   const check: ContentCheckOptions = { ...checkOptions, ...(checkOptions.site ?? seo?.site ? { site: checkOptions.site ?? seo?.site } : {}) }
   // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
   const reuseParsed = !customPlugins.some(Boolean) && !options.plugins?.some(Boolean)
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [], check }, reuseParsed)
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, {
+    privateBranches: presetDefaults.privateBranches ?? [],
+    check,
+    targets: async source => await Promise.all(Object.keys(inputs).filter(name => name !== source).map(async name => (await loadCheckInput(name, undefined, true)).input)),
+  }, reuseParsed)
+
+  async function loadCheckInput(name: string, sha?: string, published = false): Promise<{ sha: string | null, input: ContentCheckInput }> {
+    if (heads.github(name)) return await heads.inspect(name, sha, published)
+    const input = inputs[name]!
+    const adapted = contentSource(input)
+    const files = await Promise.all((await adapted.keys()).map(async key => ({ key, path: key, content: await adapted.getItem(key) })))
+    const parsed = await parseContentFiles(name, files, { prefix: adapted.prefix, schema: adapted.schema }, { ...sharedOptions, basePath: "/api/content" }, true)
+    const url = contentSourceUrl(input)
+    return { sha: null, input: {
+      source: name,
+      files,
+      items: parsed.commit?.items ?? [],
+      failures: parsed.failures,
+      ...(adapted.schema ? { schema: adapted.schema } : {}),
+      ...(url === undefined ? {} : { url }),
+      options: check,
+    } }
+  }
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
@@ -855,28 +877,15 @@ export function defineContent<
       }
       const sources: ContentCheckResult["sources"] = []
       const findings: ContentCheckFinding[] = []
+      // Checked Sources use their candidate commits; the rest contribute their published link targets.
+      const loaded = new Map(await Promise.all(Object.keys(inputs).map(async name => [name, await loadCheckInput(name, names.includes(name) ? sha : undefined, !names.includes(name))] as const)))
       for (const name of names) {
-        if (heads.github(name)) {
-          const inspected = await heads.inspect(name, sha)
-          sources.push({ source: name, sha: inspected.sha, pages: inspected.pages })
-          findings.push(...inspected.findings)
-          continue
-        }
-        const input = inputs[name]!
-        const adapted = contentSource(input)
-        const files = await Promise.all((await adapted.keys()).map(async key => ({ key, path: key, content: await adapted.getItem(key) })))
-        const parsed = await parseContentFiles(name, files, { prefix: adapted.prefix, schema: adapted.schema }, { ...sharedOptions, basePath: "/api/content" }, true)
-        const url = contentSourceUrl(input)
+        const inspected = loaded.get(name)!
         const checked = checkContentDocuments({
-          source: name,
-          files,
-          items: parsed.commit?.items ?? [],
-          failures: parsed.failures,
-          ...(adapted.schema ? { schema: adapted.schema } : {}),
-          ...(url === undefined ? {} : { url }),
-          options: check,
+          ...inspected.input,
+          targets: [...loaded].filter(([source]) => source !== name).map(([, value]) => value.input),
         })
-        sources.push({ source: name, sha: null, pages: checked.pages })
+        sources.push({ source: name, sha: inspected.sha, pages: checked.pages })
         findings.push(...checked.findings)
       }
       return contentCheckResult(sources, findings)
