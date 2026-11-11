@@ -71,5 +71,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Enable ViteHub KV in `vite.config.ts`. Content keeps the head commit in the `default` KV store. On Cloudflare, bind a KV namespace as `KV`.",
       why: ({ source }: { source: string }) => `[vitehub] Content source ${JSON.stringify(source)} has a GitHub token, but the app has no KV store, so it has no head commit. Each load reads the latest commit of its branch without validation.`,
     },
+    /** Content could not store a parsed commit in ViteHub KV, so other server instances download and parse it again. */
+    CONTENT_R0022: {
+      fix: "Check the `default` KV store. A host can limit the size of one value: Cloudflare KV takes up to 25 MiB. `content.sources.head()` shows the cache key and how many reads missed.",
+      why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] Content could not store ${key} of Content source ${JSON.stringify(source)} in KV: ${reason}`,
+    },
   },
 })
