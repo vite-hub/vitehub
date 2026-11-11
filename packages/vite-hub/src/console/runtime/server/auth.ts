@@ -1,25 +1,11 @@
-import * as v from "valibot";
-import type { AuthConsole, AuthConsoleErrorCode, AuthConsoleMutation } from "@vite-hub/auth/console-runtime";
+import type { AuthConsole, AuthConsoleErrorCode, AuthConsoleHostOptions, AuthConsoleMutation } from "@vite-hub/auth/console-runtime";
 import type { OperationContext } from "@vite-hub/internal/operations";
 import type { Result, ResultError } from "@vite-hub/runtime";
 import { getAuthConsoleForRequest } from "@vite-hub/auth/server";
-import {
-  consoleAccessWrites,
-  consoleImpersonation,
-  consoleRequest,
-  withConsoleAccess,
-  type ConsoleAccess,
-  type ConsoleAccessRoute,
-} from "./access.ts";
-import {
-  assertConsoleRequest,
-  consoleRequestError,
-  consoleRequestJSON,
-  consoleRoute,
-  type ConsoleRequestEvent,
-  type ConsoleRoute,
-} from "./request.ts";
+import { consoleImpersonation, consolePerson, type ConsoleAccess } from "./access.ts";
+import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts";
 import { getConsoleSections } from "./sections.ts";
+import type { ConsoleTicket } from "./tickets.ts";
 
 const statuses: Record<AuthConsoleErrorCode, number> = {
   AUTH_CONSOLE_INVALID_REQUEST: 400,
@@ -29,23 +15,18 @@ const statuses: Record<AuthConsoleErrorCode, number> = {
   AUTH_CONSOLE_PROVIDER_FAILED: 502,
 };
 
-function logged(error: ResultError<AuthConsoleErrorCode>): ResultError<AuthConsoleErrorCode> {
-  if (error.code === "AUTH_CONSOLE_PROVIDER_FAILED")
-    globalThis.console.error("[vitehub] Auth Console operation failed.", error.cause);
-  return error;
+/** The reason of a refused Auth Console call, such as no live app session of the actor, after the code's `why`. */
+function reason(error: ResultError<AuthConsoleErrorCode>): string {
+  const cause: unknown = error.cause;
+  const status = statuses[error.code];
+  return status < 500 && cause instanceof Error && cause.name === "AuthConsoleError" && cause.message ? cause.message : error.why;
 }
 
 /** An Auth Console failure as the error of an operation: its code, why, fix, and the HTTP status of the code. */
-function operationFailure(error: ResultError<AuthConsoleErrorCode>): Error {
-  return Object.assign(logged(error), { statusCode: statuses[error.code], statusMessage: error.why });
-}
-
-function routeFailure(error: ResultError<AuthConsoleErrorCode>): Response {
-  logged(error);
-  return Response.json(
-    { message: error.why, code: error.code, fix: error.fix },
-    { status: statuses[error.code], headers: { "cache-control": "no-store" } },
-  );
+export function authConsoleFailure(error: ResultError<AuthConsoleErrorCode>): Error {
+  if (error.code === "AUTH_CONSOLE_PROVIDER_FAILED")
+    globalThis.console.error("[vitehub] Auth Console operation failed.", error.cause);
+  return Object.assign(error, { statusCode: statuses[error.code], statusMessage: reason(error) });
 }
 
 function isRequestEvent(event: unknown): event is ConsoleRequestEvent {
@@ -54,14 +35,18 @@ function isRequestEvent(event: unknown): event is ConsoleRequestEvent {
 
 export type AuthOperationContext = Omit<OperationContext, "access"> & { access: ConsoleAccess };
 
-/** The Auth Console of one operation call, with the request of the call. */
+/**
+ * The Auth Console of one operation call. A signed call from the ViteHub Console has no app session, so Auth changes run
+ * as the app user with the email of the signed person. See `AuthConsoleHostOptions.actor`.
+ */
 async function operationAuthConsole(context: AuthOperationContext): Promise<{ api: AuthConsole; request: Request }> {
   if (!getConsoleSections().includes("auth")) throw consoleRequestError(404, "Auth section not found.");
-  const { request } = context;
+  const { access, request } = context;
   if (!request) throw consoleRequestError(400, "Auth management needs the request of the call.");
-  const api = getAuthConsoleForRequest(request, isRequestEvent(context.event) ? context.event : undefined, {
-    impersonation: consoleImpersonation(),
-  });
+  const host: AuthConsoleHostOptions = { impersonation: consoleImpersonation() };
+  const email = consolePerson(access)?.email;
+  if (access.via === "console" && email) host.actor = { email };
+  const api = getAuthConsoleForRequest(request, isRequestEvent(context.event) ? context.event : undefined, host);
   return { api, request };
 }
 
@@ -72,86 +57,44 @@ export async function runAuthConsoleRead<T>(
 ): Promise<T> {
   const { api, request } = await operationAuthConsole(context);
   const [error, data] = await read(api, request);
-  if (error) throw operationFailure(error);
+  if (error) throw authConsoleFailure(error);
   return data;
 }
 
-/** Runs one action of the Auth section, such as `auth.ban`, and returns its record: the action, the actor, and the target. */
+/**
+ * Runs one action of the Auth section, such as `auth.ban`, and returns its record: the action, the actor, and the
+ * target. Better Auth runs it as an app user: the signed Console person's app account, or the browser's app session of
+ * an open development Console. A CLI call names no person, so it cannot run one.
+ */
 export async function runAuthConsoleAction(context: AuthOperationContext, mutation: AuthConsoleMutation): Promise<unknown> {
+  const { access } = context;
+  if (access.via === "cli")
+    throw consoleRequestError(403, "Auth changes run as an app user, and a CLI call names no person. Run them from the ViteHub Console, where you act as your app account.", "CONSOLE_ACCESS_DENIED");
+  if (access.via === "console" && !consolePerson(access)?.email)
+    throw consoleRequestError(403, "Auth changes run as the app user with the email of your Console account, and your Console account has no email. Add an email to it, or sign in with GitHub.", "CONSOLE_ACCESS_DENIED");
   const { api, request } = await operationAuthConsole(context);
   const [error, response] = await api.execute(mutation, request);
-  if (error) throw operationFailure(error);
+  if (error) throw authConsoleFailure(error);
   return await response.json();
 }
 
-const id = v.pipe(v.string(), v.minLength(1), v.maxLength(512));
-const command = v.union([
-  v.object({ action: v.literal("impersonate"), userId: id }),
-  v.object({ action: v.literal("stopImpersonating") }),
-]);
-
 /**
- * Starts and stops impersonation. Both set the app session cookie on the app origin, which an operation on the Console
- * RPC cannot do. One-time tickets that the endpoint redeems will replace this route. Every other Auth management call
- * is an `auth.*` operation.
+ * `auth.impersonate` and `auth.stop-impersonating`: check the call, then return a one-time link that the browser opens
+ * on the app origin. Its redemption starts or stops the impersonation with the browser's app session, which must belong
+ * to the person who asked. See `tickets.ts`.
  */
-async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
-  assertConsoleRequest(event, ["POST"]);
-  if (!getConsoleSections().includes("auth"))
-    throw consoleRequestError(404, "Auth section not found.");
-  const request = consoleRequest(event);
-  if (request.headers.get("x-vitehub-console") !== "1")
-    throw consoleRequestError(403, "The Console request header is required.");
-  const origin = request.headers.get("origin");
-  const site = request.headers.get("sec-fetch-site");
-  // Browser-controlled Fetch Metadata survives trusted TLS termination, as in Console RPC.
-  if (
-    origin === "null" ||
-    site === "cross-site" ||
-    site === "same-site" ||
-    (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)
-  )
-    throw consoleRequestError(403, "The Console request must use the same origin.");
-  const input = await consoleRequestJSON(event);
-  const parsed = v.safeParse(command, input);
-  if (!parsed.success)
-    return Response.json({ message: "Invalid Auth Console request. Run the other Auth management calls as auth.* operations." }, { status: 400 });
-  const { output } = parsed;
-  // A read-only grant (`"auth:read"`) never changes Auth data.
-  if (!consoleAccessWrites(access, "auth"))
-    return Response.json(
-      { message: "This Console access can read Auth data but not change it." },
-      { status: 403, headers: { "cache-control": "no-store" } },
-    );
-  const impersonation = consoleImpersonation();
-  if (!impersonation)
-    return Response.json(
-      { message: "Impersonation is off. Set console.impersonation to true to enable it." },
-      { status: 404, headers: { "cache-control": "no-store" } },
-    );
-  // Impersonation swaps the session cookie on the app origin. A signed call has no app session to swap.
-  if (access.via !== undefined)
-    return Response.json(
-      { message: "Impersonation needs a signed-in administrator on the app origin. A signed call cannot start or stop it." },
-      { status: 403, headers: { "cache-control": "no-store" } },
-    );
-  const api = getAuthConsoleForRequest(request, event, { impersonation });
-  try {
-    const [error, response] =
-      output.action === "stopImpersonating"
-        ? await api.stopImpersonating(request)
-        : await api.execute(output, request);
-    return error ? routeFailure(error) : response;
-  } catch (error) {
-    globalThis.console.error("[vitehub] Auth Console operation failed.", error);
-    return Response.json(
-      { message: "Auth operation failed. Check the server log." },
-      { status: 500, headers: { "cache-control": "no-store" } },
-    );
-  }
+export async function issueImpersonationTicket(context: AuthOperationContext, userId?: string): Promise<ConsoleTicket> {
+  if (!consoleImpersonation()) throw consoleRequestError(404, "Impersonation is off. Set console.impersonation to true to enable it.");
+  const { issueConsoleTicket } = await import("./tickets.ts");
+  if (userId === undefined) return await issueConsoleTicket(context, "auth.stop-impersonating", {});
+  const { api, request } = await operationAuthConsole(context);
+  const [describeError, description] = await api.describe(request);
+  if (describeError) throw authConsoleFailure(describeError);
+  const action = description.actions.impersonate;
+  if (!action.enabled) throw consoleRequestError(403, action.reason ?? "Impersonation is not available.", "CONSOLE_ACCESS_DENIED");
+  const [userError, detail] = await api.user(userId, request);
+  if (userError) throw authConsoleFailure(userError);
+  if (detail.impersonation && !detail.impersonation.enabled)
+    throw consoleRequestError(403, detail.impersonation.reason ?? "Better Auth does not impersonate this user.", "CONSOLE_ACCESS_DENIED");
+  return await issueConsoleTicket(context, "auth.impersonate", { userId });
 }
-const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, { section: "auth" });
-
-/** `POST <base>/_vitehub/auth/manage`: impersonation only. */
-const consoleAuthManageRoute: ConsoleRoute = consoleRoute(guarded);
-export default consoleAuthManageRoute;

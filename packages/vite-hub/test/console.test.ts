@@ -426,13 +426,10 @@ describe("Agent invocation console", () => {
 
   it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
     const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
-    addConsoleRpcHandler(config, "/runtime", "/early/", ["auth"])
-    addConsoleRpcHandler(config, "/runtime", "/portal/", ["auth"])
+    addConsoleRpcHandler(config, "/runtime", "/early/")
+    addConsoleRpcHandler(config, "/runtime", "/portal/")
 
-    expect(config.handlers.map(handler => handler.route)).toEqual([
-      "/portal/_vitehub/rpc",
-      "/portal/_vitehub/auth/manage",
-    ])
+    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/rpc"])
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
@@ -1091,10 +1088,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({ console: { invoke: true }, resolveAuthConfig: () => auth, sections: ["agents"] })
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers).toEqual([
-        expect.objectContaining({ route: "/_vitehub/rpc" }),
-        expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" }),
-      ])
+      expect(config.nitro?.handlers).toEqual([expect.objectContaining({ route: "/_vitehub/rpc" })])
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
       expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
