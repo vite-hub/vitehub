@@ -37,7 +37,7 @@
     "ai": "catalog:ai",
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
-    "h3": "catalog:h3-v1-compat",
+    "h3": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "nuxt-schema-org": "catalog:nuxt",
     "shiki": "^4.5.0",

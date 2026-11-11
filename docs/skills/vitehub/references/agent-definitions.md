@@ -29,7 +29,7 @@ Keep repository-wide guidance in repository files, Agent behavior in Driver Inst
 
 ## Invocation boundary
 
-Pass invocation input separately from trusted runtime context. Keep run identity, memoization, wait-until behavior, actor/admission context, and runtime selection explicit where the chosen invocation helper requires them.
+Pass invocation input separately from trusted runtime context. Keep run identity, memoization, wait-until behavior, invoker/admission context, and runtime selection explicit where the chosen invocation helper requires them.
 
 ## Proof
 

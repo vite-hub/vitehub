@@ -303,6 +303,8 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: "cloudflare_module",
+    // Minify Nitro's emitted modules; its Wrangler config disables a second bundle.
+    minify: true,
     cloudflare: {
       deployConfig: true,
       nodeCompat: true,
@@ -348,9 +350,6 @@ export default defineNuxtConfig({
       // The docs module adds every content page. These are app routes.
       routes: ["/openapi.json", "/robots.txt"],
     },
-  },
-  future: {
-    compatibilityVersion: 4,
   },
   compatibilityDate: "2026-05-30",
   experimental: {

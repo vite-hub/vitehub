@@ -7,7 +7,7 @@ import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { defineInternalTool, primitiveHandle } from "./internal.ts"
 
 import type { AnyOperation, OperationKind, OperationRegistry, OperationResult, OperationUser } from "@vite-hub/internal/operations"
-import type { AgentActor, AgentCapabilityContext, AgentCapabilityDefinition, AgentToolPolicyDecision, AgentToolSet, MaybePromise } from "../types.ts"
+import type { AgentInvoker, AgentCapabilityContext, AgentCapabilityDefinition, AgentToolPolicyDecision, AgentToolSet, MaybePromise } from "../types.ts"
 
 /** Which operations need approval before an Agent runs them. */
 export type OperationsApproval = "all" | "destructive" | "never" | "write" | readonly string[] | ((operation: { kind: OperationKind, name: string }) => boolean)
@@ -18,10 +18,10 @@ export interface OperationsCapabilityOptions {
   /** Operations that wait for approval. Default: `write`. */
   approve?: OperationsApproval
   /**
-   * Map the Invocation's Actor to the user that the operations see. Default: the Auth user the Actor stands for when Auth
+   * Map the Invocation's Invoker to the user that the operations see. Default: the Auth user the Invoker stands for when Auth
    * is configured, otherwise null.
    */
-  user?: (actor: AgentActor) => MaybePromise<OperationUser | null | undefined>
+  user?: (invoker: AgentInvoker) => MaybePromise<OperationUser | null | undefined>
   /**
    * Let the Agent pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`, so it can write
    * over a document that a person is editing. Default: false.
@@ -29,8 +29,8 @@ export interface OperationsCapabilityOptions {
   overrideLeases?: boolean
   /**
    * What the Agent may read of the Channel conversations (`channels.threads`, `channels.conversation`,
-   * `conversations.export`). Unset: nothing, and those operations refuse. `"participant"`: the threads that the Actor
-   * takes part in, matched by the Actor id, its Auth user id, or the id of a person in the thread. `"all"`: every
+   * `conversations.export`). Unset: nothing, and those operations refuse. `"participant"`: the threads that the Invoker
+   * takes part in, matched by the Invoker id, its Auth user id, or the id of a person in the thread. `"all"`: every
    * thread that a Channel knows. `conversations.export` always waits for approval and never includes media.
    */
   conversations?: "all" | "participant"
@@ -74,8 +74,8 @@ function operationUser(value: unknown): OperationUser | null {
 
 async function authUser(context: AgentCapabilityContext): Promise<OperationUser | null> {
   const auth = primitiveHandle(context, "auth")
-  if (!context.actor || !isRuntimeRecord(auth) || !(auth.user instanceof Function)) return null
-  return operationUser(await auth.user(context.actor))
+  if (!context.invoker || !isRuntimeRecord(auth) || !(auth.user instanceof Function)) return null
+  return operationUser(await auth.user(context.invoker))
 }
 
 async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, conversations?: "all" | "participant", include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
@@ -88,9 +88,9 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
       throw agentDiagnostics.AGENT_R1014({ message: `[vitehub] operations({ include }) names ${JSON.stringify(pattern)}, which matches no operation of this app.` })
     }
   }
-  // The operations see the user that the Actor stands for. `console.authorize` decides which sections that user may use.
-  const user = options.user && context.actor ? operationUser(await options.user(context.actor)) : await authUser(context)
-  const sections = await installedOperationSectionResolver()?.({ ...(context.actor ? { actor: context.actor } : {}), user }) ?? "all"
+  // The operations see the user that the Invoker stands for. `console.authorize` decides which sections that user may use.
+  const user = options.user && context.invoker ? operationUser(await options.user(context.invoker)) : await authUser(context)
+  const sections = await installedOperationSectionResolver()?.({ ...(context.invoker ? { actor: context.invoker } : {}), user }) ?? "all"
   // No sections means the policy denied admission, including sectionless and dynamic operations.
   if (sections !== "all" && sections.length === 0) return {}
   const access = { mode: "agent", sections, ...(user ? { user } : {}) }
@@ -112,7 +112,7 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
           const parsed = await (parsedInputs.get(input) ?? parseOperationInput(operation, input))
           result = await runParsedOperation(operation, parsed, {
             access,
-            ...(context.actor ? { actor: context.actor } : {}),
+            ...(context.invoker ? { actor: context.invoker } : {}),
             ...(options.overrideLeases ? { overrideLeases: true } : {}),
             ...(options.conversations ? { conversations: options.conversations } : {}),
             surface: "agent",
@@ -153,7 +153,7 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
 
 /**
  * Tools for the operations of the app, such as `content.*`. Each operation becomes a tool named after it, with dots as
- * underscores (`content.publish` is `content_publish`). The operations see the Auth user that the Actor stands for.
+ * underscores (`content.publish` is `content_publish`). The operations see the Auth user that the Invoker stands for.
  * `console.authorize` runs for that user (with a request that has no headers) and decides which Console sections it may
  * use: an operation of another section is not offered. An app without `console.authorize` has no such filter, so the
  * `include` list is the only gate. Write and destructive operations wait for approval unless `approve` says otherwise, and a
