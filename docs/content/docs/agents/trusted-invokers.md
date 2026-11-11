@@ -1,27 +1,24 @@
 ---
-title: Agent Actors
-description: Pass the trusted caller into an Agent run, clean up its fields, and use it to control access.
+title: Trusted Invokers
+description: Carry trusted caller identity into one Agent Invocation, normalize Invoker fields, and use Invokers for access decisions.
 navigation.order: 33
 navigation.group: History and context
 icon: i-lucide-user-check
 navigation.kind: Guides
 ---
 
-An Agent Actor is the trusted caller of one Invocation (one Agent run).
+An Agent Invoker is the trusted identity of the caller for one Invocation.
 Capabilities use it for access rules, rate limits, and state partitions. The
 CLI and the Console show it.
 
-Pass an Actor when the Agent must know who calls. Your app authenticates the
-request, and the Actor carries the result into the Agent. A Channel user or a
-chat user object is not an authorization decision.
+Pass an Invoker when the Agent must know who is calling. Your application
+authenticates the request. The Invoker carries the result of that check into the
+Agent. A Channel user or a chat user object is not an authorization decision.
 
-::note
-The API uses the name `invoker`. Configure Actors with
-`defineAgent({ invoker })` and pass one in `context.invoker`. Callbacks get
-the same value as `actor` and `invoker`.
-::
+Configure Invokers with `defineAgent({ invoker })`, pass one through
+`context.invoker`, and read it as `invoker` in callbacks.
 
-## Pass a trusted Actor
+## Pass a trusted Invoker
 
 Authenticate first. Then pass only checked identity facts:
 
@@ -61,11 +58,11 @@ ViteHub trusts this server value. Never copy unchecked request fields into
 the host has no lifetime API. See
 [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
 
-Without an Actor, ViteHub uses an anonymous one with the id
-`anonymous:<origin>`. A `chat.message` Trigger without `invoker` builds a
-`chat` Actor from its `user` field.
+Without an Invoker, ViteHub uses an anonymous Invoker with the id
+`anonymous:<origin>`. A `chat.message` Trigger without `invoker` derives a
+`chat` Invoker from its `user` field.
 
-## Actor fields
+## Invoker fields
 
 | Field | Required | Purpose |
 | --- | --- | --- |
@@ -77,7 +74,7 @@ Without an Actor, ViteHub uses an anonymous one with the id
 
 ## Configure profiles
 
-Profiles are fixed Actors for local development, Schedules, the CLI, and
+Profiles are known Invokers for local development, Schedules, CLI use, and
 trusted routes:
 
 ```ts [server/agents/support.ts]
@@ -106,17 +103,17 @@ export default defineAgent({
 
 Pick a profile with `context.invokerProfileId` for a direct call, or with
 top-level `invokerProfileId` for `chat.message`. An unknown id fails the
-Invocation, with no fallback to another Actor.
+Invocation. ViteHub does not fall back to another Invoker.
 
-## Normalize the Actor
+## Normalize the Invoker
 
 Use `resolve` to clean up or reject the trusted input. It runs before
 Capabilities and the Driver:
 
-```ts [server/utils/support-actor.ts]
+```ts [server/utils/support-invoker.ts]
 import { defineAgentInvoker } from 'vite-hub/agent'
 
-export const supportActor = defineAgentInvoker({
+export const supportInvoker = defineAgentInvoker({
   resolve({ context, defaultInvoker, selectedProfile }) {
     const customer = typeof defaultInvoker.meta?.customer === 'string'
       ? defaultInvoker.meta.customer.trim()
@@ -128,14 +125,14 @@ export const supportActor = defineAgentInvoker({
 })
 ```
 
-`defaultInvoker` is the input Actor or the anonymous Actor.
-`selectedProfile` is the profile the input picked. Return `undefined` to keep
-the default.
+`defaultInvoker` is the Invoker from the input, or the anonymous Invoker.
+`selectedProfile` is the profile that the input selected. Return `undefined` to
+keep the default selection.
 
-## Use Actors for access
+## Use Invokers for access
 
-Actor metadata can pick a Workspace scope. Keep the rule in code, not in the
-model:
+Invoker metadata can select a Workspace scope. Keep the authorization rule in
+code, not in the model:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -145,8 +142,8 @@ export default defineAgent({
   capabilities: [
     access({
       workspace: {
-        resolve({ actor }) {
-          return actor.meta?.customer === 'acme' ? 'acme' : 'public'
+        resolve({ invoker }) {
+          return invoker.meta?.customer === 'acme' ? 'acme' : 'public'
         },
         scopes: {
           public: { paths: ['public'] },
@@ -160,9 +157,9 @@ export default defineAgent({
 })
 ```
 
-Never let the model choose its Actor or scope. Authenticate, normalize once,
-and let Capabilities use the result. Read
-[Access](/docs/agents/capabilities/access) for scope options.
+Do not let the model choose its own Invoker or access scope. Authenticate first,
+normalize once, and let Capabilities use the trusted result. Read
+[Access](/docs/agents/capabilities/access) for the scope options.
 
 ## API names
 
@@ -171,6 +168,6 @@ and let Capabilities use the result. Read
 | Configure resolution | `defineAgent({ invoker })`, `defineAgentInvoker()` |
 | Direct invocation input | `input.context.invoker` |
 | `chat.message` input | Top-level `invoker` |
-| Read in callbacks | `actor` or `invoker` |
-| Read from the context store | `context.get('actor')` or `context.get('invoker')` |
-| Public type | `AgentActor`. Invoker-named APIs also expose `AgentInvoker`. |
+| Read in callbacks | `invoker` |
+| Read from the context store | `context.get('invoker')` |
+| Public type | `AgentInvoker` |
