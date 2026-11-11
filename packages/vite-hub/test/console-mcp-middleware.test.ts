@@ -112,7 +112,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' as 
     expect((await send(request(token))).status).toBe(403)
     sectionAllowed = true
     expect((await send(request("invalid"))).status).toBe(401)
-    for (const sibling of [`${mount}/_vitehub/rpc/__call`, `${path}/extra`]) {
+    for (const sibling of [`${mount}/_vitehub/rpc`, `${path}/extra`]) {
       expect((await send(request(token, sibling))).status).toBe(401)
     }
   }
@@ -165,11 +165,18 @@ it.each([
   await writeFile(authorizeFile, 'export default globalThis[Symbol.for("test.console.mcp.section-policy")]')
   const generated = resolve(root, "plugin.ts")
   const modulePath = resolve(root, "plugin.mjs")
-  await writeConsoleNitroPlugin(generated, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, {
-    authorize: authorizeFile,
-    check: { appRoutes: routes.map((route, index) => ({ ...route, index })) },
-    mode: "auth",
-    oauth: { path, resource },
+  await writeConsoleNitroPlugin({
+    file: generated,
+    projectRoot: root,
+    sections: [],
+    catalog: { agents: [], content: {} },
+    blobStores: [],
+    access: {
+      authorize: authorizeFile,
+      check: { appRoutes: routes.map((route, index) => ({ ...route, index })) },
+      mode: "auth",
+      oauth: { path, resource },
+    },
   })
   await build({
     bundle: true, entryPoints: [generated], format: "esm", outfile: modulePath, packages: "external", platform: "node",
@@ -178,11 +185,12 @@ it.each([
       setup(plugin) {
         plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
         plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
+        plugin.onResolve({ filter: /^@vite-hub\/auth\/runtime\/console$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
         plugin.onResolve({ filter: /^@vite-hub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/server"), external: true }))
         plugin.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
           import * as auth from "@vite-hub/auth/server";
           const definition = globalThis[Symbol.for("test.console.mcp.middleware")];
-          export const getAuthForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
+          export const authForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
           export const requireAuthAccessRoutes = (event, indexes, _, required, options) => auth.requireAuthAccessRoutes(event, indexes, definition, required, options);
           export const withAuthorization = (authorize, handler) => auth.withAuthorization(authorize, handler, definition);
           export const setAuthAccessIdentityResolver = auth.setAuthAccessIdentityResolver;
@@ -240,7 +248,7 @@ it.each([
   const invalid = await send(request("invalid"))
   expect(invalid.status).toBe(401)
   expect(invalid.headers.get("www-authenticate")).toContain('error="invalid_token"')
-  for (const sibling of [`${mount}/_vitehub/rpc/__call`, `${path}/extra`]) {
+  for (const sibling of [`${mount}/_vitehub/rpc`, `${path}/extra`]) {
     expect((await send(request(token, sibling))).status).toBe(401)
   }
 })

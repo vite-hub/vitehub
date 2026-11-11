@@ -105,16 +105,12 @@ describe("package manifest contracts", () => {
       expect(manifest.type).toBe("module")
       // Presets have one subpath per preset and no root entry.
       const subpathOnly = packageName === "presets"
-      // The vite-hub build writes the prebuilt Console app into console-client, which ships static files and no code.
-      const assetsOnly = packageName === "console-client"
-      expect(manifest.types).toBe(subpathOnly || assetsOnly ? undefined : "./dist/index.d.ts")
+      expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
-      if (!assetsOnly) {
-        expect(manifest.scripts?.build).toEqual(expect.any(String))
-        // The typecheck reads workspace dependencies from their dist, so it builds them first.
-        expect(manifest.scripts?.typecheck).toMatch(new RegExp(`^vp run --cache -t ${manifest.name}#build && `))
-        expect(manifest.scripts?.test).toEqual(expect.any(String))
-      }
+      expect(manifest.scripts?.build).toEqual(expect.any(String))
+      // The typecheck reads workspace dependencies from their dist, so it builds them first.
+      expect(manifest.scripts?.typecheck).toMatch(new RegExp(`^vp run --cache -t ${manifest.name}#build && `))
+      expect(manifest.scripts?.test).toEqual(expect.any(String))
       if (packageName === "markdown-template") {
         expect(manifest.exports?.["."]).toEqual({
           types: { node: "./dist/index.d.ts", default: "./dist/portable.d.ts" },
@@ -124,7 +120,7 @@ describe("package manifest contracts", () => {
         expect(exportTarget(manifest.exports?.["./file"])).toBe("./dist/file.js")
         expect(Object.keys(manifest.exports?.["."] ?? {})).toEqual(["types", "node", "default"])
       }
-      else if (subpathOnly || assetsOnly) {
+      else if (subpathOnly) {
         expect(manifest.exports?.["."]).toBeUndefined()
       }
       else {
@@ -213,7 +209,8 @@ describe("package manifest contracts", () => {
   it("declares peers that the app also installs as ranges that accept the app's copy", () => {
     // An exact peer makes pnpm install a second Vue next to the app's Vue, and Nuxt pages then render empty.
     // npm stops with ERESOLVE when the app depends on another version of an exact optional peer, such as better-auth.
-    const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "nuxt", "vite", "vue", "workflow"]
+    // A second drizzle-orm breaks Drizzle's `is()` checks, such as the Postgres check of Auth.
+    const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "drizzle-kit", "drizzle-orm", "nuxt", "vite", "vue", "workflow"]
     for (const packageName of packageNames) {
       const peers = readPackageManifest(packageName).peerDependencies || {}
       for (const peer of appPeers) {

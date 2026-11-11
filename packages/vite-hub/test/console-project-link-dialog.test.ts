@@ -8,6 +8,7 @@ import { continueConsoleOpen, startConsoleOpen } from "../src/console/runtime/cl
 import { consoleProjectReady, startConsoleProjects } from "../src/console/runtime/client/project-session.ts"
 import { memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
 import ConsoleProjectLink from "../src/console/runtime/components/console-project-link.vue"
+import { operationRpcFetch } from "../../internal/test-utils/operation-rpc.ts"
 
 const UButton = defineComponent({
   props: { label: String, disabled: Boolean, loading: Boolean },
@@ -27,7 +28,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe("Link project dialog", () => {
   it.each(["hosted", "embedded"] as const)("keeps linking by URL available in %s mode without offering the unsupported init command", (mode) => {
     const fetch = vi.fn()
-    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("fetch", operationRpcFetch(fetch))
     startConsoleProjects({ base: "", home: "/", mode, navigate: vi.fn(), pageOrigin: "https://console.example.com", storage: memoryProjectStorage() })
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
     const wrapper = shallowMount(ConsoleProjectLink, {
@@ -47,7 +48,7 @@ describe("Link project dialog", () => {
   })
 
   it("submits the prefilled first project and opens its page without reloading", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv"], operations: ["kv.list"] } })))
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async () => Response.json({ ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv"], operations: ["kv.list"] } }))))
     const storage = memoryProjectStorage()
     const request = startConsoleOpen({ location: { pathname: "/open", search: "?project=https://shop.example.com&path=/kv" }, history: { state: null, replaceState: vi.fn() } }, "/", storage)
     const navigate = vi.fn()

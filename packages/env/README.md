@@ -196,7 +196,7 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
 | `typesafeEnv({ model? })` | The Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey` (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`, default `jev-latest`). |
 
-The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
+The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })` uses `typesafe()` when it gets no other gateway, and it reads this group:
 
 ```ts fragment
 env: {
@@ -311,6 +311,18 @@ export default {
     plugins: [hubEnv()],
   },
 };
+```
+
+To type code without running Vite, such as in a test or a docs check, pass the same `env` options to `createEnvTypes()`. It returns the contents of `.vitehub/types/env.d.ts`:
+
+```ts
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createEnvTypes, env } from "@vite-hub/env/vite";
+
+mkdirSync(".vitehub/types", { recursive: true });
+writeFileSync(".vitehub/types/env.d.ts", createEnvTypes({
+  server: { githubToken: env({ secret: true, source: env.source("GITHUB_TOKEN") }) },
+}));
 ```
 
 Public Env and `env.define` values are compiled into client bundles. Never put credentials in either section. The host still owns secret storage and injection; Env owns declarations, resolution, generated accessors, validation, and default redaction.

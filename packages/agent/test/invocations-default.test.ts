@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsDatabase, resolveDefaultAgentInvocationsLocation } from "../src/invocations/default.ts"
+import { createDefaultAgentInvocations as createCoreAgentInvocations } from "../src/invocations/default-core.ts"
 
 const opens = vi.hoisted(() => ({ count: 0, delayMs: 0 }))
 
@@ -47,11 +48,34 @@ describe("default Agent Invocation journal", () => {
   })
 
   it("imports no Node builtin outside the lazy file module, so a Worker without Node compatibility can start", () => {
-    for (const file of ["default.ts", "default-location.ts", "d1.ts"]) {
+    for (const file of ["default.ts", "default-core.ts", "default-libsql.ts", "default-location.ts", "d1.ts"]) {
       const source = readFileSync(new URL(`../src/invocations/${file}`, import.meta.url), "utf8")
       expect(source, file).not.toMatch(/from ["']node:/)
     }
-    expect(readFileSync(new URL("../src/invocations/default.ts", import.meta.url), "utf8")).toContain('import("./default-file.ts")')
+    expect(readFileSync(new URL("../src/invocations/default-libsql.ts", import.meta.url), "utf8")).toContain('import("./default-file.ts")')
+  })
+
+  it("keeps the libSQL client out of the core entry", () => {
+    const source = readFileSync(new URL("../src/invocations/default-core.ts", import.meta.url), "utf8")
+    expect(source).not.toMatch(/^import (?!type\s)[^\n]*["'](?:@libsql\/|\.\/sqlite\.ts|\.\/default-libsql\.ts)/m)
+    expect(source).not.toMatch(/import\(\s*["'](?:@libsql\/|\.\/sqlite\.ts|\.\/default-libsql\.ts)/)
+  })
+
+  it("selects D1 and memory without the libSQL driver, and rejects SQLite or libSQL with AGENT_R1036", () => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    const d1 = { binding: "DB", env: () => ({}) }
+    expect(defaultAgentInvocationsDatabase(createCoreAgentInvocations({ d1, env: {}, projectRoot: "/worker" }))?.driver).toBe("d1")
+    expect(defaultAgentInvocationsDatabase(createCoreAgentInvocations({ env: {}, projectRoot: "/worker" }))).toBeUndefined()
+    const env = { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "libsql://journal.example.com" }
+    expect(() => createCoreAgentInvocations({ d1, env, projectRoot: "/worker" })).toThrow(expect.objectContaining({
+      code: "AGENT_R1036",
+      message: expect.stringContaining("built without the libSQL driver"),
+    }))
+    vi.unstubAllGlobals()
+    expect(() => createCoreAgentInvocations({ env: {}, projectRoot: "/app" })).toThrow(expect.objectContaining({
+      code: "AGENT_R1036",
+      message: expect.stringContaining("built without the libSQL driver"),
+    }))
   })
 
   it("keeps records in memory on a Worker without D1 or a remote URL", () => {

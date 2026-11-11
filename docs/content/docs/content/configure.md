@@ -55,7 +55,7 @@ import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }) },
 })
@@ -74,11 +74,12 @@ import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({
       path: 'posts/**/*.md',
+      url: '/blog/:id',
       fields: {
         title: z.string().min(1),
         date: z.coerce.date(),
@@ -125,9 +126,13 @@ Adding a glob can change existing ids. Ids are relative to the folder all globs 
 
 `content.resolve(path)` finds the document a page shows, for example for an Edit button. It returns `{ collection, id }`, or `null`.
 
-```ts
-const route = await content.resolve('/blog/hello?utm=x')
-// { collection: 'posts', id: 'hello' }
+```ts [server/utils/edit-target.ts]
+import content from '../content'
+
+export async function editTarget() {
+  return await content.resolve('/blog/hello?utm=x')
+  // { collection: 'posts', id: 'hello' }
+}
 ```
 
 A collection maps documents to paths with its [`url`](/docs/content/seo#document-urls). A document with `url: null` has no page. Without `url`, the path is `/` plus the id, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. Query strings, hashes, and trailing slashes are ignored. If two collections give the same path, the first defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads `published`, or `draft` in a preview request. Pass `{ ref: 'draft' }` to include unpublished documents.
@@ -171,7 +176,7 @@ A catch-all page serves every locale with the calls a page already makes. `conte
 
 ```ts [server/api/page.get.ts] fragment
 import { defineEventHandler, getQuery, HTTPError } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async (event) => {
   const page = await content.resolve(String(getQuery(event).path))
@@ -219,7 +224,7 @@ import { defineContent, image, optional } from 'vite-hub/content'
 import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     settings: singleton({
@@ -251,13 +256,17 @@ ViteHub has no settings schema. These fields are an example. Define the ones you
 
 The id is the file name without extension: `settings.json` is `settings`. You rarely need it, because singleton methods work without an id.
 
-```ts
-const settings = content.collection('settings')
+```ts [server/utils/settings.ts]
+import content from '../content'
 
-await settings.get()                       // published settings, or null before the first publish
-const draft = await settings.save({ data: { title: 'ViteHub' } })
-await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
-await settings.status()                    // { state: 'published', ... }
+export async function renameSite() {
+  const settings = content.collection('settings')
+
+  await settings.get()                       // published settings, or null before the first publish
+  const draft = await settings.save({ data: { title: 'ViteHub' } })
+  await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
+  await settings.status()                    // { state: 'published', ... }
+}
 ```
 
 `content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
@@ -354,7 +363,7 @@ A runtime can combine read-only `sources` with `collections`. They share one nam
 `authorize` decides what a user may do with a collection. The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()`. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
@@ -400,19 +409,19 @@ The build stores the parsed documents gzipped, and the server inflates each part
 
 Content has no hosted provider. Comark Content keeps its query and search index in the database you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
 
-For full-text search on read-only Sources, install `comark-content` for the plugin imports. Content already has what it needs to read and render Markdown.
+To add full-text search to read-only Sources, install `comark-content` for the plugin import. Pass `sqlite()` from `vite-hub/content/sqlite` as the index database. It works on every preset.
 
 ```bash
 pnpm add comark-content
 ```
 
 ```ts [server/content.ts]
-import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
+import { sqlite } from 'vite-hub/content/sqlite'
 import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
 	plugins: [sqliteFullTextSearch({ database: sqlite() })],
 	sources: {
 		docs: glob({ cwd: 'docs', include: '**/*.md' }),
@@ -420,14 +429,11 @@ export const content = defineContent({
 })
 ```
 
-For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. The Node SQLite adapter keeps local state. Read [Limits and errors](/docs/content/limits-and-errors) before you run several server instances.
+`sqlite()` keeps the index in memory. Each server instance builds its own index when Content loads, so it needs no Database and no migration. On Node runtimes, such as the Node, Vercel, and Netlify presets, it uses Node SQLite. On Cloudflare Workers it uses SQLite WASM, because Node SQLite there is a stub.
 
-| Database | Import | Use |
-| --- | --- | --- |
-| Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite, such as the Node, Vercel, and Netlify presets. |
-| SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. Install `@sqlite.org/sqlite-wasm` too, because `comark-content` does not install it. |
+A Worker can compile WebAssembly only while it starts, and Content loads on its first request. So when `server/content.ts` imports `vite-hub/content/sqlite`, ViteHub loads SQLite WASM when the Worker starts. This adds about 0.6 MB gzip to the Worker and about 15 ms to its startup. If you import it only from another file, the first search fails with `CONTENT_R0018`.
 
-Full-text search does not run on Cloudflare Workers yet. Workers have no Node SQLite, and SQLite WASM cannot start inside a request there, which is where Content loads.
+For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. Review [Limits and errors](/docs/content/limits-and-errors) before running multiple server instances. Comark's own `comark-content/database/sqlite-node` and `comark-content/database/sqlite-wasm` adapters also work on Node runtimes, but not on Cloudflare Workers.
 
 The `vitehub()` Vite plugin and the Nuxt module generate the Content route for every preset. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
@@ -462,7 +468,7 @@ A server route without Vue renders a document with `renderContentHtml()` from `v
 ```ts [server/routes/guides/[slug].get.ts]
 import { defineHandler, getRouterParam } from 'h3'
 import { renderContentHtml } from 'vite-hub/content'
-import { content } from '../../content'
+import content from '../../content'
 
 export default defineHandler(async (event) => {
   const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)

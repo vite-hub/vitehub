@@ -15,6 +15,8 @@ import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 vi.mock("node:fs", async importOriginal => ({ ...await importOriginal<typeof import("node:fs")>() }))
 vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>() }))
 
@@ -71,7 +73,7 @@ describe("schedule provider output", () => {
       const handler = await import(pathToFileURL(file).href)
       const result = await handler.default(new Request("https://request.example"))
       expect(result.status).toBe(204)
-      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? `${origin}${base}_vitehub/agents/worker/invocations/invocation` : undefined)
+      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? hostedConsoleLink(`${origin}${base.replace(/\/$/, "")}`, "/agents/worker/invocations/invocation") : undefined)
     }
     Reflect.deleteProperty(globalThis, "scheduleUrl")
   })
@@ -1112,7 +1114,7 @@ describe("schedule provider output", () => {
     const generate = async (cron?: Record<string, string>) => await generateProviderOutputs({ clientOutDir: "dist/client", cron, rootDir })
     const vercelCrons = async () => JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons
 
-    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'America/New_York' })")
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'America/New_York', handler: () => 'ok' })")
     await generate()
     expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 12,13 * * *" }])
 

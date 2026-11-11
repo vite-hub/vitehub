@@ -3,17 +3,19 @@ description: "Fix DATABASE_NOT_FOUND in ViteHub. A database name has no Database
 seo.title: "DATABASE_NOT_FOUND: unknown Database name"
 ---
 
-ViteHub throws `DATABASE_NOT_FOUND` when you select a database by a name that has no Database Definition. `error.why` names the database.
+ViteHub throws `DATABASE_NOT_FOUND` when you select a database by a name that has no Database Definition. `error.why` names the database. For `useDatabase()`, it also lists the discovered Database names, or `none` when the app has no Database.
 
 ## Why it happens
 
-ViteHub discovers one Database for each Definition. A Named Database gets its name from `src/<name>.database.ts` or `server/databases/<name>/config.ts`. The Default Database is `default`. The error comes from these calls:
+ViteHub discovers one Database for each Definition. A Named Database gets its name from `server/databases/<name>.ts`, `server/databases/<name>/index.ts`, or `src/<name>.database.ts`. The Default Database is `default`. The error comes from these calls:
 
 - The Agent `db()` Capability with a `database` option. It calls `agentDb.database(name)`, which throws for an unknown name.
+- `useDatabase(name)` with an unknown name, including `default` when the app has only Named Databases.
+- `useDatabase()` without a name when the app has no Database. With a Default Database or one Named Database, it returns that Database. With several Named Databases and no Default Database, it throws `DATABASE_NAME_REQUIRED`.
 - `vitehub database export --database <name>`. The command prints the error and exits with code 1.
-- A query on the Default Database when the app has only Named Databases. The Nuxt module and hosted Cloudflare and Vercel builds report this case as `DATABASE_NOT_FOUND` for `default`. Other runtimes report [`DATABASE_DISABLED`](/docs/database/diagnostics/database_disabled).
+- A query through the `db` export or `databases.default` when the app has only Named Databases. The Nuxt module and hosted Cloudflare and Vercel builds report this case as `DATABASE_NOT_FOUND` for `default`. Other runtimes report [`DATABASE_DISABLED`](/docs/database/diagnostics/database_disabled).
 
-`useDatabase(name)` does not throw this error. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`.
+An unknown name throws from `useDatabase(name)` before a query runs.
 
 ## Fix it
 

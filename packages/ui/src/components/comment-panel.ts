@@ -210,6 +210,7 @@ export const CommentPanel = defineComponent({
         h(
           "button",
           {
+            "data-focus-inset": "",
             "data-slot": "comment-panel-item",
             "data-status": thread.status,
             "data-thread-id": thread.id,
@@ -278,6 +279,7 @@ export const CommentPanel = defineComponent({
                 error: failure.value,
                 files: files.value,
                 guard: false,
+                layout: "row",
                 mentions: mentions.value,
                 modelValue: body.value,
                 onSubmit: send,

@@ -40,7 +40,7 @@ async function historyWorkspace() {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `preview-${++workspaces}`
@@ -316,6 +316,44 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(await (await nitroApp.fetch(new Request("https://site.test/posts"))).json()).toMatchObject({ total: 1 })
     expect(await titleOf(await nitroApp.fetch(new Request("https://site.test/api/content/get/posts/hello", { headers: { cookie } })))).toBe("Draft")
     expect(shouldBypassCache()).toBe(false)
+  })
+
+  it("loads the Content runtime on the first preview request when the plugin gets a loader", async () => {
+    const { content, posts } = await setup()
+    const cookie = await previewCookie(content)
+    const app = new H3().get("/blog/hello", async () => ({ bypass: shouldBypassCache(), title: (await posts.get("hello"))?.data.title }))
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    const load = vi.fn(async () => content)
+    defineContentPreviewPlugin(load)(nitroApp)
+
+    // The generated plugin passes a loader, so a server without preview requests never loads server/content.ts.
+    expect(await (await nitroApp.fetch(new Request("https://site.test/blog/hello"))).json()).toEqual({ bypass: false, title: "Published" })
+    expect(shouldBypassCache()).toBe(false)
+    expect(load).not.toHaveBeenCalled()
+
+    const previews = await Promise.all([1, 2].map(async () => await nitroApp.fetch(new Request("https://site.test/blog/hello", { headers: { cookie } }))))
+    for (const preview of previews) {
+      expect(await preview.json()).toEqual({ bypass: true, title: "Draft" })
+      expect(preview.headers.get("cache-control")).toBe("private, no-store")
+    }
+    const published = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewPublishedParameter}`, { headers: { cookie } }))
+    expect(await published.json()).toEqual({ bypass: true, title: "Published" })
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries a Content runtime loader that failed", async () => {
+    const { content } = await setup()
+    const cookie = await previewCookie(content)
+    const nitroApp = { fetch: (_request: Request) => new Response("page") }
+    const load = vi.fn<() => Promise<typeof content>>()
+      .mockRejectedValueOnce(new Error("server/content.ts failed"))
+      .mockResolvedValue(content)
+    defineContentPreviewPlugin(load)(nitroApp)
+
+    const request = () => nitroApp.fetch(new Request("https://site.test/", { headers: { cookie } }))
+    await expect(request()).rejects.toThrow("server/content.ts failed")
+    expect(await (await request()).text()).toBe("page")
+    expect(load).toHaveBeenCalledTimes(2)
   })
 
   it("scopes whole Nitro 2 requests through the generated plugin, isolated per request", async () => {

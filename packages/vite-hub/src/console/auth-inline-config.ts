@@ -7,7 +7,6 @@ export interface InlineConsoleAuth {
   /** Persistent SQLite file. Defaults to `<dataDir>/console-auth.sqlite` when `dataDir` is set. */
   databasePath?: string
   baseURL?: string
-  client?: string
   clientIdEnv?: string
   clientSecretEnv?: string
   secretEnv?: string

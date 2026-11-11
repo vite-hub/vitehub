@@ -1,28 +1,27 @@
 import { defineComponent, getCurrentInstance, h, type PropType } from "vue";
-import { hasRuntimeType } from "../internal/runtime-type.ts";
 import { payloadText } from "../internal/payload-text.ts";
 import type { AgentToolInspection } from "../types.ts";
 
 function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) {
   if (schema === undefined) return h("p", { class: "vh-agent-tool-list__unavailable" }, `${label} not recorded.`);
-  const text = hasRuntimeType(schema, "string") ? JSON.stringify(schema) : payloadText(schema);
+  const text = typeof schema === "string" ? JSON.stringify(schema) : payloadText(schema);
   // Inspect the serialized value so getters and custom conversions cannot escape the display guard.
   let normalized: unknown;
   try { normalized = JSON.parse(text); } catch { normalized = undefined; }
-  const object: Record<string, unknown> | undefined = hasRuntimeType(normalized, "object") && normalized !== null && !Array.isArray(normalized) ? Object.fromEntries(Object.entries(normalized)) : undefined;
+  const object: Record<string, unknown> | undefined = typeof normalized === "object" && normalized !== null && !Array.isArray(normalized) ? Object.fromEntries(Object.entries(normalized)) : undefined;
   const properties = object?.properties;
-  const fields = hasRuntimeType(properties, "object") && properties !== null && !Array.isArray(properties) ? Object.entries(properties) : [];
+  const fields = typeof properties === "object" && properties !== null && !Array.isArray(properties) ? Object.entries(properties) : [];
   const required = Array.isArray(object?.required) ? object.required : [];
   return h("section", { class: "vh-agent-tool-list__schema" }, [
     h("strong", label),
     fields.length ? h("table", { class: "vh-agent-tool-list__properties" }, [
       h("thead", [h("tr", [h("th", "Field"), h("th", "Type"), h("th", "Description")])]),
       h("tbody", fields.map(([name, value]) => {
-        const field: Record<string, unknown> = hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+        const field: Record<string, unknown> = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
         return h("tr", [
           h("td", [h("code", name), required.includes(name) ? h("small", "Required") : null]),
           h("td", Array.isArray(field.type) ? field.type.join(" | ") : String(field.type || (field.$ref ? "Reference" : "See schema"))),
-          h("td", hasRuntimeType(field.description, "string") ? field.description : "—"),
+          h("td", typeof field.description === "string" ? field.description : "—"),
         ]);
       })),
     ]) : null,

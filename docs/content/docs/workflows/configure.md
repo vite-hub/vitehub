@@ -66,7 +66,7 @@ Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on other s
 A Workflow Definition is a file that names long-running work.
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow('onboard-user', async (payload: { email: string }) => {
   const user = await createUser(payload.email)
@@ -92,14 +92,14 @@ The handler gets `(payload, context)`. Annotate `payload` to type it. `context` 
 
 ### Add a durable Vercel entry
 
-Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. For durable execution on Vercel, add a Workflow DevKit entry:
+Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. First [install `@vercel/functions`](/docs/workflows/hosts#install-vercel-dependencies), which all Vercel definitions require. For durable execution on Vercel, also install the Workflow DevKit packages and add a native entry:
 
-```bash [Terminal]
+```bash pm [Terminal]
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow, type WorkflowProviderContext } from '@vite-hub/workflow'
+import { defineWorkflow, type WorkflowProviderContext } from 'vite-hub/workflow'
 
 interface OnboardPayload {
   email: string

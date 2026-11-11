@@ -1,5 +1,4 @@
 import type { Lock, StateAdapter } from "chat"
-import { isRuntimeFunction, isRuntimeObject } from "./runtime-value.ts"
 
 /** State storage that retains its data across process and host restarts. */
 export interface DurableAgentStateAdapter extends StateAdapter {
@@ -18,7 +17,7 @@ export interface AtomicAgentStateLockAdapter extends StateAdapter {
 export function requireAtomicAgentStateLock(state: StateAdapter): AtomicAgentStateLockAdapter {
   // SAFETY: The State contract may include optional extension methods, checked below before use.
   const candidate = state as Partial<AtomicAgentStateLockAdapter>
-  if (!isRuntimeFunction(candidate.mutateWithLock)) {
+  if (typeof candidate.mutateWithLock !== "function") {
     throw new Error("[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).")
   }
   // SAFETY: The adapter explicitly implements the atomic mutation contract checked above.
@@ -27,5 +26,5 @@ export function requireAtomicAgentStateLock(state: StateAdapter): AtomicAgentSta
 
 /** Durable State retains Channel cursors across process and host restarts. */
 export function isDurableAgentState(state: StateAdapter): state is DurableAgentStateAdapter {
-  return isRuntimeObject(state) && "durable" in state && state.durable === true
+  return typeof state === "object" && state !== null && "durable" in state && state.durable === true
 }

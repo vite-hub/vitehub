@@ -1,6 +1,5 @@
 import type { StateAdapter } from "chat"
 
-import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeUndefined } from "./runtime-value.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AgentWebhookQueueDelivery {
@@ -71,43 +70,43 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
-  return isRuntimeObject(value) && Object.values(value).every(isRuntimeString)
+  return typeof value === "object" && value !== null && Object.values(value).every((entry) => typeof entry === "string")
 }
 
 export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhookQueueDelivery {
   const value: unknown = JSON.parse(serialized)
   if (
-    !isRuntimeObject(value) ||
+    typeof value !== "object" || value === null ||
     !("concurrencyGroup" in value) ||
-    !isRuntimeString(value.concurrencyGroup) ||
-    ("concurrencyKey" in value && !isRuntimeUndefined(value.concurrencyKey) && !isRuntimeString(value.concurrencyKey)) ||
+    typeof value.concurrencyGroup !== "string" ||
+    ("concurrencyKey" in value && value.concurrencyKey !== undefined && typeof value.concurrencyKey !== "string") ||
     !("concurrencyLimit" in value) ||
-    !isRuntimeNumber(value.concurrencyLimit) ||
-    ("channelDeliveryId" in value && !isRuntimeUndefined(value.channelDeliveryId) && !isRuntimeString(value.channelDeliveryId)) ||
+    typeof value.concurrencyLimit !== "number" ||
+    ("channelDeliveryId" in value && value.channelDeliveryId !== undefined && typeof value.channelDeliveryId !== "string") ||
     !("deliveryId" in value) ||
-    !isRuntimeString(value.deliveryId) ||
+    typeof value.deliveryId !== "string" ||
     !("enqueuedAt" in value) ||
-    !isRuntimeNumber(value.enqueuedAt) ||
-    ("availableAt" in value && !isRuntimeUndefined(value.availableAt) && !isRuntimeNumber(value.availableAt)) ||
-    ("debounceKey" in value && !isRuntimeUndefined(value.debounceKey) && !isRuntimeString(value.debounceKey)) ||
+    typeof value.enqueuedAt !== "number" ||
+    ("availableAt" in value && value.availableAt !== undefined && typeof value.availableAt !== "number") ||
+    ("debounceKey" in value && value.debounceKey !== undefined && typeof value.debounceKey !== "string") ||
     !("leaseTtlMs" in value) ||
-    !isRuntimeNumber(value.leaseTtlMs) ||
+    typeof value.leaseTtlMs !== "number" ||
     !("scope" in value) ||
-    !isRuntimeString(value.scope) ||
+    typeof value.scope !== "string" ||
     !("webhookId" in value) ||
-    !isRuntimeString(value.webhookId) ||
+    typeof value.webhookId !== "string" ||
     !("request" in value) ||
-    !isRuntimeObject(value.request) ||
+    typeof value.request !== "object" || value.request === null ||
     !("body" in value.request) ||
-    !isRuntimeString(value.request.body) ||
+    typeof value.request.body !== "string" ||
     !("headers" in value.request) ||
     !isStringRecord(value.request.headers) ||
     !("method" in value.request) ||
-    !isRuntimeString(value.request.method) ||
+    typeof value.request.method !== "string" ||
     !("url" in value.request) ||
-    !isRuntimeString(value.request.url) ||
-    ("invocation" in value && !isRuntimeUndefined(value.invocation) && (!isRuntimeObject(value.invocation) || ("requiresPrepare" in value.invocation && value.invocation.requiresPrepare !== true))) ||
-    ("rehydrate" in value && !isRuntimeUndefined(value.rehydrate) && value.rehydrate !== true)
+    typeof value.request.url !== "string" ||
+    ("invocation" in value && value.invocation !== undefined && (typeof value.invocation !== "object" || value.invocation === null || ("requiresPrepare" in value.invocation && value.invocation.requiresPrepare !== true))) ||
+    ("rehydrate" in value && value.rehydrate !== undefined && value.rehydrate !== true)
   ) {
     throw agentDiagnostics.AGENT_R0593({ message: "[vitehub] Agent webhook queue contains an invalid delivery." })
   }
@@ -119,15 +118,15 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const candidate = state as Partial<AgentWebhookQueueStateAdapter>
   return (
-    isRuntimeFunction(candidate.claimWebhookDelivery) &&
-    isRuntimeFunction(candidate.claimWebhookSteering) &&
-    isRuntimeFunction(candidate.completeWebhookDelivery) &&
-    isRuntimeFunction(candidate.enqueueWebhookDelivery) &&
-    isRuntimeFunction(candidate.extendWebhookDeliveryLease) &&
-    isRuntimeFunction(candidate.retryWebhookDelivery) &&
-    isRuntimeFunction(candidate.webhookDeliveries) &&
-    isRuntimeFunction(candidate.queuedWebhookDeliveries) &&
-    isRuntimeFunction(candidate.webhookDeliveryScopes)
+    typeof candidate.claimWebhookDelivery === "function" &&
+    typeof candidate.claimWebhookSteering === "function" &&
+    typeof candidate.completeWebhookDelivery === "function" &&
+    typeof candidate.enqueueWebhookDelivery === "function" &&
+    typeof candidate.extendWebhookDeliveryLease === "function" &&
+    typeof candidate.retryWebhookDelivery === "function" &&
+    typeof candidate.webhookDeliveries === "function" &&
+    typeof candidate.queuedWebhookDeliveries === "function" &&
+    typeof candidate.webhookDeliveryScopes === "function"
   )
 }
 
@@ -189,7 +188,7 @@ const webhookQueueStopMessage = "[vitehub] Webhook queue stopped during Agent ex
  */
 export function isWebhookQueueStop(error: unknown): boolean {
   const seen = new Set<object>()
-  for (let current = error; isRuntimeObject(current) && !seen.has(current); current = Reflect.get(current, "cause")) {
+  for (let current = error; typeof current === "object" && current !== null && !seen.has(current); current = Reflect.get(current, "cause")) {
     seen.add(current)
     if (Reflect.get(current, "code") === "AGENT_R0594") return true
   }

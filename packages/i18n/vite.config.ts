@@ -1,10 +1,10 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     copy: [{ from: "src/virtual.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "vue", /^virtual:/, /^@lingui\//, /^@babel\//],
@@ -21,14 +21,6 @@ export default defineConfig({
       },
     }],
     entry: ["src/index.ts", "src/cli.ts", "src/nuxt.ts", "src/runtime.ts", "src/server.ts", "src/vite.ts", "src/vue.ts"],
-    exports: {
-      customExports: normalizePackageExports,
-      inlinedDependencies: false,
-    },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
     publint: true,
   },
 })
