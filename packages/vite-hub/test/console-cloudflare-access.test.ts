@@ -435,11 +435,11 @@ describe("Cloudflare Access Console Auth", () => {
     }
   })
 
-  it.each(["cloudflare", "node"])("rejects host-managed production exposure on %s", async (preset) => {
+  it.each(["cloudflare", "node"])("rejects host-managed production exposure on %s", async (host) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-host-managed-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected Console config hook.")
       const configure = "handler" in configHook ? configHook.handler : configHook

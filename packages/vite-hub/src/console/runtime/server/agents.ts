@@ -1,4 +1,4 @@
-import { markConsoleFixtureInvocations, resolveConsoleFixtureInvocations, resolveConsoleInvocations } from "../../internal.ts"
+import { markConsoleSuppliedInvocations, resolveConsoleInvocations, resolveConsoleSuppliedInvocations } from "../../internal.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, installAgentInvocationsOverride, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "./invocations.ts"
 import * as v from "valibot"
@@ -89,9 +89,9 @@ function resolveConsoleAgentInvocations(
   installation: ConsoleAgentDefinitionInstallation,
 ): AgentInvocations {
   if (installation.invocations) {
-    // A journal that the Console supplies, as in fixture mode, replaces the app-wide journal of discovered Agents.
-    markConsoleFixtureInvocations(installation.invocations)
-    installAgentInvocationsOverride(resolveConsoleFixtureInvocations)
+    // A journal that the Console supplies replaces the app-wide journal of discovered Agents.
+    markConsoleSuppliedInvocations(installation.invocations)
+    installAgentInvocationsOverride(resolveConsoleSuppliedInvocations)
     return installation.invocations
   }
   const configured = [...new Set(definitions.flatMap(({ agent }) => {

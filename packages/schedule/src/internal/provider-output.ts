@@ -13,7 +13,7 @@ import { createImportPath, ensureGeneratedDir, ownModule } from "@vite-hub/inter
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, findDefaultExportCall, findProperty, scanModule, staticString } from "@vite-hub/internal/build/scan-module"
+import { findDefaultExportCall, findProperty, scanModule, staticString } from "@vite-hub/internal/build/scan-module"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
@@ -39,15 +39,12 @@ const generatedRegistryFileName = "registry.mjs"
 type ImportResolver = (specifier: string) => string
 
 function readStringArray(value: unknown): string[] {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
   return Array.isArray(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
     ? value.filter((entry): entry is string => typeof entry === "string")
     : []
 }
 
 function isVercelCron(value: unknown): value is { path: string, schedule: string } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
   return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
 }
 
@@ -184,10 +181,8 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 }
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
-  const cron = definition && staticString(definition.call.arguments.length > 1
-    ? argumentExpression(definition.call.arguments[0])
-    : definition.options && findProperty(definition.options, "cron")?.value)
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
+  const cron = definition?.options && staticString(findProperty(definition.options, "cron")?.value)
   if (!cron) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
   }
@@ -200,7 +195,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
  * when it is present but dynamic.
  */
 export function readStaticScheduleTimeZone(file: string): string | null | undefined {
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
   const property = definition?.options && findProperty(definition.options, "timeZone")
   if (!property) return undefined
   return property.value ? staticString(property.value) ?? null : null
@@ -212,11 +207,9 @@ export function readStaticScheduleTimeZone(file: string): string | null | undefi
  */
 export function readStaticScheduleTiming(file: string): { cron: string, timeZone?: string } | undefined {
   if (!existsSync(file)) return undefined
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
   if (!definition) return undefined
-  const cron = staticString(definition.call.arguments.length > 1
-    ? argumentExpression(definition.call.arguments[0])
-    : definition.options && findProperty(definition.options, "cron")?.value)
+  const cron = staticString(definition.options && findProperty(definition.options, "cron")?.value)
   const timeZone = definition.options && findProperty(definition.options, "timeZone")
   if (!cron || (timeZone && !(timeZone.value && staticString(timeZone.value)))) return undefined
   const zone = timeZone?.value && staticString(timeZone.value)

@@ -19,7 +19,7 @@ function database() {
       },
     }
   }
-  // Cloudflare uses the D1 binding of server/databases/config.ts.
+  // Cloudflare uses the D1 binding of server/databases/default.ts.
   return true
 }
 

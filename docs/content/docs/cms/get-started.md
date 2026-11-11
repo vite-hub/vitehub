@@ -75,7 +75,7 @@ import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string(), date: z.coerce.date() } }),
@@ -101,7 +101,7 @@ pnpm vitehub database generate
 pnpm vitehub database migrate
 ```
 
-- `database generate` writes a migration file to `server/databases/migrations/`. A migration is a file that creates or changes tables.
+- `database generate` writes a migration file to `server/databases/default/migrations/`. A migration is a file that creates or changes tables.
 - `database migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
 
 You did not define a database, so ViteHub uses one named `default`. To set it up yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).

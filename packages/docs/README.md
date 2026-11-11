@@ -345,7 +345,7 @@ export default defineConnection({
 ```
 
 ```ts
-// server/databases/config.ts: Connections keeps the grant in the app Database. Skip it when the app has one.
+// server/databases/default.ts: Connections keeps the grant in the app Database. Skip it when the app has one.
 import { defineDatabase } from "vite-hub/database"
 
 export default defineDatabase({ schema: {} })
@@ -378,7 +378,7 @@ import { defineContent } from "vite-hub/content"
 import cms from "vite-hub/cms"
 import { docsCollection } from "@vite-hub/docs"
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { repo: "owner/name", publish: "pr", access: "roles" }],
   collections: { docs: docsCollection() },
 })

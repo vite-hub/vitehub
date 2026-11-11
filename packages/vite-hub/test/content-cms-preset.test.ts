@@ -12,7 +12,7 @@ function project(extra: Record<string, string> = {}) {
   return createProject({
     "package.json": JSON.stringify({ name: "content-cms-fixture", private: true, type: "module" }),
     ".data/.keep": "",
-    "server/databases/config.ts": [
+    "server/databases/default.ts": [
       "import { defineDatabase } from 'vite-hub/database'",
       "export default defineDatabase({ connection: { url: 'file:<root>/.data/content.db' }, schema: {} })",
       "",
@@ -64,7 +64,7 @@ describe("Content cms preset on libSQL", () => {
     const generate = await runCli(root, appPlugins, ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrationsDir = join(root, "server/databases/migrations")
+    const migrationsDir = join(root, "server/databases/default/migrations")
     const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
     const sql = await readFile(join(migrationsDir, migration), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
@@ -116,11 +116,11 @@ describe("Content cms preset on libSQL", () => {
 
   it("fails when the Database choice is ambiguous and names the preset option", async () => {
     const root = await project({
-      "server/databases/config.ts": "",
-      "server/databases/blog/config.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ name: 'blog', schema: {} })\n",
-      "server/databases/audit/config.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ name: 'audit', schema: {} })\n",
+      "server/databases/default.ts": "",
+      "server/databases/blog/index.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ name: 'blog', schema: {} })\n",
+      "server/databases/audit/index.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ name: 'audit', schema: {} })\n",
     })
-    await rm(join(root, "server/databases/config.ts"))
+    await rm(join(root, "server/databases/default.ts"))
     await expect(resolveConfig(serverBuild(root, plugins(root)), "build"))
       .rejects.toThrow("it needs one Database, but the app has several and none is named \"default\": \"audit\", \"blog\". Choose one with extends: [cms, { database: \"audit\" }].")
   }, 60_000)
@@ -137,7 +137,7 @@ describe("Content cms preset with only server/content.ts", () => {
     const explicit = await createProject({
       "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
       "server/content.ts": contentDefinition,
-      "server/databases/config.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })\n",
+      "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })\n",
     })
     const zeroPlan = await plannedCloudflareResources(zeroConfig, vitehub({ host: "cloudflare", env: false }))
     const explicitPlan = await plannedCloudflareResources(explicit, vitehub({ host: "cloudflare", env: false, database: true, blob: true, workspace: true }))

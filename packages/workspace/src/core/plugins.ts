@@ -1,5 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceDefinition, WorkspacePlugin } from "./types.ts"
@@ -27,10 +25,10 @@ function contributedPluginState(): ContributedPluginState {
  * with the same id wins. The returned function removes this registration.
  */
 export function registerWorkspacePlugin(workspace: string, plugin: WorkspacePlugin): () => void {
-  if (!hasRuntimeType(workspace, "string") || !workspace) {
+  if (typeof workspace !== "string" || !workspace) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0022({ message: "[vitehub] registerWorkspacePlugin requires a Workspace name." })
   }
-  if (!plugin || !hasRuntimeType(plugin.id, "string") || !plugin.id) {
+  if (!plugin || typeof plugin.id !== "string" || !plugin.id) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0024({ message: "[vitehub] Workspace plugins require an id." })
   }
   const state = contributedPluginState()

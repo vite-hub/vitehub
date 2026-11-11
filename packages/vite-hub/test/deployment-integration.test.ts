@@ -504,13 +504,13 @@ describe("built-in host integration", () => {
   it("emits discovered D1 bindings through the Nitro Vite plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-d1-bindings-build-"))
     try {
-      await mkdir(join(root, "server", "databases", "migrations"), { recursive: true })
+      await mkdir(join(root, "server", "databases", "default", "migrations"), { recursive: true })
       await mkdir(join(root, "server", "routes"), { recursive: true })
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
-      await writeFile(join(root, "server", "databases", "migrations", "0001_init.sql"), "create table notes (title text);\n")
-      await writeFile(join(root, "server", "databases", "config.ts"), [
+      await writeFile(join(root, "server", "databases", "default", "migrations", "0001_init.sql"), "create table notes (title text);\n")
+      await writeFile(join(root, "server", "databases", "default.ts"), [
         "import { defineDatabase } from \"vite-hub/database\"",
         "import { sqliteTable, text } from \"drizzle-orm/sqlite-core\"",
         "const notes = sqliteTable(\"notes\", { title: text(\"title\") })",

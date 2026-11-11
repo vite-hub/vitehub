@@ -81,7 +81,7 @@ describe("Forms in a built Nitro 3 app", () => {
     const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrations = join(root, "server/databases/migrations")
+    const migrations = join(root, "server/databases/default/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)).toEqual(["CREATE TABLE `vitehub_form_submissions`"])
     const migrate = await runCli(root, app(), ["database", "migrate"])
@@ -92,7 +92,7 @@ describe("Forms in a built Nitro 3 app", () => {
     const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [app(), nitro() as never], root } as never)
     await builder.buildApp()
     // `server/forms/` alone turns the Forms section of the Console on.
-    const consolePlugin = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+    const consolePlugin = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
     expect(consolePlugin).toMatch(/installConsoleSections\([^)]*"forms"/)
     expect(consolePlugin).toContain('"operation":"forms.list"')
 

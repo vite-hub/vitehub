@@ -102,7 +102,7 @@ describe("Content preview in a built Nuxt 4 app", () => {
         ].join("\n")],
         ["server/content.ts", contentModule],
         ...nitro2FrameRoutes("../content.ts").map(([path, source]): [string, string] => [`server/${path}`, source]),
-        ["server/api/post.ts", `import { content } from "../content.ts"\n\nexport default defineEventHandler(async () => ({ title: (await content.collection("posts").get("hello"))?.data.title }))\n`],
+        ["server/api/post.ts", `import content from "../content.ts"\n\nexport default defineEventHandler(async () => ({ title: (await content.collection("posts").get("hello"))?.data.title }))\n`],
         ...contentRoutes("../content.ts", code => `defineEventHandler(${code})`).map(([path, source]): [string, string] => [`server/${path}`, source]),
       ])
       const database = join(root, "history.sqlite")

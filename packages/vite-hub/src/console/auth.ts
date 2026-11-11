@@ -7,8 +7,8 @@ import { consoleAuthPath } from "./auth-path.ts"
 
 // Its own build entry: `server/console-authorize.ts` imports it at startup, without Better Auth.
 export { defineConsoleAuthorize } from "./authorize.ts"
-export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
-export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
+export { consoleAccessTokenSeconds, consoleMcpNativeClients, consoleMcpOAuth, consoleOAuthClients, consoleRefreshTokenSeconds, consoleResourceOf } from "./auth-oauth.ts"
+export type { ConsoleMcpOAuthOptions, ConsoleOAuthClientsOptions } from "./auth-oauth.ts"
 export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleSignedInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
 export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleTokenAuthorizeContext, ConsoleUser } from "./auth-types.ts"

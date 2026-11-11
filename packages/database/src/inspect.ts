@@ -54,7 +54,7 @@ function describeUse(use: ResolvedDatabaseUse): ViteHubDefinitionField {
 // The implicit default Database exists for the contributions that need it, so name them.
 function describeImplicitDefault(needs: readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]): string {
   const by = needs.length ? ` for ${[...new Set(needs.map(need => `plugin ${JSON.stringify(need.plugin)}`))].join(", ")}` : ""
-  return `Implicit. The app has no Database Definition, so ViteHub adds an empty default Database${by}. Add \`server/databases/config.ts\` to define it yourself.`
+  return `Implicit. The app has no Database Definition, so ViteHub adds an empty default Database${by}. Add \`server/databases/default.ts\` to define it yourself.`
 }
 
 /**

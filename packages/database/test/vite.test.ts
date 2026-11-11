@@ -35,7 +35,7 @@ async function createTempProject() {
 async function writeDefinition(rootDir: string, path: string, table = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
   const name = /(?:^|\/)src\/([^/]+)\.database\./.exec(path)?.[1]
-    ?? /(?:^|\/)server\/databases\/([^/]+)\/config\./.exec(path)?.[1]
+    ?? /(?:^|\/)server\/databases\/([^/]+)\/index\./.exec(path)?.[1]
     ?? "default"
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
@@ -121,7 +121,7 @@ describe("hubDb", () => {
     await resolveConfigResolved(plugin)({ root: rootDir })
     expect(plugin.vitehub?.inspect?.()).not.toHaveProperty("providerOutput")
 
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
     const disabled = hubDb(false)
     await resolveConfigResolved(disabled)({ root: rootDir })
     expect(disabled.vitehub?.inspect?.()).toBeUndefined()
@@ -138,7 +138,7 @@ describe("hubDb", () => {
     { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["cloudflare", "vercel"] },
   ])("supports the hosted runtime on the expected hosts for $name", async ({ connection, cloudflare, providers }) => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { connection, cloudflare })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { connection, cloudflare })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
     const runtime = plugin.api.getConfig()!
@@ -147,8 +147,8 @@ describe("hubDb", () => {
 
   it("requires every Database Definition to support a host", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/remote/config.ts", "notes", { connection: "url: 'libsql://database.example'," })
-    await writeDefinition(rootDir, "server/databases/local/config.ts", "tasks", { connection: "url: 'file:local.db'," })
+    await writeDefinition(rootDir, "server/databases/remote/index.ts", "notes", { connection: "url: 'libsql://database.example'," })
+    await writeDefinition(rootDir, "server/databases/local/index.ts", "tasks", { connection: "url: 'file:local.db'," })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
     const runtime = plugin.api.getConfig()!
@@ -158,7 +158,7 @@ describe("hubDb", () => {
 
   it("reads provisioned D1 IDs for the Cloudflare hosted runtime", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
     const runtime = plugin.api.getConfig()!
@@ -171,9 +171,9 @@ describe("hubDb", () => {
   it("merges discovered D1 bindings and migrations into Cloudflare Nitro output", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, ".output", "server")
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
-    await mkdir(join(rootDir, "server/databases/migrations"), { recursive: true })
-    await writeFile(join(rootDir, "server/databases/migrations/0001_init.sql"), "create table notes (title text);\n")
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
+    await mkdir(join(rootDir, "server/databases/default/migrations"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/default/migrations/0001_init.sql"), "create table notes (title text);\n")
     const compiledHooks: Array<(...args: never[]) => unknown> = []
     const createNitro = (preset: string) => {
       const options: { cloudflare?: { wrangler?: { d1_databases?: unknown } }, output: { serverDir: string }, preset: string } = { output: { serverDir }, preset }
@@ -214,7 +214,7 @@ describe("hubDb", () => {
 
   it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options when Vite builds for Cloudflare", async (name) => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`)
+    await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`)
     // `vitehub({ host: "cloudflare", database: true })` passes this to the Database plugin.
     const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
 
@@ -232,7 +232,7 @@ describe("hubDb", () => {
   ])("rejects incomplete native D1 resources in a Cloudflare Vite build: $cloudflare", async ({ cloudflare, missing }) => {
     for (const name of ["default", "orders"]) {
       const rootDir = await createTempProject()
-      await writeDefinition(rootDir, name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`, "notes", { cloudflare })
+      await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`, "notes", { cloudflare })
       const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
 
       expect(buildStart).toThrow(expect.objectContaining({
@@ -250,7 +250,7 @@ describe("hubDb", () => {
     { name: "remote libSQL with incomplete D1 options", cloudflare: "databaseName: 'database-name',", connection: "url: 'libsql://database.example',", provisioned: false },
   ])("builds a Cloudflare D1 Definition with $name", async ({ cloudflare, connection, provisioned }) => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare, connection })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare, connection })
     if (provisioned) {
       await mkdir(join(rootDir, ".vitehub"), { recursive: true })
       await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
@@ -264,7 +264,7 @@ describe("hubDb", () => {
     vi.stubEnv("VITEHUB_VITE_TEST_REMOTE_URL", undefined)
     try {
       const rootDir = await createTempProject()
-      await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare, connection: "url: process.env.VITEHUB_VITE_TEST_REMOTE_URL," })
+      await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare, connection: "url: process.env.VITEHUB_VITE_TEST_REMOTE_URL," })
       const plugin = hubDb({ driver: "d1" })
       const buildStart = await buildStartForCloudflare(plugin, rootDir)
 
@@ -287,7 +287,7 @@ describe("hubDb", () => {
 
   it("does not check D1 resources in Vite development or on other hosts", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
 
     expect(await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir, [], "serve")).not.toThrow()
     const plugin = hubDb()
@@ -312,7 +312,7 @@ describe("hubDb", () => {
 
   it("keeps one D1 binding when the project's wrangler.json also declares it", { timeout: 30_000 }, async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
     await writeFile(join(rootDir, "wrangler.json"), JSON.stringify({ d1_databases: [{ binding: "DB", database_id: "database-id", preview_database_id: "preview-id" }] }))
     const plugin = hubDb()
     // Nitro 3's Cloudflare preset writes wrangler.json, merging the project file with defu, before module hooks run.
@@ -341,7 +341,7 @@ describe("hubDb", () => {
 
   it("warns when the project's wrangler.json keeps NuxtHub's D1 migration history", { timeout: 30_000 }, async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
     await writeFile(join(rootDir, "wrangler.json"), JSON.stringify({ d1_databases: [{ binding: "DB", database_id: "database-id", migrations_table: "_hub_migrations", migrations_dir: ".output/server/db/migrations/sqlite/" }] }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const plugin = hubDb()
@@ -374,7 +374,7 @@ describe("hubDb", () => {
 
   it("warns when the Database Definition sets NuxtHub's D1 migration history", { timeout: 30_000 }, async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id', migrationsTable: '_hub_migrations'," })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id', migrationsTable: '_hub_migrations'," })
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const plugin = hubDb()
     const { createNitro } = await import("nitro/builder")
@@ -395,7 +395,7 @@ describe("hubDb", () => {
   it("merges Postgres Hyperdrive bindings into Cloudflare Nitro output", async () => {
     const rootDir = await createTempProject()
     await mkdir(join(rootDir, "server/databases"), { recursive: true })
-    await writeFile(join(rootDir, "server/databases/config.ts"), [
+    await writeFile(join(rootDir, "server/databases/default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { pgTable, text } from 'drizzle-orm/pg-core'",
       "export default defineDatabase({",
@@ -440,7 +440,7 @@ describe("hubDb", () => {
 
   it("installs request scope middleware for D1 read replication without Postgres", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "readReplication: true," })
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "readReplication: true," })
     const options: { cloudflare?: { wrangler?: { d1_databases?: unknown } }, handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>, output: { serverDir: string }, preset: string } = {
       output: { serverDir: join(rootDir, ".output", "server") },
       preset: "cloudflare-module",
@@ -458,7 +458,7 @@ describe("hubDb", () => {
 
   it("keeps request scope middleware for opaque D1 read replication", async () => {
     const rootDir = await createTempProject()
-    const file = join(rootDir, "server/databases/config.ts")
+    const file = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(file), { recursive: true })
     await writeFile(file, [
       "import { defineDatabase } from '@vite-hub/database'",
@@ -485,7 +485,7 @@ describe("hubDb", () => {
 
   it("keeps request scope middleware when a configured D1 readReplication is dynamic", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
       cloudflare: "databaseName: 'app', readReplication: process.env.READ_REPLICATION === 'true',",
     })
     const options: { handlers?: Array<{ handler: string, middleware?: boolean }>, output: { serverDir: string }, preset: string } = {
@@ -526,7 +526,7 @@ describe("hubDb", () => {
     })
     const proxyUrl = await listenHttpServer(proxy)
 
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
       cloudflare: [
         "    databaseId: 'dev-database-id',",
         "    http: {",
@@ -576,7 +576,7 @@ describe("hubDb", () => {
   it("sends a remote: true Database to its real D1 database in Vite development, not to a local binding", async () => {
     const rootDir = await createTempProject()
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       "import { defineDatabase } from '@vite-hub/database'",
@@ -587,7 +587,7 @@ describe("hubDb", () => {
     ].join("\n"))
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
-      "import definition from './databases/config.ts'",
+      "import definition from './databases/default.ts'",
       "import { useDatabase } from '@vite-hub/database/drizzle'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ DB: binding }, async () => {",
@@ -636,7 +636,7 @@ describe("hubDb", () => {
 
   it.each([true, { url: "https://d1.example.com" }] as const)("inspects inherited cloudflare.http as remote: %j", async (http) => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
     const plugin = hubDb({ cloudflare: { http }, driver: "d1" })
     await resolveConfigResolved(plugin)({ root: rootDir })
     const inspect = plugin.vitehub?.inspect
@@ -650,7 +650,7 @@ describe("hubDb", () => {
 
   it.each([true, false])("inspects a constant remote switch: %s", async (remote) => {
     const rootDir = await createTempProject()
-    const file = await writeDefinition(rootDir, "server/databases/config.ts")
+    const file = await writeDefinition(rootDir, "server/databases/default.ts")
     await writeFile(file, [
       `const useRemote = ${remote} as const`,
       "const remote = useRemote",
@@ -666,8 +666,8 @@ describe("hubDb", () => {
 
   it("ignores remote in builds", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseId: 'real-database-id'," })
-    const definition = join(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "databaseId: 'real-database-id'," })
+    const definition = join(rootDir, "server/databases/default.ts")
     await writeFile(definition, (await readFile(definition, "utf8")).replace("  schema:", "  remote: true,\n  schema:"))
     // SAFETY: These are Vite hook handlers returned by hubDb.
     const load = (plugin: ReturnType<typeof hubDb>) => (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
@@ -700,10 +700,10 @@ describe("hubDb", () => {
       response.end(JSON.stringify({ success: true, result: [{ success: true, results: { rows: [["application note"]] } }] }))
     })
     const proxyUrl = await listenHttpServer(proxy)
-    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    const definition = await writeDefinition(rootDir, "server/databases/default.ts")
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
-      "import definition from './databases/config.ts'",
+      "import definition from './databases/default.ts'",
       "import { useDatabase } from '@vite-hub/database/drizzle'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ HOST_DB: binding }, async () => {",
@@ -761,8 +761,8 @@ describe("hubDb", () => {
   it("refreshes imported schema resources during Vite development hot updates", async () => {
     const rootDir = await createTempProject()
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
-    const schemaFile = join(rootDir, "server/databases/schema.ts")
-    const definition = join(rootDir, "server/databases/config.ts")
+    const schemaFile = join(rootDir, "server/databases/default/schema.ts")
+    const definition = join(rootDir, "server/databases/default/index.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(schemaFile, [
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
@@ -838,7 +838,7 @@ describe("hubDb", () => {
 
   it("resolves discovered database definitions and writes generated artifacts", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
 
     const plugin = hubDb()
     const configResolved = resolveConfigResolved(plugin)
@@ -849,20 +849,20 @@ describe("hubDb", () => {
       databases: {
         default: {
           connection: { url: "file:.vitehub/data/database/sqlite.db" },
-          migrationsDir: "server/databases/migrations",
+          migrationsDir: "server/databases/default/migrations",
           mode: "default",
         },
       },
     })
     await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
-    await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
+    await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/default/migrations")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
   })
 
   it("warns during config resolution but fails database generate when a Definition cannot load", async () => {
     const rootDir = await createTempProject()
-    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    const definition = await writeDefinition(rootDir, "server/databases/default.ts")
     await writeFile(definition, `import "./missing.ts"\n${await readFile(definition, "utf8")}`)
     const warn = vi.fn()
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
@@ -903,7 +903,7 @@ describe("hubDb", () => {
   it("resolves discovery and generated artifacts from projectRoot", async () => {
     const rootDir = await createTempProject()
     const projectRoot = join(rootDir, "packages", "db")
-    await writeDefinition(projectRoot, "server/databases/config.ts")
+    await writeDefinition(projectRoot, "server/databases/default.ts")
 
     const plugin = hubDb({ projectRoot: "packages/db" })
     // SAFETY: The test invokes Vite's config hook with its documented arguments.
@@ -920,7 +920,7 @@ describe("hubDb", () => {
   it("reads provision state from the Vite root when projectRoot is nested", async () => {
     const rootDir = await createTempProject()
     const databaseRoot = join(rootDir, "packages", "db")
-    await writeDefinition(databaseRoot, "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
+    await writeDefinition(databaseRoot, "server/databases/default.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
     await mkdir(join(rootDir, ".vitehub"))
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
     await mkdir(join(databaseRoot, ".vitehub"))
@@ -949,8 +949,8 @@ describe("hubDb", () => {
 
   it("writes one Drizzle config per named database migrations directory", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")
-    await writeDefinition(rootDir, "server/databases/primary/config.ts", "notes")
+    await writeDefinition(rootDir, "server/databases/analytics/index.ts", "events")
+    await writeDefinition(rootDir, "server/databases/primary/index.ts", "notes")
 
     const plugin = hubDb()
     const configResolved = resolveConfigResolved(plugin)
@@ -959,10 +959,10 @@ describe("hubDb", () => {
     const analyticsConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/analytics.config.ts"), "utf8")
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
-    expect(analyticsConfig).toContain("import databaseDefinition from \"../../../server/databases/analytics/config.ts\"")
+    expect(analyticsConfig).toContain("import databaseDefinition from \"../../../server/databases/analytics/index.ts\"")
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
     expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
-    expect(primaryConfig).toContain("import databaseDefinition from \"../../../server/databases/primary/config.ts\"")
+    expect(primaryConfig).toContain("import databaseDefinition from \"../../../server/databases/primary/index.ts\"")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
     expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })
@@ -975,7 +975,7 @@ describe("hubDb", () => {
     process.env.TURSO_DATABASE_URL = "libsql://secret.example.turso.io"
 
     try {
-      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
         connection: [
           "    authToken: process.env.TURSO_AUTH_TOKEN,",
           "    url: process.env.TURSO_DATABASE_URL,",
@@ -1006,7 +1006,7 @@ describe("hubDb", () => {
     process.env.CLOUDFLARE_D1_DATABASE_ID = "secret-database-id"
 
     try {
-      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
         cloudflare: [
           "    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,",
           "    http: true,",
@@ -1032,7 +1032,7 @@ describe("hubDb", () => {
 
   it("keeps Drizzle Kit on libSQL when D1 HTTP is not selected", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+    await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
       cloudflare: "    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,",
       connection: [
         "    authToken: 'libsql-token',",
@@ -1054,8 +1054,8 @@ describe("hubDb", () => {
     await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
     const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-casing-"))
     tempDirs.push(rootDir)
-    await mkdir(join(rootDir, "server/databases"), { recursive: true })
-    await writeFile(join(rootDir, "server/databases/schema.ts"), [
+    await mkdir(join(rootDir, "server/databases/default"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/default/schema.ts"), [
       "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "export const userProfiles = sqliteTable('user_profiles', {",
       "  id: integer().primaryKey(),",
@@ -1063,7 +1063,7 @@ describe("hubDb", () => {
       "})",
       "",
     ].join("\n"))
-    await writeFile(join(rootDir, "server/databases/config.ts"), [
+    await writeFile(join(rootDir, "server/databases/default/index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { userProfiles } from './schema.ts'",
       "export default defineDatabase({",
@@ -1084,13 +1084,13 @@ describe("hubDb", () => {
       ], { cwd: rootDir })
     }
 
-    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const migrationsDir = join(rootDir, "server/databases/default/migrations")
     const migrationFile = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))
     const migration = await readFile(join(migrationsDir, migrationFile!), "utf8")
     expect(migration).toContain("`display_name` text NOT NULL")
     expect(migration).not.toContain("displayName")
 
-    const { userProfiles } = await import(join(rootDir, "server/databases/schema.ts"))
+    const { userProfiles } = await import(join(rootDir, "server/databases/default/schema.ts"))
     const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
     try {
       const db = drizzle({ casing: "snake_case", client })
@@ -1109,7 +1109,7 @@ describe("hubDb", () => {
     // Both Databases share one casing, so only the per-Database credentials and migrations tell them apart.
     for (const [name, casing] of [["accounts", "snake_case"], ["billing", "snake_case"]] as const) {
       await mkdir(join(rootDir, "server/databases", name), { recursive: true })
-      await writeFile(join(rootDir, "server/databases", name, "config.ts"), [
+      await writeFile(join(rootDir, "server/databases", name, "index.ts"), [
         "import { defineDatabase } from '@vite-hub/database'",
         "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
         `const ${name} = sqliteTable('${name}', { id: integer().primaryKey(), displayName: text().notNull() })`,
@@ -1153,7 +1153,7 @@ describe("hubDb", () => {
 
     expect(plugin.api.getConfig()?.databases.default).toMatchObject({
       connection: { url: "file:/data/database/sqlite.db" },
-      migrationsDir: "server/databases/migrations",
+      migrationsDir: "server/databases/default/migrations",
     })
     const inspect = plugin.vitehub?.inspect
     const inspection = typeof inspect === "function" ? await inspect() : undefined
@@ -1164,7 +1164,7 @@ describe("hubDb", () => {
 
   it("lets top-level config disable the database plugin", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
 
     const plugin = hubDb(false)
     const configResolved = resolveConfigResolved(plugin)
@@ -1175,7 +1175,7 @@ describe("hubDb", () => {
 
   it("does not contribute the DB CLI namespace when top-level config disables the database plugin", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
 
     const plugin = hubDb(false)
     const configResolved = resolveConfigResolved(plugin)
@@ -1186,7 +1186,7 @@ describe("hubDb", () => {
 
   it("contributes provisioning but no CLI namespaces when resolved config disables database CLI", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "server/databases/default.ts")
 
     const plugin = hubDb({ cli: false })
     const configResolved = resolveConfigResolved(plugin)
@@ -1199,7 +1199,7 @@ describe("hubDb", () => {
 
   it("exposes default schema and database registry through stable ViteHub import paths", async () => {
     const rootDir = await createTempProject()
-    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    const definition = await writeDefinition(rootDir, "server/databases/default.ts")
 
     const plugin = hubDb()
     const configResolved = resolveConfigResolved(plugin)
@@ -1219,7 +1219,7 @@ describe("hubDb", () => {
     expect(schemaCode).toContain(join(rootDir, ".vitehub/database/schema/default.ts"))
     expect(databasesCode).toContain(definition)
     expect(databasesCode).toContain("\"default\"")
-    expect(databasesCode).toContain("\"server/databases/migrations\"")
+    expect(databasesCode).toContain("\"server/databases/default/migrations\"")
     const generatedTypesFile = join(rootDir, ".vitehub/types/database.d.ts")
     const generatedTypes = await readFile(generatedTypesFile, "utf8")
     expect(generatedTypes).toContain('declare module "@vite-hub/database/drizzle"')
@@ -1233,7 +1233,7 @@ describe("hubDb", () => {
 
   it("refreshes cached direct Definition defaults when HMR changes resource ownership", async () => {
     const rootDir = await createTempProject()
-    const definition = await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+    const definition = await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
       cloudflare: "binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application',",
     })
     const plugin = hubDb({ driver: "d1", binding: "HOST_DB", databaseId: "host-id", databaseName: "host" })
@@ -1268,7 +1268,7 @@ describe("hubDb", () => {
       expect(updated.cloudflare?.databaseId).toBe("application-id")
       expect(updated.cloudflare?.binding).toBeUndefined()
 
-      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
         cloudflare: "binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application',",
       })
       await resolveHotUpdate(plugin)({ file: definition, server })
@@ -1281,7 +1281,7 @@ describe("hubDb", () => {
 
   it("refreshes generated artifacts during definition hot updates", async () => {
     const rootDir = await createTempProject()
-    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    const definition = await writeDefinition(rootDir, "server/databases/default.ts")
 
     const invalidated: string[] = []
     const plugin = hubDb()
@@ -1319,7 +1319,7 @@ describe("hubDb", () => {
 
   it("normalizes definition paths before matching hot updates", async () => {
     const rootDir = await createTempProject()
-    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    const definition = await writeDefinition(rootDir, "server/databases/default.ts")
 
     const invalidated: string[] = []
     const plugin = hubDb()

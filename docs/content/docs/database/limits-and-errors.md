@@ -19,7 +19,7 @@ ViteHub errors have `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` link
 
 This route reads the `notes` table of the default Database:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -215,7 +215,7 @@ A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins used
 
 ### DATABASE_INVALID_CONTRIBUTION_TARGET
 
-Contributed tables or data have no database to go to. The app has several Definitions and none is `default`, the contribution names a missing database or uses another dialect, or contributions to the implicit default database need different dialects. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the contribution's `database`.
+Contributed tables or data have no database to go to. The app has several Definitions and none is `default`, the contribution names a missing database or uses another dialect, or contributions to the implicit default database need different dialects. Add `server/databases/default.ts` with `defineDatabase({ schema: {} })`, or set the contribution's `database`.
 
 ### DATABASE_INVALID_SCHEMA_EXPORT
 
@@ -229,13 +229,17 @@ The options of one database come from more than one Nuxt layer, or the app Defin
 
 Two Nuxt layers declare the same table in one database. Rename one, or declare the table in the app Definition to replace both.
 
+### DATABASE_LEGACY_CONFIG_FILE
+
+A Database Definition still uses `config.ts`. The Database `<name>` is now `server/databases/<name>.ts` or `server/databases/<name>/index.ts`, and its migrations are in `server/databases/<name>/migrations/`. The former `server/databases/config.ts` is the `default` Database: move it to `server/databases/default/index.ts` with the files beside it, and move `server/databases/migrations/` to `server/databases/default/migrations/`. Run `npx @vite-hub/codemods define-forms` to do these moves and update the imports.
+
 ### DATABASE_MISSING_D1_RESOURCE
 
 D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 
-The app has a default Definition and named ones. Use one default database, or only named ones.
+`src/database.ts` defines the default Database beside named Databases. Move the Databases to `server/databases/<name>.ts`, with `server/databases/default.ts` for the default one.
 
 ### DATABASE_NAME_MISMATCH
 

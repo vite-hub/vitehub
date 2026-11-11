@@ -14,7 +14,7 @@ Many people and Agents can open one document. Content stores a session per edito
 
 Sessions live in the Workspace history Database, so they work on every host with the Blob + Database Store: libSQL, Turso, and Cloudflare D1. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
 
-```ts [server/databases/content/config.ts]
+```ts [server/databases/content/index.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { contentSessionsSchema } from 'vite-hub/content/database'
 import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
@@ -33,7 +33,7 @@ import { defineContent } from 'vite-hub/content'
 import { documents } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -50,7 +50,7 @@ A session is a token you make per tab or client, such as `crypto.randomUUID()`, 
 ```ts [server/api/editor/session.post.ts]
 import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
-import { content } from '../../content'
+import content from '../../content'
 
 const body = v.object({ id: v.string(), session: v.string(), kind: v.picklist(['view', 'edit']), input: v.optional(v.boolean()) })
 
@@ -109,7 +109,7 @@ Report about every 15 seconds while the tab is visible, and every 60 seconds whi
 `save()`, `remove()`, and `restore()` read the lease once before they commit.
 
 ```ts [server/utils/save-post.ts]
-import { content } from '../content'
+import content from '../content'
 
 const input = { data: { title: 'Hello' }, body: '# Hello' }
 

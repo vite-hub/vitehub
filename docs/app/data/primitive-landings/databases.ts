@@ -87,7 +87,7 @@ export const DatabasesLanding = {
       label: "Nitro",
       files: [
         viteConfig,
-        { path: "server/databases/config.ts", language: "typescript", content: definition },
+        { path: "server/databases/default.ts", language: "typescript", content: definition },
         query,
         setup(false),
       ],
@@ -106,7 +106,7 @@ export default defineNuxtConfig({
   modules: [[viteHubNuxt, { host: "node", database: true }]],
 })`,
         },
-        { path: "server/databases/config.ts", language: "typescript", content: definition },
+        { path: "server/databases/default.ts", language: "typescript", content: definition },
         query,
         setup(true),
       ],
