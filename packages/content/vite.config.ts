@@ -8,7 +8,7 @@ export default defineConfig({
       // Inline the pure Blob field schemas so Content does not import the server root when Blob is disabled.
       alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/blob$/],
       // Let the consuming host resolve and deduplicate the Markdown preset.
-      neverBundle: ["comark-ui", /^comark-ui\//, "@valibot/to-json-schema", /^@vite-hub\/blob\//, "@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", "comark-content", /^comark-content\//, "comark", /^comark\//, /^@tiptap\//, "@vite-hub/realtime", /^@vite-hub\/realtime\//, "diff", "drizzle-orm", /^drizzle-orm\//, "vite", "yaml"],
+      neverBundle: ["comark-ui", /^comark-ui\//, "@valibot/to-json-schema", /^@vite-hub\/blob\//, "@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", "comark-content", /^comark-content\//, "comark", /^comark\//, /^@tiptap\//, "@vite-hub/realtime", /^@vite-hub\/realtime\//, "@sqlite.org/sqlite-wasm", /^@sqlite\.org\/sqlite-wasm\//, "diff", "drizzle-orm", /^drizzle-orm\//, "vite", "yaml"],
       onlyBundle: false,
     },
     entry: {
@@ -23,14 +23,19 @@ export default defineConfig({
       "preview": "src/preview-entry.ts",
       "realtime": "src/realtime.ts",
       "runtime/console": "src/runtime/console.ts",
+      "sqlite": "src/sqlite.ts",
+      "sqlite-workerd": "src/sqlite-workerd.ts",
       "vite": "src/vite.ts",
     },
     exports: {
       // Generated code imports these modules by path. They are not public API.
       exclude: ["operations", "runtime/console"],
       customExports(exports) {
-        return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
+        const { "./sqlite-workerd": _workerd, ...entries } = exports
+        return normalizePackageExports(Object.fromEntries(Object.entries(entries).map(([key, value]) => {
             if (String(value) !== value || !value.endsWith(".js")) return [key, value]
+            // Cloudflare Workers have no working Node SQLite, so `./sqlite` resolves to SQLite WASM there.
+            if (key === "./sqlite") return [key, { types: "./dist/sqlite.d.ts", workerd: "./dist/sqlite-workerd.js", import: value }]
             return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }]
           })))
       },

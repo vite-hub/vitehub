@@ -4,6 +4,8 @@
 @import "comark-chat/style.css";
 /* xterm.js needs its own rules for the WorkspaceTerminal rows, cursor, and helper textarea. */
 @import "@xterm/xterm/css/xterm.css" layer(components);
+/* Share the theme's wrapper focus ring without requiring its palette or fonts. */
+@import "./theme-focus-ring.css";
 
 /*
  * Theme tokens. Set `--vh-ui-*` on any element to change the parts inside it; the package sets none of them. The parts
@@ -3193,6 +3195,52 @@
   .vh-ws-connect--empty { align-items: center; color: var(--vh-muted); font-size: 0.875rem; gap: 0.5rem; grid-template-columns: 1rem 1fr; }
   .vh-ws-connect--empty p { margin: 0; }
 
+  /* PlaygroundContainer: a toolbar over the shell, and the cards that show when the device cannot run the workspace. */
+  .vh-pc { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .vh-pc-session { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+  .vh-pc-session > .vh-ws-shell { border: 0; border-radius: 0; flex: 1; }
+  .vh-pc-toolbar { align-items: center; border-bottom: 1px solid var(--vh-border); display: flex; flex: none; gap: 0.25rem; height: 2.75rem; padding: 0 0.5rem; }
+  .vh-pc-spacer { flex: 1; }
+  .vh-pc-muted { color: var(--vh-muted); }
+  .vh-pc-strong { color: var(--vh-highlighted); font-weight: 500; }
+  .vh-pc-bar { align-items: center; background: var(--vh-bg-elevated); border-bottom: 1px solid var(--vh-border); display: flex; flex: none; font-size: 0.8125rem; gap: 0.5rem; padding: 0.5rem 0.75rem; }
+  .vh-pc-run-state { color: var(--vh-muted); display: inline-flex; font-size: 0.8125rem; margin-inline-start: 0.25rem; white-space: nowrap; }
+
+  /* Panes side by side have the same header row, so they line up with the preview bar. */
+  .vh-pc-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+  .vh-pc-pane-header, .vh-pc .vh-ws-preview-bar { align-items: center; border-bottom: 1px solid var(--vh-border); display: flex; flex: none; gap: 0.5rem; height: 2.25rem; padding: 0 0.75rem; }
+  .vh-pc .vh-ws-preview-bar { padding: 0 0.25rem; }
+  .vh-pc .vh-ws-tab-list [data-slot="trigger"] { min-height: 2.25rem; }
+  .vh-pc-pane-body { display: flex; flex: 1; flex-direction: column; min-height: 0; position: relative; }
+  .vh-pc-pane-title { color: var(--vh-muted); font-size: 0.75rem; font-weight: 500; }
+  .vh-pc-pane-header .vh-pc-muted { font-size: 0.75rem; }
+  .vh-pc-path { color: var(--vh-text); font-family: var(--vh-ws-font-mono); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The file column is one tinted surface, header included. */
+  .vh-pc-files { background: var(--vh-bg-muted); }
+  .vh-pc-files .vh-ws-file-tree { --trees-bg-override: var(--vh-bg-muted); }
+  .vh-pc-tree { flex: 1; min-height: 0; overflow: auto; padding: 0.25rem 0; }
+  .vh-pc-scroll { height: 100%; overflow: auto; }
+  /* The checklist sits in the middle of the preview, with room on every side. */
+  .vh-pc-boot { align-items: center; display: flex; flex: 1; justify-content: center; overflow: auto; padding: 2rem 1.5rem; }
+  .vh-pc-modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; width: 100%; }
+
+  .vh-pc-card { border: 1px solid var(--vh-border); border-radius: var(--vh-radius); margin-top: 1.5rem; padding: 1rem; }
+  .vh-pc-card p { font-size: 0.875rem; margin: 0; }
+  .vh-pc-unsupported { margin-top: 1.5rem; }
+  .vh-pc-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+  .vh-pc-placeholder { display: none; }
+  /* Before mount, phones see their card, tablets see nothing yet, and desktops see where the workspace starts. */
+  @media (min-width: 48rem) {
+    .vh-pc-gate[data-state="pending"] .vh-pc-phone { display: none; }
+  }
+  @media (min-width: 64rem) {
+    .vh-pc-gate[data-state="pending"] { display: flex; flex: 1; flex-direction: column; }
+    .vh-pc-gate[data-state="pending"] .vh-pc-gate-content { display: none; }
+    .vh-pc-gate[data-state="pending"] .vh-pc-placeholder { align-items: center; display: flex; flex: 1; flex-direction: column; justify-content: center; min-height: 0; }
+    .vh-pc-placeholder-bar { align-self: stretch; border-bottom: 1px solid var(--vh-border); height: 2.75rem; margin-bottom: auto; }
+    .vh-pc-placeholder p { font-size: 0.875rem; margin: 0 0 auto; }
+  }
+
   /* Browser support notice */
   .vh-ws-support { align-items: flex-start; background: var(--vh-bg-muted); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text); display: grid; gap: 0.75rem; grid-template-columns: 1.25rem 1fr; padding: 1rem; }
   .vh-ws-support-icon { color: var(--vh-highlighted); width: 1.25rem; height: 1.25rem; }
@@ -3212,5 +3260,176 @@
   .vh-markdown-editor-content .ProseMirror {
     min-height: 100%;
     outline: none;
+  }
+}
+
+/* DeviceFrame: a page at a device's size on a muted stage, with Chrome's device toolbar above it. */
+@layer components {
+  .vh-device-frame {
+    --vh-device-frame-control: 1.75rem;
+    color: var(--vh-text);
+    container-type: inline-size;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    font-size: 0.8125rem;
+    min-height: 0;
+    min-width: 0;
+    position: relative;
+  }
+  .vh-device-frame__select-label { font-weight: 500; white-space: nowrap; }
+  .vh-device-frame__bar {
+    align-items: center;
+    background: var(--vh-bg);
+    border-block-end: 1px solid var(--vh-border);
+    display: flex;
+    flex: none;
+    gap: 0.375rem;
+    min-height: 2.5rem;
+    min-width: 0;
+    overflow-x: auto;
+    padding-inline: 0.75rem;
+    scrollbar-width: none;
+  }
+  .vh-device-frame :where(button, input, select) {
+    color: inherit;
+    font: inherit;
+    touch-action: manipulation;
+  }
+  .vh-device-frame__icon { flex: none; height: 1rem; width: 1rem; }
+  .vh-device-frame__select {
+    align-items: center;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-highlighted);
+    display: inline-flex;
+    flex: none;
+    gap: 0.375rem;
+    height: var(--vh-device-frame-control);
+    padding-inline: 0.5rem 0.375rem;
+    position: relative;
+  }
+  /* The native select lies invisible over its label: the label shows the device, and the platform's own list opens. */
+  .vh-device-frame__select select {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font-weight: 500;
+    inset: 0;
+    opacity: 0;
+    position: absolute;
+    width: 100%;
+  }
+  .vh-device-frame__chevron { color: var(--vh-muted); height: 0.875rem; width: 0.875rem; }
+  .vh-device-frame__number {
+    appearance: textfield;
+    background: var(--vh-bg);
+    border: 1px solid var(--vh-border);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    font-variant-numeric: tabular-nums;
+    height: var(--vh-device-frame-control);
+    padding-inline: 0.375rem;
+    text-align: center;
+    width: 3.75rem;
+  }
+  .vh-device-frame__number::-webkit-inner-spin-button,
+  .vh-device-frame__number::-webkit-outer-spin-button { appearance: none; margin: 0; }
+  .vh-device-frame__times { color: var(--vh-dimmed); font-size: 0.75rem; }
+  .vh-device-frame__button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-text);
+    cursor: pointer;
+    display: inline-flex;
+    flex: none;
+    gap: 0.375rem;
+    height: var(--vh-device-frame-control);
+    padding-inline: 0.5rem;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  .vh-device-frame__button[aria-pressed="true"] { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
+  .vh-device-frame__icon-button { justify-content: center; padding: 0; width: var(--vh-device-frame-control); }
+  .vh-device-frame__bands { align-items: center; border-inline-start: 1px solid var(--vh-border); display: none; gap: 0.25rem; margin-inline-start: 0.25rem; padding-inline-start: 0.625rem; }
+  @container (min-width: 56rem) {
+    .vh-device-frame__bands { display: flex; }
+  }
+  .vh-device-frame__band {
+    background: transparent;
+    border: 1px solid var(--vh-border);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    height: 1.5rem;
+    padding-inline: 0.375rem;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  .vh-device-frame__band[data-within] { background: var(--vh-bg-elevated); border-color: var(--vh-bg-accented); color: var(--vh-highlighted); }
+  .vh-device-frame__band[aria-pressed="true"] { background: var(--vh-highlighted); border-color: var(--vh-highlighted); color: var(--vh-inverted); }
+  @media (hover: hover) and (pointer: fine) {
+    .vh-device-frame__button:hover,
+    .vh-device-frame__select:hover { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
+    .vh-device-frame__band:not([aria-pressed="true"]):hover { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
+  }
+  .vh-device-frame__end { align-items: center; display: flex; flex: none; gap: 0.25rem; margin-inline-start: auto; }
+  .vh-device-frame__zoom { align-items: center; color: var(--vh-muted); display: inline-flex; gap: 0.25rem; }
+  .vh-device-frame__zoom .vh-device-frame__number { width: 3.25rem; }
+
+  /* Off, the stage and the page are plain flex boxes, so the content fills the frame. */
+  .vh-device-frame__stage { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+  .vh-device-frame__footprint { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; position: relative; }
+  .vh-device-frame__page { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+  .vh-device-frame[data-on] .vh-device-frame__stage { background: var(--vh-bg-muted); overflow: auto; padding: 1rem 1.5rem; }
+  .vh-device-frame[data-on] .vh-device-frame__footprint { flex: none; margin-inline: auto; }
+  .vh-device-frame[data-on] .vh-device-frame__page {
+    background: var(--vh-bg);
+    box-shadow: var(--vh-shadow-dialog, 0 0 0 1px var(--vh-border));
+    flex: none;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    overflow: hidden;
+    position: absolute;
+    transform-origin: top left;
+  }
+  .vh-device-frame[data-dragging] .vh-device-frame__page { pointer-events: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__footprint { transition: width 200ms ease-out, height 200ms ease-out; }
+    .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__page { transition: transform 200ms ease-out; }
+  }
+  .vh-device-frame__readout {
+    background: var(--vh-highlighted);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-inverted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    inset-block-start: 0.5rem;
+    inset-inline-start: 50%;
+    margin: 0;
+    padding: 0.25rem 0.5rem;
+    pointer-events: none;
+    position: absolute;
+    translate: -50% 0;
+  }
+  .vh-device-frame__handle { display: grid; outline: none; place-items: center; position: absolute; touch-action: none; }
+  .vh-device-frame__handle[data-edge="x"] { cursor: ew-resize; height: 100%; inset-block-start: 0; inset-inline-end: -0.75rem; width: 0.75rem; }
+  .vh-device-frame__handle[data-edge="y"] { cursor: ns-resize; height: 0.75rem; inset-block-end: -0.75rem; inset-inline-start: 0; width: 100%; }
+  .vh-device-frame__handle[data-edge="xy"] { cursor: nwse-resize; height: 0.75rem; inset-block-end: -0.75rem; inset-inline-end: -0.75rem; width: 0.75rem; }
+  .vh-device-frame__grip { background: var(--vh-bg-accented); border-radius: 999px; transition: background-color 150ms ease-out; }
+  .vh-device-frame__handle[data-edge="x"] .vh-device-frame__grip { height: 2rem; width: 0.25rem; }
+  .vh-device-frame__handle[data-edge="y"] .vh-device-frame__grip { height: 0.25rem; width: 2rem; }
+  .vh-device-frame__handle:focus-visible .vh-device-frame__grip,
+  .vh-device-frame[data-dragging] .vh-device-frame__grip { background: var(--vh-muted); }
+  @media (hover: hover) and (pointer: fine) {
+    .vh-device-frame__handle:hover .vh-device-frame__grip { background: var(--vh-muted); }
+  }
+  /* A thumb needs a 44px target; the controls keep their look and grow their hit area. */
+  @media (pointer: coarse) {
+    .vh-device-frame { --vh-device-frame-control: 2.75rem; }
+    .vh-device-frame__handle[data-edge="x"] { inset-inline-end: -1.5rem; width: 1.5rem; }
+    .vh-device-frame__handle[data-edge="y"] { height: 1.5rem; inset-block-end: -1.5rem; }
+    .vh-device-frame__handle[data-edge="xy"] { height: 1.5rem; inset-block-end: -1.5rem; inset-inline-end: -1.5rem; width: 1.5rem; }
   }
 }
