@@ -88,10 +88,11 @@ await content.sources.pin(sha, "docs") // serve this commit until unpin(), for e
 await content.sources.unpin("docs")
 ```
 
-- The first read resolves the branch, validates the commit, and stores the head when KV has none.
+- The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
 - `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. Call `advance()` after a push, for example from a GitHub push webhook route.
-- A pinned head does not move until `unpin()`. `pin()` takes a full 40-character commit SHA and validates it too.
-- Each server instance holds the head in memory for 5 seconds. Other server instances serve a moved head within 5 seconds. `content.get()`, `list()`, `navigation()`, `search()`, and the Content route follow the head.
+- Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
+- A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
+- Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
 - Without a token, the Source is not live: each load reads the latest commit of its branch without validation, and Content logs `CONTENT_R0020` once. The token is `github({ auth })`, or the Server Env `VITEHUB_GITHUB_TOKEN`.
 - ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
 - Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
@@ -103,7 +104,7 @@ The files of a commit never change. Content downloads and parses each commit onc
 
 - A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
 - `parserHash` is a hash of the Comark options, the source text of each Markdown and Content plugin, and the Source options. A change to a plugin gives new keys, so you do not bump a parser version.
-- Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache.
+- Only a commit whose documents all parse goes to KV. A rollback with `pin()` to a valid commit reads it from the cache. A rejected commit or a failed download stays out of memory too, so `advance()` downloads it again.
 - Each server instance holds the last 4 commits in memory.
 - `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
