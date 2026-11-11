@@ -1129,6 +1129,15 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: 
       }
       else resolved = { url: normalizePublicUrl(publicUrl) }
       const define = JSON.stringify(resolved)
+      // Nuxt can build Nitro outside Vite (`experimental.nitroViteEnvironment: false`). That build reads Nitro
+      // `replace`, not Vite `define`. Change the replayed Nitro config in place, as Vite concatenates returned arrays.
+      if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+        const host = config as { nitro?: Record<string, unknown> }
+        const nitro = host.nitro ?? {}
+        const replace = nitro.replace && typeof nitro.replace === "object" ? nitro.replace : {}
+        nitro.replace = { ...replace, __VITEHUB_PUBLIC_URL__: define }
+        host.nitro = nitro
+      }
       return { define: { __VITEHUB_PUBLIC_URL__: define } }
     },
     configEnvironment(name, config, env) {
