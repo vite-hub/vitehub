@@ -452,7 +452,15 @@ describe("useCollection default requester", () => {
     })
 
     await collection.refresh()
-    expect(collection.error.value).toMatchObject({ name: "CollectionRequestError", status: 503 })
+    expect(collection.error.value).toBeInstanceOf(Error)
+    expect(collection.error.value).toMatchObject({
+      code: "SOURCE_R0034",
+      docs: "https://vitehub.dev/docs/source/diagnostics/source_r0034",
+      fix: expect.stringContaining("server logs"),
+      name: "CollectionRequestError",
+      status: 503,
+      why: "[vitehub] Collection request to /api/items failed with status 503.",
+    })
     scope.stop()
     vi.unstubAllGlobals()
   })

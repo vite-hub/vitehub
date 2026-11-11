@@ -45,11 +45,11 @@ export interface UseCollectionReturn<TCollection extends AnyCollection> {
 }
 
 /** Thrown by the default requester when a Collection route answers with an error status. */
-class CollectionRequestError extends Error {
+class CollectionRequestError extends Diagnostic {
   readonly status: number
 
   constructor(endpoint: string, status: number) {
-    super(`[vitehub] Collection request to ${endpoint} failed with status ${status}.`)
+    super(sourceErrorDiagnostics.SOURCE_R0034({ endpoint, status }), CollectionRequestError)
     this.name = "CollectionRequestError"
     this.status = status
   }
