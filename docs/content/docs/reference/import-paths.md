@@ -73,6 +73,7 @@ the same behavior.
 | `vite-hub/docs` | Docs site frontmatter schema, manifest types, and navigation helpers. Re-exports `@vite-hub/docs`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, the Agent preset that answers reader questions from the docs, and `docsRateLimit()`. Re-exports `@vite-hub/docs/assistant`. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/auth/abilities` | [`defineAbilities()`, `guest()`, and `deny()`](/docs/auth/abilities) for permission rules shared by server and app. |
 | `vite-hub/auth/mcp` | OAuth sign-in, discovery, request checks, and unused-client cleanup for an app's MCP server. Needs `@better-auth/oauth-provider`. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and adds its tables to generated migrations. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
@@ -81,7 +82,7 @@ the same behavior.
 | `vite-hub/auth/console-runtime` | `createAuthConsole()` for trusted manual server hosts. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
-| `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
+| `vite-hub/auth/vue` | Better Auth Vue client, normalized session composables, `useAbility()`, and the `Can` component. |
 | `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, `ensureBlob()`, `detectContentType()`, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()`, `createMultipartUploader()`, and `detectContentType()`. |
 | `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |

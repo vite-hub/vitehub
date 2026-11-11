@@ -19,7 +19,7 @@ In this tutorial, you write the rule for who may comment, create the database ta
 Install Comments and the Database packages:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/comments @vite-hub/database drizzle-orm
+pnpm add @vite-hub/comments @vite-hub/database drizzle-orm@1.0.0-rc.5
 pnpm add -D drizzle-kit
 ```
 

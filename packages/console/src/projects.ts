@@ -8,7 +8,8 @@ import { openProjectKey, sealProjectKey } from "./token-box.ts"
 
 import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
 
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
+import type { AnyRelations } from "drizzle-orm"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 
 /**
  * One row for each linked project. A project belongs to one team, the Better Auth organization in `team_id`. Each link
@@ -34,7 +35,7 @@ export const consoleProjects = sqliteTable("console_projects", {
 export const consoleSchema = { consoleProjects }
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
-export type ConsoleDatabase = BaseSQLiteDatabase<"async", unknown, Record<string, unknown>>
+export type ConsoleDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>
 
 /** A linked project as the Console page sees it. It never holds the private key. */
 export interface ConsoleProject {
