@@ -8,6 +8,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const token = "Bearer console-cli-test"
 
@@ -36,7 +37,7 @@ function setup() {
   installConsoleAgentDefinitions([{ definition: agent, fallbackName: "support" }], { invoke: true, projectRoot: root })
   const host = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init)
-    expect(new URL(request.url).pathname).toBe("/_vitehub/rpc/__call")
+    expect(new URL(request.url).pathname).toBe("/_vitehub/rpc")
     return await handleConsoleRpcRequest(request, { waitUntil: () => undefined })
   })
   return { host, invocations, release }
@@ -52,12 +53,12 @@ async function cli(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.P
 describe("vitehub agent invocations against the Console RPC handler", () => {
   it("lists, shows, and cancels a running Invocation with the Console credentials", async () => {
     const fixture = setup()
-    const started = await handleConsoleRpcRequest(new Request("https://agent.example.com/_vitehub/rpc/__call", {
-      body: JSON.stringify({ operation: "agents.invoke", input: { agent: "support", prompt: "Wait." } }),
+    const started = await handleConsoleRpcRequest(new Request("https://agent.example.com/_vitehub/rpc", {
+      body: operationRpcBody("agents.invoke", { agent: "support", prompt: "Wait." }),
       headers: { "authorization": token, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { waitUntil: () => undefined })
-    const { value } = await started.json() as { value: { id: string } }
+    const { value } = await operationRpcResponseResult(started) as { value: { id: string } }
     await vi.waitFor(async () => expect((await fixture.invocations.getSummary(value.id))?.status).toBe("running"))
 
     const anonymous = await cli(["list"], fixture.host, {})

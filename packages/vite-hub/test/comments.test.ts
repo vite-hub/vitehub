@@ -24,6 +24,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { Comments, CommentsPeople, CommentUser, DefineCommentsOptions } from "@vite-hub/comments"
 import type { CommentsStore } from "@vite-hub/comments/server"
@@ -50,8 +51,8 @@ async function setup(definition: Comments = defineComments({ authorize: () => tr
 }
 
 function call(operation: string, input: unknown = {}) {
-  return handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+  return handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }), { waitUntil: task => void pending.push(task) })
@@ -59,7 +60,7 @@ function call(operation: string, input: unknown = {}) {
 
 async function value<T>(operation: string, input?: unknown): Promise<T> {
   const response = await call(operation, input)
-  const body = await response.json() as { ok: boolean, value: T, code?: string, message?: string }
+  const body = await operationRpcResponseResult(response) as { ok: boolean, value: T, code?: string, message?: string }
   if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
   return body.value
 }
@@ -67,7 +68,7 @@ async function value<T>(operation: string, input?: unknown): Promise<T> {
 async function failure(operation: string, input?: unknown) {
   const response = await call(operation, input)
   expect(response.ok).toBe(false)
-  return await response.json() as { code: string, fix?: string, message: string, status: number }
+  return await operationRpcResponseResult(response) as { code: string, fix?: string, message: string, status: number }
 }
 
 const page = { id: "/pricing", kind: "page" }
@@ -308,12 +309,12 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     installConsoleDevelopment("/test/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }, operation: "comments.create" }),
+      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc", {
+        body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       }), { remoteAddress: "127.0.0.1" })
-      const body = await response.json() as { ok: boolean, value: CommentThread }
+      const body = await operationRpcResponseResult(response) as { ok: boolean, value: CommentThread }
       expect(body.ok).toBe(true)
       expect(body.value.author).toEqual({ id: "local", name: "You" })
     }
@@ -335,7 +336,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       }) as typeof fetch,
     })
     const thread = await transport.create({ anchor: { kind: "page" }, body: "Hi", subject: page })
-    expect(seen[0]).toBe("/portal/_vitehub/rpc/__call")
+    expect(seen[0]).toBe("/portal/_vitehub/rpc")
     expect(await transport.list({ page: "/pricing" })).toEqual([thread])
     expect(await transport.get({ n: 1, scope: "site" })).toEqual(thread)
     expect((await transport.reply({ body: "Again", threadId: thread.id })).messages).toHaveLength(2)

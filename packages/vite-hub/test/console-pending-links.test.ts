@@ -10,6 +10,7 @@ import {
 } from "../src/console/runtime/client/pending-links.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { browserProjectStorage, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { operationRpcFetch } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleProjectStorage } from "../src/console/runtime/client/projects.ts"
 
@@ -21,7 +22,9 @@ afterEach(() => {
 })
 
 const projectGet = { ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv"], operations: ["kv.list"] } }
-const tokenRejection = { code: "CONSOLE_TOKEN_INVALID", message: "The Console token is not correct.", ok: false, status: 401 }
+// The pending links of the static hosted Console still send a token, and read a Bearer challenge without a code.
+const tokenRejection = { message: "The Console token is not correct.", ok: false, status: 401 }
+const tokenChallenge = { "www-authenticate": "Bearer realm=\"vitehub-console\"" }
 const app = { origin: "https://app.example.com", base: "", url: "https://app.example.com" }
 
 // Shared by page sessions, like localStorage across reloads and tabs.
@@ -174,7 +177,7 @@ describe("creating a pending link", () => {
 describe("linking from a pending link", () => {
   async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, storage: ConsoleProjectStorage = browserStorage()) {
     const fetchMock = vi.fn(fetch)
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", operationRpcFetch(fetchMock))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const pendingLinkLocks = linkLocks()
@@ -329,7 +332,7 @@ describe("linking from a pending link", () => {
   })
 
   it("keeps a failed link bound to its first confirmed project across tabs, and permits retrying that project", async () => {
-    const { fetch, module, storage, ticket, pendingLinkLocks } = await session(async () => Response.json(tokenRejection, { status: 401 }))
+    const { fetch, module, storage, ticket, pendingLinkLocks } = await session(async () => Response.json(tokenRejection, { headers: tokenChallenge, status: 401 }))
     expect(await module.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "problem", final: false })
     vi.resetModules()
     const otherTab = await import("../src/console/runtime/client/project-session.ts")
@@ -353,7 +356,7 @@ describe("linking from a pending link", () => {
   it("asks first, then links with the secret as the token, and works only once", async () => {
     let secret = ""
     const { fetch, module, state, ticket } = await session(async (_url, init) =>
-      new Headers(init.headers).get("authorization") === `Bearer ${secret}` ? Response.json(projectGet) : Response.json(tokenRejection, { status: 401 }))
+      new Headers(init.headers).get("authorization") === `Bearer ${secret}` ? Response.json(projectGet) : Response.json(tokenRejection, { headers: tokenChallenge, status: 401 }))
     const pending = state.pendingLinks.lookup(ticket.pendingId)
     if (pending.kind !== "pending") throw new Error("Expected a pending link")
     secret = pending.link.secret
@@ -382,7 +385,7 @@ describe("linking from a pending link", () => {
     let reachable = true
     const { module, state, ticket } = await session(async () => {
       if (!reachable) throw new TypeError("Failed to fetch")
-      return Response.json(tokenRejection, { status: 401 })
+      return Response.json(tokenRejection, { headers: tokenChallenge, status: 401 })
     })
 
     const mismatch = await module.confirmConsoleLink(ticket.pendingId, app)

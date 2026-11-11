@@ -120,6 +120,7 @@ Available namespaces:
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
+| `vitehub secret console-key` | Available | Env Package | Print a new key pair for signed Console requests. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear the messages that the development outbox captured, on the dev server or with `--url`. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
 | `vitehub database generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
@@ -302,6 +303,10 @@ The package manager exited with an error. ViteHub did not write starter or confi
 
 The config file changed between the plan and the write. Run the command again.
 
+### `SETUP_PLAN_UNKNOWN`
+
+The dev Setup page applied a plan id that the dev server does not have. A plan applies once, and a restart of the dev server drops its plans. Plan the change again.
+
 ### `SETUP_NOT_A_PROJECT`
 
 The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Run the command in the folder of your Vite or Nuxt app.
@@ -341,9 +346,21 @@ Another enabled feature turns the feature on, such as Agent for Workflow, so del
 
 The app still uses the feature. `references` lists each file, with the line and the module for an import. Delete or move them and run the command again, or pass `--force` to turn the feature off and keep the files.
 
+### `SETUP_FEATURE_REQUIRED`
+
+An enabled feature's options require the feature, such as `cache: { driver: "kv" }` requiring KV. Remove both features in one command, or change the dependent options first. `--force` cannot remove these prerequisites.
+
 ### `SETUP_UNINSTALL_FAILED`
 
-The package manager exited with an error after ViteHub changed the config and deleted the starter files. Run the uninstall command by hand to see the error.
+The package manager exited with an error after ViteHub deleted the starter files. The terminal command changes the config before uninstalling. The development Setup page keeps the config unchanged until cleanup succeeds, so a config-triggered restart cannot interrupt cleanup. Run the uninstall command by hand to see the error, then plan the removal again.
+
+## Use Setup in the development Console
+
+Run `vite dev`, open its printed hosted Console link, and select **Setup** to plan and apply the same feature changes as `vitehub add` and `vitehub remove`. Setup is available only during development.
+
+No `console` option or local Console client package is needed. Setup connects to the selected project's development server. Only exact origins in `console.origins` may connect from another origin; the default is `https://console.vitehub.dev`. Set `console.origins: []` to turn cross-origin access off. Apply also requires writable Setup access under the project's Console policy.
+
+The page obtains its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then link `http://localhost:5173` in the hosted Console. A host name listed explicitly in `server.allowedHosts` also works over the local connection, including HTTP. Listing a host does not grant network clients access to the session token.
 
 ## Link a project to its host
 
@@ -664,10 +681,11 @@ Both load the Vite config in the stage mode, with `.env.<stage>` files, and proc
 
 ```bash [Terminal]
 pnpm vitehub secret generate
-VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
+VITEHUB_SECRET=... pnpm vitehub secret derive myapp:webhooks
+pnpm vitehub secret console-key ci
 ```
 
-`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints `deriveSecret(purpose)` for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell. Neither loads the project.
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints `deriveSecret(purpose)` for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell. `secret console-key [name]` prints a new Ed25519 key pair for [signed Console requests](/docs/development/console#sign-console-requests): the `VITEHUB_CONSOLE_KEY_<NAME>` line for the app and the `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` line for the CLI. The name defaults to `CLI`. None of them loads the project.
 
 ## Inspect Definitions and Provider Output
 
@@ -804,7 +822,7 @@ A Chat SDK export holds only history the adapter or its State Adapter can give. 
 
 `vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox` records each run with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` for several values, as with `--filter`. Labels are not part of the history query. They must be non-empty, at most 512 characters. For a query field named `label`, use `--query label=value`.
 
-Replay needs the development project token or deployed Console authentication. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
+Replay needs the development project token or deployed Console authentication. With `--url`, the command calls the `channels.replay` operation on the Console RPC of the deployed app, one page per call. The Agent must allow Console invocation. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
 
 ## Manage Database migrations
 
@@ -1032,7 +1050,7 @@ pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:0
 - `publish` and `schedule` list the pending changes with their draft digests (content hashes), ask for confirmation, and pin exactly those digests. If a draft is saved in between, the command fails and nothing is published. `--yes` skips the prompt, and `--dry-run` only lists the changes. Without an interactive terminal, they need `--yes`.
 - Omit the id for a singleton.
 
-Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. Without `--url`, it calls this project's dev server (see [Run any operation](#run-any-operation)). With `--url`, it calls a deployed app with the Console on, using the credentials from [the table below](#run-a-schedule-on-demand). See [Content CLI](/docs/content/cli) for each command's output.
+Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. Without `--url`, it calls this project's dev server (see [Run any operation](#run-any-operation)). With `--url`, it calls a deployed app with the Console on, using the credentials from [the table below](#inspect-and-cancel-on-a-deployed-app). See [Content CLI](/docs/content/cli) for each command's output.
 
 ## Run any operation
 
@@ -1071,7 +1089,7 @@ Flags come from the input's JSON Schema:
 
 Without `--url`, a command calls its own project's dev server, found in `.vitehub/dev-server.json` (`{ url, root }`). The dev server writes this file when it listens and removes it when it closes. Without it, the command uses `VITEHUB_DEV_SERVER_URL`. With neither, it fails with `CLI_R0005`. It never guesses `localhost:5173`, because another project may use that port. The dev RPC names its project in a response header, and the command stops with `INTERNAL_R0025` when it is another project. A Nuxt dev server does not write the file, so pass `--url` or set `VITEHUB_DEV_SERVER_URL`.
 
-A command sends no credentials to the dev server that it finds. When that dev server asks for sign-in, as with [`auth: 'token'`](/docs/development/console#use-a-console-token), the command fails with `401`, and its fix names the `--url` to pass. With `--url`, the command sends its credentials to the dev server too.
+A command sends no credentials to the dev server that it finds. When that dev server asks for sign-in, as with [`auth: 'token'`](/docs/development/console#sign-console-requests), the command fails with `401`, and its fix names the `--url` to pass. With `--url`, the command sends its credentials to the dev server too.
 
 A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exits with `1`. A bad flag value fails with `CLI_R0003` and the usage line. Two operations with the same namespace and command fail the build and the CLI load with `INTERNAL_B0049`. A hand-written command with the same name as a generated one runs instead, as `vitehub content edit` does.
 
@@ -1087,23 +1105,11 @@ pnpm vitehub schedule run sync --url https://app.example.com
 
 `--at` runs the definition as if its cron fired at that time, without checking the cron. The handler gets it as `scheduledAt`, and `vitehub schedule runs <name>` lists the run under it. Use it to test code that depends on the fire time, such as a job near midnight or on a month's last day. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. No time zone, a date only, or a day that does not exist (`2026-02-30`) fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`), and nothing runs.
 
-`schedule run` is the `schedule.run` [operation](/docs/development/operations) of the Schedules section. Without `--url`, the dev server runs the definition in its Nitro runtime, with the app's Nitro plugins and dev bindings, and the run shows in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the credentials in the [table above](#run-any-operation). The deployment runs only definitions that the [Console](/docs/development/console) installed with `invoke: true`, which is on in development and off in a production build.
+`schedule run` is the `schedule.run` [operation](/docs/development/operations) of the Schedules section. Without `--url`, the dev server runs the definition in its Nitro runtime, with the app's Nitro plugins and dev bindings, and the run shows in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the [credentials below](#inspect-and-cancel-on-a-deployed-app). The deployment runs only definitions that the [Console](/docs/development/console) installed with `invoke: true`, which is on in development and off in a production build.
+
+A CI job needs no Console login. Make a key pair with `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: { auth: 'token' }`, and set `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a secret of the job. `vitehub schedule run <name> --url <origin>` then [signs the call](/docs/development/console#sign-console-requests), the same as every other command with `--url`.
 
 The Console Schedules page runs the same operation. A read-only grant (`"schedules:read"`) can list runs but cannot run a Schedule.
-
-### Signed dispatch
-
-A CI job without a Console login can still run a Schedule. When `VITEHUB_DISPATCH_KEY` (or `VITEHUB_SECRET`) is set, `vitehub schedule run <name> --url <origin>` signs the input and posts it to `/_vitehub/schedules/run`, which takes only signed requests. Without a key, it calls the Console RPC with the Console credentials. Both need HTTPS except on localhost, and reject URL credentials, queries, and fragments before they send. The deployment derives the dispatch key from its [`VITEHUB_SECRET`](/docs/env/app-secret).
-
-```bash [Terminal]
-# Once, where the deployment's root secret is available:
-VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
-```
-
-The signature covers the operation (`schedule.run`), the exact body (`{ "name": "sync" }`), the time, a one-time nonce, and the actor. The deployment rejects requests more than five minutes old or ahead, reused nonces, and keys of other deployments. A signed request skips the Console sign-in check and never falls back to a Console session, so a bad signature is always `401`. An edge such as Cloudflare Access still applies. The actor is self-declared and only logged.
-
-> [!WARNING]
-> Nonces are kept per server process. A deployment with several instances can accept a replay on another instance within the five minutes.
 
 ## Run and inspect Schedules
 
@@ -1211,12 +1217,13 @@ pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 ```
 
-Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
+Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
 
 | Variable | Value |
 | --- | --- |
+| `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` | A private key from `vitehub secret console-key`, for [`auth: 'token'`](/docs/development/console#sign-console-requests). The command signs each call with it, as the key `<NAME>`. Set only one. |
 | `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value with a session cookie of the app Auth or Console Auth. With Console Auth, sign in at `/_vitehub/sign-in` and copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, such as `Bearer <token>` for [`auth: 'token'`](/docs/development/console#use-a-console-token). |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, such as `Bearer <token>` for an OAuth access token of the app Auth. |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `auth: { provider: 'cloudflare-access' }`. |
 
 A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
