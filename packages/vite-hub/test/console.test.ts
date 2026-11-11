@@ -398,6 +398,28 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("starts development Setup without a Console client package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-setup-client-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ rpcOnly: true, sections: [] })
+      const config = { root, nitro: { handlers: [], plugins: [], publicAssets: [] } }
+      await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger({ ...config, base: "/" })])
+
+      const file = config.nitro.plugins.find((file: string) => file.endsWith("/console/plugin.mjs"))
+      expect(file).toBeDefined()
+      const generated = await readFile(file!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
+      expect(generated).toContain(`true, "/__vitehub/setup")`)
+      expect(generated).not.toContain("installConsoleClient(")
+      expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringContaining("server/page.get.js") }))
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each(["open", "signed", "rpc-only"] as const)("leaves application OAuth discovery routes alone with %s Console access", async (mode) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-discovery-"))
     try {
@@ -869,7 +891,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
       expect(generated).not.toContain("() => import(")
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Yes","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Enabled","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/dynamic.ts"},{"label":"Source","value":"server-schedules"}`)
       expect(generated).not.toContain(`"Cron","value":"0 10 * * *"`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -914,7 +936,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
       expect(generated).toContain('"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
       expect(generated).toContain('"file":"packages/workspace/server/workspaces/docs/config.ts","name":"docs"')
-      expect(generated).toContain('"schedules":{"kind":"record-table","records":[{"cells":{"manual":"No","schedule":"adhoc","timing":"0 9 * * *"}')
+      expect(generated).toContain('"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Disabled","schedule":"adhoc","timing":"0 9 * * *"}')
       expect(generated).toContain('{"label":"File","value":"packages/schedule/server/schedules/adhoc.ts"}')
     }
     finally {

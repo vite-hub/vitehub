@@ -71,6 +71,8 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A pin drops when the pointer goes up without moving. A touch that scrolls drops nothing.
 - In comment mode, `Enter` starts a comment on the focused element. The toolbar button "Comment on page" comments on the whole page.
 - A draft pin has no number. The server gives it one on send.
+- A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
+- With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
 
@@ -294,6 +296,8 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+
 ## Anchors
 
 An anchor says where a comment sits. `createAnchor()` makes one from an element, a point, a selection, or `"page"`. `resolveAnchor()` finds it again.
@@ -335,6 +339,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
+| `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
 
 ### CommentPin
 

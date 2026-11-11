@@ -16,6 +16,7 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { generatedModules } from "../internal/generated-modules.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
+import { setupDevRoute } from "../setup-dev.ts"
 
 function resolveConsoleRuntimeRoot(): string {
   const root = [
@@ -92,6 +93,8 @@ export interface ConsoleNitroPluginOptions {
   file: string
   projectRoot: string
   sections: readonly ConsoleSectionId[]
+  /** Visible navigation, when it differs from the sections whose operations need runtime state. */
+  navigationSections?: readonly ConsoleSectionId[]
   /** The discovered Agents, Schedules, operations, and section content. */
   catalog: ConsoleBuildCatalog
   blobStores: readonly string[]
@@ -110,6 +113,7 @@ function renderConsoleNitroPlugin(
   {
     projectRoot,
     sections: configuredSections,
+    navigationSections,
     catalog,
     blobStores,
     invoke = false,
@@ -186,12 +190,12 @@ function renderConsoleNitroPlugin(
     ...(excludeAppAuth ? ['import { excludeAuthAccessRoute as vitehubExcludeAuthAccessRoute } from "vite-hub/auth/runtime/server"'] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
-    `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
+    `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
     // The Console route checks its own access, and a signed caller has no app session. App Auth access routes such as
     // `/**` leave its exact POST route to that check. Other methods, such as an app GET handler on the same path, keep them.
     ...(excludeAppAuth ? [`vitehubExcludeAuthAccessRoute("POST", ${JSON.stringify(rpcRoute)})`] : []),
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,

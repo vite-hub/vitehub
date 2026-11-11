@@ -210,7 +210,7 @@ const kvStores = {
 
 const scheduleRecords = [
   {
-    cells: { manual: "Yes", schedule: "nightly-digest", timing: "0 6 * * *" },
+    cells: { manual: "Enabled", schedule: "nightly-digest", timing: "0 6 * * *" },
     fields: [
       { label: "Kind", value: "Static schedule" },
       { label: "Cron", value: "0 6 * * *" },

@@ -6,6 +6,11 @@ import type { UIMessage } from "ai";
 
 import { Chat, chatActivity } from "../src/components/chat.ts";
 
+afterEach(async () => {
+  // Chat starts async component imports that must finish before the test environment closes.
+  await vi.dynamicImportSettled();
+});
+
 const question: UIMessage = { id: "q", parts: [{ text: "How do I install Lumen?", type: "text" }], role: "user" };
 
 function reply(...parts: UIMessage["parts"]): UIMessage {
