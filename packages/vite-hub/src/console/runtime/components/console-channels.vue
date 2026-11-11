@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { consoleDateTime } from "../client/format";
 import { inlineChannelArchiveMedia } from "@vite-hub/internal/channel-archive";
-import { ChatMessage } from "@vite-hub/ui";
+import { ChatMessage, Status } from "@vite-hub/ui";
 import type { UIMessage } from "ai";
 import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -13,7 +14,6 @@ import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
 interface Retention {
@@ -88,7 +88,6 @@ let threadsRequest: AbortController | undefined;
 let messagesRequest: AbortController | undefined;
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   return typeof value === "string" && value ? value : undefined;
 }
 
@@ -114,7 +113,6 @@ function parseRetention(value: unknown): Retention {
   const source = record(value);
   return {
     durable: source.durable === true,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     maxMessages: typeof source.maxMessages === "number" ? source.maxMessages : 100,
     mode: source.mode === "durable-transcripts" ? "durable-transcripts" : "provider-window",
     ...(text(source.warning) ? { warning: text(source.warning)! } : {}),
@@ -127,6 +125,9 @@ const selectedThread = computed(() => queryString(route.query.thread));
 const selected = computed(() => channels.value.find(entry => entry.agent === selectedAgent.value && entry.channel === selectedChannel.value));
 // The thread search lives in the URL with the Channel and the thread, so a reload or a shared link opens the same list.
 const { q: threadSearch } = useConsoleQuery({ q: queryText() });
+function clearThreadSearch(): void {
+  threadSearch.value = "";
+}
 /** Loaded threads whose title, participants, or id contain the search. */
 const visibleThreads = computed(() => {
   const query = threadSearch.value.trim().toLowerCase();
@@ -253,8 +254,7 @@ function select(query: { agent?: string; channel?: string; thread?: string }): v
 }
 
 function when(value: string | undefined): string {
-  const date = value ? new Date(value) : undefined;
-  return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "";
+  return value && Number.isFinite(Date.parse(value)) ? consoleDateTime(value) : "";
 }
 
 function view(message: MessageRow): UIMessage {
@@ -336,16 +336,16 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="channels-conversation" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="channels-conversation">
       <ConsolePageHeader title="Channels" :description="selectedThread ?? selected?.channel" :toggle="false">
         <template #right>
           <UButton v-if="selected?.simulator" label="Open chat" icon="i-lucide-external-link" size="sm" variant="outline" color="neutral" :href="selected.simulator" external target="_blank" rel="noopener" />
           <template v-if="selectedThread">
-            <UButton label="Markdown" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
-            <UButton label="JSON" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
+            <UButton label="Markdown" icon="i-lucide-download" variant="outline" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
+            <UButton label="JSON" icon="i-lucide-download" variant="outline" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
           </template>
           <UTooltip text="Refresh">
-            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
+            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
@@ -356,7 +356,7 @@ onBeforeUnmount(() => {
           <template v-if="channelsLoading && !channels.length">
             <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
           </template>
-          <p v-else-if="!channels.length" class="px-2 py-1.5 text-xs text-muted">No Agent has a Channel yet.</p>
+          <UEmpty v-else-if="!channels.length" variant="naked" size="xs" icon="i-lucide-message-square" title="No Channels yet" description="Add a Channel to an Agent, such as Slack or Teams, to see its threads here." />
           <template v-else>
             <div
               v-for="entry in channels"
@@ -386,17 +386,23 @@ onBeforeUnmount(() => {
               v-model="threadSearch"
               class="mt-1 w-full shrink-0"
               icon="i-lucide-search"
-              size="sm"
               placeholder="Filter threads…"
               aria-label="Filter threads"
-              :ui="{ base: 'text-base sm:text-sm' }"
             />
-            <p v-if="!selected.conversations" class="px-2 py-1.5 text-xs text-muted">This Channel has its own history collection and no per-thread conversation.</p>
+            <UEmpty v-if="!selected.conversations" variant="naked" size="xs" icon="i-lucide-messages-square" title="No threads to show" description="This Channel keeps its own history and has no conversation per thread." />
             <template v-else-if="threadsLoading && !threads.length">
               <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
             </template>
             <template v-else-if="threads.length">
-              <p v-if="!visibleThreads.length" class="px-2 py-1.5 text-xs text-muted">No loaded thread matches “{{ threadSearch.trim() }}”.</p>
+              <UEmpty
+                v-if="!visibleThreads.length"
+                variant="naked"
+                size="xs"
+                icon="i-lucide-search"
+                :title="`No loaded thread matches “${threadSearch.trim()}”`"
+                description="The search checks only the threads that loaded."
+                :actions="[{ label: 'Clear search', variant: 'ghost', onClick: clearThreadSearch }]"
+              />
               <button
                 v-for="thread in visibleThreads"
                 :key="thread.thread"
@@ -413,9 +419,9 @@ onBeforeUnmount(() => {
                   </span>
                 </span>
               </button>
-              <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="threadsLoading" @click="loadThreads('append')" />
+              <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="threadsLoading" @click="loadThreads('append')" />
             </template>
-            <p v-else class="px-2 py-1.5 text-xs text-muted">No conversations yet. A thread appears here after an Agent answers in it.</p>
+            <UEmpty v-else variant="naked" size="xs" icon="i-lucide-messages-square" title="No conversations yet" description="A thread shows here after an Agent answers in it." />
           </template>
         </nav>
 
@@ -425,7 +431,6 @@ onBeforeUnmount(() => {
             v-if="selectedThread && (retention ?? selected?.retention)?.warning"
             class="m-3"
             color="warning"
-            variant="subtle"
             icon="i-lucide-triangle-alert"
             title="Older messages may be missing"
             :description="(retention ?? selected?.retention)?.warning"
@@ -458,7 +463,7 @@ onBeforeUnmount(() => {
               <ChatMessage :message="view(message)">
                 <template #header>
                   <span class="text-xs text-muted">{{ message.author.name || (message.role === "assistant" ? "Agent" : "Unknown") }} · {{ when(message.at) }}</span>
-                  <ConsoleStatus v-if="message.source !== 'provider'" tone="neutral" :label="message.source === 'transcript' ? 'transcript' : 'from the run'" />
+                  <Status v-if="message.source !== 'provider'" tone="neutral" :label="message.source === 'transcript' ? 'transcript' : 'from the run'" />
                 </template>
                 <template #actions>
                   <ul v-if="message.attachments.length" class="flex flex-wrap gap-2 text-xs">
@@ -473,7 +478,7 @@ onBeforeUnmount(() => {
               </ChatMessage>
             </li>
             <li v-if="messagesCursor" class="self-center">
-              <UButton label="Load more" size="sm" variant="ghost" :loading="messagesLoading" @click="loadMessages(true)" />
+              <UButton label="Load more" variant="ghost" :loading="messagesLoading" @click="loadMessages(true)" />
             </li>
           </ol>
         </section>

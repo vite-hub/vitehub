@@ -10,12 +10,14 @@ import { promisify } from "node:util"
 
 import { build, buildSync } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, createWorkflowRegistryContents, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 
 const workflowBackupRetirement = vi.hoisted<{
   attempts: number
@@ -660,7 +662,7 @@ export async function linkWorkflow() {
   runInNewContext(vmCode, vmContext)
   const workflow = [...vmContext.__private_workflows.entries()].find(([id]) => id.endsWith("//linkWorkflow"))?.[1]
   expect(workflow).toBeDefined()
-  await expect(workflow!()).resolves.toBe("https://native.example.com/portal/_vitehub/agents/bot/invocations/flow")
+  await expect(workflow!()).resolves.toBe(hostedConsoleLink("https://native.example.com/portal", `/agents/bot/invocations/flow`))
   const steps = source.slice(0, vmStart)
   const vm = source.slice(vmStart)
   for (const bundle of [steps, vm]) {
@@ -1074,7 +1076,7 @@ it("preserves the active Vercel function after ownership state bookkeeping fails
 
   const functionContents = await readFile(functionFile)
   const ownership: unknown = JSON.parse(await readFile(markerFile, "utf8"))
-  if (!isRuntimeRecord(ownership) || !hasRuntimeType(ownership.digest, "string")) throw new TypeError("Expected a Workflow ownership digest.")
+  if (!isRuntimeRecord(ownership) || typeof ownership.digest !== "string") throw new TypeError("Expected a Workflow ownership digest.")
   expect(ownership.digest).toBe(createHash("sha256").update(functionContents).digest("hex"))
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
 })

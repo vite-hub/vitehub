@@ -3,7 +3,7 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { getConsoleSchedules } from "./definitions.ts"
 import { consoleRequestText, consoleRequestURL, consoleRoute } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -47,10 +47,8 @@ function consoleScheduleRun(run: ScheduleRunRecord): ConsoleScheduleRun {
  */
 export async function runConsoleSchedule(body: unknown): Promise<ConsoleScheduleRunOutcome> {
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (typeof name !== "string" || !name) return { message: "Schedule run requires a Schedule Definition name.", ok: false, status: 400 }
   const at: unknown = body instanceof Object && "at" in body ? body.at : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (at !== undefined && typeof at !== "string") return { message: "Schedule run `at` must be an ISO 8601 date-time string.", ok: false, status: 400 }
   await loadConsoleRuntime()
   const registry = getConsoleSections().includes("schedules") ? getConsoleSchedules() : {}
@@ -117,7 +115,6 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
   }
   const grant = scheduleDispatchGrant.issue(body)
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   console.info(`[vitehub] Dispatch schedule.run ${typeof name === "string" ? name : "<invalid>"}${verified.actor ? ` by ${verified.actor} (self-asserted)` : ""}`)
   const outcome = await runDispatchedSchedule(grant)
   return outcome.ok
@@ -138,7 +135,7 @@ async function runScheduleWithConsoleAccess(event: ConsoleRequestEvent, access: 
   if (access.mode !== "token") return failure(unsignedRunMessage, 401)
   const request = getStandardContext(event).req
   const origin = request.headers.get("origin")
-  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginBearerCall(request, access)) {
+  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginCall(request, access)) {
     return failure("Schedule run origin is not allowed.", 403)
   }
   const read = await readScheduleRunBody(request)

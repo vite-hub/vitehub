@@ -25,7 +25,7 @@ const writerMarkers = [setupDevRoute, "vite-hub/setup-dev", "createSetupSession"
 describe("dev Setup in a production build", () => {
   it.each([
     ["without console options", {}],
-    ["with the Console", { console: { auth: false as const } }],
+    ["with the Console", { console: { auth: "token" as const } }],
   ])("leaves the Setup route and the writer out of the output, %s", { timeout: 240_000 }, async (_name, options) => {
     const root = await createProject({
       "index.html": "<!doctype html><html><head><title>Fixture</title></head><body><main>ok</main></body></html>\n",

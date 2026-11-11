@@ -70,7 +70,6 @@ function failure(message: string): ViteHubDispatchVerification {
  */
 export async function resolveViteHubDispatchKey(env: Readonly<Record<string, unknown>>): Promise<string | undefined> {
   const key = env.VITEHUB_DISPATCH_KEY
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host env records are untrusted values.
   if (typeof key === "string" && key) {
     if (!keyPattern.test(key)) throw new TypeError("[vitehub] VITEHUB_DISPATCH_KEY must be the 64-character hex key that `vitehub secret derive vitehub:dispatch` prints.")
     return key

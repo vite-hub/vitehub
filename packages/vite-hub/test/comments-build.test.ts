@@ -11,6 +11,7 @@ import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli, serverBuild } from "./support/content-cms.ts"
 
 import type { CommentThread } from "@vite-hub/comments/client"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Comments in a built Nitro 3 app", () => {
@@ -25,12 +26,15 @@ describe("Comments in a built Nitro 3 app", () => {
         "export default defineComments({ authorize: () => true })",
         "",
       ].join("\n"),
+      // A production build refuses `console.auth: false`. The test plugin below replaces the app Auth policy per request.
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
+      "server/console-authorize.ts": "export default () => true\n",
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
       // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
       "server/plugins/test-user.ts": [
         "import { definePlugin } from 'nitro'",
-        "import { installConsoleAccess } from 'vite-hub/console/sections'",
+        `import { installConsoleAccess } from ${JSON.stringify(generatedModules.consoleSections)}`,
         "export default definePlugin(app => {",
         "  app.hooks.hook('request', event => {",
         "    installConsoleAccess(event.req.headers.get('x-test-user') === 'ana'",
@@ -43,7 +47,7 @@ describe("Comments in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // Production output must never invent a local identity, even with NODE_ENV=development.
-    const app = () => vitehub({ console: { auth: false }, preset: "node" })
+    const app = () => vitehub({ auth: true, console: { auth: "app", authorize: "./server/console-authorize.ts" }, preset: "node" })
 
     const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
@@ -111,8 +115,11 @@ describe("Comments in a built Nitro 3 app", () => {
       const api = async (path: string, init: RequestInit = {}) => await server.fetch(`/api/_vitehub/comments${path}`, { ...init, headers: { "content-type": "application/json", "x-test-user": "ana", ...init.headers } })
       const overApi = await (await api("/threads?page=/pricing&status=resolved")).json() as { data: CommentThread[] }
       expect(overApi.data.map(thread => thread.id)).toEqual([created.id])
-      const reopened = await (await api(`/threads/${created.id}/reopen`, { method: "POST" })).json() as { data: CommentThread }
-      expect(reopened.data.status).toBe("open")
+      // The overlay API trusts Auth or `identify`, not the Console, so the Console user of this fixture may not reopen there.
+      const refused = await api(`/threads/${created.id}/reopen`, { method: "POST" })
+      expect(refused.status).toBe(403)
+      expect(await refused.json()).toMatchObject({ error: { code: "COMMENTS_FORBIDDEN" } })
+      expect(await call<CommentThread>("comments.reopen", { threadId: created.id })).toMatchObject({ status: "open" })
       expect((await call<CommentThread[]>("comments.list", { status: "open" })).map(thread => thread.id)).toEqual([created.id])
     }
     finally {

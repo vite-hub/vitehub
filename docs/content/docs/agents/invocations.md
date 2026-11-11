@@ -60,7 +60,32 @@ The success value is an `AgentRunResult`:
 
 In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
-```ts [server/api/support.post.ts] fragment
+The route reads the signed-in user with a helper of the app:
+
+```ts [server/utils/auth.ts]
+import { createError } from 'h3'
+import { auth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireAuthenticatedUser(event: H3Event) {
+  const session = await auth.api.getSession({ headers: event.req.headers })
+  if (!session) throw createError({ status: 401 })
+  return session.user
+}
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
+```ts [server/api/support.post.ts]
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
@@ -326,7 +351,7 @@ Model and provider Drivers get an abort signal. A custom `run` Driver must stop 
 
 ## Inspect invocations in the console
 
-Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
+Open the app in the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
 
 The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
@@ -383,7 +408,7 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 
 ### AGENT_RUN_FAILED
 
-The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED` or `LLM_GATE_REJECTED`.
+The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED`.
 
 ### AGENT_RUN_CANCELLED
 
