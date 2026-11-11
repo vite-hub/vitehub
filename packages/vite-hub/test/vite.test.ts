@@ -545,7 +545,7 @@ describe("vitehub", () => {
       expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
-      expect(generated).toMatch(/installConsoleSections\([^\n]+"blob"[^\n]+false, \["setup"\]\)/)
+      expect(generated).toMatch(/installConsoleSections\([^\n]+"blob"[^\n]+\["setup"\]\)/)
     }
     finally {
       await rm(root, { force: true, recursive: true })
