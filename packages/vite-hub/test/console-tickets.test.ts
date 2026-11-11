@@ -15,6 +15,16 @@ import type { ConsoleDocumentActions } from "../src/console/runtime/server/docum
 import type { ConsoleTicketStore } from "../src/console/runtime/server/tickets.ts"
 import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 
+/** Replaces the Auth Console of a request when a test sets it. */
+const authServer = vi.hoisted(() => ({ console: undefined as ((request: Request) => unknown) | undefined }))
+vi.mock("@vite-hub/auth/server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vite-hub/auth/server")>()
+  return {
+    ...original,
+    getAuthConsoleForRequest: (...args: Parameters<typeof original.getAuthConsoleForRequest>) => authServer.console ? authServer.console(args[0]) : original.getAuthConsoleForRequest(...args),
+  }
+})
+
 const origin = "http://localhost:5173"
 const ada: ConsoleCallerUser = { email: "Ada@Example.com", id: "console-ada", name: "Ada" }
 const key = await consoleTestKey("CONSOLE_TICKETS")
@@ -80,6 +90,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  authServer.console = undefined
   setConsoleTicketStore(undefined)
   installConsoleDevelopment(root, false)
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
@@ -185,6 +196,25 @@ describe("one-time links", () => {
     expect(page.status).toBe(500)
     expect(await page.text()).toContain("CONSOLE_TICKET_STORE_MISSING")
 
+    installConsoleDevelopment(root, true)
+    const url = await link()
+    expect((await open(url)).status).toBe(200)
+    expect((await open(url)).status).toBe(401)
+  })
+
+  it("fails closed in production when Auth has only the memory database that it adds for one process", async () => {
+    const { defineAuth } = await import("@vite-hub/auth")
+    const { createAuthForRequest } = await import("@vite-hub/auth/server")
+    const { createAuthConsole } = await import("@vite-hub/auth/console-runtime")
+    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-tickets-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } })
+    authServer.console = request => createAuthConsole(createAuthForRequest(definition, request))
+    installConsoleSections(root, ["content", "auth"])
+    contentSection()
+    const missing = await operation("documents.preview", { collection: "posts", id: "hello", section: "content" })
+    expect(missing.status).toBe(500)
+    expect(await operationRpcResponseResult(missing)).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING" })
+
+    // A development server keeps them in this process, and each one still works once.
     installConsoleDevelopment(root, true)
     const url = await link()
     expect((await open(url)).status).toBe(200)

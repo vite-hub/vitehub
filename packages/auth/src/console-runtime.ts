@@ -6,6 +6,7 @@ import { adminClaimVariable } from "./admin-claim-code.ts";
 import { adminsPluginId, adminsVariable } from "./admins.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
+import { isAuthProcessMemoryDatabase } from "./runtime-state.ts";
 import type { AuthEventCounts, AuthEventListInput, AuthEventStore } from "./events.ts";
 import type {
   AuthConsoleAction,
@@ -1142,11 +1143,14 @@ export function createAuthConsole(
       impersonatedBy: by ? { id: by, email: string(admin?.email) } : null,
     };
   }
-  /** Better Auth's verification table, which needs a database adapter to hold values for every instance. */
+  /**
+   * Better Auth's verification table, which needs a database adapter that every instance shares. The memory database
+   * that Auth adds to a Definition without one lives in one process, so it does not count.
+   */
   async function verifications() {
     const ctx = await context();
-    if (!ctx.options.database || !ctx.internalAdapter)
-      throw new AuthConsoleError(409, "One-time values need a Better Auth database adapter.");
+    if (!ctx.options.database || isAuthProcessMemoryDatabase(ctx.options.database) || !ctx.internalAdapter)
+      throw new AuthConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
     return ctx.internalAdapter;
   }
   async function stopImpersonating(request: Request): Promise<Response> {

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
+import { defineAuth } from "../src/index.ts";
+import { createAuthForRequest } from "../src/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
 
 const origin = "http://localhost:5173";
@@ -8,8 +10,8 @@ afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
 
-async function app() {
-  const fixture = await consoleEventsFixture();
+async function app(options?: Parameters<typeof consoleEventsFixture>[0]) {
+  const fixture = await consoleEventsFixture(options);
   closers.push(() => fixture.database.sqlite.close());
   return fixture;
 }
@@ -80,6 +82,15 @@ describe("one-time values and the app session", () => {
     expect(taken.filter(([, value]) => value === "value-a")).toHaveLength(1);
     await api.saveVerification("ticket:b", "value-b", new Date(Date.now() - 1));
     expect(await api.consumeVerification("ticket:b")).toEqual([undefined, null]);
+  });
+
+  it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
+    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } });
+    const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));
+    const [saveError] = await consoles[0]!.saveVerification("ticket:memory", "value", new Date(Date.now() + 60_000));
+    expect(saveError).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
+    const taken = await Promise.all(consoles.map((api) => api.consumeVerification("ticket:memory")));
+    expect(taken.map(([error]) => error?.code)).toEqual(Array.from({ length: 8 }, () => "AUTH_CONSOLE_UNAVAILABLE"));
   });
 
   it("reads the app session of the request and who impersonates in it", async () => {
