@@ -151,6 +151,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   content: { ignoreDependencies: ["@vite-hub/database"] },
   // remove when the unused @vite-hub/blob devDependency of cms is fixed
   cms: { ignoreDependencies: ["@vite-hub/blob"] },
+  // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
+  database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
     // The Nuxt module adds `runtime/app` as a layer and its server handlers by path.
     entry: ["runtime/**/*.{ts,vue,css}"],
@@ -189,7 +191,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       // The bundled `@pierre/diffs` imports these, and `neverBundle` keeps `vega-loader` external for the bundled Vega code.
       "@shikijs/langs",
       "@shikijs/themes",
-      "@pierre/theme",
       "vega-loader",
       // remove when the unused @vite-hub/agent devDependency of ui is fixed
       "@vite-hub/agent",
@@ -284,8 +285,6 @@ const config: KnipConfiguration = {
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
     },
     ...packageWorkspaces,
-    // Workflows run these binaries by path: `./.github/ci-tools/node_modules/.bin/<name>`.
-    ".github/ci-tools": { ignoreDependencies: ["pkg-pr-new", "wrangler"] },
     docs: {
       entry: [
         // Markdown pages render these components by name.
@@ -300,7 +299,8 @@ const config: KnipConfiguration = {
       ignoreDependencies: [
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
         /^@iconify-json\//,
-        // Code blocks of the docs import it, and `scripts/check-snippets.mjs` typechecks them.
+        // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
+        "@better-auth/cimd",
         "@chat-adapter/slack",
         // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
         "@takumi-rs/core",

@@ -1,6 +1,7 @@
 import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { importSealKey, sealWithKey, unsealWithKey } from "@vite-hub/env/seal"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { isRecord } from "@vite-hub/internal/object"
 import * as v from "valibot"
 
 import { consoleRequestError } from "./request.ts"
@@ -102,10 +103,6 @@ function memoryRecords(): ConsoleMcpRecords {
     save: async (connection) => { state.connections.set(connection.id, connection) },
     saveClient: async (key, client) => { state.clients.set(key, client) },
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 const optionalText = v.optional(v.string())

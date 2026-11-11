@@ -85,7 +85,7 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
 | `layout` | `article` | `article`, `tutorial`, `landing`, or `home`. |
-| `sidebar` | `true` | `false` hides the left navigation on this page. |
+| `sidebar` | `true` | `false` hides the left navigation on this page. `collapsed` starts it as a narrow column that the reader opens. |
 | `toc` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
@@ -134,7 +134,7 @@ navigation.panel: true
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
 - `home` is the page's own blocks at full width under the site header, with no title, actions, sidebar, or outline. Use it for a product home page built from your `components/content/` blocks; it keeps its search entry, Markdown copy, and share image.
 
-The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A code panel tutorial starts with the navigation closed; the reader opens it with the button in the top left corner.
+The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. A code panel tutorial starts collapsed too.
 
 ````md
 ---
@@ -222,7 +222,7 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 
 ### Code trees and page lists
 
-`::code-tree` shows its code blocks as a project: a file tree beside the open file. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
+`::code-tree` shows its code blocks as a project: file tabs beside the open file, or above it in a narrow panel. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
 
 `::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. `section` lists another section, and `exclude="Start"` leaves groups out. Put a plain Markdown list inside it: the site doesn't show it, and agents read it in the Markdown copy.
 
@@ -237,8 +237,10 @@ Parser options go in a module that `parser` names, since Comark plugins are func
 ```ts
 // docs.parser.ts
 import type { DocsParserOptions } from "@vite-hub/docs/server"
+import emoji from "comark/plugins/emoji"
 
 export default {
+  plugins: [emoji()],
   comarkUi: { chips: true },
   examples: { play: source => `/play#md=${encodeURIComponent(source)}` },
 } satisfies DocsParserOptions
@@ -255,7 +257,7 @@ Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console 
 
 ### Design
 
-The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. On docs pages the sidebar holds the brand, search, a rail of sections or groups next to the page list, and a row at its foot with GitHub, the socials, and the color mode button. Other pages, and phones, get a header with the same parts. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site on top of the ViteHub design system (`@vite-hub/ui/theme.css` and `vitehubTheme`): Geist, neutral grays, hairline rings, 6px controls and 8px cards, one blue focus ring, a faint grain on the page, and GitHub code colors. On docs pages the sidebar holds the brand, search, a rail of sections or groups next to the page list, and a row at its foot with GitHub, the socials, and the color mode button. Other pages, and phones, get a header with the same parts. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.

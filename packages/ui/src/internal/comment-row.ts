@@ -2,7 +2,7 @@ import type { CommentThread } from "@vite-hub/comments/client";
 import { h, type VNodeChild } from "vue";
 import { AvatarStack } from "../components/avatar-stack.ts";
 import { plainText, writerName, writerPerson } from "./comment-person.ts";
-import { timeAgo } from "./comment-time.ts";
+import { timeAgo } from "./format.ts";
 
 /** The start of a thread as plain text: its first message, else the text that it is about. */
 export function threadPreview(thread: CommentThread): string {

@@ -28,7 +28,7 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
-In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
+In your Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
 
 ```bash pm [commands/install-nuxt]
 pnpm add vite-hub h3@^2.0.8 valibot
@@ -56,7 +56,7 @@ Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt 
 :::
 
 :::tabs-item{label="Nitro"}
-In your Nitro app, install ViteHub and its H3 version:
+In your Nitro app, install ViteHub, its H3 version, and Valibot for request validation:
 
 ```bash pm [commands/install-nitro]
 pnpm add vite-hub h3@^2.0.8 valibot
@@ -106,7 +106,7 @@ Create `package.json`. In an existing app, set `"type": "module"` and add the sc
 }
 ```
 
-Install ViteHub with its Nitro and H3 versions, plus Vite and TypeScript.
+Install ViteHub with its Nitro and H3 versions, Valibot for request validation in the route examples, plus Vite and TypeScript.
 `nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports
 `3.0.261102-rc` and `^3.0.261103-rc`.
 
@@ -249,7 +249,7 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 
 Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the preset cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
-Each provider's guide lists its SDKs. For example, Vercel Workflow needs `workflow` and `@workflow/builders`, and a Sandbox Task needs `typescript` and its provider's SDK.
+Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) needs `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. A Sandbox Task needs `typescript` and its provider's SDK.
 ::
 
 ## Build for production

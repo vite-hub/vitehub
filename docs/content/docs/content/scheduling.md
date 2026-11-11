@@ -8,16 +8,37 @@ icon: i-lucide-calendar-clock
 
 `content.schedule()` publishes reviewed drafts later. A Schedule Definition (a cron file) runs them with `content.publishDue()` on every host that runs [Schedule](/docs/schedule).
 
-```ts
-const posts = content.collection('posts')
-const { draft } = (await posts.status('launch'))!
+The examples on this page schedule documents of this `posts` collection:
 
-const schedule = await content.schedule({
-  at: '2026-10-20T09:00:00+02:00',
-  expect: [{ collection: 'posts', id: 'launch', digest: draft }],
-  message: 'Publish the launch post',
+```ts [server/content.ts]
+import { cms } from 'vite-hub/cms'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  extends: cms,
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
+  },
 })
-// { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', expect, message, createdAt }
+```
+
+```ts [server/utils/schedule-launch.ts]
+import content from '../content'
+
+export async function scheduleLaunch() {
+  const posts = content.collection('posts')
+  const { draft } = (await posts.status('launch'))!
+
+  const schedule = await content.schedule({
+    at: '2026-10-20T09:00:00+02:00',
+    expect: [{ collection: 'posts', id: 'launch', digest: draft }],
+    message: 'Publish the launch post',
+  })
+  // { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', expect, message, createdAt }
+  return schedule
+}
 ```
 
 ## Run due schedules
@@ -107,9 +128,13 @@ Runs can overlap, for example from two replicas. Each publish checks the digests
 
 `status()` shows each document's pending, overdue, or else failed schedule as `schedule: { id, at, status, digest, failure? }`. `state` stays `draft`, `changed`, or `deleted` until it publishes. If `schedule.digest` differs from `draft`, the run will fail.
 
-```ts
-await content.collection('posts').status('launch')
-// { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
+```ts [server/utils/launch-status.ts]
+import content from '../content'
+
+export async function launchStatus() {
+  return await content.collection('posts').status('launch')
+  // { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
+}
 ```
 
 ## Inspect and cancel
@@ -128,7 +153,7 @@ Each schedule is one JSON file, named by its id, on the `schedules` ref of the C
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
 
-const { revisions } = await useWorkspace('site').history.list({ ref: 'schedules' })
+const { revisions } = await useWorkspace('content').history.list({ ref: 'schedules' })
 ```
 
 Schedules need no other storage and are as durable as the Workspace history. Each change is a compare-and-swap on the `schedules` head, so concurrent writers retry instead of overwriting.

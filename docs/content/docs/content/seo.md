@@ -61,7 +61,7 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but 
 
 `seo()` is a normal field. Add it to collections whose pages need their own search and social text:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { z } from 'zod'
 import { image, seo } from 'vite-hub/content'
 import { documents } from 'vite-hub/content/collections'
@@ -141,10 +141,17 @@ contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://v
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts] fragment
+```ts [server/content.ts]
+import { defineContent, seo } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
 export default defineContent({
   workspace: 'site',
-  collections: { posts, home },
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
+    home: singleton({ path: 'home.md', url: '/', fields: { title: z.string() } }),
+  },
   seo: { site: 'https://vitehub.dev', sitemap: true, robots: { disallow: ['/_vitehub'] } },
 })
 ```
@@ -168,9 +175,13 @@ Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate
 
 Check the output from code:
 
-```ts
-await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
-content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
+```ts [server/utils/seo-check.ts]
+import content from '../content'
+
+export async function checkSeo() {
+  await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
+  content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
+}
 ```
 
 In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to add pages that are not Content documents.

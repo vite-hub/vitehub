@@ -1,6 +1,4 @@
-import { resolve } from "node:path"
-
-import { installConsoleBlobScope, resolveConsoleBlob } from "../../internal.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleBlobInspection, ConsoleMediaLibrary } from "../../internal.ts"
@@ -16,18 +14,18 @@ export function installConsoleBlob(
     .filter(store => store !== "default")
     .sort()
   installedStores.unshift("default")
-  return installConsoleBlobScope(resolve(projectRoot), { media: () => import("./media.ts"), storage, stores: installedStores })
+  return consoleState().blob = { media: () => import("./media.ts"), storage, stores: installedStores }
 }
 
 /** The media library of a build with Blob. Throws a 404 Console error in a build without it. */
 export async function loadConsoleMedia(): Promise<ConsoleMediaLibrary> {
-  const media = resolveConsoleBlob()?.media
+  const media = consoleState().blob?.media
   if (!media) throw consoleRequestError(404, "The media library needs Blob. Enable Blob in the ViteHub config.")
   return await media()
 }
 
 export function getConsoleBlob(): ConsoleBlobInspection {
-  const inspection = resolveConsoleBlob()
+  const inspection = consoleState().blob
   if (!inspection) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0049({ message: "[vitehub] Blob inspection has not been installed for this runtime." })
   }

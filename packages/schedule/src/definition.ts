@@ -1,14 +1,11 @@
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 import type { ScheduleDefinition, ScheduleDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
 const scheduleDefinitionKeys = new Set(["manual", "cron", "handler", "timeZone"])
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
 
 function isCronString(value: unknown): value is string {
   return value !== null && value !== undefined && String(value) === value
