@@ -85,6 +85,48 @@ describe("mergeDatabaseRelations", () => {
     }))
   })
 
+  it("allows replaced source and target tables when the app overrides every affected field", async () => {
+    const replacement = sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull(), email: text("email") })
+    const base = defineDatabase({ relations, schema })
+    const app = defineDatabase({
+      relations: defineRelations({ posts, users: replacement }, r => ({
+        posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },
+        users: { posts: r.many.posts() },
+      })),
+      schema: { users: replacement },
+    })
+    const mergedSchema = { ...base.schema, ...app.schema }
+    const merged = mergeDatabaseRelations("default", mergedSchema, [base.relations, app.relations])
+    expect(merged.users!.relations.posts).toBe(app.relations.users.relations.posts)
+    expect(merged.posts!.relations.author).toBe(app.relations.posts.relations.author)
+
+    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged, schema: mergedSchema })
+    await seed(db)
+    await db.run(sql`ALTER TABLE users ADD COLUMN email TEXT`)
+    await db.run(sql`UPDATE users SET email = 'ada@example.com' WHERE id = 1`)
+    await expect(db.query.posts!.findFirst({ where: { id: 1 }, with: { author: true } })).resolves.toMatchObject({
+      author: { email: "ada@example.com", id: 1, name: "Ada" },
+    })
+    await expect(db.query.users!.findFirst({ where: { id: 1 }, with: { posts: true } })).resolves.toMatchObject({
+      email: "ada@example.com",
+      posts: [{ id: 1 }, { id: 2 }],
+    })
+  })
+
+  it("rejects a stale source field even when another field of that table is overridden", () => {
+    const replacement = sqliteTable("users", { id: integer("id").primaryKey() })
+    const base = defineRelationsPart(schema, r => ({ users: {
+      posts: r.many.posts({ from: r.users.id, to: r.posts.authorId }),
+      oldPosts: r.many.posts({ from: r.users.id, to: r.posts.authorId }),
+    } }))
+    const app = defineRelationsPart({ posts, users: replacement }, r => ({ users: { posts: r.many.posts({ from: r.users.id, to: r.posts.authorId }) } }))
+
+    expect(() => mergeDatabaseRelations("default", { posts, users: replacement }, [base, app])).toThrow(expect.objectContaining({
+      code: "DATABASE_INVALID_RELATIONS",
+      why: "The relations of the database \"default\" name the table \"users\", but the merged schema holds another table object for that key. A later Nuxt layer replaced the table.",
+    }))
+  })
+
   it("rejects a many-to-many relation whose junction table a later layer replaced", () => {
     const tags = sqliteTable("tags", { id: integer("id").primaryKey() })
     const postTags = sqliteTable("post_tags", { postId: integer("post_id").notNull(), tagId: integer("tag_id").notNull() })
@@ -98,6 +140,24 @@ describe("mergeDatabaseRelations", () => {
       code: "DATABASE_INVALID_RELATIONS",
       why: "The relation \"posts.tags\" of the database \"blog\" targets the table \"postTags\", but the merged schema holds another table object for that key. A later Nuxt layer replaced the table.",
     }))
+    const app = defineRelationsPart({ postTags: replacement, posts, tags }, r => ({
+      posts: { tags: r.many.tags({ from: r.posts.id.through(r.postTags.postId), to: r.tags.id.through(r.postTags.tagId) }) },
+    }))
+    const merged = mergeDatabaseRelations("blog", { postTags: replacement, posts, tags }, [part, app])
+    expect(merged.posts!.relations.tags).toBe(app.posts.relations.tags)
+  })
+
+  it("preserves an own __proto__ relation used by a relational filter", async () => {
+    const part = defineRelationsPart(schema, r => ({ posts: { ["__proto__"]: r.one.users({ from: r.posts.authorId, to: r.users.id }) } }))
+    const merged = mergeDatabaseRelations("default", schema, [part])
+    expect(Object.hasOwn(merged.posts!.relations, "__proto__")).toBe(true)
+    expect(merged.posts!.relations["__proto__"]).toBe(part.posts.relations["__proto__"])
+
+    const db = createDefinitionRuntime({ connection: { url: await tempDatabaseUrl() }, name: "default", relations: merged, schema })
+    await seed(db)
+    await expect(db.query.posts!.findMany({ columns: { title: true }, orderBy: { id: "asc" }, where: { ["__proto__"]: { name: "Ada" } } })).resolves.toEqual([
+      { title: "First" }, { title: "Second" },
+    ])
   })
 
   it("rejects a relation to a table that is not in the merged schema", () => {

@@ -25,19 +25,22 @@ export function mergeDatabaseRelations(
       if (!Object.keys(config.relations).length) continue
       const entry = merged[name]
       if (!entry) throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, reason: "missing", table: name })
+      entry.relations = { ...entry.relations, ...config.relations }
+    }
+  }
+  // Apply field precedence before checking table identity: later layers can replace every use of an old table.
+  for (const [name, entry] of Object.entries(merged)) {
+    for (const [field, relation] of Object.entries(entry.relations)) {
       // Drizzle builds SQL from the table objects of each relation, so they must be the tables that the database uses.
-      if (config.table !== entry.table) throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, reason: "replaced", table: name })
-      for (const [field, relation] of Object.entries(config.relations)) {
-        // A many-to-many relation also joins its junction table, which `.through()` names by its schema key.
-        const tables: Array<[string, unknown]> = [[relation.targetTableName, relation.targetTable]]
-        const throughName = relation.through?.source[0]?._.tableName
-        if (throughName !== undefined) tables.push([throughName, relation.throughTable])
-        for (const [table, object] of tables) {
-          if (object !== merged[table]?.table) {
-            throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, field: `${name}.${field}`, reason: merged[table] ? "replaced" : "missing", table })
-          }
+      if (relation.sourceTable !== entry.table) throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, reason: "replaced", table: name })
+      // A many-to-many relation also joins its junction table, which `.through()` names by its schema key.
+      const tables: Array<[string, unknown]> = [[relation.targetTableName, relation.targetTable]]
+      const throughName = relation.through?.source[0]?._.tableName
+      if (throughName !== undefined) tables.push([throughName, relation.throughTable])
+      for (const [table, object] of tables) {
+        if (object !== merged[table]?.table) {
+          throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, field: `${name}.${field}`, reason: merged[table] ? "replaced" : "missing", table })
         }
-        entry.relations[field] = relation
       }
     }
   }
