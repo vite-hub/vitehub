@@ -7,7 +7,7 @@
 //
 // `crawl` writes `<out-dir>/snapshot.json` (status, content type, redirect target, and hash per URL) and
 // `<out-dir>/bodies/<hash>.txt` (the normalized body that the hash covers). `compare` prints added, removed, and
-// changed entries, and exits with 1 when there is a difference.
+// changed entries, and exits with 1 when there is a difference or either crawl is incomplete.
 
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
@@ -37,6 +37,9 @@ async function crawl(baseInput, outDir) {
   const origin = base.origin
   let site = values.site ? new URL(values.site).origin : null
   const limit = Number(values.limit)
+  const concurrency = Number(values.concurrency)
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("--limit must be a positive integer")
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a positive integer")
   /** @type {Map<string, Entry>} */
   const entries = new Map()
   /** @type {Map<string, string>} */
@@ -45,6 +48,7 @@ async function crawl(baseInput, outDir) {
   const pages = new Set()
   /** @type {Array<{ key: string, run: () => Promise<void> }>} */
   const queue = []
+  let truncated = false
 
   const accept = { html: "text/html,application/xhtml+xml", markdown: "text/markdown", any: "*/*" }
 
@@ -61,12 +65,20 @@ async function crawl(baseInput, outDir) {
     return url.pathname
   }
 
+  function enqueue(key, run) {
+    if (queued.has(key)) return
+    if (queued.size >= limit) {
+      truncated = true
+      return
+    }
+    queued.add(key)
+    queue.push({ key, run })
+  }
+
   function enqueueGet(path, mode = "any") {
     if (!path || ASSET_PATH.test(path) || SKIP_PATH.test(path)) return
     const key = mode === "markdown" ? `GET ${path} [accept markdown]` : `GET ${path}`
-    if (queued.has(key) || queued.size >= limit) return
-    queued.add(key)
-    queue.push({ key, run: () => fetchPath(key, path, accept[mode]) })
+    enqueue(key, () => fetchPath(key, path, accept[mode]))
   }
 
   /** A docs page: its HTML and every agent copy of it. */
@@ -80,10 +92,7 @@ async function crawl(baseInput, outDir) {
     enqueueGet(path === "/" ? "/raw/index.md" : `/raw${path}.md`)
     enqueueGet(`/api/_docs/page${path === "/" ? "/index" : path}.json`)
     const key = `MCP get-page ${path}`
-    if (!queued.has(key)) {
-      queued.add(key)
-      queue.push({ key, run: () => mcpTool(key, "get-page", { path }) })
-    }
+    enqueue(key, () => mcpTool(key, "get-page", { path }))
   }
 
   async function fetchPath(key, path, acceptHeader) {
@@ -206,7 +215,6 @@ async function crawl(baseInput, outDir) {
 
   /** Run queued jobs, a few at a time, until none is left. A job can queue more jobs. */
   async function drain() {
-    const concurrency = Math.max(1, Number(values.concurrency))
     const running = new Set()
     while (queue.length || running.size) {
       while (queue.length && running.size < concurrency) {
@@ -228,23 +236,32 @@ async function crawl(baseInput, outDir) {
   enqueueGet("/__parity__/missing-page", "markdown")
 
   // The MCP server lists its pages; list-pages is a source of pages too.
-  const init = await mcp("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vitehub-docs-parity", version: "1" } }, 1).catch(() => null)
-  if (init?.message?.result) {
-    await mcp("notifications/initialized", undefined, undefined).catch(() => null)
-    const list = await mcpTool("MCP list-pages", "list-pages", {})
-    try {
-      for (const page of JSON.parse(list)) if (typeof page?.path === "string") enqueuePage(page.path)
+  let initialized = false
+  await runJob({ key: "MCP initialize", run: async () => {
+    const init = await mcp("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vitehub-docs-parity", version: "1" } }, 1)
+    if (!init?.message?.result) {
+      failures++
+      record("MCP initialize", { status: init?.status ?? 0, type: "mcp/unavailable" }, "")
+      return
     }
-    catch {}
-  }
-  else {
-    record("MCP initialize", { status: init?.status ?? 0, type: "mcp/unavailable" }, "")
+    await mcp("notifications/initialized", undefined, undefined)
+    initialized = true
+  } })
+  if (initialized) {
+    await runJob({ key: "MCP list-pages", run: async () => {
+      const list = await mcpTool("MCP list-pages", "list-pages", {})
+      try {
+        for (const page of JSON.parse(list)) if (typeof page?.path === "string") enqueuePage(page.path)
+      }
+      catch {}
+    } })
   }
   await drain()
 
   await mkdir(join(outDir, "bodies"), { recursive: true })
   const sorted = Object.fromEntries([...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
-  const snapshot = { version: 1, site: site ?? origin, pages: pages.size, entries: sorted }
+  const complete = failures === 0 && !truncated
+  const snapshot = { version: 2, site: site ?? origin, pages: pages.size, complete, failures, truncated, entries: sorted }
   await writeFile(join(outDir, "snapshot.json"), `${JSON.stringify(snapshot, null, 1)}\n`)
   await Promise.all([...bodies].map(([hash, body]) => writeFile(join(outDir, "bodies", `${hash}.txt`), body)))
 
@@ -259,6 +276,8 @@ async function crawl(baseInput, outDir) {
   console.log(`By kind: ${Object.entries(counts).map(([kind, count]) => `${kind} ${count}`).join(", ")}`)
   console.log(`By status: ${Object.entries(statuses).map(([status, count]) => `${status} ${count}`).join(", ")}`)
   console.log(`Wrote ${join(outDir, "snapshot.json")}`)
+  if (!complete) console.error(`Incomplete crawl: ${failures} failed requests${truncated ? `; request limit (${limit}) reached, URLs were skipped` : ""}. Snapshot is diagnostic only; retry the crawl${truncated ? " with a higher --limit" : ""}.`)
+  return complete ? 0 : 1
 
   // Normalization. Keep what a reader or an agent gets; drop what changes with each build.
 
@@ -411,6 +430,14 @@ function walkStrings(value, visit) {
 async function compare(beforeDir, afterDir) {
   const before = JSON.parse(await readFile(join(beforeDir, "snapshot.json"), "utf8"))
   const after = JSON.parse(await readFile(join(afterDir, "snapshot.json"), "utf8"))
+  let incomplete = false
+  for (const [dir, snapshot] of [[beforeDir, before], [afterDir, after]]) {
+    if (snapshot.complete !== true || snapshot.failures || snapshot.truncated || Object.values(snapshot.entries).some(entry => entry.status === 0)) {
+      console.error(`Incomplete snapshot: ${dir}. Run crawl again successfully before comparing.`)
+      incomplete = true
+    }
+  }
+  if (incomplete) return 1
   const maxLines = Number(values.lines)
   const keys = new Set([...Object.keys(before.entries), ...Object.keys(after.entries)])
   const added = []
@@ -470,7 +497,7 @@ function bodyDiff(a, b, maxLines) {
 }
 
 const [command, first, second] = positionals
-if (command === "crawl" && first && second) await crawl(first, second)
+if (command === "crawl" && first && second) process.exitCode = await crawl(first, second)
 else if (command === "compare" && first && second) process.exitCode = await compare(first, second)
 else {
   console.error("Usage:\n  parity.mjs crawl <base-url> <out-dir> [--site <origin>] [--concurrency <n>]\n  parity.mjs compare <before-dir> <after-dir> [--lines <n>]")

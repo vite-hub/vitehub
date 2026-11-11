@@ -195,6 +195,28 @@ node docs/scripts/parity.mjs compare /tmp/parity/base /tmp/parity/branch
 
 `compare` lists added, removed, and changed URLs with the changed lines, and exits with 1 when there is a difference. The snapshots are large (about 150 MB of bodies), so keep them out of the repository. `crawl https://vitehub.dev` records the live site in the same format.
 
+`crawl` and `compare` also exit with 1 when requests fail after retries or the request limit skips URLs. These snapshots have `complete: false` and are only for diagnosis. Fix the request failure or increase `--limit` (default: 20000), then crawl again. HTTP responses such as 404s remain comparable. Record both snapshots again if they predate completeness tracking.
+
+### Worker bench
+
+When a change can make the docs Worker bigger or slower, such as how `@vite-hub/docs` loads pages, measure the built Worker before and after. `docs/scripts/bench-worker.mjs` reports:
+
+- Worker bytes from `wrangler deploy --dry-run --outdir`, and aggregate gzip bytes from Wrangler's rounded upload report. Per-module gzip sizes are separate diagnostics.
+- Start time: how long a fresh `workerd` takes to emit its control-pipe `listen` event after module compilation and top-level initialization, minus the same for an empty Worker. No request is sent.
+- Cold latency: a fresh `wrangler dev` per sample, and the first request for each of 20 fixed pages.
+- Warm latency: one `wrangler dev`, two warmup rounds, then ten measured rounds.
+- Memory: the RSS that the loaded Worker adds to `workerd`, and the peak RSS of the `wrangler dev` `workerd`. These are process numbers, not the isolate heap that the 128 MB limit counts.
+
+```sh
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/base.json
+# Build your branch the same way, then
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/branch.json
+node docs/scripts/bench-worker.mjs compare /tmp/bench/base.json /tmp/bench/branch.json
+```
+
+A run takes about two minutes and uses port 4813 (`--port` changes it). `compare` prints ratios and exits with 1 when cold p95 is more than 1.5 times the base. On a busy machine, two runs of the same build gave cold p95 values 1.8 times apart, so run each side twice and compare the per-page cold p50 values, which stayed within 15% for pages above 10 ms. Start time and bytes are stable.
+
 ## Downstream patch loop
 
 Use `pnpm patch` in a consuming project to prove the smallest downstream fix:
