@@ -8,7 +8,20 @@ icon: i-lucide-files
 ---
 
 ::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files{feature="blob"}
+  :::code-tree{feature="blob"}
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // On Node, files are saved in .vitehub/data/blob
+      blob: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -25,6 +38,23 @@ icon: i-lucide-files
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // On Node, files are saved in .vitehub/data/blob
+        blob: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [server/api/avatars.post.ts]
   import { defineEventHandler } from 'h3'
@@ -90,11 +120,11 @@ icon: i-lucide-files
 
 ::product-features
   :::product-feature-item{title="Save any file" icon="i-lucide-file-up" to="/docs/blob/server-api#use-it-at-runtime"}
-  Save text, bytes, or streams with `blob.put()`. Add a content type and your own metadata.
+  Save text, bytes, or streams with `blob.put()`, with a content type and your own metadata.
   :::
 
   :::product-feature-item{title="Uploads in one call" icon="i-lucide-shield-check" to="/docs/blob/server-api#upload-files"}
-  `blob.handleUpload()` checks the size and type of each file before it saves anything.
+  `blob.handleUpload()` checks each file's size and type before it saves anything.
   :::
 
   :::product-feature-item{title="Upload from a Vue page" icon="i-lucide-upload" to="/docs/blob/server-api#upload-files"}
@@ -102,11 +132,11 @@ icon: i-lucide-files
   :::
 
   :::product-feature-item{title="Large files in parts" icon="i-lucide-layers" to="/docs/blob/server-api#multipart-uploads"}
-  Send a big file in parts. The server joins them when the upload is complete.
+  Send a big file in parts. The server joins them at the end.
   :::
 
   :::product-feature-item{title="Links that expire" icon="i-lucide-link" to="/docs/blob/server-api#signed-requests"}
-  `blob.sign()` makes a short-lived link to read or upload one private file.
+  `blob.sign()` makes a short-lived link to read or upload a private file.
   :::
 
   :::product-feature-item{title="Images with alt text, crops, and variants" icon="i-lucide-image" to="/docs/blob/media"}
@@ -114,12 +144,12 @@ icon: i-lucide-files
   :::
 
   :::product-feature-item{title="Many storage services" icon="i-lucide-server" to="/docs/blob/configure#provider-options"}
-  Use your disk, Cloudflare R2, Vercel Blob, Netlify Blobs, S3, and more. Your routes do not change.
+  Use your disk, Cloudflare R2, Vercel Blob, Netlify Blobs, S3, and more, with the same routes.
   :::
 ::
 
 ::agent-only{skill="blob"}
-Use Blob for binary objects such as uploads, generated files, images, and exports. Choose a driver in Vite config and use the same Blob handle in application code when moving between local and hosted storage.
+Use Blob for binary objects such as uploads, generated files, images, and exports. Turn Blob on with `vitehub add blob`, and pass `--option blob.driver=<driver>` where the host needs an explicit driver. Use the same Blob handle in application code when moving between local and hosted storage.
 
 Keep object keys and authorization in application code. Enabling `serve` exposes served objects through a public route by default; set `serve.authorize: true` to require an authenticated session. Treat filesystem Blob storage as one-host storage.
 

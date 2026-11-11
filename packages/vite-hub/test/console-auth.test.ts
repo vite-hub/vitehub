@@ -1,12 +1,14 @@
+import { createHash } from "node:crypto"
 import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { admin } from "better-auth/plugins"
 import { defineAuth } from "@vite-hub/auth"
 import type { AuthRuntimeContext } from "@vite-hub/auth"
-import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { createAuthForRequest, handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { hubEnv } from "@vite-hub/env/vite"
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { describe, expect, it, vi } from "vitest"
@@ -14,16 +16,61 @@ import { build } from "esbuild"
 import { resolveConfig } from "vite"
 import type { PluginOption } from "vite"
 
-import { consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
+import { consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, createConsoleAppAuthPages, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { createInlineConsoleAuth } from "../src/console/auth-inline.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
+import { getConsoleAuth, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it.each([false, true])("ignores the Primary Auth claim code with an independent admin plugin=%s", async (withAdmin) => {
+    const code = "0000-1111-2222-3333"
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${createHash("sha256").update("0000111122223333").digest("hex")}`)
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({
+          database,
+          emailAndPassword: { enabled: true },
+          plugins: withAdmin ? [admin()] : [],
+          secret: "test-secret-at-least-32-bytes-long",
+        })),
+        authorize: () => true,
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input, "/portal/")
+      const authPath = "https://example.com/portal/_vitehub/api/auth"
+      const request = new Request(`${authPath}/sign-up/email`, {
+        body: JSON.stringify({ email: "console@example.com", name: "Console", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      })
+      await prepareConsoleAuth(input, definition, request)
+      const response = await handleAuthRequest(definition, request)
+      expect(response.status).toBe(200)
+      const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      const auth = createAuthForRequest(definition, new Request(authPath))
+      for (const [path, method] of [["", "POST"], ["/status", "GET"]]) {
+        const claim = await auth.handler(new Request(`${authPath}/vitehub/admin-claim${path}`, {
+          ...(method === "POST" ? { body: JSON.stringify({ code }) } : {}),
+          headers: { "content-type": "application/json", cookie, origin: "https://example.com" },
+          method,
+        }))
+        expect(claim.status).toBe(404)
+      }
+      const session = await auth.api.getSession({ headers: new Headers({ cookie }) })
+      expect(session?.user.email).toBe("console@example.com")
+      expect(session && Reflect.get(session.user, "role")).not.toBe("admin")
+    }
+    finally {
+      database.close()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([false, true])("uses build-time development=%s for auth page framing and keeps OAuth outside the frame", async (development) => {
     installConsoleDevelopment("/tmp/vitehub-console-auth", development)
     vi.stubEnv("NODE_ENV", development ? "production" : "development")
@@ -78,7 +125,7 @@ describe("independent Console Auth", () => {
         { route: `${mount}/_vitehub/**`, authorize: input.authorize },
         { route: `${mount}/_vitehub/api/**`, authorize: input.authorize },
       ])
-      expect(options.access?.signIn?.callbackURL).toBe(`${mount}/_vitehub`)
+      expect(options.access?.signIn?.callbackURL).toBe(`${mount}/_vitehub/sign-in`)
       for (const path of ["/_vitehub/rpc/__call", "/_vitehub/api/status"]) {
         const request = new Request(`https://example.com${mount}${path}`, { method: "POST" })
         await prepareConsoleAuth(input, definition, request)
@@ -90,13 +137,18 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("reports independent auth only for the configured Console project", () => {
-    const scope: ConsoleInvocationScope = {}
-    installConsoleSectionScope("/console-auth", ["agents"], scope, true)
-    installConsoleProjectNameScope("/console-auth", "Console Auth", scope)
-    expect(resolveConsoleAuth(scope)).toBe(true)
-    installConsoleSectionScope("/host-managed", ["kv"], scope)
-    expect(resolveConsoleAuth(scope)).toBe(false)
+  it("reports the Console Auth mode of the installed sections", () => {
+    try {
+      installConsoleSections("/console-auth", ["agents"], true)
+      expect(getConsoleAuth()).toBe(true)
+      installConsoleSections("/access", ["agents"], "cloudflare-access")
+      expect(getConsoleAuth()).toBe("cloudflare-access")
+      installConsoleSections("/host-managed", ["kv"])
+      expect(getConsoleAuth()).toBe(false)
+    }
+    finally {
+      Reflect.deleteProperty(globalThis, consoleStateKey)
+    }
   })
 
   it("uses a distinct base path and cookie prefix and requires a database adapter", () => {
@@ -113,13 +165,13 @@ describe("independent Console Auth", () => {
       expect(resolved.basePath).toBe("/_vitehub/api/auth")
       expect(resolved.advanced?.cookiePrefix).toBe("vitehub_console")
       expect(resolved.access?.routes).toHaveLength(2)
-      expect(resolved.access?.signIn?.callbackURL).toBe("/_vitehub")
+      expect(resolved.access?.signIn?.callbackURL).toBe("/_vitehub/sign-in")
       const mounted = createConsoleAuthDefinition(input, "/portal/").options
       if (typeof mounted !== "function") throw new TypeError("Expected mounted Console Auth options.")
       const mountedOptions = mounted({ env: {}, requestOrigin: "https://example.com" })
       expect(mountedOptions.basePath).toBe("/portal/_vitehub/api/auth")
-      expect(mountedOptions.access?.signIn?.callbackURL).toBe("/portal/_vitehub")
-      expect(mountedOptions.access?.signIn?.errorCallbackURL).toBe("/portal/_vitehub?auth_error=signin")
+      expect(mountedOptions.access?.signIn?.callbackURL).toBe("/portal/_vitehub/sign-in")
+      expect(mountedOptions.access?.signIn?.errorCallbackURL).toBe("/portal/_vitehub/sign-in?auth_error=signin")
     }
     finally {
       database.close()
@@ -347,6 +399,132 @@ describe("independent Console Auth", () => {
     }
   })
 
+  it("lets a denied signed-in account claim the admin role through Primary Auth", async () => {
+    const code = "0000-1111-2222-3333"
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${createHash("sha256").update("0000111122223333").digest("hex")}`)
+    const database = new DatabaseSync(":memory:")
+    try {
+      const definition = defineAuth(() => ({
+        access: { routes: [{ route: "/portal/_vitehub/**", authorize: ({ user }) => Reflect.get(user, "role") === "admin" }] },
+        basePath: "/portal/api/auth",
+        baseURL: "https://example.com",
+        database,
+        emailAndPassword: { enabled: true },
+        plugins: [admin()],
+        secret: "test-secret-at-least-32-bytes-long",
+      }))
+      const pages = createConsoleAppAuthPages((request, options, event) => createAuthForRequest(definition, request, options, event))
+      const authPath = "https://example.com/portal/api/auth"
+      const signUp = new Request(`${authPath}/sign-up/email`, {
+        body: JSON.stringify({ email: "owner@example.com", name: "Owner", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      })
+      await (await createAuthForRequest(definition, signUp).$context).runMigrations()
+      const signUpResponse = await handleAuthRequest(definition, signUp)
+      expect(signUpResponse.status).toBe(200)
+      const cookie = signUpResponse.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+
+      const pageRequest = () => new Request("https://example.com/portal/_vitehub", { headers: { accept: "text/html", cookie } })
+      const denied = await requireAuthAccessRoutes(pageRequest(), [0], definition, [0])
+      expect(denied?.status).toBe(403)
+      const html = await (await pages.signIn(pageRequest(), denied)).text()
+      expect(html).toContain('<form id="claim" hidden>')
+      expect(html).toContain('fetch("/portal/api/auth/vitehub/admin-claim" + "/status"')
+
+      const status = await handleAuthRequest(definition, new Request(`${authPath}/vitehub/admin-claim/status`, { headers: { cookie } }))
+      expect(await status.json()).toEqual({ available: true })
+      const claim = await handleAuthRequest(definition, new Request(`${authPath}/vitehub/admin-claim`, {
+        body: JSON.stringify({ code }),
+        headers: { "content-type": "application/json", cookie, origin: "https://example.com" },
+        method: "POST",
+      }))
+      expect(claim.status).toBe(200)
+      expect(await requireAuthAccessRoutes(pageRequest(), [0], definition, [0])).toBeUndefined()
+    }
+    finally {
+      database.close()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    ["file", "/"], ["file", "/portal/"], ["inline", "/"], ["inline", "/portal/"],
+  ] as const)("lands %s Console Auth at the retained sign-in page below %s", async (kind, base) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-landing-"))
+    const key = Symbol.for("test.console.auth.landing")
+    let database: DatabaseSync | undefined
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
+    try {
+      const server = resolve(root, "server.mjs")
+      database = kind === "file" ? new DatabaseSync(":memory:") : undefined
+      Reflect.set(globalThis, key, defineConsoleAuth({
+        auth: defineAuth(() => ({ database, secret: "test-secret-at-least-32-bytes-long", socialProviders: { github: { clientId: "client-id", clientSecret: "client-secret" } } })),
+        authorize: ({ user }) => user.email === "user@example.com",
+        signIn: { provider: "github" },
+      }))
+      await writeFile(server, 'export default globalThis[Symbol.for("test.console.auth.landing")]')
+      const handlers = await writeConsoleAuthHandlers(root, kind === "file" ? { server } : { provider: "github", databasePath: join(root, "auth.sqlite"), allowedEmails: ["user@example.com"] }, base)
+      const entry = resolve(root, "entry.mjs")
+      await writeFile(entry, `export { default } from ${JSON.stringify(handlers.signIn)}; export { input, definition } from ${JSON.stringify(resolve(handlers.signIn, "../auth-definition.mjs"))}`)
+      const bundled = await build({
+        bundle: true, entryPoints: [entry], format: "esm", platform: "node", write: false,
+        plugins: [{ name: "landing-runtime", setup(plugin) {
+          plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
+          plugin.onResolve({ filter: /^(?:#vitehub\/auth\/server|vite-hub\/console\/auth(?:\/inline)?)$/ }, args => args.path === "#vitehub/auth/server"
+            ? { path: import.meta.resolve("@vite-hub/auth/server"), external: true }
+            : { path: fileURLToPath(new URL(args.path.endsWith("/inline") ? "../src/console/auth-inline.ts" : "../src/console/auth.ts", import.meta.url)) })
+          plugin.onResolve({ filter: /^(?:@|[a-z])/ }, args => ({ path: import.meta.resolve(args.path), external: true }))
+        } }],
+      })
+      const modulePath = resolve(root, "landing.mjs")
+      await writeFile(modulePath, bundled.outputFiles![0]!.text)
+      const landing = await import(pathToFileURL(modulePath).href) as { default: { fetch(request: Request): Promise<Response> }, input: Parameters<typeof createConsoleAuthDefinition>[0], definition: ReturnType<typeof createConsoleAuthDefinition> }
+      const options = landing.input.auth.options
+      const resolved = typeof options === "function" ? options({ env: {}, requestOrigin: "https://example.com" }) : options
+      if (!(resolved.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database")
+      database = resolved.database
+      // Issue real session cookies locally; GitHub's external OAuth exchange is independent of this landing handler.
+      landing.input.auth = defineAuth(() => ({ ...resolved, emailAndPassword: { enabled: true } }))
+      const mount = base.replace(/\/$/, "")
+      const pageURL = `https://example.com${mount}/_vitehub/sign-in`
+      const page = (cookie = "", query = "") => new Request(`${pageURL}${query}`, { headers: { accept: "text/html", cookie } })
+      expect(await (await landing.default.fetch(page())).text()).toContain("Sign in with GitHub")
+      const start = new Request(`https://example.com${mount}/_vitehub?auth_start=1`, { headers: { accept: "text/html" } })
+      const oauth = await requireAuthAccessRoutes(start, [0], landing.definition, [0], { signIn: consoleAuthSignInURLs(start, base) })
+      expect(oauth?.status).toBe(302)
+      const states = database.prepare("SELECT value FROM verification").all() as { value: string }[]
+      expect(states.map(state => JSON.parse(state.value).callbackURL)).toEqual([`${mount}/_vitehub/sign-in`])
+      const response = await handleAuthRequest(landing.definition, new Request(`https://example.com${mount}/_vitehub/api/auth/sign-up/email`, {
+        method: "POST", headers: { "content-type": "application/json", origin: "https://example.com" },
+        body: JSON.stringify({ email: "user@example.com", name: "User", password: "passwordpassword" }),
+      }))
+      expect(response.status).toBe(200)
+      const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      database.exec('UPDATE "user" SET "emailVerified" = 1')
+      const signedIn = await landing.default.fetch(page(cookie))
+      expect(signedIn.status).toBe(200)
+      const signedInHTML = await signedIn.text()
+      expect(signedInHTML).toContain("Signed in · ViteHub Console")
+      expect(signedInHTML).toContain(`project=${encodeURIComponent(`https://example.com${mount}`)}`)
+      const consent = await (await landing.default.fetch(page(cookie, "?sig=signed&client_id=agent"))).text()
+      expect(consent).toContain("const authBase")
+      expect(consent).not.toContain("Signed in · ViteHub Console")
+      database.prepare('UPDATE "user" SET "email" = ?').run("denied@example.com")
+      const denied = await landing.default.fetch(page(cookie))
+      expect(denied.status).toBe(403)
+      expect(await denied.text()).toContain("<h1>Access denied</h1>")
+    }
+    finally {
+      database?.close()
+      Reflect.deleteProperty(globalThis, key)
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("generates a guarded Console route without app Auth discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-handlers-"))
     try {
@@ -366,8 +544,9 @@ describe("independent Console Auth", () => {
       expect(middleware).toContain("path === '/_vitehub/sign-in'")
       // Only the schedule run route, and only with a dispatch signature, reaches its own verification without a session.
       expect(middleware).toContain("if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return")
-      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, toAuthRequest(event)")
-      expect(route).toContain("handleAuthRequest(definition, event, undefined, event)")
+      expect(await readFile(handlers.signIn, "utf8")).toContain("const denied = await checkConsoleAccess(request)")
+      expect(route).toContain("async fetch(request) {")
+      expect(route).toContain("handleAuthRequest(definition, request, undefined, request)")
       expect(route).toContain('from "#vitehub/auth/server"')
     }
     finally {
@@ -443,82 +622,32 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("bundles a discovered Console client extension", async () => {
-    const root = await mkdtemp(join(process.cwd(), ".vitehub-console-auth-client-"))
+  it("rejects the removed Console Auth client, by path and by discovered file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-client-"))
     try {
       const directory = resolve(root, "vitehub/console/auth")
+      const removed = "The Console Auth client (console.auth.client, vitehub/console/auth/client) was removed"
+      expect(() => resolveConsoleAuthConfig(root, { provider: "github", allowedEmails: ["maintainer@example.com"], databasePath: join(root, "console.sqlite"), client: "client.ts" } as never)).toThrow(removed)
       await mkdir(directory, { recursive: true })
       await writeFile(resolve(directory, "server.ts"), "export default {}")
-      const clientSource = resolve(directory, "client.ts")
-      await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "original" } }')
-      const files = resolveConsoleAuthConfig(root, {})
-      if ("provider" in files) throw new TypeError("Expected file configuration.")
-      const handlers = await writeConsoleAuthHandlers(root, files)
-      const responseSource = await readFile(handlers.client, "utf8")
-      expect(handlers.clientSource).toBe(clientSource)
-      expect(responseSource).toContain("vitehub.console.auth.client")
-      expect(responseSource).toContain("text/javascript")
-      expect(responseSource).toContain("original")
-      await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "updated" } }')
-      await writeConsoleAuthHandlers(root, files)
-      expect(await readFile(handlers.client, "utf8")).toContain("updated")
+      expect(() => resolveConsoleAuthConfig(root, { client: "client.ts" } as never)).toThrow(removed)
+      expect(resolveConsoleAuthConfig(root, {})).toEqual({ server: resolve(directory, "server.ts") })
+      await writeFile(resolve(directory, "client.ts"), "export default {}")
+      expect(() => resolveConsoleAuthConfig(root, {})).toThrow(removed)
     }
     finally {
       await rm(root, { recursive: true, force: true })
     }
   })
 
-  it("refreshes the Vite client handler when an imported local module changes", async () => {
-    const root = await mkdtemp(join(process.cwd(), ".vitehub-console-auth-watch-"))
+  it("writes no Console Auth client handler", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-no-client-"))
     try {
       const server = resolve(root, "server.ts")
-      const client = resolve(root, "client.ts")
-      const helper = resolve(root, "helper.ts")
       await writeFile(server, "export default {}")
-      await writeFile(helper, 'export const marker = "vite_auth_helper_original"')
-      await writeFile(client, 'import { marker } from "./helper"; export default { setup() { globalThis.consoleAuthMarker = marker } }')
-      const plugin = consoleVitePlugin({ console: { auth: { server, client } }, preset: "node" })
-      const listeners = new Map<string, (path: string) => Promise<void>>()
-      const add = vi.fn()
-      const config = { root }
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected Console config hook.")
-      await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "serve", mode: "development" }])
-      const configureServer = plugin.configureServer
-      if (!configureServer) throw new TypeError("Expected Console development-server hook.")
-      Reflect.apply("handler" in configureServer ? configureServer.handler : configureServer, {}, [{ config: { logger: { error: vi.fn() } }, watcher: { add, on: (event: string, listener: (path: string) => Promise<void>) => listeners.set(event, listener) } }])
-      expect(add).toHaveBeenCalledWith(expect.arrayContaining([client, helper]))
-      await writeFile(helper, 'export const marker = "vite_auth_helper_updated"')
-
-      let markRefreshBuilt: (() => void) | undefined
-      const refreshBuilt = new Promise<void>((resolve) => { markRefreshBuilt = resolve })
-      let releaseRefresh: (() => void) | undefined
-      const refreshPending = new Promise<void>((resolve) => { releaseRefresh = resolve })
-      const writeHandlers = writeConsoleAuthHandlers
-      const refresh = vi.spyOn(await import("../src/console/auth-build.ts"), "writeConsoleAuthHandlers").mockImplementationOnce(async (...args) => {
-        const handlers = await writeHandlers(...args)
-        markRefreshBuilt?.()
-        await refreshPending
-        return handlers
-      })
-      const first = listeners.get("change")?.(helper)
-      let second: Promise<void> | undefined
-      try {
-        await refreshBuilt
-        expect(await readFile(resolve(root, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("vite_auth_helper_updated")
-        await writeFile(helper, 'export const marker = "vite_auth_helper_concurrent"')
-        second = listeners.get("add")?.(helper)
-        expect(refresh).toHaveBeenCalledTimes(1)
-        releaseRefresh?.()
-        await Promise.all([first, second])
-        expect(refresh).toHaveBeenCalledTimes(2)
-        expect(await readFile(resolve(root, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("vite_auth_helper_concurrent")
-      }
-      finally {
-        releaseRefresh?.()
-        await Promise.allSettled([first, second])
-        refresh.mockRestore()
-      }
+      const handlers = await writeConsoleAuthHandlers(root, { server })
+      expect(Object.keys(handlers).sort()).toEqual(["auth", "middleware", "route", "signIn"])
+      await expect(stat(resolve(root, ".vitehub/nitro/console/auth-client.mjs"))).rejects.toThrow()
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -659,6 +788,7 @@ describe("independent Console Auth", () => {
     vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
     vi.stubEnv("CONSOLE_AUTH_BASE_URL", environment ?? "")
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${"a".repeat(64)}`)
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", publicUrl)
     let database: DatabaseSync | undefined
     try {

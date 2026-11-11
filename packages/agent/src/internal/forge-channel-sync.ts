@@ -3,7 +3,7 @@ import type { PullRequestOptions } from "../channels.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ForgeChannelSyncOptions {
   forge: "gitlab" | "forgejo"
@@ -77,7 +77,7 @@ function repositoryNames(options: ForgeChannelSyncOptions): string[] | undefined
     throw agentDiagnostics.AGENT_R0991({ message: "Forge sync.repositories must be a non-empty repository list." })
   }
   for (const repository of options.repositories) {
-    if (!hasRuntimeType(repository, "string") || !/^[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$/.test(repository)
+    if (typeof repository !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$/.test(repository)
       || repository.split("/").some(part => part === "." || part === ".." || part.endsWith(".git"))
       || (options.forge === "forgejo" && repository.split("/").length !== 2)) {
       throw agentDiagnostics.AGENT_R0991({ message: "Forge sync.repositories requires owner/name paths. GitLab paths can include nested groups." })

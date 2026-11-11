@@ -1,53 +1,48 @@
 ---
 title: ViteHub and Nitro
-description: Understand Nitro's server runtime and deployment role, and the Agent Definitions and server service integrations ViteHub adds on top.
+description: Learn what Nitro does as a server runtime and deploy tool, and what ViteHub adds on top of it.
 navigation.title: Nitro
 navigation.order: 8
 navigation.group: Server frameworks
 icon: i-lucide-server
 ---
 
-Use Nitro when its server routes, runtime utilities, and deployment output
-cover the application. Add ViteHub when you want discovered Agent Definitions
-or its shared server service APIs. ViteHub uses Nitro, so these are not
-mutually exclusive frameworks.
+Use Nitro when its routes, utilities, and deploy output cover your app. Add
+ViteHub for Agents found from files or shared server service APIs. ViteHub
+runs on Nitro, so you can use both.
 
 ## Separate the server from service definitions
 
-Nitro owns the server build and runtime. It provides routing, deployment
-presets, storage, caching, database utilities, tasks, and WebSockets.
-It is inaccurate to describe Nitro as only an HTTP router.
+Nitro owns the server build and runtime: routing, deploy presets, storage,
+caching, database utilities, tasks, and WebSockets. It is more than an HTTP
+router.
 
-ViteHub composes service integrations with that server. A ViteHub preset
-selects host output and default providers for enabled services. Feature
-packages own Definitions, runtime APIs, and their provider contributions.
+ViteHub adds services to that server. A ViteHub preset picks the host output
+and the default providers for the services you turn on. Each feature package
+owns its Definitions, runtime APIs, and provider code.
 
-For example, a Nitro route can call ViteHub KV or run an Agent. The route
-belongs to the server, while ViteHub supplies the selected service contract.
+For example, a Nitro route can call ViteHub KV or run an Agent.
 
 ## Choose by the contract you need
 
-Keep direct Nitro APIs when they already express the job. A server with routes,
-cache, and existing database access does not need an Agent framework merely
-to deploy.
+Keep Nitro APIs when they already do the job. A server with routes, cache, and
+database access does not need an Agent framework to deploy.
 
-Evaluate ViteHub when the app needs discovered Agents, explicit Capabilities,
-shared server APIs, or service-specific generated host resources. Compare
-those requirements with the Nitro utilities you already use.
+Look at ViteHub when the app needs Agents found from files, explicit
+Capabilities, shared server APIs, or host resources that a service generates.
 
-Do not configure conflicting Nitro and ViteHub deployment presets. Follow
-[Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) for integration ownership.
+Do not set conflicting Nitro and ViteHub deploy presets. Read
+[Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) to see who owns what.
 
 ## Check the Nitro generation
 
-Nitro v3 introduces the Vite integration used by ViteHub's Vite setup. Its
-documentation still identifies v3 as beta on the date below. Follow the
-versions in [Installation](/docs/getting-started/installation), rather than
-mixing examples from Nitro v2 and v3.
+ViteHub's Vite setup uses Nitro v3, which the Nitro docs still call beta on
+the date below. Use the versions in
+[Installation](/docs/getting-started/installation). Do not mix Nitro v2 and v3
+examples.
 
-Nuxt supplies its own Nitro integration. Use `vite-hub/nuxt` there and confirm
-the required Nuxt and Nitro versions. Do not register another Nitro Vite
-plugin in the Nuxt app.
+Nuxt has its own Nitro integration. Use `vite-hub/nuxt` there, check the
+required Nuxt and Nitro versions, and do not add another Nitro Vite plugin.
 
 Sources checked on 29 October 2026:
 [Nitro documentation](https://nitro.build/docs),

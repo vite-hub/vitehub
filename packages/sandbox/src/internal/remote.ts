@@ -163,19 +163,29 @@ async function materializeRemotePlan(
   }
   await session.makeDirectory({ abortSignal, path: home, recursive: true });
   await session.makeDirectory({ abortSignal, path: workspace, recursive: true });
-  for (const [path, file] of Object.entries(input.plan.files)) {
-    const content = await file.resolve();
-    diagnosticSecrets.push(...sandboxRequirementSecrets([content]));
-    await session.makeDirectory({
+  const entries = Object.entries(input.plan.files);
+  const directories = new Set([home, workspace]);
+  const fileConcurrency = 8;
+  for (let offset = 0; offset < entries.length; offset += fileConcurrency) {
+    const files: { content: Uint8Array; path: string }[] = [];
+    for (const [path, file] of entries.slice(offset, offset + fileConcurrency)) {
+      abortSignal?.throwIfAborted();
+      const content = await file.resolve();
+      diagnosticSecrets.push(...sandboxRequirementSecrets([content]));
+      files.push({ content: Uint8Array.from(content), path: joinRemotePath(home, path) });
+    }
+    const missingDirectories = [...new Set(files.map(file => dirnameRemotePath(file.path)))]
+      .filter(path => !directories.has(path));
+    await settleFileOperations(missingDirectories.map(path => session.makeDirectory({
       abortSignal,
-      path: dirnameRemotePath(joinRemotePath(home, path)),
+      path,
       recursive: true,
-    });
-    await session.writeBinaryFile({
+    })), abortSignal);
+    for (const path of missingDirectories) directories.add(path);
+    await settleFileOperations(files.map(file => session.writeBinaryFile({
       abortSignal,
-      content,
-      path: joinRemotePath(home, path),
-    });
+      ...file,
+    })), abortSignal);
   }
   if (input.checkout) {
     await materializeGitCheckout(input.checkout, workspace, {
@@ -199,6 +209,14 @@ async function materializeRemotePlan(
     abortSignal,
     diagnosticSecrets,
   );
+}
+
+async function settleFileOperations(operations: Promise<void>[], signal?: AbortSignal) {
+  // Drain every upload before failed or aborted boot cleanup removes its Home.
+  const results = await Promise.allSettled(operations);
+  signal?.throwIfAborted();
+  const failure = results.find(result => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
 }
 
 /**

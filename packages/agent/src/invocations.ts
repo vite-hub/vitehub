@@ -1,6 +1,6 @@
 import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
@@ -76,22 +76,8 @@ const TERMINAL_RETRY_TIMEOUT_MS = 60_000
 const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
+const STORE_OPEN_TIMEOUT_MS = 10_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
-const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
-const brandedErrorValues = new WeakSet<object>()
-const intrinsicFunctionToString = Function.prototype.toString
-const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
-const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
-
-function isNativeConstructor(value: unknown, source: string): value is Function {
-  if (!hasRuntimeType(value, "function")) return false
-  try {
-    return intrinsicFunctionToString.call(value) === source
-  }
-  catch {
-    return false
-  }
-}
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -216,6 +202,12 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
+  /**
+   * Prepares a store that connects on first use, such as one that loads its database client and runs migrations.
+   * The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`.
+   * Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried.
+   */
+  open?(): MaybePromise<void>
   claim(id: string, claimId: string, leaseMs: number, options?: {
     /** Atomically rotate only an absent claim or one of these owned generations, unless replaceExisting is true. */
     expectedClaimIds?: readonly string[]
@@ -479,7 +471,7 @@ function cloneObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
 
 function observationIdentity(observation: TraceEventLogEntry): string | undefined {
   const identity = observation.attributes?.[AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]
-  return hasRuntimeType(identity, "string") ? identity : undefined
+  return typeof identity === "string" ? identity : undefined
 }
 
 function sameObservation(left: TraceEventLogEntry, right: TraceEventLogEntry): boolean {
@@ -513,7 +505,7 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
 }
 
 function normalizedCapabilityId(value: unknown): string | undefined {
-  if (!hasRuntimeType(value, "string")) return
+  if (typeof value !== "string") return
   const capabilityId = boundedString(value.trim())
   return capabilityId || undefined
 }
@@ -565,11 +557,11 @@ function annotationKey(key: string): boolean {
 }
 
 function isStringRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
-  if (!input || !hasRuntimeType(input, "object")) return
+  if (!input || typeof input !== "object") return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
   // Reserve capacity for framework identity and execution metadata before user annotations.
   const reserved = new Set([pendingAgentInvocationAnnotation, workflowDispatchAttemptedAnnotation, "vitehub.channel.key", "vitehub.channel.thread", "triggeredBy"])
@@ -577,9 +569,9 @@ function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<st
   for (const [key, value] of [...entries.filter(([key]) => reserved.has(key)), ...entries.filter(([key]) => !reserved.has(key))]) {
     if (Object.keys(annotations).length >= MAX_ANNOTATIONS) break
     if (!annotationKey(key)) continue
-    if (hasRuntimeType(value, "string")) annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
-    else if (hasRuntimeType(value, "number") && Number.isFinite(value)) annotations[key] = value
-    else if (hasRuntimeType(value, "boolean") || value === null) annotations[key] = value
+    if (typeof value === "string") annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
+    else if (typeof value === "number" && Number.isFinite(value)) annotations[key] = value
+    else if (typeof value === "boolean" || value === null) annotations[key] = value
   }
   return Object.keys(annotations).length ? annotations : undefined
 }
@@ -593,12 +585,12 @@ function configurationAnnotations(
   const driver = configuration.driver
   if (!isStringRecord(driver)) return
   const modelRecord = isStringRecord(driver.model) ? driver.model : undefined
-  const provider = hasRuntimeType(modelRecord?.provider, "string")
+  const provider = typeof modelRecord?.provider === "string"
     ? modelRecord.provider
-    : hasRuntimeType(driver.provider, "string")
+    : typeof driver.provider === "string"
       ? driver.provider
       : undefined
-  const modelId = hasRuntimeType(modelRecord?.id, "string")
+  const modelId = typeof modelRecord?.id === "string"
     ? modelRecord.id
     : undefined
   const annotations: AgentRunMetadata["annotations"] = {}
@@ -628,6 +620,7 @@ function boundedString(value: string | undefined): string | undefined {
 }
 
 function isDateValue(value: unknown): value is Date {
+  if (isUnbrandedValue(value)) return false
   try {
     Date.prototype.getTime.call(value)
     return true
@@ -639,6 +632,7 @@ function isDateValue(value: unknown): value is Date {
 
 
 function arrayBufferByteLength(value: unknown): number | undefined {
+  if (isUnbrandedValue(value)) return undefined
   try {
     const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
     // SAFETY: The intrinsic byteLength getter returns a number for a branded ArrayBuffer.
@@ -646,7 +640,7 @@ function arrayBufferByteLength(value: unknown): number | undefined {
   }
   catch {
     const SharedArrayBufferConstructor = globalThis.SharedArrayBuffer
-    if (hasRuntimeType(SharedArrayBufferConstructor, "function")) {
+    if (typeof SharedArrayBufferConstructor === "function") {
       try {
         const length = Object.getOwnPropertyDescriptor(SharedArrayBufferConstructor.prototype, "byteLength")!.get!.call(value)
         // SAFETY: The intrinsic byteLength getter returns a number for a branded SharedArrayBuffer.
@@ -687,134 +681,18 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
   }
 }
 
+// The `[object Error]` tag comes from the Error internal slot, so an Error from another realm also matches.
 function isErrorValue(value: unknown): value is Error {
-  if (!value || !hasRuntimeType(value, "object")) return false
-  if (brandedErrorValues.has(value)) return true
-  try {
-    // Probe the intrinsic Error slot before reading `stack`. A foreign realm
-    // can cache a non-string formatter result (including `undefined`) on the
-    // first read, which would otherwise make the later brand probe fail.
-    if (errorStackGetter) {
-      let prototype = Object.getPrototypeOf(value)
-      while (prototype && prototype !== Object.prototype) {
-        const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-        const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (
-          typeof name === "string"
-          && typeof message === "string"
-          && isNativeConstructor(constructor, nativeErrorConstructorSource)
-          && constructor.prototype === prototype
-        ) {
-          const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
-          const stackDescriptor = Object.getOwnPropertyDescriptor(value, "stack")
-          const sentinel = {}
-          try {
-            // A prior intrinsic read can cache a custom formatter result on the
-            // Error's own lazy stack accessor. Remove that cache before probing.
-            if (stackDescriptor?.configurable) delete (value as object & { stack?: unknown }).stack
-            Object.defineProperty(constructor, "prepareStackTrace", {
-              configurable: true,
-              value: () => sentinel,
-              writable: true,
-            })
-            if (errorStackGetter.call(value) === sentinel) {
-              brandedErrorValues.add(value)
-              return true
-            }
-          }
-          catch {
-            // Continue to the remaining checks when the realm is locked down.
-          }
-          finally {
-            try {
-              if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
-              else delete constructor.prepareStackTrace
-              if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
-              else delete (value as object & { stack?: unknown }).stack
-            }
-            catch {
-              // Ignore restoration failures; classification remains bounded.
-            }
-          }
-        }
-        prototype = Object.getPrototypeOf(prototype)
-      }
-    }
-    // V8's intrinsic stack accessor performs the Error internal-slot check and
-    // works for Error instances created in another realm. Keep the structural
-    // fallback below for runtimes without that accessor.
-    if (errorStackGetter) {
-      try {
-        // Calling the intrinsic accessor performs the non-spoofable Error
-        // internal-slot check. The stack value may be non-string when a
-        // foreign realm customizes prepareStackTrace.
-        const stack = errorStackGetter.call(value)
-        // The intrinsic accessor returns `undefined` for objects without the
-        // Error internal slot. Only accept the intrinsic brand when it yields
-        // an actual stack value; structural checks below cover custom formatters
-        // that intentionally return `undefined`.
-        if (typeof stack === "string") {
-          // Preserve the non-spoofable intrinsic-brand evidence for the
-          // subsequent AggregateError classification pass.  Fallback
-          // classifications are intentionally never cached because proxies
-          // and other mutable values may change between observations.
-          brandedErrorValues.add(value)
-          return true
-        }
-      }
-      catch {
-        // A custom stack formatter can make the intrinsic getter throw. Keep
-        // checking the other Error brands so genuine values are still found.
-      }
-    }
-    if (isInstance(value, Error)) {
-      return true
-    }
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && prototype !== Object.prototype) {
-      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-      const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-      if (typeof name === "string" && typeof message === "string") {
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) {
-          // The intrinsic sentinel probe above is the non-spoofable brand check.
-        }
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return false
-  }
-  catch {
-    return false
-  }
+  return isInstance(value, Error) || Object.prototype.toString.call(value) === "[object Error]"
 }
 
-function isAggregateErrorValue(value: unknown): value is AggregateError {
-  if (!isErrorValue(value)) return false
-  try {
-    if (isInstance(value, AggregateError)) return true
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && prototype !== Object.prototype) {
-      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      if (
-        name === "AggregateError"
-        && isNativeConstructor(constructor, nativeAggregateErrorConstructorSource)
-        && constructor.prototype === prototype
-        && Object.hasOwn(value, "errors")
-        && isArray((value as unknown as Record<string, unknown>).errors)
-      ) return true
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return false
-  }
-  catch {
-    return false
-  }
+// An AggregateError from another realm, or a subclass with its own name, still has its `errors` array.
+function isAggregateErrorValue(value: Error): value is AggregateError {
+  return isInstance(value, AggregateError) || isArray((value as Partial<AggregateError>).errors)
 }
 
 function isRegExpValue(value: unknown): value is RegExp {
+  if (isUnbrandedValue(value)) return false
   try {
     Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return true
@@ -872,6 +750,7 @@ interface BoundedObservationBuiltIn {
 }
 
 function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  if (isUnbrandedValue(value)) return
   try {
     return Set.prototype.values.call(value)
   }
@@ -881,7 +760,7 @@ function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
 }
 
 function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object" || isUnbrandedValue(value)) return
   try {
     return Map.prototype.entries.call(value)
   }
@@ -897,17 +776,17 @@ async function collectBoundedObservationBuiltIns(
   seen = new Set<object>(),
   depth = 0,
 ): Promise<void> {
-  if (!value || !hasRuntimeType(value, "object") || seen.has(value) || budget.items <= 0 || depth >= MAX_OBSERVATION_DEPTH) return
+  if (!value || typeof value !== "object" || seen.has(value) || budget.items <= 0 || depth >= MAX_OBSERVATION_DEPTH) return
   try {
     budget.items--
     seen.add(value)
     const BlobConstructor = globalThis.Blob
-    if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
+    if (typeof BlobConstructor === "function" && isInstance(value, BlobConstructor)) {
       // SAFETY: isInstance verified the Blob internal brand before this narrowed access.
       const blob = value as Blob
       const FileConstructor = globalThis.File
       // SAFETY: isInstance verified the File internal brand before this narrowed access.
-      const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
+      const file = typeof FileConstructor === "function" && isInstance(value, FileConstructor) ? value as File : undefined
       const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
       const representation: {
         bytes: number[]
@@ -1001,7 +880,7 @@ function boundedObservationValue(
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
   const collectionItems = budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS
-  if (value && hasRuntimeType(value, "object")) {
+  if (value && typeof value === "object") {
     const builtIn = builtIns?.get(value)
     if (builtIn) {
       if (builtIn.truncated) budget.truncated = true
@@ -1017,7 +896,7 @@ function boundedObservationValue(
     budget.truncated = true
     return null
   }
-  if (hasRuntimeType(value, "string")) {
+  if (typeof value === "string") {
     if (budget.stringLength <= 0) {
       budget.truncated = true
       return "[truncated]"
@@ -1027,12 +906,12 @@ function boundedObservationValue(
     budget.stringLength -= length
     return value.slice(0, length)
   }
-  if (value === null || hasRuntimeType(value, "boolean")) return value
-  if (hasRuntimeType(value, "number")) {
+  if (value === null || typeof value === "boolean") return value
+  if (typeof value === "number") {
     if (!Number.isFinite(value) || Object.is(value, -0)) budget.truncated = true
     return Number.isFinite(value) ? value : null
   }
-  if (hasRuntimeType(value, "bigint")) {
+  if (typeof value === "bigint") {
     budget.truncated = true
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
@@ -1158,7 +1037,7 @@ function boundedObservationValue(
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ]))
   }
-  if (!value || !hasRuntimeType(value, "object")) {
+  if (!value || typeof value !== "object") {
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
@@ -1191,7 +1070,7 @@ function boundedObservationValue(
     .flatMap(([key, child]) => {
       if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
       // Reserve message structure across the array before allocating text bodies.
-      if (budget.deferredText && (key === "text" || key === "content") && hasRuntimeType(child, "string") && budget.items > 0) {
+      if (budget.deferredText && (key === "text" || key === "content") && typeof child === "string" && budget.items > 0) {
         budget.items--
         budget.deferredText.push(() => {
           const length = Math.min(child.length, maxStringLength, budget.stringLength)
@@ -1277,7 +1156,7 @@ function boundedObservationAttributeValue(
 function sameVisibleMessageText(value: unknown, bounded: unknown): boolean {
   try {
     if (!Array.isArray(value) || !Array.isArray(bounded) || value.length !== bounded.length) return false
-    const stringField = (record: unknown, key: string) => isRuntimeRecord(record) && hasRuntimeType(record[key], "string") ? record[key] : undefined
+    const stringField = (record: unknown, key: string) => isRuntimeRecord(record) && typeof record[key] === "string" ? record[key] : undefined
     // Matching lengths limit traversal to the history retained by the value budget.
     return bounded.every((message: unknown, index) => {
       const original: unknown = value[index]
@@ -1326,7 +1205,7 @@ function boundedObservation(
     if (observation.attributes?.["input.replay.version"] === 5) canonicalAttributes["input.replay.version"] = 5
     for (const key of ["input.promptChanged", "input.hasInvoker", "input.hasResolvedInvoker", "input.hasData", "input.hasOptions", "input.hasMessages", "input.hasContext", "input.hasRunMetadata", "input.hasTimeout", "input.hasAbortSignal", "input.hasDryRun"]) {
       const value = observation.attributes?.[key]
-      if (hasRuntimeType(value, "boolean")) canonicalAttributes[key] = value
+      if (typeof value === "boolean") canonicalAttributes[key] = value
     }
   }
   if (observation.attributes?.[AGENT_INVOCATION_INPUT_REDACTED_ATTRIBUTE] === true) canonicalAttributes[AGENT_INVOCATION_INPUT_REDACTED_ATTRIBUTE] = true
@@ -1352,7 +1231,7 @@ function boundedObservation(
   // A flag without names stays unnamed: this pass cannot tell what an earlier pass cut.
   const unnamedTruncation = recordedTruncation && !Array.isArray(recordedAttributes)
   const truncatedAttributes = new Set<string>(Array.isArray(recordedAttributes)
-    ? recordedAttributes.filter(key => hasRuntimeType(key, "string")).map(key => boundedString(key)!)
+    ? recordedAttributes.filter(key => typeof key === "string").map(key => boundedString(key)!)
     : [])
   const ordinaryAttributes = Object.entries(observation.attributes || {})
     .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key)
@@ -1445,7 +1324,7 @@ function invocationIdentity(runId: string, agentName?: string): string {
 }
 
 function assertInvocationId(id: string): void {
-  if (!hasRuntimeType(id, "string") || !id.trim()) {
+  if (typeof id !== "string" || !id.trim()) {
     throw agentDiagnostics.AGENT_R0622({ message: "[vitehub] Agent Invocations require a non-empty invocation id." })
   }
 }
@@ -1528,9 +1407,9 @@ export function agentInvocationRerunInput(record: Pick<AgentInvocationRecord, "o
   if (attributes["input.hasOptions"] === true) return { available: false, reason: "input-has-options" }
   if (attributes["input.hasMessages"] === true || attributes["input.messages"] !== undefined) return { available: false, reason: "input-has-messages" }
   const prompt = attributes["input.prompt"]
-  if (!hasRuntimeType(prompt, "string") || !prompt.trim()) return { available: false, reason: "input-not-captured" }
+  if (typeof prompt !== "string" || !prompt.trim()) return { available: false, reason: "input-not-captured" }
   if (attributes["input.replay.version"] !== 5 || ["input.promptChanged", "input.hasInvoker", "input.hasResolvedInvoker", "input.hasData", "input.hasOptions", "input.hasMessages", "input.hasContext", "input.hasRunMetadata", "input.hasTimeout", "input.hasAbortSignal", "input.hasDryRun"]
-    .some(key => !hasRuntimeType(attributes[key], "boolean"))) return { available: false, reason: "replay-metadata-unavailable" }
+    .some(key => typeof attributes[key] !== "boolean")) return { available: false, reason: "replay-metadata-unavailable" }
   if (attributes["input.promptChanged"] === true) return { available: false, reason: "input-prompt-changed" }
   if (attributes["input.hasInvoker"] === true) return { available: false, reason: "input-has-invoker" }
   if (attributes["input.hasResolvedInvoker"] === true) return { available: false, reason: "input-has-invoker" }
@@ -1540,19 +1419,19 @@ export function agentInvocationRerunInput(record: Pick<AgentInvocationRecord, "o
   if (attributes["input.hasTimeout"] === true) return { available: false, reason: "input-has-timeout" }
   if (attributes["input.hasDryRun"] === true) return { available: false, reason: "input-has-dry-run" }
   const invokerProfileId = attributes["agent.invoker.profile.id"]
-  return { available: true, ...hasRuntimeType(invokerProfileId, "string") && invokerProfileId ? { invokerProfileId } : {}, prompt }
+  return { available: true, ...typeof invokerProfileId === "string" && invokerProfileId ? { invokerProfileId } : {}, prompt }
 }
 
 function assertStore(store: AgentInvocationStore | undefined): asserts store is AgentInvocationStore {
   if (!store
-    || !hasRuntimeType(store.claim, "function")
-    || !hasRuntimeType(store.create, "function")
-    || !hasRuntimeType(store.get, "function")
-    || !hasRuntimeType(store.getSummary, "function")
-    || !hasRuntimeType(store.getClaimToken, "function")
-    || !hasRuntimeType(store.list, "function")
-    || !hasRuntimeType(store.release, "function")
-    || !hasRuntimeType(store.update, "function")) {
+    || typeof store.claim !== "function"
+    || typeof store.create !== "function"
+    || typeof store.get !== "function"
+    || typeof store.getSummary !== "function"
+    || typeof store.getClaimToken !== "function"
+    || typeof store.list !== "function"
+    || typeof store.release !== "function"
+    || typeof store.update !== "function") {
     throw agentDiagnostics.AGENT_R0623({ message: "[vitehub] Agent Invocations require a store with claim(), create(), get(), getSummary(), getClaimToken(), list(), release(), and update()." })
   }
 }
@@ -1670,7 +1549,7 @@ function namedTruncationAttributes(attributes: TraceEventLogEntry["attributes"],
   if (attributes?.[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] === true && !Array.isArray(recorded)) return {}
   return {
     [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: [...new Set([
-      ...(Array.isArray(recorded) ? recorded.filter(key => hasRuntimeType(key, "string")) : []),
+      ...(Array.isArray(recorded) ? recorded.filter(key => typeof key === "string") : []),
       ...dropped,
     ])],
   }
@@ -1756,11 +1635,11 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
           const cost = summary.cost
           const scalarUsage = isRuntimeRecord(usage)
             ? Object.fromEntries(["inputTokens", "outputTokens", "totalTokens"].flatMap(key =>
-                hasRuntimeType(usage[key], "number") ? [[key, usage[key]]] : []))
+                typeof usage[key] === "number" ? [[key, usage[key]]] : []))
             : undefined
           const scalarCost = isRuntimeRecord(cost)
             ? Object.fromEntries(["usd", "estimated"].flatMap(key =>
-                hasRuntimeType(cost[key], "string") || hasRuntimeType(cost[key], "boolean") ? [[key, cost[key]]] : []))
+                typeof cost[key] === "string" || typeof cost[key] === "boolean" ? [[key, cost[key]]] : []))
             : undefined
           candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": {
             ...(scalarUsage ? { usage: scalarUsage } : {}),
@@ -1981,12 +1860,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id, options) {
       const record = records.get(id)
       if (!record) return undefined
-      const cloned = cloneRecord(record)
-      if (options?.observationNames) {
-        const names = new Set(options.observationNames)
-        cloned.observations = cloned.observations.filter(observation => names.has(observation.name))
-      }
-      return cloned
+      if (!options?.observationNames) return cloneRecord(record)
+      const names = new Set(options.observationNames)
+      return cloneRecord({ ...record, observations: record.observations.filter(observation => names.has(observation.name)) })
     },
     getSummary(id) {
       const record = records.get(id)
@@ -2010,7 +1886,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
         .filter(record => Number(record.cursor) < before
           && (!agentName || record.agentName === agentName)
           && (!capabilityId || invocationCapabilityIds(record).includes(capabilityId))
-          && (!triggeredBy || (hasRuntimeType(record.annotations?.triggeredBy, "string") && record.annotations.triggeredBy.trim() === triggeredBy))
+          && (!triggeredBy || (typeof record.annotations?.triggeredBy === "string" && record.annotations.triggeredBy.trim() === triggeredBy))
           && (!statuses || statuses.has(record.status))
           && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -2169,10 +2045,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
     throw agentDiagnostics.AGENT_R0626({ message: "[vitehub] Agent Invocations metadataContent entries must name content attributes." })
   }
-  if (options.redact !== undefined && !hasRuntimeType(options.redact, "function")) {
+  if (options.redact !== undefined && typeof options.redact !== "function") {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations redact must be a function." })
   }
-  if (options.redactError !== undefined && !hasRuntimeType(options.redactError, "function")) {
+  if (options.redactError !== undefined && typeof options.redactError !== "function") {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations redactError must be a function." })
   }
   if (options.enforcement !== undefined && options.enforcement !== "best-effort" && options.enforcement !== "strict") {
@@ -2182,9 +2058,32 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (!Number.isSafeInteger(storeTimeoutMs) || storeTimeoutMs < 1 || storeTimeoutMs > 60_000) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
   }
-  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => boundedStoreOperation(operation, timeoutMs)
+  // A lazy store opens once, outside the bound of the operation that comes first.
+  let opening: Promise<void> | undefined
+  const storeOpen = options.store.open
+  const openStore = storeOpen && (async () => {
+    const task = opening ??= Promise.resolve().then(() => storeOpen.call(options.store)).catch((error: unknown) => {
+      opening = undefined
+      throw error
+    })
+    const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
+    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+  })
+  const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
+    if (openStore) {
+      try {
+        await openStore()
+      }
+      catch (error) {
+        if (propagateErrors) throw error
+        return undefined
+      }
+    }
+    return boundedStoreOperation(operation, timeoutMs, propagateErrors)
+  }
+  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => storeOperation(operation, timeoutMs)
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
-    const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+    const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
       throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
     }
@@ -2223,8 +2122,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const store = options.store
   const invocations: BoundAgentInvocations = {
     [agentInvocationsBrand]: true,
-    get supportsDelete() { return hasRuntimeType(store.delete, "function") },
+    get supportsDelete() { return typeof store.delete === "function" },
     async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
+      if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2352,50 +2252,52 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
-        if (!creationTask) {
-          const task = Promise.resolve().then(async () => {
-            if (!bindOptions.existingOnly) return await store.create(createInput)
-            const record = await store.get(recordId)
-            return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
-              ? { created: false, record }
-              : undefined
-          }).then((result) => {
-            if (result) {
-              traceId = result.record.traceId
-              if (bindOptions.existingOnly) existingTraceId = result.record.traceId
-              if (bindOptions.existingOnly) existingCursor = result.record.cursor
-              limits = observationLimits(result.record.observationLimits)
-              observationCount = result.record.observations.length
-              observationsTruncated = result.record.observationsTruncated === true
-                || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
-              truncationPersisted = result.record.observationsTruncated === true
-              observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
-              invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
-              reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
-              finished = terminalStatus(result.record.status) && !reopenFailed
-              boundToTerminalRecord = finished
-              workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
-              createdNew = result.created
-              created = true
-              cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
-                || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
-              readCancellationRequest(result.record)
-            }
-            else if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return result
-          }, () => {
-            if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return undefined
-          })
-          creationTask = task
-        }
-        const result = await boundedStore(() => creationTask!, timeoutMs)
+        const result = await boundedStore(() => {
+          if (!creationTask) {
+            const task = Promise.resolve().then(async () => {
+              if (!bindOptions.existingOnly) return await store.create(createInput)
+              const record = await store.get(recordId)
+              return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
+                ? { created: false, record }
+                : undefined
+            }).then((result) => {
+              if (result) {
+                traceId = result.record.traceId
+                if (bindOptions.existingOnly) existingTraceId = result.record.traceId
+                if (bindOptions.existingOnly) existingCursor = result.record.cursor
+                limits = observationLimits(result.record.observationLimits)
+                observationCount = result.record.observations.length
+                observationsTruncated = result.record.observationsTruncated === true
+                  || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+                truncationPersisted = result.record.observationsTruncated === true
+                observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+                invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
+                reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
+                finished = terminalStatus(result.record.status) && !reopenFailed
+                boundToTerminalRecord = finished
+                workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
+                createdNew = result.created
+                created = true
+                cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
+                  || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
+                readCancellationRequest(result.record)
+              }
+              else if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return result
+            }, () => {
+              if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return undefined
+            })
+            creationTask = task
+          }
+          return creationTask!
+        }, timeoutMs)
         if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
@@ -3128,7 +3030,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         return result
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
-        const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+        const result = await storeOperation(operation, storeTimeoutMs, true)
         if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
         return result
       }
@@ -3234,7 +3136,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
-          if (hasRuntimeType(label, "string") && label.trim()) triggeredBy.add(label.trim())
+          if (typeof label === "string" && label.trim()) triggeredBy.add(label.trim())
         }
         cursor = page.cursor
       } while (cursor)
@@ -3281,7 +3183,7 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   if (!invocations) return
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]
-  if (!hasRuntimeType(bind, "function")) {
+  if (typeof bind !== "function") {
     throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
@@ -3295,7 +3197,7 @@ export async function recoverInterruptedAgentInvocations(
 ): Promise<number> {
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const recover = (invocations as Partial<BoundAgentInvocations>)[recoverInterruptedAgentInvocationsSymbol]
-  if (!hasRuntimeType(recover, "function")) {
+  if (typeof recover !== "function") {
     throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
   }
   return await recover.call(invocations, options)

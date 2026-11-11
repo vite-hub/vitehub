@@ -31,10 +31,13 @@ async function bundle(exports: string): Promise<string> {
   }
 }
 
-it("removes unused authority descriptors from a built Runtime consumer", async () => {
+it("removes unused authority descriptors and intrinsic captures from a built Runtime consumer", async () => {
   const code = await bundle("defineCapability")
   expect(code).not.toMatch(/\bcredentials\s*:/)
   expect(code).not.toMatch(/\bfilesystem\s*:/)
+  expect(code).not.toMatch(/\b(?:captureWebAssemblyModule|captureFunctionToString|checkNativeFunctionToString|captureSharedBufferByteLength|captureOrdinaryBufferOperations|captureResponseChecks|prototypeGetter|prototypeMethod)\b/)
+  expect(code).not.toMatch(/\b(?:WebAssembly|SharedArrayBuffer|ArrayBuffer|Blob|Response|getBuiltinModule)\b/)
+  expect(code).not.toContain("Function.prototype.toString")
   // SAFETY: The consumer above re-exports this function from the built Runtime entry.
   const runtime = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`) as Pick<typeof import("../src/index.ts"), "defineCapability">
   expect(runtime.defineCapability("health", { status: "ready" })).toEqual({
@@ -56,4 +59,9 @@ it("keeps used authority descriptors frozen in a built Runtime consumer", async 
   const normalized = runtime.normalizeExecutionAuthority({ ...runtime.noExecutionAuthority })
   expect(normalized).not.toBe(runtime.noExecutionAuthority)
   expect(runtime.normalizeExecutionAuthority(normalized)).toBe(normalized)
+})
+
+it("keeps host access free of Node builtins, so browser bundles can import the Runtime entry", async () => {
+  const code = await bundle("detectHost, getHostBinding")
+  expect(code).not.toMatch(/from\s*["']node:/)
 })

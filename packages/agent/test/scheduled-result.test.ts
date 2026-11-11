@@ -1,8 +1,9 @@
 import type { AgentInput, AgentRunInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../src/types.ts"
 import type { RunAgentOptions } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { expect, it, vi } from "vitest"
-import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
-import { toAgentRunResult } from "../src/output.ts"
+import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { toAgentRunResult } from "../src/agent-output.ts"
 
 
 function runScheduled<CALL_OPTIONS = unknown>(
@@ -11,7 +12,7 @@ function runScheduled<CALL_OPTIONS = unknown>(
   runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
   input: AgentRunInput<CALL_OPTIONS> = {},
 ): Promise<unknown> {
-  return runAgent(agent, {
+  return runAgentWithContext(agent, {
     ...runtimeContext,
     memo: runtimeContext.memo ?? ((_key, create) => create()),
     runtime: runtimeContext.runtime ?? "unknown",
