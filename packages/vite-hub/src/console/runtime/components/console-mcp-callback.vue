@@ -60,7 +60,7 @@ onMounted(async () => {
     :search-base="searchBase"
     :sections-base="sectionsBase"
   />
-  <UDashboardPanel id="mcp-client-callback" :ui="{ body: 'grid min-h-0 place-items-center p-6' }">
+  <UDashboardPanel id="mcp-client-callback">
     <ConsoleState
       v-if="error"
       :error="error"

@@ -62,7 +62,8 @@ export async function materializeAgentModel<TRuntimeConfig extends AgentRuntimeC
   if (!id) {
     throw agentDiagnostics.AGENT_R0514({ message: "[vitehub] Agent model identifiers must be non-empty." })
   }
-  const { createGateway } = await import("@ai-sdk/gateway")
+  // `ai` re-exports the gateway it depends on. A separate @ai-sdk/gateway import can resolve a second copy.
+  const { createGateway } = await import("ai")
   const apiKey = gatewayApiKey(descriptor.apiKey, context)
   return (apiKey ? createGateway({ apiKey }) : createGateway())(id)
 }

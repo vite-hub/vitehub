@@ -64,7 +64,7 @@ Start with the affected package's full `test` script so every package-owned test
 corepack pnpm --dir packages/vite-hub run test
 ```
 
-For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
+For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run --cache -t <package>#build` commands (or the same commands without `--cache`) for builds it already completed.
 
 The package `typecheck` script builds the package and its workspace dependencies first. It works from a fresh install without a manual build:
 
@@ -89,6 +89,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
@@ -160,7 +161,7 @@ corepack pnpm exec vp run build
 corepack pnpm exec vp run --filter vitehub-docs test:snippets
 ```
 
-Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
+Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. When a page shows a file several times, an import gets the last full version of it above the importing block. If no full version appears above the importer, it uses the first full version on the page so the blocks can still be copied together as one project. The check also writes the `.vitehub` types that ViteHub generates for the Definitions that a page shows, such as `[server/queues/welcome-email.ts]` or `[server/databases/default.ts]`, the Auth plugins of `[server/auth.ts]`, and the Env values that `[vite.config.ts]` or `[nuxt.config.ts]` declares. A page that calls a Definition by name, such as `runQueue('welcome-email')` or `useDatabase('default')`, must show that Definition. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. A block that shows a type error on purpose, such as the invalid example of a Doctor rule, names the errors it must fail with: ```` ```ts [server/auth.ts] fails=TS2769 ````. The check fails when such a block passes or fails with other errors. The site does not show either marker. `docs/scripts/check-snippets.baseline.json` lists blocks that are correct but fail because a package type is wrong. Fix the type and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
 
 Run `corepack pnpm --dir docs run test:snippets --update-baseline` to remove fixed entries. The command leaves the baseline unchanged and fails if it finds a new or changed failure.
 
@@ -228,5 +229,9 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 - Force-push only when the task grants it, only to your own task branch, and only with `--force-with-lease`.
 
 Pull request work belongs in a dedicated worktree. Reuse an isolated task worktree, or create one from the refreshed target base. Inspect collisions and preserve other agents' work.
+
+Before you open a pull request that removes public API, commit the change and run `vp run consumers:check`. It finds the package subpaths and exported names that the branch removes compared with `origin/main`, and searches your own projects for them, in the working tree and on the default branch. Add `--name <text>` for what the diff cannot find, such as a config key, a CLI flag, an env var, or a diagnostic code. The list of projects stays on your machine: put one path per line in `~/.config/vitehub/consumer-roots`, or set `VITEHUB_CONSUMER_ROOTS`. The check fails with the project, file, and line of each use. A hit inside `patches/` does not fail, but read the patch: a patch that edits the removed feature is a use. CI does not run this check, because it has no consumer checkouts.
+
+When an entry loses its default export, the check searches its module specifier, since default imports can use any local name. Missing roots or failed searches exit 2. Fix the setup and run the check again.
 
 Do not commit temporary plans, raw thread exports, or scratch files. Keep durable, cited research in the issue or pull request that supports a project decision. Remove task-created temporary files and worktrees after their remote state is safe; never remove pre-existing work without authorization.

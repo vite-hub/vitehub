@@ -3,6 +3,7 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
+import { vitehubTheme } from "@vite-hub/ui/theme";
 import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
@@ -390,7 +391,6 @@ const appearance = startConsoleAppearance({
 });
 
 router.beforeEach(async (to) => {
-  if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
   // The first page waits until the project opens, so its requests carry the token and go to the linked project.
   await consoleProjectReady();
   if (to.matched.length === 0) {
@@ -423,7 +423,7 @@ createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
-  .use(createViteHubUI())
+  .use(createViteHubUI({ icons: vitehubTheme.icons }))
   .mount("#app");
 
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.

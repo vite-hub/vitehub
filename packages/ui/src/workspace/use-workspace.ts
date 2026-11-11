@@ -104,6 +104,11 @@ export interface Workspace {
   teardown: () => void;
 }
 
+/** Whether this page can run a WebContainer. Call it in the browser, such as in `onMounted()`. */
+export function checkWorkspaceSupport(): WebContainerSupport {
+  return checkWebContainerSupport();
+}
+
 function toError(cause: unknown): Error {
   return cause instanceof Error ? cause : new Error(String(cause));
 }

@@ -15,8 +15,8 @@ import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddPlan, SetupError, SetupLinkResult, SetupMissing, SetupReference, SetupRemovePlan, SetupStatus } from "../src/setup/index.ts"
 
 /**
- * The setup commands on every host preset, in the Vite form (`vitehub()` in vite.config) and the Nuxt form
- * (`vite-hub/nuxt` module tuple). Each case runs on a temp copy of a `fixtures/docs-hosts` config.
+ * The setup commands on every host preset, in Vite and Nuxt configs.
+ * Each case runs on a temp copy of a `fixtures/docs-hosts` config.
  */
 
 const docsHosts = fileURLToPath(new URL("../../../fixtures/docs-hosts/", import.meta.url))
@@ -45,8 +45,9 @@ const forms: HostForm[] = hosts.flatMap(host => [
   {
     config: async () => {
       const nuxt = await readFile(join(docsHosts, "installation/nuxt.config.ts"), "utf8")
-      expect(nuxt).toContain(`[viteHubNuxt, { preset: "node" }]`)
-      return nuxt.replace(`preset: "node"`, `preset: "${host}"`)
+      const edited = editViteHubConfig("nuxt.config.ts", nuxt, [{ key: "preset", op: "set", value: host }])
+      if (!edited.ok) throw new Error(edited.reason)
+      return edited.code
     },
     configFile: "nuxt.config.ts",
     framework: "nuxt",
@@ -59,7 +60,6 @@ const developerInputs: Record<string, readonly string[]> = {
   "blob.driver": ["--option", "blob.driver=s3", "--option", "blob.bucket=app-assets"],
   "console.auth": ["--option", "console.auth=false"],
   "database.connection": ["--option", "database.connection.url=libsql://example.com"],
-  "logs.source": ["--option", "logs.source=./server/logs.ts"],
   "workspace.store": ["--option", "workspace.store.provider=github", "--option", "workspace.store.repository=owner/repo"],
 }
 
