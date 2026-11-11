@@ -8,9 +8,9 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
-const token = "Bearer console-cli-test"
 
 function stream() {
   let value = ""
@@ -23,9 +23,13 @@ function stream() {
   }
 }
 
-// The deployed host authorizes each Console request with its own check, as `console: { auth: false, authorize }` does.
-installConsoleAccess({ authorize: ({ request }) => request.headers.get("authorization") === token, mode: "open" })
-afterAll(() => installConsoleAccess({ mode: "open" }))
+// The deployed host takes only signed calls, as `console: true` does. The CLI signs with its private key.
+const signer = await signedConsoleAccess("CI")
+const privateKey = { [`VITEHUB_CONSOLE_PRIVATE_KEY_${signer.key.name}`]: signer.key.privateKey }
+afterAll(() => {
+  signer.restore()
+  installConsoleAccess({ mode: "open" })
+})
 
 function setup() {
   let release!: () => void
@@ -43,7 +47,7 @@ function setup() {
   return { host, invocations, release }
 }
 
-async function cli(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.ProcessEnv = { VITEHUB_CONSOLE_AUTHORIZATION: token }) {
+async function cli(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.ProcessEnv = privateKey) {
   const stdout = stream()
   const stderr = stream()
   const exitCode = await runAgentInvocationsCli([...args, "--url", "https://agent.example.com"], { env, stderr, stdout }, { fetch })
@@ -51,19 +55,19 @@ async function cli(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.P
 }
 
 describe("vitehub agent invocations against the Console RPC handler", () => {
-  it("lists, shows, and cancels a running Invocation with the Console credentials", async () => {
+  it("lists, shows, and cancels a running Invocation with a signing key", async () => {
     const fixture = setup()
-    const started = await handleConsoleRpcRequest(new Request("https://agent.example.com/_vitehub/rpc", {
+    const started = await handleConsoleRpcRequest(await signer.sign(new Request("https://agent.example.com/_vitehub/rpc", {
       body: operationRpcBody("agents.invoke", { agent: "support", prompt: "Wait." }),
-      headers: { "authorization": token, "content-type": "application/json", [consoleRpcHeader]: "1" },
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
-    }), { waitUntil: () => undefined })
+    })), { waitUntil: () => undefined })
     const { value } = await operationRpcResponseResult(started) as { value: { id: string } }
     await vi.waitFor(async () => expect((await fixture.invocations.getSummary(value.id))?.status).toBe("running"))
 
     const anonymous = await cli(["list"], fixture.host, {})
     expect(anonymous.exitCode).toBe(1)
-    expect(anonymous.stderr).toContain("Console denied the request with HTTP 403")
+    expect(anonymous.stderr).toContain("HTTP 401")
 
     const list = await cli(["list", "--status", "running", "--json"], fixture.host)
     expect(list.exitCode).toBe(0)

@@ -20,7 +20,7 @@ function define(plugin: Plugin, root: string, command: "build" | "serve") {
 
 describe("vitehub({ publicUrl })", () => {
   it("defines the configured origin for signed Console requests in development", () => {
-    expect(define(publicUrlPlugin("http://localhost:3000", { auth: "token" }), process.cwd(), "serve")).toEqual({
+    expect(define(publicUrlPlugin("http://localhost:3000", {}), process.cwd(), "serve")).toEqual({
       __VITEHUB_PUBLIC_URL__: JSON.stringify({ url: "http://localhost:3000" }),
     })
     expect(define(publicUrlPlugin("https://production.example.com", { auth: false }), process.cwd(), "serve")).toBeUndefined()

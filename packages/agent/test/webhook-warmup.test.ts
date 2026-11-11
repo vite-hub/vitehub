@@ -139,7 +139,7 @@ async function generate(options: Record<string, unknown>) {
   cleanups.push(() => rm(root, { force: true, recursive: true }))
   await mkdir(join(root, "server", "agents"), { recursive: true })
   await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-  const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:agent-state.sqlite" } }, ...options })
+  const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "file:agent-state.sqlite" } }, ...options })
   if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
   // SAFETY: The hook reads only command and root from this test config.
   await plugin.configResolved.call({} as never, { command: "build", root } as never)
