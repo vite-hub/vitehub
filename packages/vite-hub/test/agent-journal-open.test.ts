@@ -67,6 +67,7 @@ describe("Default Agent journal open", () => {
     expect(other).toBe(database)
     if (database?.driver !== "libsql") throw new TypeError("Expected the libSQL journal.")
     await expect(database.db.select().from(database.schema.invocations)).resolves.toEqual([])
+    await expect(database.db.query.invocations.findMany()).resolves.toEqual([])
     expect(opens.count).toBe(1)
     expect(existsSync(join(directory, "journal.sqlite"))).toBe(true)
   })

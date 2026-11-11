@@ -84,7 +84,7 @@ describe("dev peer evidence", () => {
     const evidence = () => peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" })
     await expect(peer.verifyViteHubDevPeer(request(await evidence()), "x".repeat(43))).resolves.toBe(false)
     await expect(peer.verifyViteHubDevPeer(request(await evidence(), { method: "PUT" }), key)).resolves.toBe(false)
-    await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/_vitehub/mcp" }), key)).resolves.toBe(false)
+    await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/_vitehub/auth/manage" }), key)).resolves.toBe(false)
     await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/app/_vitehub/rpc" }), key)).resolves.toBe(false)
     // A protocol-relative request target keeps its own path.
     const relative = await peer.signViteHubDevPeer(key, { method: "POST", path: "//attacker.example/_vitehub/rpc" })

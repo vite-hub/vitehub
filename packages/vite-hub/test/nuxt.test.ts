@@ -25,6 +25,7 @@ import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubAgent } from "@vite-hub/agent/vite"
+import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
@@ -792,6 +793,27 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("registers Content KV when Nuxt 5 builds Nitro 3 without a Vite environment", async () => {
+    const content = hubContent()
+    mocks.vitehub.mockReturnValue([content, hubKv(undefined, { hosting: "node" })])
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const file = resolve(nuxt.options.serverDir!, "content.ts")
+    await mkdir(nuxt.options.serverDir!, { recursive: true })
+    await writeFile(file, "export default {}")
+    await viteHubNuxtModule({ kv: true, preset: "node" }, nuxt)
+    const config: Record<string, unknown> = {}
+    await runNitroConfigHook(config)
+    const modules = config.modules as Array<typeof content.nitro>
+    const module = modules.find(candidate => candidate.name === content.nitro.name)
+    expect(module).toBeDefined()
+    const options = { rollupConfig: { plugins: [] as Plugin[] } }
+    module!.setup({ options })
+    const plugin = options.rollupConfig.plugins.find(candidate => candidate.name === "@vite-hub/content/nitro-kv")!
+    const transform = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
+    expect(await Reflect.apply(transform, {}, ["export default {}", file])).toMatchObject({ code: expect.stringContaining("__vitehubRegisterContentKV(__vitehubContentKV)") })
+  })
+
   it.each(["application", "layer", "contribution"])("infers Postgres KV from a %s Database when Nuxt skips the Vite build", async (source) => {
     const plugin = hubKv(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node" })
     mocks.vitehub.mockReturnValue([plugin])
@@ -1280,9 +1302,8 @@ describe("ViteHub Nuxt integration", () => {
       fallthrough: false,
     }])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/env/manage" }, { route: "/_vitehub/mcp" }],
-      // The hosted Console calls a development server without sign-in from a listed origin, so its preflight plugin runs first.
-      plugins: [expect.stringMatching(/server\/console-preflight\.js$/), `${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`],
+      handlers: [{ route: "/_vitehub/rpc" }],
+      plugins: [`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`],
     })
     // The app's own route rules stay as they were. ViteHub adds no Console page rules.
     expect(development.nuxt.options.routeRules).toEqual({ "/_vitehub/**": { headers: { "cache-control": "private" }, swr: false } })
@@ -1312,7 +1333,7 @@ describe("ViteHub Nuxt integration", () => {
       production.nuxt,
     )
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/env/manage" }, { route: "/_vitehub/mcp" }],
+      handlers: [{ route: "/_vitehub/rpc" }],
       plugins: expect.arrayContaining([`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`]),
     })
     expect(Object.keys(production.nuxt.options.routeRules ?? {})).not.toContain("/_vitehub/**")
@@ -1323,7 +1344,7 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
-  it.each([true, false])("keeps Nuxt Connections development navigation and builds Connections for production (dev: %s)", async (dev) => {
+  it.each([true, false])("builds Connections without a Console section (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     try {
       const configure = () => viteHubNuxtModule({
@@ -1334,7 +1355,7 @@ describe("ViteHub Nuxt integration", () => {
       }, application.nuxt)
       await configure()
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
-      expect(generated.includes('"connections"')).toBe(dev)
+      expect(generated.includes('"connections"')).toBe(false)
     }
     finally {
       await application.runCloseHook()
@@ -1402,15 +1423,15 @@ describe("ViteHub Nuxt integration", () => {
     await expect(readFile(file, "utf8")).rejects.toThrow()
   })
 
-  it.each(["http", "https"])("links the Nuxt browser URL with %s and IPv6 loopback", async (protocol) => {
+  it("prints the open-access notice of a Nuxt dev server without a link to the hosted Console", async () => {
     const application = createNuxt(true)
-    Object.assign(application.nuxt.options, { app: { baseURL: "/portal/" } })
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     try {
       await viteHubNuxtModule({ preset: "node", console: { auth: false } }, application.nuxt)
       const server = Object.assign(new EventEmitter(), { address: () => ({ address: "::1", port: 3000 }) })
-      for (const listen of application.listenHooks) listen(server, { url: `${protocol}://localhost:3000/` })
-      expect(info).toHaveBeenCalledWith(expect.stringContaining(`project=${encodeURIComponent(`${protocol}://localhost:3000/portal`)}`))
+      for (const listen of application.listenHooks) listen(server, { url: "http://localhost:3000/" })
+      expect(info).toHaveBeenCalledWith(expect.stringContaining("without a signature"))
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining("console.vitehub.dev/open"))
     }
     finally {
       info.mockRestore()
@@ -1714,7 +1735,7 @@ describe("ViteHub Nuxt integration", () => {
       preset: "node",
     }, development.nuxt)
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/env/manage" }, { route: "/_vitehub/mcp" }],
+      handlers: [{ route: "/_vitehub/rpc" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -1756,19 +1777,16 @@ describe("ViteHub Nuxt integration", () => {
     expect(publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills" }))
   })
 
-  it.each([false, true])("preserves Console token preflights below the Nuxt base after config replay (dev: %s)", async (dev) => {
+  it.each([false, true])("keeps one Console route below the Nuxt base after config replay (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     Object.assign(application.nuxt.options, { app: { baseURL: "/portal/" } })
-    await viteHubNuxtModule({
-      console: { auth: "token", origins: ["https://console.example.com"] },
-      preset: "node",
-    }, application.nuxt)
+    await viteHubNuxtModule({ console: true, preset: "node" }, application.nuxt)
 
     const config = nitroOptions(application.nuxt)
     const assertRoutes = () => {
-      const plugins = config.plugins as string[]
-      expect(plugins.filter(plugin => plugin.endsWith("/server/console-preflight.js"))).toHaveLength(1)
-      expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/_vitehub/rpc", "/_vitehub/mcp"]))
+      expect((config.plugins as string[] | undefined ?? []).filter(plugin => /console-preflight|mcp-discovery/.test(plugin))).toEqual([])
+      expect(nitroHandlerRoutes(config)).toContain("/_vitehub/rpc")
+      expect(nitroHandlerRoutes(config)).not.toContain("/_vitehub/mcp")
       expect(nitroHandlerRoutes(config)).not.toContain("/_vitehub")
       expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/portal"))).toEqual([])
     }
@@ -2185,7 +2203,7 @@ describe("ViteHub Nuxt integration", () => {
         await application.runNitroConfigHook(config)
         expect(getConsoleSections()).toContain("comments")
         await expect(generatedConsoleSections()).resolves.toContain("comments")
-        expect(nitroHandlerRoutes(config)).toContain("/_vitehub/mcp")
+        expect(nitroHandlerRoutes(config)).toContain("/_vitehub/rpc")
       }
     }
     finally {
@@ -2255,7 +2273,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, preset: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub/env/manage" }, { route: "/_vitehub/mcp" }],
+        handlers: [{ route: "/_vitehub/rpc" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -2330,8 +2348,6 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
-          { method: "post", route: "/_vitehub/env/manage" },
-          { route: "/_vitehub/mcp" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -2394,8 +2410,6 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
-          { route: "/_vitehub/env/manage" },
-          { route: "/_vitehub/mcp" },
         ],
       })
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -2429,9 +2443,6 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
-          { route: "/_vitehub/env/manage" },
-          { route: "/_vitehub/schedules/run" },
-          { route: "/_vitehub/mcp" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -2539,13 +2550,12 @@ describe("ViteHub Nuxt integration", () => {
     }, createNuxt(true).nuxt)).rejects.toThrow(`agent: { invocations: { ${key} } }`)
   })
 
-  it.each([undefined, `${tmp}/vitehub-nuxt/persistent data`])("requires app Auth for bare Console enablement with dataDir %s", async (dataDir) => {
+  it.each([undefined, `${tmp}/vitehub-nuxt/persistent data`])("takes signed calls for bare Console enablement with dataDir %s", async (dataDir) => {
     const production = createNuxt(false)
-
-    await expect(viteHubNuxtModule({ console: JSON.parse("true"), preset: "node", dataDir }, production.nuxt))
-      .rejects.toThrow("requires a discovered ViteHub Auth Definition")
-    await expect(viteHubNuxtModule({ console: JSON.parse("{}"), preset: "node", dataDir }, createNuxt(true).nuxt))
-      .rejects.toThrow("console.auth is required")
+    await expect(viteHubNuxtModule({ console: true, preset: "node", dataDir }, production.nuxt)).resolves.toBeUndefined()
+    await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).resolves.toContain('installConsoleAccess({ mode: "token" })')
+    await expect(viteHubNuxtModule({ console: JSON.parse('{"auth":"app"}'), preset: "node", dataDir }, createNuxt(true).nuxt))
+      .rejects.toMatchObject({ code: "VITE_HUB_B0020" })
   })
 
   it("rejects a production Console without sign-in", async () => {
@@ -2586,81 +2596,9 @@ describe("ViteHub Nuxt integration", () => {
       for (const hook of production.nitroConfigHooks) await hook(replayed)
       expect(replayed.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage" })]))
       for (const config of [nitroOptions(production.nuxt), replayed]) {
-        expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining([
-          "/.well-known/oauth-protected-resource",
-          "/.well-known/oauth-protected-resource/**",
-          "/.well-known/oauth-authorization-server",
-          "/.well-known/oauth-authorization-server/**",
-        ]))
+        expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/.well-known/"))).toEqual([])
       }
     } finally {
-      await rm(authDefinition, { force: true })
-    }
-  })
-
-  it.each([
-    { base: "/", replay: false },
-    { base: "/portal/", replay: false },
-    { base: "/", replay: true },
-    { base: "/portal/", replay: true },
-  ])("runs Nuxt Console sign-in and OAuth discovery before app Auth ($base, replay: $replay)", async ({ base, replay }) => {
-    const mount = base.replace(/\/$/, "")
-    const authDefinition = `${tmp}/vitehub-nuxt/custom-server/auth.ts`
-    await mkdir(resolve(authDefinition, ".."), { recursive: true })
-    await writeFile(authDefinition, `
-      export default defineAuth({
-        access: { routes: [
-          { route: "${mount}/_vitehub/**", authorize: authorizeConsole },
-          { route: "${mount}/_vitehub/api/**", authorize: authorizeConsole },
-        ] },
-      })
-    `)
-    const authHandler = { handler: "/tmp/app-auth.js", middleware: true, route: "/**" }
-    mocks.vitehub.mockReturnValue([
-      mocks.vitehub(),
-      {
-        name: "@vite-hub/auth/vite",
-        config(config: { nitro?: { handlers?: Array<{ handler: string }> } }) {
-          return {
-            nitro: {
-              ...config.nitro,
-              handlers: [authHandler, ...(config.nitro?.handlers ?? []).filter(handler => handler.handler !== authHandler.handler)],
-            },
-          }
-        },
-      },
-    ])
-    const production = createNuxt(false)
-    Object.assign(production.nuxt.options, { app: { baseURL: base } })
-    production.nuxt.options.nitro = { handlers: [authHandler] }
-    try {
-      await viteHubNuxtModule({ auth: true, console: { auth: "app" }, preset: "node" }, production.nuxt)
-      const config = replay ? { handlers: [authHandler] } : nitroOptions(production.nuxt)
-      if (replay) {
-        await production.runNitroConfigHook(config)
-        await production.runNitroConfigHook(config)
-      }
-      // SAFETY: The Nuxt module produces Nitro handler records; the assertions check their ordering and routes.
-      const handlers = config.handlers as Array<{ handler: string; middleware?: boolean; route: string }>
-      const signIn = handlers.filter(handler => handler.handler.endsWith("/server/sign-in.js"))
-      // Only the sign-in page itself, the login and consent page of MCP OAuth, runs before app Auth.
-      expect(signIn).toEqual([expect.objectContaining({ middleware: true, route: "/_vitehub/sign-in" })])
-      for (const handler of signIn) {
-        expect(handlers.indexOf(handler)).toBeLessThan(handlers.findIndex(candidate => candidate.handler === authHandler.handler))
-      }
-      const discovery = handlers.filter(handler => handler.handler.endsWith("/server/mcp-discovery.js"))
-      expect(discovery).toHaveLength(1)
-      for (const handler of discovery) {
-        expect(handler).toMatchObject({ middleware: true })
-        expect(handler).not.toHaveProperty("route")
-        expect(handler).not.toHaveProperty("method")
-        expect(handlers.indexOf(handler)).toBeLessThan(handlers.findIndex(candidate => candidate.handler === authHandler.handler))
-      }
-      expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
-      await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).resolves.not.toContain("signInPage")
-    }
-    finally {
-      await production.runCloseHook()
       await rm(authDefinition, { force: true })
     }
   })
@@ -2672,15 +2610,18 @@ describe("ViteHub Nuxt integration", () => {
     ))
     const production = createNuxt(false)
     const definition = `${tmp}/vitehub-nuxt/custom-server/connections/mail.ts`
+    const actor = `${tmp}/vitehub-nuxt/custom-server/connections-actor.ts`
     const generatedDir = `${tmp}/vitehub-nuxt/.vitehub/nitro/connections`
     await mkdir(dirname(definition), { recursive: true })
+    // The Connections management API is the app's own API, so the app names who may manage Connections.
+    await writeFile(actor, "export default () => \"user:owner\"\n")
     await writeFile(definition, `import { apiKey, defineConnection } from "vite-hub/connections"
 export default defineConnection({ provider: apiKey({ origins: ["https://api.example.com"] }) })
 `)
     await rm(generatedDir, { recursive: true, force: true })
     try {
       await viteHubNuxtModule({
-        connections: { management: true },
+        connections: { management: { actor } },
         database: preset === "cloudflare" ? { databaseId: "connections-id", databaseName: "connections" } : true,
         console: productionConsole,
         preset,
@@ -2698,7 +2639,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         { handler, method: "get", route: "/_vitehub/connections/connect/**" },
         { handler, method: "get", route: "/_vitehub/connections/callback" },
       ]))
-      // Resolve generated imports, including the Console actor alias and discovered Connection.
+      // Resolve generated imports, including the app's actor module and the discovered Connection.
       const output = await build({
         // SAFETY: Nitro aliases map virtual module names to generated module paths.
         alias: config.alias as Record<string, string>,
@@ -2716,72 +2657,24 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     finally {
       await production.runCloseHook()
       await rm(definition, { force: true })
+      await rm(actor, { force: true })
     }
   })
 
-  it.each(["none", "console-auth"] as const)("resolves the Nuxt Connections management actor with %s", async (source) => {
+  it("adds no Console section or Console actor for the Connections management API", async () => {
     const development = createNuxt(true)
     development.nuxt.options.vite.root = `${tmp}/vitehub-nuxt/app`
     await viteHubNuxtModule({
       connections: { management: true },
       database: true,
-      console: source === "console-auth"
-        ? { auth: { provider: "github", allowedEmails: ["maintainer@example.com"], databasePath: "/data/console-auth.sqlite" } }
-        : { auth: false, authorize: hostManagedAuthorize },
+      console: { auth: false, authorize: hostManagedAuthorize },
       preset: "node",
     }, development.nuxt)
     const config = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(config)
 
-    await expect(generatedConsoleSections()).resolves.toContain("connections")
-
-    const actor = `${tmp}/vitehub-nuxt/app/.vitehub/nitro/console/connections-actor.mjs`
-    expect(config.alias).toMatchObject({ "#vitehub/console/connections-actor": actor })
-    // The installed Console access policy reads the signed-in user, so every mode uses the same actor module.
-    const generated = await readFile(actor, "utf8")
-    expect(generated).toContain("return consoleConnectionsActor(request)")
-    await development.runNitroConfigHook(config)
-    expect(await readFile(actor, "utf8")).toBe(generated)
-    expect(config.alias).toMatchObject({ "#vitehub/console/connections-actor": actor })
-  })
-
-  it("mounts independent Console Auth below the Nitro base, which is the Nuxt app base URL", async () => {
-    const production = createNuxt(false)
-    Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
-    await viteHubNuxtModule({
-      comments: false, console: {
-        auth: {
-          provider: "github",
-          allowedEmails: ["maintainer@example.com"],
-          databasePath: "/data/console-auth.sqlite",
-        },
-        mcp: { resource: "https://app.example.com/portal/_vitehub/mcp/" },
-      },
-      preset: "node",
-    }, production.nuxt)
-    await production.runNitroConfigHook(nitroOptions(production.nuxt))
-
-    const definition = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/auth-definition.mjs`, "utf8")
-    const middleware = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/auth-middleware.mjs`, "utf8")
-    const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
-    expect(definition).toContain('createConsoleAuthDefinition(input, "/portal/", "https://app.example.com/portal/_vitehub/mcp/")')
-    expect(middleware).toContain('const mountBase = "/portal"')
-    expect(middleware).toContain("path === '/_vitehub/sign-in'")
-    expect(plugin).toContain(`installConsoleSections("${tmp}/vitehub-nuxt", ["env"], true)`)
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/api/auth/**")
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
-    // The routes load on their first request; the middleware runs on every request, so it loads at startup.
-    const handlers = nitroOptions(production.nuxt).handlers as Array<{ route: string, lazy?: boolean, middleware?: boolean }>
-    for (const route of ["/_vitehub/sign-in", "/_vitehub/api/auth/**"])
-      expect(handlers.filter(handler => handler.route === route)).toEqual([expect.objectContaining({ lazy: true })])
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).not.toContain("/_vitehub/api/client.js")
-    expect(handlers.find(handler => handler.middleware)).not.toHaveProperty("lazy", true)
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toEqual(expect.arrayContaining([
-      "/.well-known/oauth-protected-resource",
-      "/.well-known/oauth-protected-resource/**",
-      "/.well-known/oauth-authorization-server",
-      "/.well-known/oauth-authorization-server/**",
-    ]))
+    await expect(generatedConsoleSections()).resolves.not.toContain("connections")
+    expect(config.alias).not.toHaveProperty("#vitehub/console/connections-actor")
   })
 
   it("mounts the Console routes below the Nitro base, which is the Nuxt app base URL", async () => {
@@ -2801,7 +2694,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(plugin).not.toContain("installConsolePageTool")
   })
 
-  it.each([false, { provider: "cloudflare-access" }] as const)("preserves application OAuth discovery routes with Nuxt Console auth %j", async (auth) => {
+  it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {
     const application = createNuxt(auth === false)
     const applicationHandlers = [
       "/.well-known/oauth-protected-resource",
@@ -2810,7 +2703,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       "/.well-known/oauth-authorization-server/**",
     ].map((route, index) => ({ handler: `/application/discovery-${index}.js`, route }))
     application.nuxt.options.nitro.handlers = [...applicationHandlers]
-    await viteHubNuxtModule({ console: { auth, authorize: hostManagedAuthorize }, preset: "node" }, application.nuxt)
+    await viteHubNuxtModule({ console: auth === false ? { auth, authorize: hostManagedAuthorize } : { authorize: hostManagedAuthorize }, preset: "node" }, application.nuxt)
     const config = nitroOptions(application.nuxt)
     expect(config.handlers).toEqual(expect.arrayContaining(applicationHandlers))
     // The default replay fixture replaces all handlers; model an app that keeps its discovery routes instead.
@@ -2818,140 +2711,25 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await application.runNitroConfigHook(config)
     expect(config.handlers).toEqual(expect.arrayContaining(applicationHandlers))
     expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/.well-known/"))).toEqual(applicationHandlers.map(handler => handler.route))
-    expect(nitroHandlerRoutes(config)).toContain("/_vitehub/mcp")
-  })
-
-  it("registers the Cloudflare Access Console guard in production Nuxt builds only", async () => {
-    const production = createNuxt(false)
-    Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
-    await viteHubNuxtModule({ comments: false, console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" }, production.nuxt)
-    await production.runNitroConfigHook(nitroOptions(production.nuxt))
-
-    const middleware = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/auth-middleware.mjs`, "utf8")
-    expect(middleware).toContain('handleCloudflareAccessConsoleRequest(event, () => resolveServerEnv(settings, event), "/portal/")')
-    expect(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).toContain('"cloudflare-access")')
-    const routes = nitroHandlerRoutes(nitroOptions(production.nuxt))
-    expect(routes).toContain("/**")
-    expect(routes).not.toContain("/_vitehub/sign-in")
-    expect(routes).not.toContain("/_vitehub/api/auth/**")
-
-    const development = createNuxt(true)
-    await viteHubNuxtModule({ comments: false, console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" }, development.nuxt)
-    await development.runNitroConfigHook(nitroOptions(development.nuxt))
-    expect(nitroHandlerRoutes(nitroOptions(development.nuxt))).not.toContain("/**")
+    expect(nitroHandlerRoutes(config)).not.toContain("/_vitehub/mcp")
   })
 
   it("resolves Console file paths from the Nuxt rootDir when the Vite root is the app folder", async () => {
     const authorize = `${tmp}/vitehub-nuxt/server/console-authorize.ts`
-    const server = `${tmp}/vitehub-nuxt/server/console-auth.ts`
     await mkdir(`${tmp}/vitehub-nuxt/server`, { recursive: true })
     await writeFile(authorize, "export default () => true\n")
-    await writeFile(server, "export default {}\n")
     try {
       // Nuxt sets the Vite root to srcDir, which is `app/` in a Nuxt app.
       const production = createNuxt(false)
       production.nuxt.options.vite.root = production.nuxt.options.srcDir
-      await viteHubNuxtModule({ console: { auth: "token", authorize: "./server/console-authorize.ts" }, preset: "node" }, production.nuxt)
+      await viteHubNuxtModule({ console: { authorize: "./server/console-authorize.ts" }, preset: "node" }, production.nuxt)
       await production.runNitroConfigHook(nitroOptions(production.nuxt))
       expect(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).toContain(pathToFileURL(authorize).href)
-
-      const development = createNuxt(true)
-      development.nuxt.options.vite.root = development.nuxt.options.srcDir
-      await viteHubNuxtModule({ console: { auth: { server: "./server/console-auth.ts" } }, preset: "node" }, development.nuxt)
-      await development.runNitroConfigHook(nitroOptions(development.nuxt))
-      expect(await readFile(`${tmp}/vitehub-nuxt/app/.vitehub/nitro/console/auth-definition.mjs`, "utf8")).toContain(pathToFileURL(server).href)
     }
     finally {
-      await Promise.all([authorize, server].map(file => rm(file, { force: true })))
+      await rm(authorize, { force: true })
       await rm(`${tmp}/vitehub-nuxt/app/.vitehub`, { force: true, recursive: true })
     }
-  })
-
-  it("rejects the removed Console Auth client", async () => {
-    const directory = await mkdtemp(fileURLToPath(new URL("../.vitehub-nuxt-console-auth-", import.meta.url)))
-    try {
-      const server = resolve(directory, "server.ts")
-      await writeFile(server, "export default {}")
-      const development = createNuxt(true)
-      development.nuxt.options.vite.root = directory
-      const auth = { server, client: resolve(directory, "client.ts") } as { server: string }
-      await expect((async () => {
-        await viteHubNuxtModule({ console: { auth }, preset: "node" }, development.nuxt)
-        await development.runNitroConfigHook(nitroOptions(development.nuxt))
-      })()).rejects.toThrow("The Console Auth client (console.auth.client, vitehub/console/auth/client) was removed")
-    }
-    finally {
-      await rm(directory, { recursive: true, force: true })
-    }
-  })
-
-  it("bundles an independent Console Auth handler through the Nitro Auth resolver", async () => {
-    const defaultPlugins = mocks.vitehub()
-    mocks.vitehub.mockReturnValueOnce([
-      defaultPlugins,
-      {
-        name: "@vite-hub/auth/vite",
-        resolveId(id: string) {
-          if (id === "#vitehub/auth/server") return "\0vitehub-test-auth-server"
-        },
-        load(id: string) {
-          if (id === "\0vitehub-test-auth-server") return "export function handleAuthRequest() { return new Response('auth resolver reached') }\nexport function toAuthRequest(event) { return event.req }"
-        },
-      },
-    ])
-    const production = createNuxt(false)
-    await viteHubNuxtModule({
-      console: {
-        auth: {
-          provider: "github",
-          allowedEmails: ["maintainer@example.com"],
-          databasePath: "/data/console-auth.sqlite",
-        },
-      },
-      preset: "node",
-    }, production.nuxt)
-    const nitroConfig = nitroOptions(production.nuxt)
-    await production.runNitroConfigHook(nitroConfig)
-    const rollupConfig = nitroConfig.rollupConfig as { plugins?: Plugin[] }
-    const resolver = rollupConfig.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/auth/vite")
-    expect(resolver).toBeDefined()
-    const resolveId = resolver?.resolveId
-    const load = resolver?.load
-    if (typeof resolveId !== "function" || typeof load !== "function") throw new TypeError("Expected Nitro Auth resolver hooks.")
-
-    const result = await build({
-      bundle: true,
-      entryPoints: [`${tmp}/vitehub-nuxt/.vitehub/nitro/console/auth-route.mjs`],
-      format: "esm",
-      packages: "external",
-      platform: "node",
-      write: false,
-      plugins: [{
-        name: "nitro-auth-resolver-test",
-        setup(pluginBuild) {
-          pluginBuild.onResolve({ filter: /^#vitehub\/auth\/server$/ }, async args => ({
-            path: String(await Reflect.apply(resolveId, {}, [args.path, undefined, {}, {}])),
-            namespace: "nitro-auth",
-          }))
-          pluginBuild.onLoad({ filter: /.*/, namespace: "nitro-auth" }, async args => ({
-            contents: String(await Reflect.apply(load, {}, [args.path])),
-            loader: "js",
-          }))
-        },
-      }],
-    })
-    expect(result.outputFiles?.[0]?.text).toContain("auth resolver reached")
-  })
-
-  it("rejects Auth-backed production Console when replay config disables Auth", async () => {
-    const production = createNuxt(false)
-    Object.assign(production.nuxt.options.vite, { auth: false as const })
-
-    await expect(viteHubNuxtModule({
-      auth: true,
-      console: { auth: "app" },
-      preset: "node",
-    }, production.nuxt)).rejects.toThrow("requires a discovered ViteHub Auth Definition")
   })
 
   it("uses the normalized relative Vite root for Auth assertion and middleware", async () => {
@@ -2984,7 +2762,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
       await viteHubNuxtModule({
         auth: true,
-        console: { auth: "app" },
+        console: true,
         preset: "node",
       }, production.nuxt)
       const nitroConfig: Record<string, unknown> = {}
@@ -4306,6 +4084,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(options.imports.imports).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
       { from: "vite-hub/auth/vue", name: "useUserSession" },
@@ -4503,7 +4282,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       imports: { imports: Array<{ from: string; name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(5)
+    expect(options.imports.imports).toHaveLength(6)
+    expect(options.imports.imports).toContainEqual({ from: "vite-hub/auth/vue", name: "useAbility" })
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({})
     expect(options.nitro).not.toHaveProperty("plugins")

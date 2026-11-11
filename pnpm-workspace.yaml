@@ -80,8 +80,8 @@ catalogs:
   database:
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
-    drizzle-kit: ^0.31.11
-    drizzle-orm: ^0.45.3
+    drizzle-kit: 1.0.0-rc.5
+    drizzle-orm: 1.0.0-rc.5
     postgres: ^3.4.9
   esbuild-v27:
     esbuild: ^0.27.7

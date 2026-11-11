@@ -119,7 +119,6 @@
     "@vite-hub/runtime": "workspace:*",
     "birpc": "catalog:runtime",
     "confbox": "^0.3.1",
-    "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs"
   },
   "devDependencies": {
@@ -137,12 +136,14 @@
     "vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@vite-hub/database": "workspace:*",
-    "vite": "catalog:vite"
+    "vite": "catalog:vite",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
     "nitro": "catalog:nitro-compat",
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {

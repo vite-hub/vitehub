@@ -24,7 +24,7 @@ The built-in live-site overlay uses a different thread and anchor format.
 Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add the client:
 
 ```bash
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
 `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:
@@ -444,7 +444,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 
 ### CommentComposer
 
-The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prompt-input). At the bottom of a panel or thread, it is one row under a divider: attach, text, and send. Renders a `div` with `data-slot="comment-composer"`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"` and `data-layout`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -466,6 +466,7 @@ The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prom
 | `attachments` | `boolean` | `true` | Take files from paste, drop, and the file button. Edits never take files. |
 | `accept` | `string` | | File types to take, like a file input's `accept`. |
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
+| `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
 
 #### Events
 

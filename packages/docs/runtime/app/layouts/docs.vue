@@ -21,7 +21,7 @@ const docsShellUi = {
     <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel, 'has-sidebar': sidebar.state !== 'hidden', 'is-collapsed': sidebar.state === 'collapsed' }">
       <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
       <a href="#docs-content" class="vh-skip-link">Skip to content</a>
-      <UPage :ui="docsShellUi">
+      <UPage :ui="withDocsTheme('page', docsShellUi)">
         <template v-if="sidebar.state !== 'hidden'" #left>
           <UPageAside class="vh-docs-aside hidden lg:flex">
             <!-- Phones hide this column and open the sidebar from the header menu, so it hydrates only once it shows. -->

@@ -15,6 +15,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 import type { AgentRunContext } from "@vite-hub/agent"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]
@@ -57,12 +58,12 @@ function labeller() {
 }
 
 /** One `channels.replay` call through the Console RPC. */
-async function replay(input: unknown, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
-  const response = await handleConsoleRpcRequest(new Request("https://app.test/_vitehub/rpc", {
+async function replay(input: unknown, headers: Record<string, string> = {}, sign: (request: Request) => Promise<Request> = async request => request): Promise<{ body: Record<string, unknown>, status: number }> {
+  const response = await handleConsoleRpcRequest(await sign(new Request("https://app.test/_vitehub/rpc", {
     body: operationRpcBody("channels.replay", input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
-  }))
+  })))
   return { body: Object(await operationRpcResponseResult(response)), status: response.status }
 }
 
@@ -95,14 +96,15 @@ describe("Console Channel replay operation", () => {
   it("passes the verified Console user and request headers to Channel replay", async () => {
     const fixture = labeller()
     installConsoleAgentDefinitions([{ definition: { default: fixture.agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
-    installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "console-user" }) })
+    const signer = await signedConsoleAccess()
     try {
-      const result = await replay({ agent: "labeller", channel: "mailbox" }, { cookie: "session=verified" })
+      const result = await replay({ agent: "labeller", channel: "mailbox" }, { cookie: "session=verified" }, request => signer.sign(request, { id: "console-user" }))
       expect(result).toMatchObject({ body: { ok: true, value: { processed: 2 } }, status: 200 })
       expect(fixture.runContext?.request?.headers.get("cookie")).toBe("session=verified")
       expect(fixture.runContext?.actor).toMatchObject({ id: "console-user", kind: "authUser" })
     }
     finally {
+      signer.restore()
       installConsoleAccess({ mode: "open" })
     }
   })

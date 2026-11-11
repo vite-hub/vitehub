@@ -21,27 +21,20 @@ export interface ConsoleProjectInfo {
 /**
  * What the Console found when it read `project.get` of a project.
  * - `ready`: the project answered with protocol 1.
- * - `token`: the project uses `auth: "token"`. `rejected` is true when the request sent a token and the project refused it.
- * - `oauth`: the project signs in with OAuth. `resourceMetadata` is the URL of its protected resource metadata, from the
- *   `resource_metadata` of its challenge.
- * - `sign-in`: the project wants a session of the app, such as with `auth: "app"`.
+ * - `signed`: the project takes only signed requests, and refused this one. `code` says why, such as
+ *   `CONSOLE_KEY_UNKNOWN` before the app has the public key of the link.
  * - `protocol`: the project answered with another protocol, or runs a vite-hub without `project.get`.
- * - `unreachable`: the request failed before a response, from CORS, the network, or a project that is offline.
+ * - `unreachable`: the request failed before a response, from the network or a project that is offline.
  * - `missing`: no ViteHub Console answers at the URL.
- * - `failed`: the project answered with another error, such as a token that is not configured.
+ * - `failed`: the project answered with another error, such as a key that is not configured.
  */
 export type ConsoleProjectProbe =
   | { kind: "ready", info: ConsoleProjectInfo }
-  | { kind: "token", rejected: boolean }
-  | { kind: "oauth", resourceMetadata: string }
-  | { kind: "sign-in" }
+  | { kind: "signed", code: string, message?: string, fix?: string }
   | { kind: "protocol", protocol?: number, vitehub?: string }
   | { kind: "unreachable" }
   | { kind: "missing" }
   | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
-
-/** The `WWW-Authenticate` challenge of a Console data route that needs a token. */
-const consoleRealm = /\brealm="vitehub-console"/i
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => String(entry) === entry) : []
 
@@ -67,12 +60,11 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
 }
 
 /**
- * Read `project.get` of a project, with its Console token when it has one. The request never sends cookies to another
- * origin. A browser hides why a cross-origin request failed, so every failure before a response is `unreachable`.
+ * Read `project.get` of a project. An `account` Console sends it to its own server, which signs it for the project. The
+ * request never sends cookies to another origin. Every failure before a response is `unreachable`.
  */
 export async function probeConsoleProject(
   target: Pick<ConsoleProjectTarget, "base" | "origin">,
-  token?: string,
   options: { fetch?: typeof fetch, signal?: AbortSignal } = {},
 ): Promise<ConsoleProjectProbe> {
   const request = options.fetch ?? globalThis.fetch
@@ -86,7 +78,6 @@ export async function probeConsoleProject(
         headers: {
           "content-type": "application/json",
           [consoleRpcHeader]: "1",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
         },
         method: "POST",
         signal: options.signal,
@@ -100,25 +91,15 @@ export async function probeConsoleProject(
   }
   const { response } = outcome.answer
   if (outcome.ok) return parseProjectInfo(outcome.value)
-  // Host middleware, such as the token check, answers with the diagnostic body and no birpc reply.
+  // The signature check answers with the diagnostic body and no birpc reply.
   const fields = consoleErrorFields(outcome.error ?? outcome.answer.body)
   if (response.status === 401) {
-    // A cross-origin page cannot read `WWW-Authenticate` unless the app exposes it, so the body code also counts.
-    const challenge = response.headers.get("www-authenticate") ?? ""
-    const resourceMetadata = /\bresource_metadata="([^"]+)"/i.exec(challenge)?.[1]
-    if (resourceMetadata) return { kind: "oauth", resourceMetadata }
-    if (fields.code === "CONSOLE_TOKEN_INVALID" || (consoleRealm.test(challenge) && !fields.code)) return { kind: "token", rejected: Boolean(token) }
-    return { kind: "sign-in" }
+    return { kind: "signed", code: fields.code ?? "CONSOLE_SIGNATURE_INVALID", ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
   }
   // A vite-hub release without `project.get` has the RPC endpoint but not the operation.
   if (response.status === 404 && fields.message === "Console operation not found.") return { kind: "protocol" }
   if (response.status === 404 || !(outcome.answer.body instanceof Object)) return { kind: "missing" }
   return { kind: "failed", status: response.status, ...(fields.code ? { code: fields.code } : {}), ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
-}
-
-/** What the Console says when a project refuses a token. The server keeps only a hash, so it cannot show the token. */
-export function consoleTokenRefused(host: string): string {
-  return `${host} refused this token. Use the token whose SHA-256 hash is in \`VITEHUB_CONSOLE_TOKEN_SHA256\`. If you lost it, create a new token and set its hash.`
 }
 
 /** What the Console says about a probe that did not open the project. */
@@ -129,22 +110,14 @@ export interface ConsoleProjectProblem {
   fix?: string
 }
 
-/**
- * The words for a probe that did not open the project. `host` is the project host, such as `app.example.com`, and
- * `consoleOrigin` is the origin of the Console page, such as `https://console.example.com`.
- */
-export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind: "ready" }>, context: { consoleOrigin: string, host: string, url: string }): ConsoleProjectProblem {
+/** The words for a probe that did not open the project. `host` is the project host, such as `app.example.com`. */
+export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind: "ready" }>, context: { host: string, url: string }): ConsoleProjectProblem {
   switch (probe.kind) {
-    case "token":
-      return probe.rejected
-        ? { title: "The token is not correct", message: consoleTokenRefused(context.host) }
-        : { title: `Enter the Console token for ${context.host}`, message: "The project uses `auth: \"token\"`. Paste the token that you created for it." }
-    case "oauth":
-      return { title: `Sign in to ${context.host}`, message: `${context.host} signs Consoles in with OAuth. Sign in on ${context.host} and allow this Console.` }
-    case "sign-in":
+    case "signed":
       return {
-        title: `${context.host} cannot sign this Console in`,
-        message: `The project signs in through the app, but its Auth does not issue Console tokens. Add \`consoleMcpOAuth()\` to the app Auth, list ${context.consoleOrigin} in \`console.origins\`, and redeploy.`,
+        title: `${context.host} takes signed requests only`,
+        message: probe.message ?? `${context.host} refused the signature of this Console. Set the VITEHUB_CONSOLE_KEY_<NAME> line that the Console shows for this app.`,
+        ...(probe.fix ? { fix: probe.fix } : {}),
       }
     case "protocol":
       return {
@@ -154,8 +127,7 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
           : `This project runs an older vite-hub. This Console needs protocol ${consoleProjectProtocol}. Update vite-hub.`,
       }
     case "unreachable":
-      // The browser hides why a cross-origin request failed, so the message names both causes, the likely one last.
-      return { title: `Cannot reach ${context.host}`, message: `${context.host} did not answer this Console. If the app is online, add ${context.consoleOrigin} to its \`console.origins\` and redeploy.` }
+      return { title: `Cannot reach ${context.host}`, message: `${context.host} did not answer this Console. Check that the app is online at ${context.url}.` }
     case "missing":
       return { title: "No project found", message: `No ViteHub Console answers at ${context.url}. Check the URL, and check that the app sets \`console\` in \`vitehub()\`.` }
     case "failed":

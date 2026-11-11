@@ -1,7 +1,7 @@
 /**
  * The account of a Console that runs as its own app, such as console.vitehub.dev. People sign in to the Console with
- * GitHub or a passkey. Projects belong to teams, and every account has a personal team. The Console server keeps the
- * project tokens and forwards the calls of the page to `/p/<project>/_vitehub/...`.
+ * GitHub or a passkey. Projects belong to teams, and every account has a personal team. The Console server keeps a
+ * private key for each project, and signs the calls of the page that it forwards to `/p/<project>/_vitehub/...`.
  */
 import { passkeyClient } from "@better-auth/passkey/client"
 import { createAuthClient } from "better-auth/client"
@@ -9,14 +9,15 @@ import { organizationClient } from "better-auth/client/plugins"
 
 import { consoleDiagnostic, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 
-/** A project of the active team, as `GET /api/projects` returns it. The page never sees the token. */
+/** A project of the active team, as `GET /api/projects` returns it. The page never sees the private key. */
 export interface ConsoleAccountProject {
   id: string
   url: string
   label: string | null
-  tokenSha256: string
-  /** The variable of the app that keeps `tokenSha256`. */
-  tokenVariable: string
+  /** The Ed25519 public key of the link, base64url. */
+  publicKey: string
+  /** The variable of the app that keeps `publicKey`, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`. */
+  keyVariable: string
 }
 
 export interface ConsoleAccountTeam {
@@ -270,7 +271,7 @@ export async function renameConsoleAccount(name: string): Promise<void> {
 
 /**
  * What the Console knows about a linked app: it accepts its token, it refuses the token (`setup`: the variable is missing
- * or old), it answers but not as a Console app (`unconfigured`: no `console: { auth: "token" }`, or another error), or
+ * or old), it answers but not as a Console app (`unconfigured`: no `console: true`, or another error), or
  * the Console cannot reach it.
  */
 export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unconfigured" | "unreachable"
@@ -284,17 +285,17 @@ export const accountAppStatusLabels: Record<ConsoleAccountAppStatus, string> = {
   unreachable: "Not reachable",
 }
 
-/** What a check of a linked app found. `variable` means the app refuses the token, so its variable is missing or old. */
+/** What a check of a linked app found. `setup` means the app refuses the signature, so its variable is missing or old. */
 export interface ConsoleAccountCheck {
   status: ConsoleAccountAppStatus
   /** The HTTP status of the app's answer. */
   code: number
 }
 
-// The codes of an app that has no hash for the token, or another hash.
-const variableProblems = new Set(["CONSOLE_TOKEN_NOT_CONFIGURED", "CONSOLE_TOKEN_INVALID"])
+// The codes of an app that has no public key for the link, or another one.
+const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNKNOWN", "CONSOLE_SIGNATURE_INVALID"])
 
-/** Whether the app keeps the hash of its token: the Console server calls the app with the token. */
+/** Whether the app keeps the public key of the link: the Console server calls the app with a signed request. */
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
   if (result.linked) return { status: "connected", code: result.status }
@@ -305,7 +306,7 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
   return { status, code: result.status }
 }
 
-/** Link an app to the active team. The answer names the variable and the hash to set on the app. */
+/** Link an app to the active team. The answer names the variable and the public key to set on the app. */
 export async function linkConsoleAccountProject(url: string, label?: string): Promise<ConsoleAccountProject> {
   const { project } = await json<{ project: ConsoleAccountProject }>("/api/projects", { body: JSON.stringify({ url, ...(label ? { label } : {}) }), method: "POST" })
   return project
