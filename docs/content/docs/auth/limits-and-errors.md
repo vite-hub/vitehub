@@ -50,7 +50,7 @@ Existing ViteHub errors and structural `AbortError` objects keep their identity.
 
 ## Read a refusal
 
-The guards refuse a request with one JSON body: `withAuth()`, `withAuthorization()`, `withAnonymousAuthorization()`, `requireAuth()`, `requireAuthorization()`, and the checks of `access.routes`. The body uses H3's error format, so a returned refusal and a thrown H3 error look the same.
+The guards refuse a request with one JSON body: `withAuth()`, `withAuthorization()`, `withAnonymousAuthorization()`, `requireAuth()`, `requireAuthorization()`, and the checks of `access.routes`. The body uses H3's error format, so a returned refusal and a thrown H3 error have the same `status`, `statusText`, `message`, and `data`. Nitro and Nuxt add `error: true` to a thrown error, and a stack in development.
 
 ```json
 { "status": 401, "statusText": "Unauthorized", "message": "Unauthorized.", "data": { "code": "SIGNED_OUT" } }
@@ -79,7 +79,7 @@ export async function deletePost(id: string): Promise<'deleted' | 'sign-in' | 'f
 
 ## SIGNED_OUT
 
-The request has no Auth Session, or the session ended. Sign in, then send the request again with the session cookie. A `fetch()` from another origin must send `credentials: 'include'`.
+The request has no Auth Session, or the session ended. Sign in, then send the request again with the session cookie. A `fetch()` from another origin must send `credentials: 'include'`. After a failed sign-in, the URL has `auth_error`, and an HTML `GET` gets the text `403` `Unauthorized.` instead of a new redirect. `requireAuth()` then throws `403` with `SIGNED_OUT`.
 
 ## FORBIDDEN
 
