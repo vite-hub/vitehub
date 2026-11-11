@@ -25,6 +25,7 @@ import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { hubBrowser } from "@vite-hub/browser/vite"
+import { hubAgent } from "@vite-hub/agent/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
@@ -869,7 +870,11 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("does not replay runtime resolvers when Nuxt builds Nitro in a Vite environment", async () => {
-    mocks.vitehub.mockReturnValue([{ load: () => undefined, name: "@vite-hub/kv/vite", resolveId: () => undefined }])
+    const owner = hubAgent()
+    mocks.vitehub.mockReturnValue([
+      { load: () => undefined, name: "@vite-hub/kv/vite", resolveId: () => undefined },
+      { name: owner.name, vitehub: { agent: owner.vitehub?.agent } },
+    ])
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: true } })
     await viteHubNuxtModule({ kv: true }, nuxt)
@@ -877,6 +882,62 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(config)
 
     expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+    expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
+  })
+
+  it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
+    const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
+    try {
+      const builderRoot = "node_modules/nuxt/node_modules/@nuxt/nitro-server"
+      for (const [directory, manifest] of [
+        ["node_modules/nuxt", { name: "nuxt", version: "5.0.0", dependencies: { "@nuxt/nitro-server": "5.0.0" } }],
+        [builderRoot, { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } }],
+        [`${builderRoot}/node_modules/nitro`, { name: "nitro", version: "3.0.261102-rc" }],
+      ] as const) {
+        await mkdir(resolve(root, directory), { recursive: true })
+        await writeFile(resolve(root, directory, "package.json"), JSON.stringify(manifest))
+      }
+      const owner = hubAgent()
+      mocks.vitehub.mockReturnValue([{ name: owner.name, vitehub: { agent: owner.vitehub?.agent } }])
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      Object.assign(nuxt.options, {
+        rootDir: root,
+        srcDir: resolve(root, "app"),
+        serverDir: resolve(root, "custom-server"),
+        buildDir: resolve(root, ".nuxt"),
+        experimental: { nitroViteEnvironment: false },
+      })
+      await viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
+      const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+      await runNitroConfigHook(config)
+      const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
+      const transform = typeof resolver?.transform === "function" ? resolver.transform : resolver?.transform?.handler
+      if (!transform) throw new TypeError("Expected the Nitro Agent transform hook.")
+
+      const sources = {
+        review: "export default defineAgent({ channels: { github: github({ pullRequest: true }) }, driver: { run: () => 'ok' } })",
+        declared: "export default defineAgent({ workspace: {}, channels: { github: github({ pullRequest: true }) }, driver: { run: () => 'ok' } })",
+        dynamic: "const options = () => ({ workspace: {}, driver: { run: () => 'ok' } })\nexport default defineAgent(options())",
+        plain: "export default defineAgent({ driver: { run: () => 'ok' } })",
+        flat: "export default defineAgent({ channels: { github: github({ pullRequest: true }) }, driver: { run: () => 'ok' } })",
+      }
+      for (const [name, body] of Object.entries(sources)) {
+        const file = resolve(root, "custom-server/agents", name === "flat" ? "flat.ts" : `${name}/agent.ts`)
+        const source = `import { defineAgent } from '@vite-hub/agent'\nimport { github } from '@vite-hub/agent/channels'\n${body}`
+        await mkdir(dirname(file), { recursive: true })
+        await writeFile(file, source)
+        const transformed = await Reflect.apply(transform, {}, [source, file])
+        const artifact = resolve(root, `${name}.mjs`)
+        // Compile the direct import without loading the generated catalog or running any Vite plugin.
+        await build({ stdin: { contents: transformed ?? source, loader: "ts", resolveDir: dirname(file) }, outfile: artifact, format: "esm" })
+        const loaded = import(/* @vite-ignore */ pathToFileURL(artifact).href)
+        if (name === "review") await expect(loaded).rejects.toMatchObject({ code: "AGENT_R1037" })
+        else expect((await loaded).default).toBeDefined()
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it.each([

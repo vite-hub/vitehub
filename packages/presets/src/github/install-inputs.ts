@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { glob, lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { parse } from "yaml";
+import { parse, parseAllDocuments } from "yaml";
 import { parseSyml } from "@yarnpkg/parsers";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
@@ -35,7 +35,7 @@ function checkDownloadSource(value: string): void {
     if (/\.git\/?$/i.test(url.pathname) || url.hostname === "github.com" && !githubArchive) throw new Error("Git dependencies require preparation inside the provider sandbox.");
   } else if (/(?:^|@)git@/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
 }
-const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links"]);
+const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links", "block-exotic-subdeps"]);
 const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern", "trust-policy-exclude"]);
 const workspaceFields = new Set(["packages", "catalog", "catalogs", "catalogMode", "overrides", "peerDependencyRules", "minimumReleaseAge", "minimumReleaseAgeExclude", "packageExtensions", "patchedDependencies", "onlyBuiltDependencies", "ignoredBuiltDependencies", "neverBuiltDependencies", "allowBuilds"]);
 
@@ -146,9 +146,11 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
     }
     return true;
   }
-  async function inspectPnpmPatches(value: unknown, base: string) {
+  async function inspectPnpmPatches(value: unknown, base: string, lockfile: boolean) {
     if (!isRuntimeRecord(value)) throw new Error("Dependency patches must be a path mapping.");
     for (const entry of Object.values(value)) {
+      // pnpm 12 stores SHA-256 hashes here; workspace settings own the paths.
+      if (lockfile && hasRuntimeType(entry, "string") && /^[a-f\d]{64}$/.test(entry)) continue;
       const path = hasRuntimeType(entry, "string") ? entry : isRuntimeRecord(entry) ? entry.path : undefined;
       if (!hasRuntimeType(path, "string")) throw new Error("Dependency patches must reference checkout files.");
       await selectPatch(path, base);
@@ -182,7 +184,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       if (npmLink && key === "resolved") continue;
       if (key === "workspaces" && pnpm) continue;
       if (key === "patchedDependencies") {
-        await inspectPnpmPatches(entry, base);
+        await inspectPnpmPatches(entry, base, field === "pnpm-lock.yaml");
       } else if (npm && ["package-lock.json", "npm-shrinkwrap.json"].includes(field) && key === "packages" && isRuntimeRecord(entry)) {
         // npm package locations can be nested below any workspace. Their
         // link semantics come from the lockfile map, not a path prefix.
@@ -236,6 +238,13 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
         // Yarn reads only the validated linker from this file. Other settings
         // are omitted from the host configuration and cannot select executables.
         if (entry.name === ".yarnrc.yml") continue;
+        if (entry.name === "pnpm-lock.yaml") {
+          for (const document of parseAllDocuments(source)) {
+            if (document.errors.length) throw document.errors[0];
+            await inspect(document.toJS(), directory, false, entry.name);
+          }
+          continue;
+        }
         let data: unknown;
         if (entry.name === "yarn.lock") {
           // Classic fields have no YAML separators. The native legacy grammar

@@ -80,6 +80,18 @@ describe("cloudflareProductOfPath", () => {
 })
 
 describe("provision request failure kind", () => {
+  it.each([
+    ["Cloudflare accounts", createCloudflareApiClient, "/accounts", "https://api.cloudflare.com/client/v4/accounts"],
+    ["Netlify sites", createNetlifyApiClient, "/sites", "https://api.netlify.com/api/v1/sites"],
+  ] as const)("classifies %s API failures without losing request identity", async (_name, createClient, path, url) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}, { status: 401 }))
+    const request = createClient("token", fetch)
+
+    await expect(request(path)).rejects.toMatchObject({ kind: "unauthorized", status: 401 })
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(url)
+    expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({ authorization: "Bearer token" })
+  })
+
   it("classifies Cloudflare account lookup failures", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ errors: [] }, { status: 403 }))
     const request = createCloudflareApiClient("token", fetch)

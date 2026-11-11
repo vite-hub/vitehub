@@ -14,7 +14,7 @@ The ViteHub Console is a web app at [console.vitehub.dev](https://console.vitehu
 | `/_vitehub/mcp` | The [MCP endpoint](/docs/development/mcp) for agents. |
 | `/_vitehub/.well-known/skills/` | The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
 
-### Call format
+## Call format
 
 Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
 
@@ -31,6 +31,8 @@ The response carries one reply. `r` holds the value. The HTTP status is `200`, o
 A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
 
 The sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
+
+The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
 
 - **Channels** lists the Channels of your Agents, their threads, and each conversation with its attachments and the runs that answered. You can download a conversation as Markdown or JSON. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
 - **Content** shows when `server/content.ts` defines document collections. It saves drafts, publishes, and restores revisions. `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console).
@@ -142,7 +144,7 @@ pnpm vitehub project info --url https://app.example.com
 
 Env searches declared Server Env variables and filters them by source. A variable shows its provider, secret flag, and whether it is required or has a default.
 
-Env does not read secret values, call providers, or check credentials. Values and defaults stay hidden. Env management (values, Access, and Activity) needed the Console that the app served, which is removed. Change host values in your deployment configuration. Set `env: false` in the ViteHub options to turn off Env and its section.
+Env does not read secret values, call providers, or check credentials. Values and defaults stay hidden. Env management (values, Access, and Activity) needed the Console that the app served, which is removed. Change host values in your deployment configuration. Set `env: false` in the ViteHub options to turn off Env, its section, and its `/_vitehub/env/manage` route.
 
 ## Manage Connections
 
