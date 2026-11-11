@@ -23,6 +23,17 @@ const shared = uiRequire(resolve(uiDist, "shared", sharedFile)) as {
 const headerTheme = await shared.e(shared.d, {}).find(template => template.filename === "ui/page-header.ts")!.getContents()
 
 function harness(ui: DocsThemeUi, embedded = true) {
+  const route = {
+    path: "/docs",
+    fullPath: "/docs",
+    name: undefined,
+    params: {},
+    query: {},
+    hash: "",
+    matched: [],
+    meta: { header: false },
+    redirectedFrom: undefined,
+  }
   const appConfig = vue.reactive({ ui })
   const design = embedded ? docsThemeScope(docsUi("Acme")) : { ui: {}, props: {} }
   const cache = new Map<string, Record<string, unknown>>()
@@ -44,7 +55,7 @@ function harness(ui: DocsThemeUi, embedded = true) {
     runInNewContext(outputText, {
       ...vue, exports,
       useAppConfig: () => appConfig,
-      useRoute: () => ({ path: "/docs", meta: { header: false } }),
+      useRoute: () => route,
       useDocsConfig: () => ({ site: { name: "Acme" }, appBase: "/" }),
       useHead: () => {}, useSeoMeta: () => {},
       require: (name: string) => {
@@ -87,7 +98,7 @@ function harness(ui: DocsThemeUi, embedded = true) {
     app.component("AppSearch", vue.defineComponent(() => () => null))
     app.component("ClientOnly", vue.defineComponent(() => () => null))
     app.component("DocsAssistant", vue.defineComponent(() => () => null))
-    app.config.globalProperties.$route = { meta: { header: false } }
+    app.config.globalProperties.$route = route
     return renderToString(app)
   }
   return { appConfig, render }
