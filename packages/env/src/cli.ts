@@ -96,7 +96,7 @@ function isInspection(value: unknown): value is ServerEnvInspection {
  * Resolves the stage config and loads modules in its SSR environment. A dev server would also start every other
  * environment, such as Nitro's dev worker, and the check never uses them.
  */
-async function createStageModuleLoader(vite: typeof import("vite"), config: import("vite").InlineConfig) {
+async function createStageModuleLoader(vite: typeof import("vite"), config: import("vite").InlineConfig, allowNuxtFallback = false) {
   const nitro = createCliDiscoveryNitroCloser()
   // SAFETY: Vite's WebSocket type has a private brand. The headless CLI has no socket clients.
   const ws = {
@@ -105,19 +105,30 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     handleInvoke: async () => ({ error: { name: "TransportError", message: "WebSocket transport is disabled during Env inspection." } }),
   } as unknown as import("vite").WebSocketServer
   let environment: import("vite").DevEnvironment | undefined
+  let fallback: import("vite").RunnableDevEnvironment | undefined
   const close = async () => {
-    try { await environment?.close() }
+    try { await fallback?.close() }
     finally {
-      try { await ws.close() }
-      finally { await nitro.close() }
+      try { await environment?.close() }
+      finally {
+        try { await ws.close() }
+        finally { await nitro.close() }
+      }
     }
   }
   try {
     const resolved = await vite.resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, "serve")
     environment = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
     await environment.init()
-    if (!vite.isRunnableDevEnvironment(environment)) throw new Error("The SSR environment does not support runnable imports.")
-    const runnable = environment
+    let runnable: import("vite").RunnableDevEnvironment
+    if (vite.isRunnableDevEnvironment(environment)) runnable = environment
+    else {
+      if (!allowNuxtFallback) throw new Error("The SSR environment does not support runnable imports.")
+      // Nuxt 5 gives `ssr` to Nitro. Inspect in-process with the same stage aliases and plugin transforms.
+      fallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
+      await fallback.init()
+      runnable = fallback
+    }
     return {
       close,
       config: resolved,
@@ -149,7 +160,7 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
       for (const [key, value] of Object.entries(explicitEnv)) if (value !== undefined) process.env[key] = value
       const nuxt = await kit.loadNuxt({ cwd: projectRoot, dev: true, envName: input.stage, overrides: { devtools: { enabled: false }, vite: { mode: input.stage }, vitehubCliDiscovery: true }, ready: true })
       try {
-        const server = await createStageModuleLoader(vite, { ...nuxt.options.vite, ...config, configFile: false })
+        const server = await createStageModuleLoader(vite, { ...nuxt.options.vite, ...config, configFile: false }, true)
         const close = server.close.bind(server)
         server.close = async () => {
           try { await close() }
@@ -172,26 +183,12 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
     const selectedRoot: unknown = selectedAPI.output.resolveProjectRoot(server.config.root)
     if (!v.is(v.string(), selectedRoot)) throw envErrorDiagnostics.ENV_R0027({ message: "[vitehub] The selected Env plugin returned an invalid project root." })
     const modulePath = viteHubEnvServerModulePath(selectedRoot)
-    // Nuxt 5 gives `ssr` to Nitro, whose environment does not run modules in the Vite process.
-    const ssr = server.environments.ssr
-    // Reuse its resolved configuration so providers retain stage aliases and plugin transforms.
-    const runnable = ssr && !vite.isRunnableDevEnvironment(ssr)
-      ? vite.createRunnableDevEnvironment("ssr", server.config, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
-      : undefined
-    try {
-      await runnable?.init()
-      const generated = runnable
-        ? await runnable.runner.import<Record<string, unknown>>(modulePath)
-        : await server.ssrLoadModule(pathToFileURL(modulePath).href)
-      const inspect: unknown = generated.inspectServerEnv
-      if (!v.is(v.function(), inspect)) throw envErrorDiagnostics.ENV_R0027({ message: `[vitehub] The generated Server Env module does not export inspectServerEnv(): ${modulePath}` })
-      const inspection: unknown = await inspect()
-      if (!isInspection(inspection)) throw envErrorDiagnostics.ENV_R0028({ message: "[vitehub] inspectServerEnv() returned an invalid result." })
-      return inspection
-    }
-    finally {
-      await runnable?.close()
-    }
+    const generated = await server.ssrLoadModule(pathToFileURL(modulePath).href)
+    const inspect: unknown = generated.inspectServerEnv
+    if (!v.is(v.function(), inspect)) throw envErrorDiagnostics.ENV_R0027({ message: `[vitehub] The generated Server Env module does not export inspectServerEnv(): ${modulePath}` })
+    const inspection: unknown = await inspect()
+    if (!isInspection(inspection)) throw envErrorDiagnostics.ENV_R0028({ message: "[vitehub] inspectServerEnv() returned an invalid result." })
+    return inspection
   })
 }
 

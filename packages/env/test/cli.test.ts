@@ -256,6 +256,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
   }, 60_000)
   it.each(["check", "inspect"] as const)("runs %s with provider aliases and plugins when Nuxt gives the ssr environment to Nitro", async (command) => {
     const root = await createStageFixture()
+    const events = join(root, "runtime.log")
     await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
     await mkdir(join(root, "server", "utils"), { recursive: true })
     await writeFile(join(root, "server", "utils", "token.mjs"), 'export const token = "untransformed"\n')
@@ -271,17 +272,30 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
     // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
     await writeFile(join(kitRoot, "kit.mjs"), [
+      'import { appendFileSync } from "node:fs"',
       'import { DevEnvironment } from "vite"',
       'import { hubEnv, env } from "@vite-hub/env/vite"',
+      `const record = event => appendFileSync(${JSON.stringify(events)}, event + "\\n")`,
+      'const unused = { dev: { createEnvironment() { throw new Error("Unrelated environment started") } } }',
       'export async function loadNuxt() {',
-      '  return { close: async () => {}, options: { vite: {',
-      '    environments: { ssr: { dev: { moduleRunnerTransform: false, createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } } },',
+      '  return { close: async () => { record("nuxt close") }, options: { vite: {',
+      '    environments: { client: unused, worker: unused, ssr: { dev: { moduleRunnerTransform: false, createEnvironment(name, config) {',
+      '      record("ssr create")',
+      '      const environment = new DevEnvironment(name, config, { hot: false })',
+      '      const close = environment.close.bind(environment)',
+      '      environment.close = async () => { record("ssr close"); await close() }',
+      '      return environment',
+      '    } } } },',
       `    resolve: { alias: { "#server": ${JSON.stringify(join(root, "server"))} } },`,
       '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" }, server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } }), {',
       '      name: "env-provider-transforms",',
       '      applyToEnvironment: environment => environment.name === "ssr",',
+      '      closeBundle: () => { record("plugins close") },',
       '      resolveId: id => id === "virtual:env-stage" ? "\\0virtual:env-stage" : undefined,',
-      '      load: id => id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined,',
+      '      load(id) {',
+      '        if (process.env.ENV_CLI_FAIL_IMPORT && id.endsWith("/env/server.mjs")) throw new Error("Fallback import failed")',
+      '        return id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined',
+      '      },',
       `      transform: (code, id) => id.endsWith("/utils/token.mjs") ? code.replace('"untransformed"', ${JSON.stringify(JSON.stringify(secretValue))}) : undefined,`,
       '    }],',
       '  } } }',
@@ -294,6 +308,15 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       ok: false,
     })
     expect(output.stdout).not.toContain(secretValue)
+    expect((await readFile(events, "utf8")).trim().split("\n")).toEqual([
+      "ssr create", "plugins close", "ssr close", "plugins close", "nuxt close",
+    ])
+    await writeFile(events, "")
+    const failure = captureContext(root, { ENV_CLI_FAIL_IMPORT: "1" })
+    await expect(realFeature(command).run(["--stage", "production"], failure.context)).rejects.toThrow("Fallback import failed")
+    expect((await readFile(events, "utf8")).trim().split("\n")).toEqual([
+      "ssr create", "plugins close", "ssr close", "plugins close", "nuxt close",
+    ])
   }, 60_000)
 })
 
