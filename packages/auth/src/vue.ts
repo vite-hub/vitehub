@@ -204,8 +204,11 @@ interface SessionStore {
   read: (query?: SessionQuery) => Promise<unknown>
   /** Sets the session that the server read for the request, if it is known now and nothing settled the state yet. */
   seed: () => void
-  /** Sets the session to `null` at once, such as after a sign-out. */
-  clear: () => void
+  /**
+   * Sets the session to `null` at once, such as after a sign-out, also in Better Auth's session atom of `loaded`. A read
+   * that started before it cannot write its answer, and the next read does not share it.
+   */
+  clear: (loaded: object) => void
   /** Keeps the browser's wait for a change of the session while `scope` lives. See `wakeWhenSessionCanChange()`. */
   hold: (scope: EffectScope | undefined) => void
   /** The scope of the store's computed refs and its one watcher. It never stops, as the store lives as long as the app. */
@@ -245,6 +248,10 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
   const state = shallowRef<SessionState>(pendingState(refetch))
   let seeded = false
   let reading: Promise<unknown> | undefined
+  // The number of times `clear()` ran. A read that started before the last one cannot write its answer.
+  let generation = 0
+  // The generation when Better Auth's session atom started its last read.
+  let atomGeneration = 0
   // Better Auth's session ref, which follows its session atom, once its client has loaded in the browser.
   let atom: Readonly<Ref<SessionState>> | undefined
   // The browser's wait for a change of the session, and the number of scopes that keep it.
@@ -265,12 +272,18 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
       if (state.value.isPending) state.value = settled(value)
       return
     }
-    reading ??= value.then((session: unknown) => {
+    reading ??= share(value.then((session: unknown) => {
       if (session !== undefined && state.value.isPending) state.value = settled(session)
       return session ?? null
-    }).finally(() => {
-      reading = undefined
+    }))
+  }
+
+  /** Makes `read` the read that callers share, until it ends or `clear()` runs. */
+  function share(read: Promise<unknown>): Promise<unknown> {
+    const shared: Promise<unknown> = read.finally(() => {
+      if (reading === shared) reading = undefined
     })
+    return shared
   }
 
   /**
@@ -287,7 +300,14 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
     atom = scope.run(() => {
       // SAFETY: Better Auth's `useSession()` without an argument returns the ref of its session atom.
       const ref = (Reflect.get(loaded, "useSession") as () => Readonly<Ref<SessionState>>)()
-      watch(ref, (value) => {
+      watch(ref, (value, old) => {
+        // Better Auth sets `isRefetching` when it starts a read, and cancels the read before it.
+        if (value.isRefetching && !old?.isRefetching) atomGeneration = generation
+        // The answer of a read from before `clear()`. Remove it from Better Auth's atom too, so no later read starts with it.
+        if (atomGeneration !== generation) {
+          if (!value.isRefetching && value.data) clearAtom(loaded)
+          return
+        }
         // Better Auth starts each read with no data as pending. Once the state is settled, keep it until the read answers.
         if (!state.value.isPending && isPendingWithoutData(value)) return
         state.value = value
@@ -320,7 +340,9 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
     if (!browser) {
       // The server never loads Better Auth's client. It has the session that it read for the request, or nothing.
       if (!state.value.isPending) return state.value.data
+      const started = generation
       const session: unknown = await (app ? app.runWithContext(() => sessionSeedResolver?.()) : sessionSeedResolver?.())
+      if (started !== generation) return state.value.data
       if (session === undefined) return null
       state.value = settled(session)
       return session
@@ -347,9 +369,14 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
   function read(query?: SessionQuery): Promise<unknown> {
     // A read with its own query, such as `disableCookieCache`, does not share the read in flight.
     if (query) return fetchSession(query)
-    return reading ??= fetchSession().finally(() => {
-      reading = undefined
-    })
+    return reading ??= share(fetchSession())
+  }
+
+  function clear(loaded: object): void {
+    generation++
+    reading = undefined
+    clearAtom(loaded)
+    state.value = settled(null)
   }
 
   seed()
@@ -361,7 +388,25 @@ function createSessionStore(client: object, app: NuxtApp | undefined): SessionSt
     // store with the server's session waits until the session can change. An unknown session loads Better Auth at once.
     if (!seeded || state.value.isPending) void follow()
   }
-  return { state, read, seed, clear: () => void (state.value = settled(null)), hold, scope }
+  return { state, read, seed, clear, hold, scope }
+}
+
+type SessionAtom = { get(): object, set(value: object): void }
+
+/**
+ * An atom of Better Auth's `$store` of a loaded client, such as `session`. Better Auth answers
+ * `$store` and `atoms` with path proxies, and a missing atom with a function.
+ */
+function storeAtom<Atom>(loaded: object, name: string): Atom | undefined {
+  const value: unknown = Reflect.get(Object(Reflect.get(Object(Reflect.get(loaded, "$store")), "atoms")), name)
+  // SAFETY: an object in Better Auth's `$store.atoms` is a nanostores atom.
+  return typeof value === "object" && value !== null ? value as Atom : undefined
+}
+
+/** Sets Better Auth's session atom of `loaded` to no session, settled. */
+function clearAtom(loaded: object): void {
+  const session = storeAtom<SessionAtom>(loaded, "session")
+  session?.set({ ...session.get(), data: null, error: null, isPending: false, isRefetching: false })
 }
 
 /** The browser globals that the wait listens to. The package compiles without the DOM types. */
@@ -580,9 +625,7 @@ async function signOut(client: { signOut(...args: unknown[]): Promise<unknown> }
   // Better Auth reads the session again after a sign-out, and the page shows the user until it answers. Its session
   // atom starts that read from `null`, so the read cannot show the user again. Every component shares the store, so
   // they all show the sign-out at once.
-  const session = (await loadAuthClient(client as VueAuthClient<{}>)).$store?.atoms?.session
-  session?.set({ ...session.get(), data: null, error: null, isPending: false })
-  store.clear()
+  store.clear(await loadAuthClient(client as VueAuthClient<{}>))
   // A provider sign-out, such as OpenID Connect logout, answers `{ url, redirect: true }`, and Better Auth then
   // loads the provider's page. Another navigation now would cancel it.
   const data: unknown = answer.data
