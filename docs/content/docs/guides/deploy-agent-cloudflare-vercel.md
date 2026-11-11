@@ -7,17 +7,15 @@ navigation.group: Agents
 icon: i-lucide-cloud-upload
 ---
 
-Deploy the same greeting Agent on Cloudflare Workers and Vercel. The Agent and
-route stay the same. The preset selects the deployment output.
+Deploy one greeting Agent on Cloudflare Workers and on Vercel. The Agent and
+route stay the same. Only the preset, which picks the host output, changes.
 
-Start with the Vite app from [Installation](/docs/getting-started/installation).
-Use its pinned Nitro and H3 versions, Node.js 22.22 or newer, and pnpm.
-This example uses a function Driver. It checks Agent execution without a model
-account. Deployment requires an account with the selected host.
+Start with the app from [Installation](/docs/getting-started/installation),
+with its pinned Nitro and H3 versions, Node.js 22.22 or newer, and pnpm. A
+function Driver (plain code that makes the reply) means you need no model
+account, only an account with each host.
 
 ## Define the Agent and route
-
-Create the Agent:
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -33,7 +31,7 @@ export default defineAgent({
 })
 ```
 
-Create the route. The two-argument `runAgent()` call returns an error tuple.
+Create the route. `runAgent()` returns an `[error, result]` tuple.
 
 ```ts [server/api/greet.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -45,15 +43,50 @@ export default defineEventHandler(async (event) => {
 	const name = typeof body?.name === 'string' ? body.name : 'friend'
 	const [error, result] = await runAgent(greeting, { prompt: name })
 	if (error) throw error
-	return result
+	return { text: result.text }
 })
 ```
 
 ## Build for Cloudflare Workers
 
-Select the Cloudflare preset. Disable Workflow because this Agent finishes
-inside the request. Disable Console so this check needs no invocation journal.
+Select the Cloudflare preset. Turn off Workflow, because this Agent finishes
+inside the request. Turn off Console, so the check needs no run log.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	name: 'vitehub-greeting',
+  	preset: 'cloudflare',
+  	agent: true,
+  	workflow: false,
+  	console: false,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+	plugins: [vitehub({
+		name: 'vitehub-greeting',
+		preset: 'cloudflare',
+		agent: true,
+		workflow: false,
+		console: false,
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -68,31 +101,30 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
-Build the app and confirm that it writes the Worker configuration:
+Build and check that the Worker config exists:
 
 ```bash [Terminal]
 pnpm build
 test -f .output/server/wrangler.json
 ```
 
-Authenticate with Cloudflare through its deployment tools. Review the generated
-Worker name and account before deploying. Deployment can incur host charges.
+Log in to Cloudflare. Check the Worker name and account before you deploy.
+Deploys can cost money.
 
 ```bash [Terminal]
 pnpm exec nitro deploy --prebuilt
 ```
 
-Use the generated Nitro deployment command. Read
-[Cloudflare](/docs/frameworks-hosts/cloudflare) before adding bindings, Sandbox,
-or provisioning to this app.
+Read [Cloudflare](/docs/frameworks-hosts/cloudflare) before you add bindings,
+Sandbox, or provisioning.
 
 ## Build for Vercel
 
-Change only `preset: 'cloudflare'` to `preset: 'vercel'` in the config above.
-Keep the same Agent, route, and other options.
-
-Use the Vercel CLI to link the project and pull its preview configuration:
+Change `preset: 'cloudflare'` to `preset: 'vercel'` and keep everything else.
+Link the project and pull its preview config with the Vercel CLI:
 
 ```bash [Terminal]
 pnpm dlx vercel link
@@ -102,14 +134,14 @@ test -f .vercel/output/config.json
 pnpm dlx vercel deploy --prebuilt
 ```
 
-Review the linked project before deploying. This command creates a preview
-deployment. Read [Vercel](/docs/frameworks-hosts/vercel) for hosted storage and
-environment variables.
+Check the linked project before you deploy. This creates a preview deployment.
+See [Vercel](/docs/frameworks-hosts/vercel) for hosted storage and environment
+variables.
 
 ## Check each deployment
 
-Set `APP_URL` to the deployment URL. If the host protects preview deployments,
-supply the host's access credentials before this check.
+Set `APP_URL` to the deployment URL. If the host protects previews, add its
+access credentials.
 
 ```bash [Terminal]
 curl --fail-with-body "$APP_URL/api/greet" \
@@ -123,20 +155,20 @@ The response contains:
 { "text": "Hello, Ada." }
 ```
 
-Repeat the request against both hosts. Check the host logs if a deployment
-returns an error. A successful build alone does not prove that the route runs.
+Run it on both hosts. On an error, check the host logs. A good build does not
+prove that the route runs.
 
 ## Add model calls and persistent state
 
-Replace the function Driver with a [model Driver](/docs/agents/agent-drivers)
-when the deployment check passes. Set model credentials in each host's server
-environment. Model requests can incur separate charges.
+When the check passes, replace the function Driver with a
+[model Driver](/docs/agents/agent-drivers). Set model credentials in each
+host's server environment. Model requests cost extra.
 
-Keep this inline form for work that fits the host's request duration. Use
-[Workflow](/docs/workflows) when work must continue beyond the request.
-Choose persistent stores before adding history or memory.
+Keep this inline form for work that fits in one request. Use
+[Workflow](/docs/workflows) for work that must outlive the request. Choose
+persistent stores before you add history or memory.
 
-The Codex and Claude Code provider Drivers need a local Node.js process and
-their documented runtime dependencies. This Worker example does not run them.
-Check [runtime support](/docs/frameworks-hosts/support-matrix) before changing
-the Driver or adding a feature.
+The Codex and Claude Code Drivers need a local Node.js process and their
+runtime dependencies, so this Worker cannot run them. Check
+[runtime support](/docs/frameworks-hosts/support-matrix) before you change the
+Driver or add a feature.

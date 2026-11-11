@@ -1,21 +1,24 @@
 ---
 title: Roles and access
-description: Give each user a CMS role with the Better Auth admin plugin. The roles decide who reads drafts, edits, publishes, and comments, and which Console sections each user sees.
+description: "Give each user a CMS role with the Better Auth admin plugin. Roles decide who reads drafts, edits, publishes, and comments, and which Console sections they see."
 navigation.title: Roles and access
 navigation.order: 8
 icon: i-lucide-shield-check
 ---
 
-The CMS has four roles. Each role has the permissions of the role before it:
+The CMS has four roles. Each role has the permissions of the one above it:
 
 | Role | Content | Comments |
 | --- | --- | --- |
 | `viewer` | Read drafts | None |
 | `commenter` | Read drafts | Read, comment, and resolve |
 | `editor` | Read drafts, and save, remove, and restore them | Read, comment, and resolve |
-| `publisher` | Everything that `editor` can do, and publish | Read, comment, resolve, and delete threads |
+| `publisher` | All `editor` actions, and publish | Read, comment, resolve, and delete threads |
 
-Two roles come from Better Auth. `admin` has every CMS permission and every Better Auth admin permission. `user` is the role of each new user, and it has no CMS permission. So a person who signs up cannot read drafts until you give them a role.
+Two roles come from Better Auth:
+
+- `admin` has every CMS and Better Auth admin permission.
+- `user` is the role of each new user. It has no CMS permission, so a new user cannot read drafts until you give them a role.
 
 Published documents stay public through `/api/content/**`. The roles control drafts, edits, publishes, and comments.
 
@@ -33,27 +36,33 @@ export default defineAuth({
 })
 ```
 
-`cmsAccess` gives the plugin the CMS statements (`cmsStatements`), the access control (`cmsAc`), the roles (`cmsRoles`), `defaultRole: 'user'`, and `adminRoles: ['admin']`. The plugin keeps the roles of a user in `user.role`. A user can have several roles, separated by commas, such as `editor,commenter`. An action is allowed when one of the roles allows it.
+`cmsAccess` gives the plugin the CMS statements (`cmsStatements`), access control (`cmsAc`), roles (`cmsRoles`), `defaultRole: 'user'`, and `adminRoles: ['admin']`. The plugin stores a user's roles in `user.role`, separated by commas, such as `editor,commenter`. An action is allowed when any role allows it.
 
 ## Give a user a role
 
-Use the Better Auth admin API from server code. Better Auth checks that the session in the headers belongs to an `admin`:
+Call the Better Auth admin API from server code. Better Auth checks that the session in the headers is an `admin`:
 
 ```ts [server/routes/api/roles.post.ts]
-import { defineHandler } from 'h3'
+import { defineHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { auth } from 'vite-hub/auth/server'
 
+const body = v.object({
+  userId: v.string(),
+  role: v.picklist(['user', 'viewer', 'commenter', 'editor', 'publisher', 'admin']),
+})
+
 export default defineHandler(async (event) => {
-  const { userId, role } = await event.req.json()
+  const { userId, role } = await readValidatedBody(event, body)
   return auth.api.setRole({ body: { userId, role }, headers: event.req.headers })
 })
 ```
 
 Or open the Auth section of the [Console](/docs/auth/console), select the user, and change the role.
 
-To give a role when a user signs up, add a Better Auth database hook. Return the role only for the users that you know, so that the plugin gives everyone else `user`:
+To give a role at sign-up, add a Better Auth database hook. Return a role only for users you know, so everyone else gets `user`:
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 export default defineAuth({
   plugins: [admin(cmsAccess)],
   databaseHooks: {
@@ -68,18 +77,19 @@ export default defineAuth({
 
 ## Opt into the role policy
 
-Set `extends: [cms, { access: 'roles' }]` to make the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that its Actor stands for.
+Set `extends: [cms, { access: 'roles' }]` so the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that it acts for.
 
-With `extends: cms` alone, every action stays denied, even if your app has an unrelated `user.role` field. The role policy requires this explicit opt-in or `authorize: cmsContentAuthorize`. Once enabled, it loads Better Auth only for a user with a string role; a missing or unknown role is denied.
+> [!NOTE]
+> With `extends: cms` alone, every action is denied, even if your app has an unrelated `user.role` field. Turn on the role policy with `access: 'roles'` or `authorize: cmsContentAuthorize`. It then loads Better Auth only for a user with a string role. A missing or unknown role is denied.
 
 Set `authorize` to use your own policy. It replaces the CMS roles:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { cmsCan } from 'vite-hub/cms/access'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   // Agents may draft, but only people publish.
@@ -87,11 +97,16 @@ export const content = defineContent({
 })
 ```
 
-`cmsCan(user, permissions)` reads only `user.role`, so it needs no request. A missing user, a user without a role, and an unknown role are denied. `cmsContentAuthorize` is the role policy as a function. Use it with `defineContent({ workspace })`, which has no preset.
+`cmsCan(user, permissions)` reads only `user.role`, so it needs no request. It denies a missing user, a user without a role, and an unknown role. `cmsContentAuthorize` is the role policy as a function. Use it with `defineContent({ workspace })`, which has no preset.
 
 ## Comments and the Console
 
-`cmsCommentsAuthorize` gives Comments the same roles. `read` needs `comment:read`, `comment` needs `comment:create`, `resolve` needs `comment:resolve`, and `delete` needs `comment:delete`, which only `publisher` and `admin` have. Signed-in authors may delete their own comments with `comment:create`:
+`cmsCommentsAuthorize` gives Comments the same roles:
+
+- `read` needs `comment:read`.
+- `comment` needs `comment:create`.
+- `resolve` needs `comment:resolve`.
+- `delete` needs `comment:delete`, which only `publisher` and `admin` have. Signed-in authors can delete their own comments with `comment:create`.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -100,7 +115,7 @@ import { cmsCommentsAuthorize } from 'vite-hub/cms/access'
 export const comments = defineComments({ authorize: cmsCommentsAuthorize })
 ```
 
-`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees every section. A role with `content:read` sees Content, and a role with `comment:read` sees Comments. A user with neither gets `403`.
+`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees all. `content:read` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
@@ -109,11 +124,11 @@ import { cmsConsoleAuthorize } from 'vite-hub/cms/access'
 export default defineConsoleAuthorize(cmsConsoleAuthorize)
 ```
 
-Set `console: { auth: 'app', authorize: './server/console-authorize.ts' }` in `vitehub()`, so that the Console uses the app's signed-in user.
+Set `console: { auth: 'app', authorize: './server/console-authorize.ts' }` in `vitehub()` so the Console uses the app's signed-in user.
 
 ## Inspect the roles
 
-`vitehub cms roles` prints each role with its Content and Comments actions. `--json` prints the same as JSON.
+`vitehub cms roles` prints each role with its Content and Comments actions. Add `--json` for JSON.
 
 ```bash
 pnpm vitehub cms roles
@@ -123,4 +138,4 @@ pnpm vitehub cms roles
 
 ## Later
 
-Organization roles and roles that admins define at runtime are planned. Today the roles are fixed, and they live on the user.
+Organization roles and roles that admins define at runtime are planned. Today the roles are fixed and live on the user.

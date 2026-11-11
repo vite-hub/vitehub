@@ -1,15 +1,15 @@
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
-import type { ConsoleAuthorize } from "./auth-types.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 import { createAuthForRequest } from "@vite-hub/auth/server"
-import { installStandardContext } from "@vite-hub/runtime/h3"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
 import { consoleAuthBasePath } from "./auth-pages.ts"
 import { consoleAuthPath } from "./auth-path.ts"
 
-export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
-export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
-export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
+// Its own build entry: `server/console-authorize.ts` imports it at startup, without Better Auth.
+export { defineConsoleAuthorize } from "./authorize.ts"
+export { consoleAccessTokenSeconds, consoleMcpNativeClients, consoleMcpOAuth, consoleOAuthClients, consoleRefreshTokenSeconds, consoleResourceOf } from "./auth-oauth.ts"
+export type { ConsoleMcpOAuthOptions, ConsoleOAuthClientsOptions } from "./auth-oauth.ts"
+export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleSignedInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
 export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleTokenAuthorizeContext, ConsoleUser } from "./auth-types.ts"
 
@@ -30,12 +30,11 @@ export async function prepareConsoleAuth(
   input: ConsoleAuthDefinition,
   definition: AuthDefinition,
   request: Request,
-  event?: ViteHubContext,
+  event?: ConsoleRequestEvent,
 ): Promise<void> {
   if (input.migrate === false) return
   let migration = migrations.get(definition)
   if (!migration) {
-    if (event) installStandardContext(event)
     migration = createAuthForRequest(definition, request, undefined, event).$context
       .then(context => context.runMigrations())
       .catch((error: unknown) => {
@@ -79,16 +78,18 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       }
       return {
         ...options,
+        // The host claim code belongs to Primary Auth, not this independent database.
+        adminClaim: false,
         ...(runtime ? { runtime: pluginsInRuntime && oauth.length ? { ...resolvedRuntime, plugins: [...resolved.plugins ?? [], ...oauth] } : runtime } : {}),
         ...(oauth.length && !pluginsInRuntime ? { plugins: [...options.plugins ?? [], ...oauth] } : {}),
         access: {
           routes: [
             { route: consoleAuthPath(mountBaseURL, "/_vitehub/**"), authorize: definition.authorize },
-            { route: consoleAuthPath(mountBaseURL, "/api/_vitehub/console/**"), authorize: definition.authorize },
+            { route: consoleAuthPath(mountBaseURL, "/_vitehub/api/**"), authorize: definition.authorize },
           ],
           signIn: {
-            callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub"),
-            errorCallbackURL: consoleAuthPath(mountBaseURL, "/_vitehub?auth_error=signin"),
+            callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"),
+            errorCallbackURL: consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?auth_error=signin"),
             ...definition.signIn,
           },
         },
@@ -100,11 +101,4 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       }
     },
   } as AuthDefinition<AuthDefinitionInput>
-}
-
-/** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
-export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
-  // Accept callbacks created in another JavaScript realm, where `instanceof Function` fails.
-  if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
-  return authorize
 }

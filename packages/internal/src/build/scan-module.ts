@@ -47,6 +47,16 @@ export function scanModule(source: string, file = "module.ts"): ScannedModule {
   return { comments: result.comments, errors: result.errors, file, program: result.program, source }
 }
 
+/** Lists the names that a module exports. A default export reads as `default`. Type-only exports are left out. */
+export function exportNames(source: string, file = "module.ts"): string[] {
+  const { module } = parseSync(file, source, { lang: languageOf(file), sourceType: "module" })
+  return module.staticExports.flatMap(statement => statement.entries).flatMap((entry) => {
+    if (entry.isType) return []
+    if (entry.exportName.kind === "Default") return ["default"]
+    return entry.exportName.name === null ? [] : [entry.exportName.name]
+  })
+}
+
 function isNode(value: unknown): value is Node {
   return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
 }
@@ -126,7 +136,7 @@ export function findDefaultExportCall(module: ScannedModule, names: readonly str
   const name = call.callee.name
   const first = argumentExpression(call.arguments[0])
   if (first?.type === "ObjectExpression") return { call, name, options: first }
-  // The positional form has more than one argument, such as `defineSchedule(cron, handler, options)`.
+  // The positional form has more than one argument, such as `defineQueue(handler, options)`.
   if (options.positionalOptionsIndex === undefined || first === undefined || call.arguments.length < 2) return
   const positional = call.arguments[options.positionalOptionsIndex]
   if (positional === undefined) return { call, name }
@@ -289,6 +299,8 @@ export interface ModuleTokens {
   lineBreaks: Set<number>
   /** Tokens in source order. Comments are removed. Strings, templates, and regular expressions are single tokens. */
   tokens: string[]
+  /** Source offset of each token, before identifier escapes are decoded. */
+  starts: number[]
 }
 
 const codeTokenPattern = /(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?)n?|(?:[\p{ID_Start}$_]|\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4})(?:[\p{ID_Continue}$‌‍]|\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4})*|\S/gu
@@ -304,6 +316,7 @@ function decodeIdentifier(token: string): string {
 export function moduleTokens(module: ScannedModule): ModuleTokens {
   const { source } = module
   const tokens: string[] = []
+  const starts: number[] = []
   const lineBreaks = new Set<number>()
   let previousEnd = 0
   const push = (token: string, start: number) => {
@@ -314,6 +327,7 @@ export function moduleTokens(module: ScannedModule): ModuleTokens {
       }
     }
     tokens.push(token)
+    starts.push(start)
     previousEnd = start + token.length
   }
   const scanCode = (start: number, end: number) => {
@@ -333,7 +347,7 @@ export function moduleTokens(module: ScannedModule): ModuleTokens {
     cursor = span.end
   }
   scanCode(cursor, source.length)
-  return { lineBreaks, tokens }
+  return { lineBreaks, starts, tokens }
 }
 
 /** The source of each `${...}` substitution in a template literal, such as the source of one template token. */

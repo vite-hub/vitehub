@@ -15,7 +15,7 @@ import { normalizeBlobOptions } from "../src/config.ts"
 import { createBundledVercelBlobDriver, createDriver as createInternalVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { renderBlobRuntimeModule } from "../src/internal/nitro-runtime.ts"
 
-import type { BlobModuleOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
+import type { BlobOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -102,7 +102,7 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
-function resolveVercelBlob(blob: BlobModuleOptions): ResolvedBlobModuleOptions {
+function resolveVercelBlob(blob: BlobOptions): ResolvedBlobModuleOptions {
   const resolved = normalizeBlobOptions(blob, { hosting: "vercel" })
   if (!resolved) throw new Error("Blob config must resolve to a store.")
   return resolved
@@ -185,15 +185,15 @@ describe("Blob Nitro runtime module", () => {
       const runtime = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
       const storage = kind === "lazy" ? runtime.blob : runtime.createGeneratedBlobStorage()
 
-      expect(await storage.list()).toMatchObject([null, { blobs: [], hasMore: false }])
-      expect(await storage.put("local.txt", "hello")).toMatchObject([null, { pathname: "local.txt", size: 5 }])
+      expect(await storage.list()).toMatchObject([undefined, { blobs: [], hasMore: false }])
+      expect(await storage.put("local.txt", "hello")).toMatchObject([undefined, { pathname: "local.txt", size: 5 }])
       expect(localList).toHaveBeenCalledOnce()
       expect(localPut).toHaveBeenCalledWith("local.txt", "hello", expect.any(Object))
       expect(send).not.toHaveBeenCalled()
 
       const remote = storage.store("remote")
-      expect(await remote.list()).toMatchObject([null, { blobs: [], hasMore: false }])
-      expect((await remote.put("remote.txt", "hello"))[0]).toBeNull()
+      expect(await remote.list()).toMatchObject([undefined, { blobs: [], hasMore: false }])
+      expect((await remote.put("remote.txt", "hello"))[0]).toBeUndefined()
       expect(send).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ Bucket: "assets", Key: "remote.txt" }) }), undefined)
       expect(list).not.toHaveBeenCalled()
       expect(put).not.toHaveBeenCalled()
@@ -346,7 +346,7 @@ describe("Blob Nitro runtime module", () => {
     }
 
     const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("pathname=notes%2Fgenerated.txt"),
@@ -388,7 +388,7 @@ describe("Blob Nitro runtime module", () => {
     }
 
     const [error, object] = await runtimeModule.blob.store("assets").put("notes/assets.txt", "hello") as [unknown, { url?: string }]
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(object).toMatchObject({ url: "/notes/assets.txt" })
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -437,13 +437,13 @@ describe("Blob Nitro runtime module", () => {
     const runtimeModule = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
     const storage = kind === "lazy" ? runtimeModule.blob : runtimeModule.createGeneratedBlobStorage()
 
-    expect((await storage.store("reports").put("q1.txt", "revenue"))[0]).toBeNull()
-    expect((await storage.store("default", { mode: "write" }).put("q1.txt", "default"))[0]).toBeNull()
+    expect((await storage.store("reports").put("q1.txt", "revenue"))[0]).toBeUndefined()
+    expect((await storage.store("default", { mode: "write" }).put("q1.txt", "default"))[0]).toBeUndefined()
     const reader = storage.store("reports", { mode: "read" })
     expect(Object.keys(reader).sort()).toEqual(["get", "head", "list", "media", "serve", "sign"])
     expect(Object.keys(reader.media).sort()).toEqual(["get", "list", "variants"])
     const [getError, object] = await reader.get("q1.txt")
-    expect(getError).toBeNull()
+    expect(getError).toBeUndefined()
     expect(await object?.text()).toBe("revenue")
     expect((await reader.head("q1.txt"))[1]).toMatchObject({ pathname: "q1.txt", size: 7, url: "/reports/q1.txt" })
     expect((await reader.list())[1]?.blobs.map(item => item.pathname)).toEqual(["q1.txt"])
@@ -453,7 +453,7 @@ describe("Blob Nitro runtime module", () => {
 
     const signedReader = storage.store("signed", { mode: "read" })
     const [signError, signed] = await signedReader.sign("q1.txt", { expiresIn: 60, method: "GET" })
-    expect(signError).toBeNull()
+    expect(signError).toBeUndefined()
     expect(signed).toMatchObject({ method: "GET", url: expect.stringContaining("X-Amz-Signature=") })
     // JavaScript callers can bypass the public option types.
     await expect(Reflect.apply(signedReader.sign, signedReader, ["q1.txt", { expiresIn: 60, method: "PUT" }])).rejects.toMatchObject({ code: "BLOB_R0037" })
@@ -478,14 +478,14 @@ describe("Blob Nitro runtime module", () => {
     const svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"20\"></svg>"
 
     const [putError, record] = await runtimeModule.blob.media.put("posts/cover.svg", svg, { alt: "Cover" })
-    expect(putError).toBeNull()
+    expect(putError).toBeUndefined()
     expect(record).toMatchObject({ alt: "Cover", height: 20, pathname: "posts/cover.svg", url: "/media/posts/cover.svg", width: 40 })
     const [getError, stored] = await runtimeModule.blob.media.get("posts/cover.svg")
-    expect(getError).toBeNull()
+    expect(getError).toBeUndefined()
     expect(stored).toMatchObject({ alt: "Cover", pathname: "posts/cover.svg" })
 
     const [archiveError, archived] = await runtimeModule.blob.store("archive").media.put("cover.svg", svg)
-    expect(archiveError).toBeNull()
+    expect(archiveError).toBeUndefined()
     expect(archived).toMatchObject({ pathname: "cover.svg", width: 40 })
     expect(archived?.url).toBeUndefined()
   })
@@ -542,7 +542,7 @@ describe("Blob Nitro runtime module", () => {
       }
     }
     const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
 

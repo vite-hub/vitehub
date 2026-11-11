@@ -17,6 +17,7 @@ import {
   connectionConnectURL,
   connectionListSchema,
   connectionNextStep,
+  connectionNotices,
   connectionResultSchema,
   loadConnectionApprovals,
   requestConnectionsManagement,
@@ -26,7 +27,8 @@ import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 import type { ConsoleSectionId } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { vitehub } from "../src/index.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
+import { productionConsole } from "./support/console-authorize.ts"
 
 const connection = {
   account: { email: "ada@example.com", id: "1" },
@@ -221,6 +223,15 @@ describe("Connections management client", () => {
   ] as const)("names the next step of a %s Connection that is %s (missing %o)", (credential, status, missing, expected) => {
     expect(connectionNextStep({ credential, scopes: { declared: [], granted: [], missing: [...missing] }, status })).toEqual(expected)
   })
+
+  it("lists pending approvals and missing scopes, and nothing when none exist", () => {
+    const scopes = (missing: string[]) => ({ scopes: { declared: [], granted: [], missing } })
+    expect(connectionNotices(scopes([]))).toBeUndefined()
+    expect(connectionNotices(scopes([]), 0)).toBeUndefined()
+    expect(connectionNotices(scopes([]), 1)).toEqual({ count: 1, items: ["1 pending approval"], summary: "1 notice", tab: "approvals" })
+    expect(connectionNotices(scopes(["mail.send"]))).toEqual({ count: 1, items: ["1 missing scope"], summary: "1 notice", tab: "details" })
+    expect(connectionNotices(scopes(["a", "b"]), 3)).toEqual({ count: 5, items: ["3 pending approvals", "2 missing scopes"], summary: "5 notices", tab: "approvals" })
+  })
 })
 
 describe("Console session user", () => {
@@ -242,14 +253,14 @@ describe("Console session user", () => {
   it("writes one actor module that checks the installed Console access policy", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-actor-"))
     try {
-      // The Connections handler calls the policy with the Request first and the server event second.
+      // The Connections handler calls the policy with the Request. It carries the Standard Context of the event.
       // The access policy reads the signed-in user, so one module serves every Console access mode.
       const file = await writeConsoleConnectionsActor(root)
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
       const actor = await readFile(file, "utf8")
-      expect(actor).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
-      expect(actor).toContain("viteHubConsoleConnectionsActor(_request, event)")
-      expect(actor).toContain("return consoleConnectionsActor(event)")
+      expect(actor).toContain(`import { consoleConnectionsActor } from ${JSON.stringify(generatedModules.consoleSections)}`)
+      expect(actor).toContain("viteHubConsoleConnectionsActor(request)")
+      expect(actor).toContain("return consoleConnectionsActor(request)")
       expect(actor).not.toContain("user:open")
     }
     finally {
@@ -265,7 +276,7 @@ describe("Console session user", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-sections-"))
     try {
       const plugin = consoleVitePlugin({
-        console: command === "serve" ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
+        console: command === "serve" ? { auth: false } : productionConsole,
         connections,
         sections: ["env", "connections"],
       })
@@ -316,7 +327,7 @@ describe("Console session user", () => {
       }
       const actor = await configure(["connections"])
       expect(actor).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
-      expect(await readFile(actor!, "utf8")).toContain("return consoleConnectionsActor(event)")
+      expect(await readFile(actor!, "utf8")).toContain("return consoleConnectionsActor(request)")
       expect(await configure(["env"])).toBeUndefined()
     }
     finally {

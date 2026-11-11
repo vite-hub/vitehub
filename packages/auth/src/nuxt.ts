@@ -6,12 +6,14 @@ import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOpt
 
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
 
-import type { AuthModuleOptions } from "./types.ts"
+import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+export type { AuthPageMeta, AuthPageMode, AuthRedirects } from "./nuxt-types.ts"
+
 export interface AuthNuxtModuleOptions {
-  auth?: AuthModuleOptions
+  auth?: AuthOptions
   env?: false | { projectRoot?: string }
   importsFrom?: string
   nitro?: boolean
@@ -20,6 +22,7 @@ export interface AuthNuxtModuleOptions {
 type NuxtLike = {
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
   options: {
+    runtimeConfig?: { public?: Record<string, unknown> }
     plugins?: Array<string | { src: string, order?: number }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
@@ -36,7 +39,6 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     vite?: {
-      auth?: AuthModuleOptions
       define?: Record<string, unknown>
       plugins?: unknown[]
       root?: string
@@ -44,9 +46,10 @@ type NuxtLike = {
   }
 }
 
-const composables = ["useAuthClient", "useSession", "useSignIn", "useSignUp", "useUserSession"]
+const composables = ["useAuthClient", "useSession", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
+const pageMetaRegistered = new WeakSet<object>()
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
@@ -83,19 +86,22 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)
   if (!vitePlugins.some(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME)) nuxt.options.vite.plugins.push(authPlugin)
 
+  const resolveAuthOptions = () => options.auth
+  const resolveAuthConfig = () => {
+    const configRoot = resolve(viteRoot)
+    const serverDirs = resolveNuxtServerDirs(nuxt.options)
+    const authOptions = resolveAuthOptions()
+    return resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
+      ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
+  }
+
   if (options.nitro !== false && !nitroRegistered.has(nuxt)) {
     nitroRegistered.add(nuxt)
     nuxt.hook?.("nitro:config", async (nitroConfig) => {
       // Nitro can run before Vite's configResolved hook. Resolve discovery
       // directly from the Nuxt/Vite inputs so the virtual definition alias is
       // available during Nitro setup.
-      const configRoot = resolve(viteRoot)
-      const serverDirs = resolveNuxtServerDirs(nuxt.options)
-      const authOptions = nuxt.options.vite?.auth ?? options.auth
-      const definitionHandler = (
-        resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
-        ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
-      )?.definition.handler
+      const definitionHandler = resolveAuthConfig()?.definition.handler
       if (definitionHandler) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
@@ -106,7 +112,6 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
         nitro: nitroConfig,
         projectRoot: viteRoot,
         serverDirs: resolveNuxtServerDirs(nuxt.options),
-        viteAuth: nuxt.options.vite?.auth,
       }))
     })
   }
@@ -117,6 +122,22 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     // module registration is complete, before Nuxt starts running plugins.
     ;(nuxt.hook as unknown as (name: "modules:done", handler: () => Promise<void>) => void)("modules:done", async () => {
       ensureVueRuntimePlugin()
+    })
+  }
+
+  // The session bridge and page guard share the discovered Auth path and redirects.
+  const authOptions = resolveAuthOptions()
+  const redirects = authOptions ? authOptions.redirects : undefined
+  nuxt.options.runtimeConfig ??= {}
+  nuxt.options.runtimeConfig.public ??= {}
+  nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
+    basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
+    redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
+  }
+  if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
+    pageMetaRegistered.add(nuxt)
+    ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
+      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/hosts. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
     })
   }
 

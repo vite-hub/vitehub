@@ -1,3 +1,5 @@
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+
 import type {
   CommentCreateInput,
   CommentDeleteInput,
@@ -34,10 +36,6 @@ export class CommentsRpcError extends Error {
     if (failure.fix) this.fix = failure.fix
     if (failure.details) this.details = failure.details
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 /**

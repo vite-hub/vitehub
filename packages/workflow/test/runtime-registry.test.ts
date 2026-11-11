@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowDefinition } from "../src/types.ts"
-import { createWorkflow, runWorkflow } from "../src/runtime/client.ts"
+import { createWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { getInlineWorkflowDefinitions, loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(resetWorkflowRuntime)
@@ -22,7 +22,7 @@ describe("Workflow registry entries", () => {
     setWorkflowRuntimeRegistry({})
     const workflow = createWorkflow(name, async () => "inline")
 
-    const run = await workflow.run()
+    const run = await workflow.start()
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
     await vi.waitFor(async () => {
       await expect(workflow.getRun(run.id)).resolves.toMatchObject({ result: expect.any(Response), status: "completed" })
@@ -33,7 +33,7 @@ describe("Workflow registry entries", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({})
 
-    await expect(runWorkflow(name)).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
+    await expect(startWorkflow(name)).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
   })
 
   it("does not load inherited definitions", async () => {

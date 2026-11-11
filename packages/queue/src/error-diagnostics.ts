@@ -6,9 +6,9 @@ export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/queue/limits-and-errors",
+  docs: "https://vitehub.dev/docs/queue/diagnostics",
   codes: {
-    // Runtime errors. `send()`, `sendBatch()`, and `runQueue()` return them as `[error, undefined]`.
+    // Runtime errors. `send()`, `sendBatch()`, and `sendQueue()` return them as `[error, undefined]`.
     QUEUE_PROVIDER_FAILED: {
       why: ({ operation, provider }: { operation: QueueProviderOperation, provider: QueueProvider }) => `The ${provider} queue provider failed during ${operation}.`,
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again. Pass `idempotencyKey` on Vercel so that a retry does not enqueue the job two times.",
@@ -51,15 +51,15 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_MISSING_QUEUE: {
       why: "A direct local queue client needs a `queue` name.",
-      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `getQueue()`.",
+      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `useQueue()`.",
     },
     QUEUE_LOCAL_MODE_MISMATCH: {
       why: "The local Queue directory already has an engine with a different development error disclosure mode.",
-      fix: "Use `getQueue()` in the generated server runtime, or give the direct client a separate directory.",
+      fix: "Use `useQueue()` in the generated server runtime, or give the direct client a separate directory.",
     },
     QUEUE_MISSING_TOPIC: {
       why: "A direct Vercel queue client needs a `topic`.",
-      fix: "Pass `topic` to `createQueueClient()`, or use `getQueue()` for a discovered Queue Definition.",
+      fix: "Pass `topic` to `createQueueClient()`, or use `useQueue()` for a discovered Queue Definition.",
     },
     QUEUE_PROVIDER_MISMATCH: {
       why: ({ expected, provider }: { expected: QueueProvider, provider: QueueProvider }) => `The ${expected} Queue runtime received the ${provider} provider.`,
@@ -74,8 +74,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Install a supported `@vercel/queue` version, or pass a `client` that has `send()` and `handleCallback()`.",
     },
     QUEUE_VERCEL_SDK_UNAVAILABLE: {
-      why: "`@vercel/queue` cannot be loaded.",
-      fix: "Add `@vercel/queue` to the app dependencies. Read `error.cause` for the import error.",
+      why: "`@vercel/queue` or `@vercel/functions` cannot be loaded.",
+      fix: "Add `@vercel/queue` and `@vercel/functions` to the app dependencies. Read `error.cause` for the import error.",
     },
 
     // Definition and build errors. ViteHub throws them when Vite reads the config or builds the app.

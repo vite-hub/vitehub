@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { envActivitySchema, requestEnvManagement } from "../src/console/runtime/client/env-management.ts"
-import { consoleProject, projectConsoleUrl, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
+import { consoleProject, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { browserProjectStorage, consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
 import type { ConsoleBrowserStorage } from "../src/console/runtime/client/projects.ts"
@@ -40,6 +40,7 @@ describe("project URLs", () => {
     ["https://app.example.com/_vitehub-app", "https://app.example.com", "/_vitehub-app"],
     ["https://app.example.com/portal/_vitehub-assets/", "https://app.example.com", "/portal/_vitehub-assets"],
     ["https://app.example.com/_vitehub-app/_vitehub/kv", "https://app.example.com", "/_vitehub-app"],
+    ["https://app.example.com/portal/_vitehub-tools/_vitehub/kv", "https://app.example.com", "/portal/_vitehub-tools"],
   ])("reads %s as origin and base", (input, origin, base) => {
     expect(normalizeProjectUrl(input)).toEqual({ target: { origin, base, url: `${origin}${base}` } })
   })
@@ -200,7 +201,9 @@ describe("project.get probe", () => {
 
   it("tells OAuth and app sign-in apart from the token", async () => {
     const oauth = json(401, { code: "CONSOLE_SIGN_IN_REQUIRED" }, { "www-authenticate": 'Bearer realm="vitehub-console", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource"' })
-    expect(await probeConsoleProject(target, undefined, { fetch: oauth })).toEqual({ kind: "oauth" })
+    expect(await probeConsoleProject(target, undefined, { fetch: oauth })).toEqual({ kind: "oauth", resourceMetadata: "https://app.example.com/.well-known/oauth-protected-resource" })
+    const expired = json(401, { code: "CONSOLE_SIGN_IN_REQUIRED" }, { "www-authenticate": 'Bearer realm="vitehub-console", error="invalid_token", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/_vitehub"' })
+    expect(await probeConsoleProject(target, "old", { fetch: expired })).toEqual({ kind: "oauth", resourceMetadata: "https://app.example.com/.well-known/oauth-protected-resource/_vitehub" })
     const session = json(401, { code: "CONSOLE_SIGN_IN_REQUIRED" }, { "www-authenticate": 'Bearer realm="vitehub-console"' })
     expect(await probeConsoleProject(target, undefined, { fetch: session })).toEqual({ kind: "sign-in" })
   })
@@ -310,7 +313,7 @@ describe("linking a project", () => {
     expect(state.store.active()?.label).toBe("Shop")
     const { consoleProject: active, projectUrl } = await import("../src/console/runtime/client/project.ts")
     expect(projectUrl("/_vitehub/rpc/__call")).toBe("https://b.example.com/_vitehub/rpc/__call")
-    expect(active().authorization?.()).toBe("Bearer token-b")
+    expect(await active().authorization?.()).toBe("Bearer token-b")
   })
 
   it.each(["https:", "http:"])("signs in to an embedded token app over %s", async (protocol) => {
@@ -356,7 +359,7 @@ describe("linking a project", () => {
     expect(state.store.active()?.id).toBe(b.id)
     const { consoleProject: active } = await import("../src/console/runtime/client/project.ts")
     expect(active().origin).toBe("https://b.example.com")
-    expect(active().authorization?.()).toBe("Bearer token-b")
+    expect(await active().authorization?.()).toBe("Bearer token-b")
 
     responseB.resolve(Response.json(tokenRejection, { status: 401 }))
     await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: true }))
@@ -456,11 +459,9 @@ describe("remote project links", () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
-  it("links features that need the app origin to the app's own Console", () => {
+  it("tells when the Console shows a project on another origin", () => {
     expect(isRemoteProject()).toBe(false)
-    expect(projectConsoleUrl("/kv")).toBe("/_vitehub/kv")
     setConsoleProject({ origin: "https://app.example.com", base: "/portal" })
     expect(isRemoteProject()).toBe(true)
-    expect(projectConsoleUrl("/auth/users")).toBe("https://app.example.com/portal/_vitehub/auth/users")
   })
 })

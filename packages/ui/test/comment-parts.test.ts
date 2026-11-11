@@ -10,7 +10,7 @@ import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref } from "vue";
+import { defineComponent, h, ref, type Component } from "vue";
 import {
   CommentComposer,
   CommentLayer,
@@ -184,6 +184,40 @@ describe("composer mentions", () => {
     await flushPromises();
     expect(wrapper.find("[role=listbox]").exists()).toBe(false);
     expect(field.element).toHaveProperty("value", "@be");
+  });
+
+  it("warns again on Esc after the files change, and discards only on an Esc right after a warning", async () => {
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, attachments: true, files: [], modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    const status = () => wrapper.get("[data-slot=comment-composer-status]").text();
+    await field.trigger("keydown", { key: "Escape" });
+    expect(status()).toBe("Press Esc again to discard.");
+    await wrapper.setProps({ files: [file] });
+    expect(status()).toBe("");
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("forgets the first Esc after two seconds, so a late Esc shakes again", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+      const field = wrapper.get("textarea");
+      await field.trigger("keydown", { key: "Escape" });
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("Press Esc again to discard.");
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("");
+      await field.trigger("keydown", { key: "Escape" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(wrapper.emitted("cancel")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders a mention-item slot with the person and whether it is active", async () => {
@@ -581,7 +615,7 @@ describe("layer draft uploads", () => {
 });
 
 describe("RPC attachments", () => {
-  it.each([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
+  it.each<Component>([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const { operation, input } = JSON.parse(String(init?.body));
       return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
@@ -611,7 +645,7 @@ describe("RPC attachments", () => {
     expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
   });
 
-  it.each([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
+  it.each<Component>([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
     const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
     transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });

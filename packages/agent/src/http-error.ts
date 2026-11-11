@@ -22,7 +22,7 @@ export class AgentHttpError extends Diagnostic {
   readonly statusCode: number
 
   constructor(statusCode: number, message: string) {
-    super({ code: "AGENT_R0891", docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors", why: message }, AgentHttpError)
+    super({ code: "AGENT_R0891", docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0891", why: message }, AgentHttpError)
     this.name = "AgentHttpError"
     this.status = statusCode
     this.statusCode = statusCode
@@ -38,7 +38,7 @@ function getHttpErrorStatusCode(error: unknown): number | undefined {
   if (code === "AUTHENTICATION_REQUIRED") return 401
   if (code === "RATE_LIMIT_REJECTED") return 429
   if (code === "RATE_LIMIT_UNAVAILABLE") return 503
-  if (code === "LLM_GATE_REJECTED" || code === "CAPABILITY_DENIED") return 403
+  if (code === "CAPABILITY_DENIED") return 403
   if (code === "CAPABILITY_NOT_FOUND") return 404
 }
 

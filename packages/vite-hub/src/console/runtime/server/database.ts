@@ -1,6 +1,4 @@
-import { resolve } from "node:path"
-
-import { installConsoleDatabaseScope, resolveConsoleDatabase } from "../../internal.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
 import type { ConsoleDatabaseInspection } from "../../internal.ts"
@@ -14,11 +12,11 @@ export function installConsoleDatabase(
   const installedNames = [...new Set(names.filter(name => name.length > 0))]
     .filter(name => Object.hasOwn(databases, name))
     .sort((left, right) => left === "default" ? -1 : right === "default" ? 1 : left.localeCompare(right))
-  return installConsoleDatabaseScope(resolve(projectRoot), { databases, names: installedNames })
+  return consoleState().database = { databases, names: installedNames }
 }
 
 export function getConsoleDatabase(): ConsoleDatabaseInspection {
-  const inspection = resolveConsoleDatabase()
+  const inspection = consoleState().database
   if (!inspection) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0051({ message: "[vitehub] Database inspection has not been installed for this runtime." })
   }

@@ -78,7 +78,7 @@ describe("defineSkill", () => {
     [{ "SKILL.md": releaseMd, "references\\a.md": "x" }, "SKILL_INVALID_PATH"],
     [{ "SKILL.md": releaseMd, "references//a.md": "x" }, "SKILL_INVALID_PATH"],
   ])("rejects %j with %s", (files, code) => {
-    expect(() => defineSkill(files)).toThrow(expect.objectContaining({ code, docs: `https://vitehub.dev/docs/development/skills#${code.toLowerCase()}` }))
+    expect(() => defineSkill(files)).toThrow(expect.objectContaining({ code, docs: `https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}` }))
   })
 })
 

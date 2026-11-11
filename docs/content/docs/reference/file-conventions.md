@@ -1,57 +1,79 @@
 ---
 title: File conventions
-description: Reference the discovery paths that produce ViteHub Discovered Definitions and Discovery Identity.
+description: The file paths where ViteHub finds your Definitions, and the name each file gets.
 navigation.order: 52
 navigation.group: Setup
 icon: i-lucide-folder-tree
 ---
 
-File conventions produce Discovered Definitions. Discovery Identity comes from the discovery location, not from arbitrary inline Definition Options.
+ViteHub finds each Definition (a file that declares one feature, such as a queue) by its path. The path, not an option in the file, sets its name, the Discovery Identity.
 
 ## Definition files
 
 | Definition | Directory convention | Suffix convention | Discovery Identity |
 | --- | --- | --- | --- |
-| Agent | `server/agents/<name>.ts`, `server/agents/<name>/agent.ts`, or `server/agents/<name>/index.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. A leading `src/` is removed from suffix identities. |
-| Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. An application Definition replaces a Nuxt layer Definition. |
-| Browser | `server/browsers/<path>.ts` | `<path>.browser.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
-| Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
-| Comments | `server/comments.ts` | None | `comments`. A named `comments` export selects the live-site API; a default export selects [Comment operations](/docs/comments/operations/get-started). Both use `defineComments()`. |
+| Agent | `server/agents/<name>.ts`, `server/agents/<name>/agent.ts`, or `server/agents/<name>/index.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. |
+| Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. The app's Definition replaces a Nuxt layer's. |
+| Browser | `server/browsers/<path>.ts` | `<path>.browser.ts` | Relative path. |
+| Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Relative path. |
+| Comments | `server/comments.ts` | None | `comments`. A named `comments` export picks the live-site API. A default export picks [Comment operations](/docs/comments/operations/get-started). Both use `defineComments()`. |
 | Connection | `server/connections/<path>.ts` | None | Normalized relative path. |
-| Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. Nuxt layer Definitions with the same name merge their tables. |
+| Content | `server/content.ts` | None | `content`. The file default-exports `defineContent()`. Only one Content Definition is allowed. |
+| Database | `server/databases/<name>.ts`, or `server/databases/<name>/index.ts` when the Database has other files. `default` is the default database | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | The normalized relative path. `src/database.ts` cannot be mixed with named databases. Nuxt layer Definitions with the same name merge their tables. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Realtime | `server/realtime/<path>.ts` | None | Normalized relative path. |
-| Workflow | `server/workflows/<path>.ts` or a folder containing `index.ts` or numbered step files | `<path>.workflow.ts` | Normalized relative file or folder path. Agent Definitions contribute their Agent identity by default, `workflow(...)` can override it, and `runtime: false` opts out. |
-| Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
-| Task | `server/tasks/<path>.ts` | None | Nitro task name: the relative path with `/` replaced by `:`, so `server/tasks/db/seed.ts` is `db:seed`. An `index` file uses its folder name. Only `vitehub()` on a Vite + Nitro host registers these files. |
-| Sandbox Task | `server/sandbox-tasks/<path>/{package.json,index.ts}` | `<path>.sandbox-task.ts` outside `server/sandbox-tasks/` | Normalized folder or suffix path, without a trailing `.sandbox-task` segment. |
-| Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/agent.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Normalized relative path or the colocated Agent name. |
+| Workflow | `server/workflows/<path>.ts`, or a folder with `index.ts` or numbered step files | `<path>.workflow.ts` | Relative file or folder path. Agent Definitions use their Agent name by default. `workflow(...)` overrides it, and `runtime: false` opts out. |
+| Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Relative path. |
+| Task | `server/tasks/<path>.ts` | None | Nitro task name: the relative path with `/` changed to `:`, so `server/tasks/db/seed.ts` is `db:seed`. An `index` file uses its folder name. Only `vitehub()` on a Vite + Nitro host registers these files. |
+| Sandbox Task | `server/sandbox-tasks/<path>/{package.json,index.ts}` | `<path>.sandbox-task.ts` outside `server/sandbox-tasks/` | Folder or suffix path, without the trailing `.sandbox-task`. |
+| Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/agent.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Relative path, or the name of the Agent in the same folder. |
 
-In a Nuxt application, `server/` means the server directory of the application and of each layer it extends. Read [Nuxt layers](/docs/frameworks-hosts/nuxt#nuxt-layers).
-
-The table uses `.ts` for brevity. Directory and suffix patterns accept JavaScript and TypeScript module variants where the owning package permits them. `src/database.ts` is the exact default Database suffix-mode file.
-
-Rate Limit deliberately has no file convention. Call `requireRateLimit(event, id, options)` inside ordinary H3 handlers; its explicit ID is the provider identity.
+- ViteHub normalizes every path. Suffix names drop a leading `src/`.
+- In Nuxt, `server/` means the server directory of the app and of each layer it extends. Read [Nuxt layers](/docs/frameworks-hosts/nuxt#nuxt-layers).
+- The table shows `.ts`. Other JavaScript and TypeScript module extensions work where the package allows them. The default Database suffix file is exactly `src/database.ts`.
+- Rate Limit has no file convention on purpose. Call `requireRateLimit(event, id, options)` in a normal H3 handler. Its ID is the provider identity.
 
 ## Export shape
 
-Most discovered Definition files default-export the package-owned Definition Boundary Helper. This keeps Build-Extracted Definition Options limited to the direct discovered default export.
+Most Definition files default-export the package's `define*()` helper. The build reads options only from that default export.
 
-Canonical Sandbox Task package projects are the exception: `server/sandbox-tasks/<path>/index.ts` default-exports an async `(payload, context) => result` function. The adjacent `package.json` must set `"type": "module"`. Local TypeScript uses explicit relative ESM imports, while bare dependencies must expose runtime-ready JavaScript; CommonJS source and package-local import aliases are not compiled. The folder supplies the Definition identity, and optional static wall-clock policy comes from `vitehub.sandboxTask.timeout`. Free-form `<path>.sandbox-task.ts` files still default-export `defineSandboxTask(...)`.
+Sandbox Task folders are the exception. `server/sandbox-tasks/<path>/index.ts` default-exports an async `(payload, context) => result` function:
 
-```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vite-hub/queue'
+- The `package.json` next to it must set `"type": "module"`.
+- Local TypeScript uses relative ESM imports. Bare dependencies must ship ready-to-run JavaScript. CommonJS source and package-local import aliases are not compiled.
+- The folder sets the name. `vitehub.sandboxTask.timeout` sets an optional static time limit.
+
+A `<path>.sandbox-task.ts` file still default-exports `defineSandboxTask(...)`.
+
+```ts [server/queues/welcome-email.ts] fragment
+import { defineQueue } from 'vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   await sendWelcomeEmail(job.payload.email)
 })
 ```
 
+## Define forms
+
+A define function takes one handler, or one object with `handler` and the options. The file default-exports the result:
+
+| Definition | Form |
+| --- | --- |
+| Queue | `defineQueue(handler, options)` |
+| Schedule | `defineSchedule({ cron, handler, manual, timeZone })` |
+| Sandbox Task | `defineSandboxTask({ handler, timeout, env, project })` |
+| Content | `export default defineContent({ ... })` |
+| Database | `export default defineDatabase({ schema })` in `server/databases/<name>.ts` |
+
+`defineWorkflow()` is the one exception. Its typed-steps form, `defineWorkflow(name, handler)`, repeats the Workflow name so that the build can type the steps of the Workflow. Do not copy this form to other primitives.
+
+The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. `npx @vite-hub/codemods define-forms` rewrites all four.
+
 Avoid aggregate named exports for discovered Definitions. The generated Runtime Registry expects one discovered boundary per file convention.
 
 ## Colocated Workspace files
 
-Agent folders can colocate Workspace content beside the Agent Definition. When a folder contains `workspace/`, that folder becomes the Workspace Source Root for the colocated Workspace Definition.
+Put Workspace files next to the Agent. A `workspace/` folder in the Agent folder becomes the root of that Agent's Workspace files.
 
 ```txt [File tree]
 server/
@@ -66,7 +88,7 @@ server/
 
 ## Colocated Agent Skills
 
-An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery and materializes the directory into the Provider Workspace at `.agents/skills/`. Existing files remain in place, and files below a `scripts/` directory become executable.
+Put Agent Skills in a `skills/` folder next to the Agent. ViteHub embeds every file and writes the folder to `.agents/skills/` in the Provider Workspace. Existing files stay. Files under `scripts/` become executable.
 
 ```txt [File tree]
 server/
@@ -80,29 +102,23 @@ server/
             review.sh
 ```
 
-This convention needs no `skills()` Capability declaration. Use [`skills()`](/docs/agents/capabilities/skills) when the Skill comes from a Workspace or external Source instead of the Agent folder.
+You do not need the `skills()` Capability for this. Use [`skills()`](/docs/agents/capabilities/skills) when the Skill comes from a Workspace or an external Source.
 
 ## Markdown templates
 
-Use ordinary `.md` files for Markdown templates and fragments. Pass a file path or file URL to `renderMarkdownFile()`. For example, `server/agents/review/agent.ts` can render `new URL('./reply.md', import.meta.url)`.
+Markdown templates and fragments are plain `.md` files. Pass a file path or file URL to `renderMarkdownFile()`. For example, `server/agents/review/agent.ts` can render `new URL('./reply.md', import.meta.url)`.
 
-A local `templates/` directory can group several files, but it has no discovery or recursive import behavior. References such as `@./fragment.md` remain literal; compose additional Markdown explicitly before rendering. See [Markdown templates](/docs/reference/markdown-templates) for rendering, deployment, and migration examples.
+A `templates/` folder can group files, but ViteHub does not discover or import it. `@./fragment.md` stays literal text, so join extra Markdown yourself before you render. See [Markdown templates](/docs/reference/markdown-templates) for examples.
 
 ## Email templates
 
-Markdown files under `server/emails` become typed email renderers. ViteHub
-removes the directory prefix and `.md` extension, so
-`server/emails/welcome.md` becomes `#vitehub/emails/welcome` and
-`server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
+Each Markdown file in `server/emails` becomes a typed email renderer. ViteHub drops the folder prefix and `.md`, so `server/emails/welcome.md` becomes `#vitehub/emails/welcome` and `server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
 
-Email template names must use non-empty path segments and cannot contain `.` or
-`..` segments, query strings, fragments, backslashes, or a trailing `.md`.
-ViteHub rejects duplicate names across configured server directories.
+Names need non-empty path segments, and no `.` or `..` segments, query strings, fragments, backslashes, or trailing `.md`. Names must be unique across all server directories.
 
 ## Generated files
 
-Generated files live under `.vitehub/**` and host output directories.
-They prove discovery and Provider Output, but the source Definition files remain the authoring surface.
+Generated files in `.vitehub/**` and host output folders show what discovery and Provider Output made. Edit your Definition files, not these.
 
 ## Related
 

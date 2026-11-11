@@ -3,6 +3,7 @@ import { findViteHubDevServerUrl } from "./cli.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { standardJsonSchema } from "./standard-schema.ts"
 import { withValibotJsonSchema } from "./valibot.ts"
+import { isRecordOrFunction as isObject } from "./object.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -79,8 +80,9 @@ export interface OperationContext {
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
   /**
-   * The server event of the HTTP request that carries the call, such as an H3 event, when there is one. Operations
-   * hand it to app hooks that read the request's own session, such as `identify` of Comments.
+   * The request event of the HTTP request that carries the call, when there is one: the Request of the Console route,
+   * with its Standard Context. Operations hand it to app hooks that read the request's own session, such as `identify`
+   * of Comments.
    */
   event?: unknown
   /** Operations set a success status here, such as 202 for an accepted call. */
@@ -128,7 +130,7 @@ export interface OperationDefinition<Input, Output> {
     positional?: string[]
     /** Human output, written verbatim. Without it the CLI prints JSON. `--json` always prints JSON. */
     format?: (output: Output) => string
-    /** `vitehub <namespace>` runs this command when no command is named, such as `vitehub usage`. */
+    /** `vitehub <namespace>` runs this command when no command is named. */
     default?: boolean
     /**
      * Route of the app that takes a signed dispatch of this operation, such as `/_vitehub/schedules/run`. With `--url`
@@ -184,10 +186,6 @@ export type OperationResult<Output = unknown> =
 const nameFormat = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 const kinds: ReadonlySet<string> = new Set<OperationKind>(["read", "write", "destructive"])
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
 function invalidDefinition(name: unknown, reason: string): Error {
   return internalErrorDiagnostics.INTERNAL_R0020({ message: `[vitehub] Operation ${JSON.stringify(name)} is invalid: ${reason}` })
 }
@@ -214,7 +212,7 @@ function checkDefinition(definition: unknown): void {
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
 /** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
-export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "check", "plan", "apply", "host", "explain", "link", "unlink", "deploy", "deployments"]
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]
 
 /** CLI namespaces owned by built-in commands. */
 export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
@@ -250,7 +248,7 @@ export function isOperation(value: unknown): value is AnyOperation {
 
 /** The contribution of one plugin: operations, or a module that exports them. */
 export interface OperationContributionEntry {
-  /** Module the app imports, such as `@vite-hub/content/operations`. */
+  /** The absolute path of the module that generated code imports, such as `ownModule(import.meta.url, "operations")`. */
   module: string
   /** Named export that holds an operation or an array of operations. Defaults to `default`. */
   export?: string
@@ -386,28 +384,6 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
   return { get: name => byName.get(name)?.operation, list: () => [...operations] }
 }
 
-/** Where a registry is installed for code that has no import path to it, such as agent capabilities. */
-const registryKey: unique symbol = Symbol.for("vitehub.operations.registry")
-const registryLoaderKey: unique symbol = Symbol.for("vitehub.operations.registry-loader")
-const scope = globalThis as typeof globalThis & { [registryKey]?: OperationRegistry, [registryLoaderKey]?: () => Promise<void> }
-
-export function installOperationRegistry(registry: OperationRegistry): void {
-  scope[registryKey] = registry
-}
-
-/**
- * Install the function that installs the registry on first use. The Console installs its operations only when the
- * first Console request or agent tool needs them, so the app does not load every primitive's operations at start.
- */
-export function installOperationRegistryLoader(load: (() => Promise<void>) | undefined): void {
-  scope[registryLoaderKey] = load
-}
-
-export async function installedOperationRegistry(): Promise<OperationRegistry | undefined> {
-  await scope[registryLoaderKey]?.()
-  return scope[registryKey]
-}
-
 /**
  * What `console.authorize` allows for a person. Agents and MCP have no browser request, so the Console installs this
  * resolver, and it calls `authorize` with a request that carries no headers. Without `console.authorize` it returns
@@ -415,16 +391,7 @@ export async function installedOperationRegistry(): Promise<OperationRegistry | 
  */
 export type OperationSectionResolver = (call: { actor?: OperationActor, user: OperationUser | null }) => Promise<"all" | readonly string[]>
 
-const sectionResolverKey: unique symbol = Symbol.for("vitehub.operations.section-resolver")
-const resolverScope = globalThis as typeof globalThis & { [sectionResolverKey]?: OperationSectionResolver }
-
-export function installOperationSectionResolver(resolver: OperationSectionResolver | undefined): void {
-  resolverScope[sectionResolverKey] = resolver
-}
-
-export function installedOperationSectionResolver(): OperationSectionResolver | undefined {
-  return resolverScope[sectionResolverKey]
-}
+export { installOperationRegistry, installOperationRegistryLoader, installOperationSectionResolver, installedOperationRegistry, installedOperationSectionResolver } from "./operation-registry.ts"
 
 /** JSON Schema of the input, for CLI flags and MCP tool schemas. Falls back to an open object. */
 export function operationInputJsonSchema(operation: AnyOperation): Record<string, unknown> {
@@ -631,13 +598,23 @@ export interface OperationTarget {
 
 export const operationCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 
-/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
-export function operationHeaders(env: Record<string, string | undefined>): Headers {
-  const headers = new Headers({ "accept": "application/json", "content-type": "application/json", [operationRpcHeader]: "1", [operationSurfaceHeader]: "cli" })
+/** The Console credentials that CLI commands send to a deployed app, read from the environment. */
+export function consoleCredentialHeaders(env: Record<string, string | undefined>): Headers {
+  const headers = new Headers()
   if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
   if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
   if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
   if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
+  return headers
+}
+
+/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
+export function operationHeaders(env: Record<string, string | undefined>): Headers {
+  const headers = consoleCredentialHeaders(env)
+  headers.set("accept", "application/json")
+  headers.set("content-type", "application/json")
+  headers.set(operationRpcHeader, "1")
+  headers.set(operationSurfaceHeader, "cli")
   return headers
 }
 
@@ -706,6 +683,8 @@ export async function callOperation(target: OperationTarget, name: string, input
       if (text(json.fix)) failure.fix = text(json.fix)
       if (text(json.docs)) failure.docs = text(json.docs)
       if (isObject(json.details)) failure.details = json.details
+      // A found dev server gets no credentials, so the fix that it sends for a 401 works only with --url.
+      if (target.roots?.length && failure.status === 401) failure.fix = `Pass --url ${base.href.slice(0, -1)} to send credentials. A command sends none to the dev server that it finds. ${failure.fix ?? operationCredentialHint}`
       if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
       return failure
     }
@@ -750,4 +729,10 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
   if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
   return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
+}
+
+/** Align rows of text cells in columns for CLI output. The last column is not padded. */
+export function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }

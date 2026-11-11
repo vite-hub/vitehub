@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url"
 import { env } from "@vite-hub/env"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { build } from "esbuild"
 import { resolveInlineConsoleAuthGates, type InlineConsoleAuth } from "./auth-inline-config.ts"
-import { cloudflareAccessIssuer, consoleAuthMountBase, consoleAuthPath } from "./auth-path.ts"
+import { cloudflareAccessIssuer, consoleAuthMountBase } from "./auth-path.ts"
+import { generatedModules } from "../internal/generated-modules.ts"
 
 import type { EnvRuntimeRegistry } from "@vite-hub/env"
 import type { CloudflareAccessConsoleAuth } from "./auth-cloudflare-access.ts"
@@ -15,7 +15,6 @@ import type { ConsoleAuthMode } from "./internal.ts"
 
 export interface ConsoleAuthFiles {
   server?: string
-  client?: string
 }
 
 export type ConsoleAuthConfig = ConsoleAuthFiles | InlineConsoleAuth | CloudflareAccessConsoleAuth
@@ -29,9 +28,6 @@ export type ResolvedConsoleAuthConfig = ResolvedConsoleAuthFiles | InlineConsole
 
 export interface SessionConsoleAuthHandlers {
   auth: true
-  client: string
-  clientSource?: string
-  clientSources: string[]
   middleware: string
   route: string
   signIn: string
@@ -39,9 +35,6 @@ export interface SessionConsoleAuthHandlers {
 
 export interface CloudflareAccessConsoleAuthHandlers {
   auth: "cloudflare-access"
-  client?: undefined
-  clientSource?: undefined
-  clientSources: string[]
   middleware: string
   route?: undefined
   signIn?: undefined
@@ -51,7 +44,6 @@ export type ConsoleAuthHandlers = SessionConsoleAuthHandlers | CloudflareAccessC
 
 export interface ResolvedConsoleAuthFiles {
   server: string
-  client?: string
 }
 
 const sourceExtensions = [".ts", ".mts", ".js", ".mjs"]
@@ -63,24 +55,23 @@ function discoverFile(root: string, name: "server" | "client"): string | undefin
   return found[0]
 }
 
+/** The Console Auth browser client extended the Console page, which apps no longer serve. */
+function rejectConsoleAuthClient(root: string, client: unknown): void {
+  if (client === undefined && !discoverFile(root, "client")) return
+  throw new TypeError("[vitehub] The Console Auth client (console.auth.client, vitehub/console/auth/client) was removed with the Console page that apps served. Delete it.")
+}
+
 export function resolveConsoleAuthFiles(root: string, config: ConsoleAuthFiles): ResolvedConsoleAuthFiles {
+  rejectConsoleAuthClient(root, Reflect.get(config, "client"))
   const discoveredServer = discoverFile(root, "server")
-  const discoveredClient = discoverFile(root, "client")
   if (config.server && discoveredServer) {
     throw new TypeError("[vitehub] Console Auth server is configured both by path and by vitehub/console/auth/server.")
   }
-  if (config.client && discoveredClient) {
-    throw new TypeError("[vitehub] Console Auth client is configured both by path and by vitehub/console/auth/client.")
-  }
   const server = config.server ? resolve(root, config.server) : discoveredServer
-  const client = config.client ? resolve(root, config.client) : discoveredClient
   if (!server || !existsSync(server)) {
     throw new TypeError("[vitehub] Console Auth needs vitehub/console/auth/server.ts or console.auth.server.")
   }
-  if (client && !existsSync(client)) throw new TypeError(`[vitehub] Console Auth client file does not exist: ${client}`)
-  const files: ResolvedConsoleAuthFiles = { server }
-  if (client) files.client = client
-  return files
+  return { server }
 }
 
 /** Return the Console Auth mode that the generated handlers serve. Cloudflare Access has no edge in development. */
@@ -125,12 +116,7 @@ export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig
       throw new TypeError("[vitehub] Inline Console Auth conflicts with vitehub/console/auth/server.")
     }
     resolveInlineConsoleAuthGates(config)
-    if (config.client && discoverFile(root, "client")) {
-      throw new TypeError("[vitehub] Console Auth client is configured both by path and by vitehub/console/auth/client.")
-    }
-    if (config.client && !existsSync(resolve(root, config.client))) {
-      throw new TypeError(`[vitehub] Console Auth client file does not exist: ${config.client}`)
-    }
+    rejectConsoleAuthClient(root, Reflect.get(config, "client"))
     return config
   }
   return resolveConsoleAuthFiles(root, config)
@@ -144,8 +130,8 @@ export function consoleAuthMiddlewareFile(root: string): string {
 async function writeCloudflareAccessMiddleware(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL: string): Promise<CloudflareAccessConsoleAuthHandlers> {
   const middleware = consoleAuthMiddlewareFile(root)
   await writeFileIfChanged(middleware, [
-    'import { resolveServerEnv } from "vite-hub/env/server"',
-    'import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access"',
+    'import { resolveServerEnv } from "vite-hub/env"',
+    `import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from ${JSON.stringify(generatedModules.consoleAuthCloudflareAccess)}`,
     `const settings = JSON.parse(${JSON.stringify(JSON.stringify(config.settings))})`,
     "export default function viteHubConsoleAuthMiddleware(event) {",
     `  return handleCloudflareAccessConsoleRequest(event, () => resolveServerEnv(settings, event), ${JSON.stringify(mountBaseURL)})`,
@@ -156,7 +142,7 @@ async function writeCloudflareAccessMiddleware(root: string, config: ResolvedClo
     "}",
     "",
   ].join("\n"))
-  return { auth: "cloudflare-access", clientSources: [], middleware }
+  return { auth: "cloudflare-access", middleware }
 }
 
 export async function writeConsoleAuthHandlers(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL?: string, mcpResource?: string): Promise<CloudflareAccessConsoleAuthHandlers>
@@ -169,45 +155,13 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
   const route = resolve(directory, "auth-route.mjs")
   const signIn = resolve(directory, "auth-sign-in.mjs")
   const middleware = consoleAuthMiddlewareFile(root)
-  const client = resolve(directory, "auth-client.mjs")
   const inline = "provider" in config
   const mountBase = consoleAuthMountBase(mountBaseURL)
-  const clientFile = inline
-    ? config.client ? resolve(root, config.client) : discoverFile(root, "client")
-    : config.client
-  const clientBuild = clientFile
-    ? await build({
-        absWorkingDir: root,
-        bundle: true,
-        format: "esm",
-        platform: "browser",
-        write: false,
-        metafile: true,
-        stdin: {
-          contents: [
-            `import config from ${JSON.stringify(clientFile)}`,
-            'import { createAuthClient } from "vite-hub/auth/vue"',
-            `const client = createAuthClient({ basePath: ${JSON.stringify(consoleAuthPath(mountBaseURL, "/api/_vitehub/console/auth"))}, plugins: config.plugins ?? [] })`,
-            'globalThis[Symbol.for("vitehub.console.auth.client")] = client',
-            'config.setup?.(client)',
-          ].join("\n"),
-          resolveDir: root,
-          sourcefile: "vitehub-console-auth-client.ts",
-        },
-      })
-    : undefined
-  const clientScript = clientBuild?.outputFiles?.[0]?.text ?? ""
-  const clientSources = clientFile
-    ? [...new Set([clientFile, ...Object.keys(clientBuild?.metafile?.inputs ?? {})
-        .filter(input => !input.includes("node_modules/") && input !== "vitehub-console-auth-client.ts")
-        .map(input => resolve(root, input))])]
-    : []
-  if (clientFile && !clientScript) throw new TypeError("[vitehub] Could not build the Console Auth client extension.")
   await Promise.all([
     writeFileIfChanged(definitionFile, [
       ...(inline
         ? [
-            'import { createInlineConsoleAuth } from "vite-hub/console/auth/inline"',
+            `import { createInlineConsoleAuth } from ${JSON.stringify(generatedModules.consoleAuthInline)}`,
             `export const input = createInlineConsoleAuth(${JSON.stringify(config)})`,
           ]
         : [
@@ -221,20 +175,34 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "export function prepare(event) { return prepareConsoleAuth(input, definition, toAuthRequest(event), event) }",
       "",
     ].join("\n")),
+    // Fetchable routes (https://fetchable.org). In a ViteHub app, the Request carries the Standard Context of the request.
     writeFileIfChanged(route, [
       'import { handleAuthRequest } from "#vitehub/auth/server"',
       'import { definition, prepare } from "./auth-definition.mjs"',
-      "export default async function viteHubConsoleAuthRoute(event) {",
-      "  await prepare(event)",
-      "  return handleAuthRequest(definition, event, undefined, event)",
+      "export default {",
+      "  async fetch(request) {",
+      "    await prepare(request)",
+      "    return handleAuthRequest(definition, request, undefined, request)",
+      "  },",
       "}",
       "",
     ].join("\n")),
     writeFileIfChanged(signIn, [
-      'import { toAuthRequest } from "#vitehub/auth/server"',
-      'import { consoleAuthSignInPage } from "vite-hub/console/auth"',
-      'import { signInProvider } from "./auth-definition.mjs"',
-      `export default function viteHubConsoleSignIn(event) { return consoleAuthSignInPage(signInProvider, toAuthRequest(event), ${JSON.stringify(mountBaseURL)}) }`,
+      'import { consoleAuthPageResponse, consoleAuthSignInPage, consoleSignedInPage } from "vite-hub/console/auth"',
+      'import { prepare, signInProvider } from "./auth-definition.mjs"',
+      'import { checkConsoleAccess, readConsoleUser } from "./auth-middleware.mjs"',
+      "export default {",
+      "  async fetch(request) {",
+      "    const url = new URL(request.url)",
+      "    // MCP login and consent must keep their signed-query continuation, including for an existing session.",
+      `    if (url.searchParams.has("sig") && url.searchParams.has("client_id")) return consoleAuthSignInPage(signInProvider, request, ${JSON.stringify(mountBaseURL)})`,
+      "    await prepare(request)",
+      `    if (!await readConsoleUser(request)) return consoleAuthSignInPage(signInProvider, request, ${JSON.stringify(mountBaseURL)})`,
+      "    const denied = await checkConsoleAccess(request)",
+      `    if (denied) return consoleAuthPageResponse(request, denied, ${JSON.stringify(mountBaseURL)}) ?? denied`,
+      "    return consoleSignedInPage(url)",
+      "  },",
+      "}",
       "",
     ].join("\n")),
     writeFileIfChanged(middleware, [
@@ -268,28 +236,22 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
       "  // Page tools apply their own visitor and API authorization, independently of the Console.",
       "  if (path === '/_vitehub/page/session' || path.startsWith('/_vitehub/page/assets/')) return",
-      "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
+      "  if (path === '/_vitehub/api/auth' || path.startsWith('/_vitehub/api/auth/')) return",
       "  if (path === '/_vitehub/sign-in') return",
       "  // The exact mounted MCP route verifies bearer tokens and returns OAuth discovery challenges.",
       "  if (publicPath === `${mountBase}/_vitehub/mcp`) { await prepare(event); return }",
       "  // A signed dispatch request is verified by its route, which never falls back to a Console session.",
       "  if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return",
-      "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
+      "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/'))) return",
       "  await prepare(event)",
-      "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start'), signIn: consoleAuthSignInURLs(request, mountBase) }), mountBase)",
-      "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
-      "}",
-      "",
-    ].join("\n")),
-    writeFileIfChanged(client, [
-      `const script = ${JSON.stringify(clientScript)}`,
-      "export default function viteHubConsoleAuthClient() {",
-      '  return new Response(script, { headers: { "cache-control": "no-store", "content-type": "text/javascript; charset=utf-8", "x-content-type-options": "nosniff" } })',
+      "  // The Console API answers 401 to a signed-out request, where a Console page goes to the sign-in page.",
+      "  if (path === '/_vitehub/api' || path.startsWith('/_vitehub/api/')) return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
+      "  return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start'), signIn: consoleAuthSignInURLs(request, mountBase) }), mountBase)",
       "}",
       "",
     ].join("\n")),
   ])
-  return { auth: true, client, clientSource: clientFile, clientSources, middleware, route, signIn }
+  return { auth: true, middleware, route, signIn }
 }
 
 /** Module id that the generated Connections management handler imports to identify the actor. */
@@ -299,10 +261,11 @@ export const consoleConnectionsActorId = "#vitehub/console/connections-actor"
 export async function writeConsoleConnectionsActor(root: string, sessionActorModule?: string): Promise<string> {
   const file = resolve(root, ".vitehub/nitro/console/connections-actor.mjs")
   await writeFileIfChanged(file, [
-    'import { consoleConnectionsActor } from "vite-hub/console/sections"',
+    `import { consoleConnectionsActor } from ${JSON.stringify(generatedModules.consoleSections)}`,
     ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
-    "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
+    // The Request carries the Standard Context of the event, so the Console access policy reads it like an event.
+    "export default function viteHubConsoleConnectionsActor(request) {",
+    `  return consoleConnectionsActor(request${sessionActorModule ? ', async () => { const user = await readConsoleUser(request); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))

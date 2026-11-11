@@ -1,14 +1,14 @@
 import { runOperation } from "@vite-hub/internal/operations"
 import { afterEach, expect, it, vi } from "vitest"
 
-import { consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
 import { consoleOperationRegistry } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 afterEach(() => {
-  for (const key of [consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey, Symbol.for("vitehub.console.access")]) {
+  for (const key of [consoleStateKey, Symbol.for("vitehub.console.access")]) {
     Reflect.deleteProperty(globalThis, key)
   }
 })

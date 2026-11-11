@@ -85,6 +85,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   blob: "data",
   content: "data",
   comments: "data",
+  forms: "data",
   workspaces: "data",
   workflows: "runtime",
   queues: "runtime",
@@ -176,7 +177,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
   primitive("workflows", "Workflows", "i-vitehub-workflow", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
   primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
+  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts."),
 ]
 
 /** Guides that the Overview links next to the primitives. */
@@ -322,7 +323,7 @@ export function resolveConsoleSectionIds(options: {
   database?: unknown;
   email?: unknown;
   kv?: unknown;
-  logs?: unknown;
+  observability?: unknown;
   preset?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
@@ -335,7 +336,8 @@ export function resolveConsoleSectionIds(options: {
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
-    ...(options.logs ? ["logs"] : []),
+    // `observability: { logs }` connects the log source that the section reads.
+    ...(options.observability && typeof options.observability === "object" && "logs" in options.observability && options.observability.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),

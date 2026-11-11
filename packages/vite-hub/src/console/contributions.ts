@@ -1,9 +1,4 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
-import { emailConsoleSection } from "@vite-hub/email/vite"
-import { queueConsoleSection } from "@vite-hub/queue/vite"
-import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
-import { sandboxTaskConsoleSection } from "@vite-hub/sandbox/task/vite"
-import { workflowConsoleSection } from "@vite-hub/workflow/vite"
 
 import { ownerModules } from "../internal/owner-modules.ts"
 
@@ -34,13 +29,13 @@ export interface ConsoleSectionDiscoveryContext {
 export interface ConsoleRuntimeReader {
   /** Named export that returns the runtime records. */
   export: string
-  /** `vite-hub` module specifier that the generated Nitro plugin imports. */
+  /** The absolute path of the owner module that the generated Nitro plugin imports. */
   module: string
 }
 
 /** How the host installs a document editor section. */
 export interface ConsoleDocumentEditorRegistration {
-  /** Owner factory export, mapped to its `vite-hub/_internal` module. */
+  /** Owner factory export and the absolute path of its module. */
   readonly actions: ConsoleRuntimeReader
   /** Finds the application module that the actions open. The section is shown only when it finds one. */
   entry(context: ConsoleSectionDiscoveryContext): Promise<string | undefined>
@@ -59,14 +54,6 @@ export interface ConsoleRegisteredSection {
   readonly entry?: (context: ConsoleSectionDiscoveryContext) => Promise<string | undefined>
 }
 
-/**
- * Maps an owner runtime module to the `vite-hub/_internal` re-export. Applications depend on `vite-hub`, so the
- * generated plugin cannot import owner packages directly.
- */
-export function consoleRuntimeReaderModule(module: string): string {
-  return module.replace(/^@vite-hub\//, "vite-hub/_internal/")
-}
-
 function registerConsoleSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
   options: (context: ConsoleSectionDiscoveryContext) => TOptions,
@@ -81,7 +68,7 @@ function registerConsoleSection<TOptions>(
       return content
     },
   }
-  if (runtime) registered.runtime = { export: runtime.export, module: consoleRuntimeReaderModule(runtime.module) }
+  if (runtime) registered.runtime = { export: runtime.export, module: runtime.module }
   if (isViteHubConsoleRuntimeSection(section) && section.entry) {
     const entry = section.entry
     registered.entry = async context => await entry(options(context))
@@ -89,7 +76,7 @@ function registerConsoleSection<TOptions>(
   if (actions && isViteHubConsoleDocumentEditorSection(section)) {
     const inspect = section.inspect
     registered.documents = {
-      actions: { export: actions.export, module: consoleRuntimeReaderModule(actions.module) },
+      actions: { export: actions.export, module: actions.module },
       entry: async context => await section.entry(options(context)),
       ...(inspect ? { inspect: async (context: ConsoleSectionDiscoveryContext, entry: string) => await inspect(options(context), entry) } : {}),
     }
@@ -97,7 +84,7 @@ function registerConsoleSection<TOptions>(
   return registered
 }
 
-const { authConsole, cmsVite, commentsVite, contentVite, scheduleVite, workspaceVite } = ownerModules
+const { authConsole, cmsVite, commentsVite, contentVite, emailVite, queueVite, rateLimitVite, sandboxTaskVite, scheduleVite, workflowVite, workspaceVite } = ownerModules
 
 /**
  * Console sections that owner packages contribute. Each owner defines the label, icon, view, and reader. This list only
@@ -115,13 +102,13 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
   })),
   commentsVite && registerConsoleSection(commentsVite.commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),
-  registerConsoleSection(emailConsoleSection, () => undefined),
-  registerConsoleSection(rateLimitConsoleSection, context => ({
+  emailVite && registerConsoleSection(emailVite.emailConsoleSection, () => undefined),
+  rateLimitVite && registerConsoleSection(rateLimitVite.rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.rateLimitDiscoveryRoot ?? context.projectRoot,
     scanDirs: context.rateLimitScanDirs,
   })),
-  registerConsoleSection(sandboxTaskConsoleSection, context => ({
+  sandboxTaskVite && registerConsoleSection(sandboxTaskVite.sandboxTaskConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.sandboxTaskDiscoveryRoot ?? context.projectRoot,
   })),
@@ -132,12 +119,12 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
     serverRootDir: context.workspaceDiscoveryRoot ?? context.projectRoot,
   })),
-  registerConsoleSection(workflowConsoleSection, context => ({
+  workflowVite && registerConsoleSection(workflowVite.workflowConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.workflowDiscoveryRoot ?? context.discoveryRoot,
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(queueConsoleSection, context => ({
+  queueVite && registerConsoleSection(queueVite.queueConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.queueDiscoveryRoot ?? context.discoveryRoot,
     serverDirs: context.serverDirs,

@@ -1,17 +1,16 @@
 import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
 import { getConsoleSchedules } from "./definitions.ts"
-import { consoleRequestText, consoleRequestURL } from "./request.ts"
+import { consoleRequestText, consoleRequestURL, consoleRoute } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { ScheduleRunRecord } from "@vite-hub/schedule"
-import type { H3Event } from "h3"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 export interface ConsoleScheduleRun {
   completedAt?: string
@@ -48,10 +47,8 @@ function consoleScheduleRun(run: ScheduleRunRecord): ConsoleScheduleRun {
  */
 export async function runConsoleSchedule(body: unknown): Promise<ConsoleScheduleRunOutcome> {
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (typeof name !== "string" || !name) return { message: "Schedule run requires a Schedule Definition name.", ok: false, status: 400 }
   const at: unknown = body instanceof Object && "at" in body ? body.at : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (at !== undefined && typeof at !== "string") return { message: "Schedule run `at` must be an ISO 8601 date-time string.", ok: false, status: 400 }
   await loadConsoleRuntime()
   const registry = getConsoleSections().includes("schedules") ? getConsoleSchedules() : {}
@@ -118,7 +115,6 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
   }
   const grant = scheduleDispatchGrant.issue(body)
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   console.info(`[vitehub] Dispatch schedule.run ${typeof name === "string" ? name : "<invalid>"}${verified.actor ? ` by ${verified.actor} (self-asserted)` : ""}`)
   const outcome = await runDispatchedSchedule(grant)
   return outcome.ok
@@ -126,20 +122,20 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
     : failure(outcome.message, outcome.status)
 }
 
-const unsignedRunMessage = "This route takes signed dispatches only, or the Console token as Authorization: Bearer with console: { auth: \"token\" }. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either."
+const unsignedRunMessage = "This route takes signed dispatches only, or a bearer token as Authorization: Bearer: the Console token with console: { auth: \"token\" }, or an OAuth access token for the Console resource with app Auth. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either."
 
 /**
- * A Schedule run with the Console token: `Authorization: Bearer` with `auth: "token"`. The Console access check decides,
- * with a full `schedules` grant. A cookie or a session never runs a Schedule here; it uses the `schedule.run` operation.
+ * A Schedule run with a bearer token: the Console token with `auth: "token"`, or an OAuth access token for the Console
+ * resource with app Auth and the `vitehub:write` scope. The Console access check decides, with a full `schedules` grant. A cookie or a session never runs a Schedule here; it uses the `schedule.run` operation.
  * A JSON content type and the origin check keep other sites out, as in Channel replay. A listed origin of
  * `console.origins` may call it with the verified token.
  */
-async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAccess): Promise<Response> {
-  // Only the token mode verifies a bearer token on this route. Another mode would accept the session next to it.
-  if (access.mode !== "token") return failure(unsignedRunMessage, 401)
-  const request = toEventRequest(event)
+async function runScheduleWithConsoleAccess(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
+  // Only a verified bearer runs a Schedule here. A session next to an unverified bearer value does not.
+  if (access.via === undefined) return failure(unsignedRunMessage, 401)
+  const request = getStandardContext(event).req
   const origin = request.headers.get("origin")
-  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginBearerCall(request, access)) {
+  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginCall(request, access)) {
     return failure("Schedule run origin is not allowed.", 403)
   }
   const read = await readScheduleRunBody(request)
@@ -157,17 +153,18 @@ async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAcces
     : failure(outcome.message, outcome.status)
 }
 
-const consoleScheduleRunHandler: (event: H3Event) => Promise<Response> = withConsoleCors(withConsoleAccess(runScheduleWithConsoleAccess, { section: "schedules", write: true }))
+const consoleScheduleRunHandler: (event: ConsoleRequestEvent) => Promise<Response> = withConsoleCors(withConsoleAccess(runScheduleWithConsoleAccess, { section: "schedules", write: true }))
 
-const unsignedScheduleRunHandler: (event: H3Event) => Promise<Response> = withConsoleCors(async () => failure(unsignedRunMessage, 401))
+const unsignedScheduleRunHandler: (event: ConsoleRequestEvent) => Promise<Response> = withConsoleCors(async () => failure(unsignedRunMessage, 401))
 
 /**
  * A signed dispatch is its own authority and never falls back to Console access. A request with `Authorization: Bearer`
  * goes through the Console access check, as every Console data route does. Any other request gets `401`.
+ * `POST <base>/_vitehub/schedules/run`
  */
-const scheduleRunHandler = async (event: H3Event): Promise<Response> => {
-  const request = toEventRequest(event)
-  if (hasViteHubDispatch(request.headers)) return await handleDispatchScheduleRunRequest(request, getCloudflareEnv(event, { fallback: false }))
+const scheduleRunRoute: ConsoleRoute = consoleRoute(async (event) => {
+  const { req: request, runtime } = getStandardContext(event)
+  if (hasViteHubDispatch(request.headers)) return await handleDispatchScheduleRunRequest(request, runtime?.cloudflare?.env)
   return /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "") ? await consoleScheduleRunHandler(event) : await unsignedScheduleRunHandler(event)
-}
-export default scheduleRunHandler
+})
+export default scheduleRunRoute

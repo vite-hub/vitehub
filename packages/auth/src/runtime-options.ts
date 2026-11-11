@@ -2,9 +2,11 @@ import { memoryAdapter } from "better-auth/adapters/memory"
 import { createAuthMiddleware } from "better-auth/api"
 import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
-import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
+import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
+import { createAdminsPlugin, readAdmins } from "./admins.ts"
 import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
 import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
@@ -30,10 +32,6 @@ import type {
   AuthRuntimeOptionsResolver,
   AuthSessionOptions,
 } from "./types.ts"
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function isAuthDatabaseMetadata(value: unknown): boolean {
   return value === true
@@ -115,6 +113,7 @@ function stripViteHubOptions(
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
+    adminClaim: adminClaimEnabled,
     console: _console,
     database,
     events,
@@ -140,12 +139,15 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const adminEmails = readAdminEmails(event)
-  const adminEmailsPlugin = adminEmails.length ? createAdminEmailsPlugin(adminEmails, declaredPlugins) : undefined
+  const admins = readAdmins(event)
+  const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
+  const adminClaim = adminClaimEnabled === false ? undefined : readAdminClaim(event)
+  const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
   const plugins = [
     ...declaredPlugins,
     ...(impersonation ? [createImpersonationPlugin()] : []),
-    ...(adminEmailsPlugin ? [adminEmailsPlugin] : []),
+    ...(adminsPlugin ? [adminsPlugin] : []),
+    ...(adminClaimPlugin ? [adminClaimPlugin] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
@@ -157,7 +159,9 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
-    ...(databaseHooks ? { databaseHooks: adminEmailsPlugin ? withAdminEmails(databaseHooks, adminEmailsPlugin) : databaseHooks } : {}),
+    // Claim reservations need the database's primary key, including when sessions use secondary storage.
+    ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
+    ...(databaseHooks ? { databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     advanced: withClientAddressHeaders(rest.advanced),
     rateLimit,

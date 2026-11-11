@@ -1,19 +1,17 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
-import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
-import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
-import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
+import { consoleAccessAllows, consoleAccessWrites, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
+import { consoleOperationRegistry } from "./operation-contributions.ts"
+import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { uploadConsoleMedia } from "./media.ts"
-import { consoleRequestError, consoleRequestJSON } from "./request.ts"
+import { loadConsoleMedia } from "./blob.ts"
+import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
 
-import type { H3Event } from "h3"
+import type { ConsoleRoute } from "./request.ts"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleRpcResult } from "../rpc.ts"
 
@@ -37,53 +35,19 @@ interface ConsoleRpcContext {
   env?: Record<string, unknown>
   /** The server event of the request, for operations that read the app's own session. */
   event?: unknown
-  /** The address of the peer, when the host exposes it. */
-  remoteAddress?: string
   waitUntil?: (task: Promise<unknown>) => void
 }
 
 interface ConsoleOperationContext extends ConsoleRpcContext {
   // Operations set a success status here, such as 202 for an accepted Agent invocation.
-  response: { status?: number }
-}
-
-function errorResult(error: unknown): ConsoleRpcResult {
-  const value = Object(error)
-  const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
-  const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
-  const statusMessage = Reflect.get(value, "statusMessage")
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
-  // Owner action failures, such as CONTENT_INVALID, carry their code and JSON details. See consoleActionError().
-  const ownerCode = text(Reflect.get(value, "consoleCode"))
-  if (ownerCode) {
-    const failure: Extract<ConsoleRpcResult, { ok: false }> = { code: ownerCode, message: message ?? "Console request failed.", ok: false, status }
-    const details: unknown = Reflect.get(value, "consoleDetails")
-    if (details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
-    return failure
-  }
-  // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
-  const code = text(Reflect.get(value, "code"))
-  if (!code) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message), ok: false, status }
-  const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
-  const fix = text(Reflect.get(value, "fix"))
-  const docs = text(Reflect.get(value, "docs"))
-  const details: unknown = Reflect.get(value, "details")
-  if (fix) result.fix = fix
-  if (docs) result.docs = docs
-  // Server failures keep their details out of the response. Input and conflict failures name what to fix.
-  if (status < 500 && details instanceof Object && !Array.isArray(details)) Object.assign(result, { details })
-  return result
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
+  response: { headers?: Headers, status?: number }
 }
 
 async function result(resolve: () => unknown | Promise<unknown>): Promise<ConsoleRpcResult> {
   try {
     return { ok: true, value: await resolve() }
   } catch (error) {
-    return errorResult(error)
+    return consoleErrorResult(error)
   }
 }
 
@@ -124,7 +88,7 @@ function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: s
 }
 
 async function readConsoleEnvelope(request: Request): Promise<unknown> {
-  if (!request.body) return consoleRequestJSON({ req: { json: () => request.json() } }, maximumConsoleRpcRequestBytes)
+  if (!request.body) throw new SyntaxError("Request body is unavailable.")
   const reader = request.body.getReader()
   const decoder = new TextDecoder()
   let body = ""
@@ -171,14 +135,17 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginBearerCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
-  assertLoopbackWithoutSignIn(request, url, context)
+  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
     if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
-    return uploadConsoleMedia(request, section, context.access)
+    if (!consoleScopesAllow(context.access, { kind: "write" })) {
+      context.response.headers = consoleScopeRejection({ kind: "write" }, "an upload").headers
+      throw consoleRequestError(403, "The access token does not have the vitehub:write scope, which an upload needs.", "CONSOLE_ACCESS_DENIED")
+    }
+    return (await loadConsoleMedia()).uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
@@ -207,6 +174,12 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
   }
+  // An OAuth access token runs reads with `vitehub:read`, and writes and destructive calls with `vitehub:write`.
+  if (!consoleScopesAllow(context.access, classification)) {
+    context.response.headers = consoleScopeRejection(classification, operation.name).headers
+    const scope = classification.kind === "read" || classification.readOnly ? "vitehub:read" : "vitehub:write"
+    throw consoleRequestError(403, `The access token does not have the ${scope} scope, which ${operation.name} needs. Sign in again and grant it.`, "CONSOLE_ACCESS_DENIED")
+  }
   assertOperationConfirmation(request, classification)
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
@@ -233,14 +206,16 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   const body = await result(() => callConsoleOperation(request, { ...context, response }))
   // The local dev RPC names its project, so a command can tell that it reached the wrong dev server.
   const root = context.access.mode === "local" ? installedConsoleProjectRoot() : undefined
-  return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
+  const headers = new Headers(responseHeaders)
+  response.headers?.forEach((value, name) => headers.set(name, value))
+  if (root) headers.set(operationRootHeader, projectRootHash(root))
+  return Response.json(body, { headers, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
-const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleCors(withConsoleAccess((event: H3Event, access) => {
-  const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), event, remoteAddress: eventRemoteAddress(event), waitUntil })
-  // Each operation checks its own section.
-}, { anySection: true }))
+/** `<base>/_vitehub/rpc/**`: one Console operation for each request. Each operation checks its own section. */
+const consoleRpcRoute: ConsoleRoute = consoleRoute(withConsoleCors(withConsoleAccess((event, access) => {
+  const { req, runtime, waitUntil } = getStandardContext(event)
+  return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, waitUntil })
+}, { anySection: true })))
 
-export default consoleRpcHandler
+export default consoleRpcRoute
