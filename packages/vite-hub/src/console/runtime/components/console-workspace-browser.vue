@@ -443,11 +443,6 @@ onBeforeUnmount(() => {
   background: var(--ui-bg-elevated);
 }
 
-.workspace-browser__refs button:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
-}
-
 .workspace-browser__ref-name {
   color: var(--ui-text-highlighted);
   font-family: var(--font-mono);

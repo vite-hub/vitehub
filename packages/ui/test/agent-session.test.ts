@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/agent-session.ts";
 
@@ -62,6 +62,30 @@ it("offers a close button only when the panel has more than one tab", async () =
   await wrapper.get("[role='tab'][aria-selected='true']").trigger("auxclick", { button: 1 });
   expect(wrapper.emitted("update:surface")).toEqual([["workspace"]]);
   wrapper.unmount();
+});
+
+it("moves between surface tabs with the keyboard and labels the active panel", async () => {
+  const wrapper = session({ defaultPanelOpen: true, defaultSurface: "workspace" });
+  const element = wrapper.element;
+  document.body.append(element);
+  try {
+    await wrapper.setProps({ surface: "trace" });
+    await wrapper.setProps({ surface: undefined });
+    const workspace = wrapper.get("[role='tab'][aria-selected='true']");
+    expect(workspace.text()).toBe("Workspace");
+    (workspace.element as HTMLElement).focus();
+    await workspace.trigger("keydown", { key: "ArrowRight" });
+    await flushPromises();
+    const trace = wrapper.get("[role='tab'][aria-selected='true']");
+    expect(trace.text()).toBe("Trace");
+    expect(document.activeElement).toBe(trace.element);
+    const panel = wrapper.get("[role='tabpanel']");
+    expect(panel.attributes("id")).toBe(trace.attributes("aria-controls"));
+    expect(panel.attributes("aria-labelledby")).toBe(trace.attributes("id"));
+  } finally {
+    wrapper.unmount();
+    element.remove();
+  }
 });
 
 it("keeps uncontrolled user changes in stored layout", async () => {

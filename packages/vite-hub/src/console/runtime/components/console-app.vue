@@ -474,7 +474,7 @@ watch([detailsOpen, detailsMaximized], () => {
   void nextTick(() => {
     if (document.activeElement && document.activeElement !== document.body) return;
     const same = detailsOpen.value && slot ? panel.querySelector(`[data-slot="${CSS.escape(slot)}"]`) : null;
-    const tab = detailsOpen.value && slot !== "session-details-toggle" ? panel.querySelector(".session-inspector [role='tab'][data-state='active']") : null;
+    const tab = detailsOpen.value && slot !== "session-details-toggle" ? panel.querySelector(".session-inspector [aria-selected='true']") : null;
     const target = same ?? tab ?? panel.querySelector("[data-slot='session-details-toggle']");
     if (target instanceof HTMLElement) target.focus();
   });
@@ -1077,7 +1077,6 @@ onBeforeUnmount(() => {
           <UTooltip v-if="newChatTargetName" text="New chat">
             <UButton
               aria-label="New chat"
-              color="neutral"
               icon="i-lucide-square-pen"
               size="xs"
               square
@@ -1091,21 +1090,23 @@ onBeforeUnmount(() => {
             :content="{ align: 'end', collisionPadding: 12 }"
             :ui="{ content: 'w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden p-0' }"
           >
+            <!-- A dot on the funnel marks active filters; the Sessions label says how many. -->
             <UButton
-              aria-label="Filter sessions"
-              :color="activeFilterCount ? 'primary' : 'neutral'"
-              icon="i-lucide-funnel"
+              :aria-label="activeFilterCount ? `Filter sessions, ${activeFilterCount} active` : 'Filter sessions'"
               size="xs"
               square
-              :variant="activeFilterCount ? 'soft' : 'ghost'"
-            />
+              variant="ghost"
+            >
+              <UChip as="span" :show="activeFilterCount > 0" color="neutral" size="sm">
+                <UIcon name="i-lucide-funnel" class="size-4" />
+              </UChip>
+            </UButton>
             <template #content>
               <!-- A select panel like GitHub's filters: search, then one checked value per group. -->
               <div class="flex h-10 items-center gap-2 border-b border-default ps-3 pe-1.5">
                 <p class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">Filter sessions</p>
                 <UButton
                   v-if="activeFilterCount"
-                  color="neutral"
                   label="Clear"
                   size="xs"
                   variant="ghost"
@@ -1118,14 +1119,19 @@ onBeforeUnmount(() => {
                 aria-label="Loading session filters"
                 role="status"
               >
-                <USkeleton v-for="index in 4" :key="index" class="h-7 rounded-md" />
+                <USkeleton v-for="index in 4" :key="index" class="h-7" />
               </div>
               <div v-else-if="capabilitiesError" class="p-2">
                 <ConsoleState compact :error="capabilitiesError" title="Could not load session filters" :retry="loadCapabilityIds" />
               </div>
-              <p v-else-if="!sessionFilterGroups.length" class="px-3 py-4 text-xs text-muted">
-                No filter values recorded yet. Sessions record their Capabilities and who triggered them.
-              </p>
+              <UEmpty
+                v-else-if="!sessionFilterGroups.length"
+                variant="naked"
+                size="xs"
+                icon="i-lucide-list-filter"
+                title="No filter values yet"
+                description="Sessions record their Capabilities and who triggered them."
+              />
               <UCommandPalette
                 v-else
                 by="id"
@@ -1136,16 +1142,7 @@ onBeforeUnmount(() => {
                 placeholder="Filter values…"
                 selected-icon="i-lucide-check"
                 size="sm"
-                :ui="{
-                  input: '[&>input]:h-9 [&>input]:text-sm',
-                  content: 'max-h-72',
-                  group: 'p-1',
-                  label: 'px-2 pb-1 pt-2 text-xs font-medium text-muted',
-                  item: 'px-2 py-1.5 text-[13px] before:rounded-md data-highlighted:not-data-disabled:before:bg-elevated',
-                  itemLabelBase: 'text-default',
-                  itemTrailingIcon: 'size-3.5 text-highlighted',
-                  empty: 'px-3 py-4 text-start text-xs',
-                }"
+                :ui="{ content: 'max-h-72' }"
                 @update:model-value="updateSessionFilters"
               />
             </template>
@@ -1161,20 +1158,20 @@ onBeforeUnmount(() => {
         </div>
         <section v-if="hasMultipleAgents" class="vitehub-console__agents shrink-0 px-1.5 pb-2">
           <h2 class="m-0">
-            <button
-              type="button"
-              class="vitehub-console__section-label"
+            <UButton
+              class="vitehub-console__section-toggle"
+              data-focus-inset
               aria-controls="vitehub-console-agent-list"
               :aria-expanded="agentListOpen"
+              block
+              size="xs"
+              trailing-icon="i-lucide-chevron-right"
+              variant="ghost"
               @click="toggleAgentList"
             >
               <span>Agents</span>
               <span class="vitehub-console__section-count">{{ agentNames.length }}</span>
-              <UIcon
-                name="i-lucide-chevron-right"
-                class="vitehub-console__section-chevron size-3 shrink-0"
-              />
-            </button>
+            </UButton>
           </h2>
           <ul
             v-show="agentListOpen"
@@ -1186,6 +1183,7 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="vitehub-console__agent-row"
+                data-focus-inset
                 :aria-current="name === selectedAgentName ? 'true' : undefined"
                 :title="name"
                 @click="selectAgent(name)"
@@ -1198,6 +1196,7 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="vitehub-console__agent-row vitehub-console__agent-more"
+                data-focus-inset
                 @click="showAllAgents = true"
               >
                 <span class="vitehub-console__agent-dot invisible" aria-hidden="true" />
@@ -1220,10 +1219,8 @@ onBeforeUnmount(() => {
             v-model="sessionSearch"
             class="w-full"
             icon="i-lucide-search"
-            size="sm"
             placeholder="Search sessions…"
             aria-label="Search sessions by title or ID"
-            :ui="{ base: 'text-base sm:text-sm' }"
           />
         </div>
         <div
@@ -1239,10 +1236,8 @@ onBeforeUnmount(() => {
           <UButton
             v-if="list.cursor.value && list.loadMoreError.value"
             class="mt-2"
-            color="neutral"
             label="Retry loading older sessions"
-            size="sm"
-            variant="soft"
+            variant="outline"
             :loading="list.isLoadingMore.value"
             @click="list.loadMore"
           />
@@ -1256,14 +1251,14 @@ onBeforeUnmount(() => {
           <div
             class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-2 rounded-md px-2 py-2.5"
           >
-            <USkeleton class="mt-0.5 size-4 rounded" />
+            <USkeleton class="mt-0.5 size-4" />
             <div class="grid min-w-0 gap-2">
               <div class="flex items-center justify-between gap-3">
-                <USkeleton class="h-3 w-16 rounded" />
-                <USkeleton class="h-3 w-14 rounded" />
+                <USkeleton class="h-3 w-16" />
+                <USkeleton class="h-3 w-14" />
               </div>
-              <USkeleton class="h-4 w-full rounded" />
-              <USkeleton class="h-3 w-2/3 rounded" />
+              <USkeleton class="h-4 w-full" />
+              <USkeleton class="h-3 w-2/3" />
             </div>
           </div>
         </div>
@@ -1288,10 +1283,9 @@ onBeforeUnmount(() => {
           <template #footer>
             <div v-if="list.cursor.value && invocationItems.length" class="flex justify-center px-2 py-3">
               <UButton
-                color="neutral"
                 label="Load older sessions"
                 size="xs"
-                variant="soft"
+                variant="ghost"
                 :loading="list.isLoadingMore.value"
                 @click="loadMoreSessions"
               />
@@ -1333,7 +1327,6 @@ onBeforeUnmount(() => {
       v-else
       id="chat-session"
       class="vitehub-console__session-panel"
-      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <template #body>
         <!-- No live region here: the thread is a log, and the connection state is an alert. A polite region around both made screen readers read the session again after each update. -->
@@ -1524,11 +1517,6 @@ onBeforeUnmount(() => {
   border-inline-end: 1px solid var(--ui-border);
 }
 
-.dark .vitehub-console__sessions[data-slot="root"] {
-  background: #000;
-  border-inline-end-color: rgb(255 255 255 / 8%);
-}
-
 .vitehub-console__sessions [data-slot="header"] {
   min-height: 2.75rem;
 }
@@ -1547,23 +1535,22 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-button.vitehub-console__section-label {
-  border-radius: 0.375rem;
-  cursor: pointer;
-  transition: color 150ms ease;
+.vitehub-console__section-toggle {
+  justify-content: flex-start;
 }
 
-button.vitehub-console__section-label:hover {
-  color: var(--ui-text);
+.vitehub-console__section-toggle [data-slot="trailingIcon"] {
+  transition: transform 150ms ease-out;
 }
 
-.vitehub-console__section-chevron {
-  color: var(--ui-text-dimmed);
-  transition: transform 150ms ease;
-}
-
-[aria-expanded="true"] > .vitehub-console__section-chevron {
+.vitehub-console__section-toggle[aria-expanded="true"] [data-slot="trailingIcon"] {
   transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vitehub-console__section-toggle [data-slot="trailingIcon"] {
+    transition: none;
+  }
 }
 
 .vitehub-console__section-count {
@@ -1600,34 +1587,18 @@ button.vitehub-console__section-label:hover {
   height: 1.875rem;
   padding-inline: 0.625rem;
   text-align: start;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
   width: 100%;
 }
 
+/* Agent rows are a list of rows, like the section rows of the frame: they change at once, without a transition. */
 .vitehub-console__agent-row:hover {
-  background: color-mix(in oklab, var(--ui-text) 6%, transparent);
+  background: var(--ui-bg-elevated);
   color: var(--ui-text-highlighted);
 }
 
 .vitehub-console__agent-row[aria-current="true"] {
   background: var(--ui-bg-accented);
   color: var(--ui-text-highlighted);
-}
-
-.dark .vitehub-console__agent-row:hover {
-  background: rgb(255 255 255 / 8%);
-}
-
-.dark .vitehub-console__agent-row[aria-current="true"] {
-  background: rgb(255 255 255 / 11%);
-}
-
-.vitehub-console__agent-row:focus-visible,
-button.vitehub-console__section-label:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--ui-primary) 52%, transparent);
-  outline-offset: -2px;
 }
 
 .vitehub-console__agent-dot {
@@ -1652,7 +1623,7 @@ button.vitehub-console__section-label:focus-visible {
 /* Recency headings sit under the Sessions label and use the same sentence case. */
 .vitehub-console__session-list .vh-invocation-list__group-heading {
   color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0;
   min-height: 1.5rem;
@@ -1666,14 +1637,6 @@ button.vitehub-console__section-label:focus-visible {
 
 .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
   background: var(--ui-bg-accented);
-}
-
-.dark .vitehub-console__sessions .vh-invocation-list__item:hover {
-  background: rgb(255 255 255 / 8%);
-}
-
-.dark .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
-  background: rgb(255 255 255 / 11%);
 }
 
 .vitehub-console__session-panel > [data-slot="body"] {

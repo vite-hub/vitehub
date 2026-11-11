@@ -1,6 +1,7 @@
 // The layout and the visual details follow T3 Code's thread view (https://github.com/pingdotgg/t3code, MIT License,
 // Copyright (c) T3 Tools Inc.): a centered timeline, a details card at the top right, and a right panel of surfaces
 // whose toggle stays in the top right corner whether the panel is open or closed.
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import {
   computed,
   defineComponent,
@@ -341,13 +342,17 @@ export const AgentSession = defineComponent({
     const panel = () => {
       const surfaceById = new Map(props.surfaces.map((surface) => [surface.id, surface]));
       const current = active.value ? surfaceById.get(active.value) : undefined;
-      return h("aside", {
+      return h(TabsRoot, {
+        as: "aside",
+        modelValue: active.value ?? "",
+        "onUpdate:modelValue": (id: string | number) => { active.value = String(id); },
         class: "vh-agent-session__panel",
         "data-slot": "agent-session-panel",
         "aria-label": "Right panel",
-      }, [
+      }, () => [
         h("div", { class: "vh-agent-session__panel-header", "data-slot": "agent-session-panel-header" }, [
-          h("div", { class: "vh-agent-session__tabs", role: "tablist" }, [
+          // Reka keeps the close button beside its trigger and owns keyboard focus and tab semantics.
+          h(TabsList, { class: "vh-agent-session__tabs" }, () => [
             ...visibleTabs.value.map((id) => {
               const surface = surfaceById.get(id);
               if (!surface) return null;
@@ -360,14 +365,11 @@ export const AgentSession = defineComponent({
                 "data-active": selected ? "" : undefined,
                 "data-closable": closable ? "" : undefined,
               }, [
-                h("button", {
-                  type: "button",
-                  role: "tab",
+                h(TabsTrigger, {
+                  value: id,
                   class: "vh-agent-session__tab-button",
-                  "aria-selected": selected ? "true" : "false",
-                  onClick: () => (active.value = id),
                   onAuxclick: (event: MouseEvent) => closable && event.button === 1 && closeSurface(id),
-                }, [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
+                }, () => [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
                 closable
                   ? h("button", {
                       type: "button",
@@ -398,11 +400,14 @@ export const AgentSession = defineComponent({
             panelToggle(),
           ]),
         ]),
-        h("div", { class: "vh-agent-session__panel-body", "data-slot": "agent-session-panel-body" }, [
-          current
-            ? slots[`surface-${current.id}`]?.({ surface: current }) ?? slots.surface?.({ surface: current })
-            : launcher(),
-        ]),
+        current
+          ? h(TabsContent, {
+              key: current.id,
+              value: current.id,
+              class: "vh-agent-session__panel-body",
+              "data-slot": "agent-session-panel-body",
+            }, () => slots[`surface-${current.id}`]?.({ surface: current }) ?? slots.surface?.({ surface: current }))
+          : h("div", { class: "vh-agent-session__panel-body", "data-slot": "agent-session-panel-body" }, [launcher()]),
       ]);
     };
 

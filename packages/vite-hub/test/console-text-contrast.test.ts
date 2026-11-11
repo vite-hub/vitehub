@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
-const styles = readFileSync(new URL("../src/console/runtime/client/styles.css", import.meta.url), "utf8")
+// The Console reads its tokens from the shared ViteHub theme.
+const styles = readFileSync(new URL("../../ui/theme.css", import.meta.url), "utf8")
 
 function block(selector: string): string {
   const start = styles.indexOf(`${selector} {`)
@@ -50,7 +51,7 @@ function contrast(foreground: string, background: string): number {
 
 describe("Console text contrast", () => {
   const themes = {
-    "dark": block(".dark"),
+    "dark": block(":root.dark"),
     "light": block(":root"),
     "system dark": block(":root:not(.light):not(.dark)"),
   }

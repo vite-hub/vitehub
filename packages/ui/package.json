@@ -27,7 +27,8 @@
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/styles.css"
+    "./dist/styles.css",
+    "./dist/theme.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -106,6 +107,16 @@
       "import": "./dist/connection-status.js",
       "default": "./dist/connection-status.js"
     },
+    "./copy-button": {
+      "types": "./dist/copy-button.d.ts",
+      "import": "./dist/copy-button.js",
+      "default": "./dist/copy-button.js"
+    },
+    "./device-frame": {
+      "types": "./dist/device-frame.d.ts",
+      "import": "./dist/device-frame.js",
+      "default": "./dist/device-frame.js"
+    },
     "./file-diff": {
       "types": "./dist/file-diff.d.ts",
       "import": "./dist/file-diff.js",
@@ -176,6 +187,16 @@
       "import": "./dist/playground.js",
       "default": "./dist/playground.js"
     },
+    "./playground-container": {
+      "types": "./dist/playground-container.d.ts",
+      "import": "./dist/playground-container.js",
+      "default": "./dist/playground-container.js"
+    },
+    "./playground-render": {
+      "types": "./dist/playground-render.d.ts",
+      "import": "./dist/playground-render.js",
+      "default": "./dist/playground-render.js"
+    },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",
@@ -186,10 +207,20 @@
       "import": "./dist/prompt-input.js",
       "default": "./dist/prompt-input.js"
     },
+    "./status": {
+      "types": "./dist/status.d.ts",
+      "import": "./dist/status.js",
+      "default": "./dist/status.js"
+    },
     "./sync-status": {
       "types": "./dist/sync-status.d.ts",
       "import": "./dist/sync-status.js",
       "default": "./dist/sync-status.js"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js",
+      "default": "./dist/theme.js"
     },
     "./tool-list": {
       "types": "./dist/tool-list.d.ts",
@@ -252,7 +283,8 @@
       "default": "./dist/workspace-terminal.js"
     },
     "./package.json": "./package.json",
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": "./dist/styles.css",
+    "./theme.css": "./dist/theme.css"
   },
   "scripts": {
     "build": "vp pack",
@@ -292,7 +324,7 @@
     "@xterm/xterm": "6.0.0"
   },
   "devDependencies": {
-    "@iconify-json/ph": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
     "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
@@ -307,6 +339,7 @@
     "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
+    "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vega-canvas": "^2.0.0",
     "vite": "catalog:vite",
@@ -328,7 +361,7 @@
     "@vite-hub/blob": "workspace:*"
   },
   "peerDependencies": {
-    "@iconify-json/ph": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
     "@nuxt/ui": "^4.11.0",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -342,7 +375,7 @@
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
-    "@iconify-json/ph": {
+    "@iconify-json/lucide": {
       "optional": true
     },
     "@nuxt/ui": {

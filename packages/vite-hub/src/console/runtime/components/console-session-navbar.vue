@@ -58,7 +58,6 @@ defineEmits<{
           data-slot="mobile-session-navigation"
           class="md:hidden"
           icon="i-lucide-menu"
-          color="neutral"
           variant="ghost"
           size="xs"
           aria-label="Open sessions"
@@ -73,7 +72,6 @@ defineEmits<{
           :to="externalUrl"
           target="_blank"
           :icon="externalTarget.icon"
-          color="neutral"
           variant="ghost"
           size="xs"
           :aria-label="externalTarget.label"
@@ -83,7 +81,6 @@ defineEmits<{
       <UTooltip v-if="refreshable" text="Refresh session">
         <UButton
           icon="i-lucide-refresh-cw"
-          color="neutral"
           variant="ghost"
           size="xs"
           :loading="loading"
@@ -96,7 +93,6 @@ defineEmits<{
         <UButton
           data-slot="session-details-toggle"
           icon="i-lucide-panel-right"
-          color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
           size="xs"
           :disabled="!hasSelection"

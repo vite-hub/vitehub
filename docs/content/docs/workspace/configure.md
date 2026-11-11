@@ -318,6 +318,10 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
+to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
+have it. See [Source configuration](/docs/source/configure) for the loader options.
+
 | Option | Type | Description |
 | --- | --- | --- |
 | `source` | `Source` | The Source definition to bind. Required in this form. |

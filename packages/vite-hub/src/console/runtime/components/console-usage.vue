@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleNumber } from "../client/format";
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import * as v from "valibot";
 
@@ -262,7 +263,7 @@ const totals = computed(() => {
   const value = summary.value;
   if (!value) return [];
   const items = [
-    { label: "Sessions", text: `${value.sessionCount.toLocaleString("en")}${value.totals.invocationsAvailable ? "" : " recorded"}` },
+    { label: "Sessions", text: `${consoleNumber(value.sessionCount)}${value.totals.invocationsAvailable ? "" : " recorded"}` },
     { label: "Tokens", text: formatTokenEvidence(value.totals.totalTokens, value.totals.totalTokensAvailable) },
   ];
   if (costSupported.value) {
@@ -336,7 +337,7 @@ const headline = computed(() => {
     ...option,
     note: option.value === "cost" && value.totals.costEstimated ? "models.dev prices" : undefined,
     text: option.value === "sessions"
-      ? `${value.sessionCount.toLocaleString("en")}${value.totals.invocationsAvailable ? "" : " recorded"}`
+      ? `${consoleNumber(value.sessionCount)}${value.totals.invocationsAvailable ? "" : " recorded"}`
       : formatConsoleUsageValue(value.totals, option.value).replace(/^~/, ""),
   }));
 });
@@ -887,15 +888,6 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 .usage-toggles button:is([aria-pressed="true"], [aria-current="page"]) {
   border-block-end-color: var(--ui-text-highlighted);
   color: var(--ui-text-highlighted);
-}
-
-.usage-toggles button:focus-visible,
-.usage-headline__item:focus-visible,
-.usage-filters button:focus-visible,
-.usage-ranked__name button:focus-visible {
-  border-radius: 0.25rem;
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 2px;
 }
 
 .usage-toggles--small button {
