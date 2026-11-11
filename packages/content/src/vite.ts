@@ -1,11 +1,12 @@
 import { ownModule } from "@vite-hub/internal/build/paths"
+import { readdirSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
+import { findContentEntry, inspectContentEntry, inspectContentModule } from "@vite-hub/source/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
@@ -13,7 +14,7 @@ import type { BuiltContentSnapshot } from "./snapshots.ts"
 import type { ViteHubConsoleDocumentEditorSection, ViteHubConsoleDocumentSetup } from "@vite-hub/internal/console"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
-import type { Plugin, UserConfig } from "vite"
+import type { parseAst, Plugin, UserConfig } from "vite"
 
 export const CONTENT_VITE_PLUGIN_NAME = "@vite-hub/content/vite"
 
@@ -83,6 +84,45 @@ export async function buildContentSnapshotModules(options: {
   catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     return { snapshots: {}, warnings: [`[vitehub] The build could not load ${file} to parse its Content Sources, so the server parses them on its first Content request: ${reason}`] }
+  }
+}
+
+let lastGitHubCheck: { file: string, source: string, uses: boolean } | undefined
+
+/**
+ * Whether `server/content.ts` imports `github()` from `vite-hub/source`. A `github()` Source keeps its head commit in
+ * KV, so `vitehub()` turns KV on for it. It reads the file synchronously while Vite filters plugins, and returns false
+ * when the file is missing, ambiguous, or does not parse; the Source and Content plugins report those cases.
+ */
+export function usesGitHubSources(input: { projectRoot: string, serverDirs?: readonly string[] }, parse: typeof parseAst): boolean {
+  const root = resolve(input.projectRoot)
+  const files = (input.serverDirs?.map(directory => resolve(root, directory)) ?? [resolve(root, "server")]).flatMap((directory) => {
+    try {
+      return readdirSync(directory, { withFileTypes: true })
+        .filter(entry => entry.isFile() && /^content\.[cm]?[jt]s$/.test(entry.name))
+        .map(entry => join(directory, entry.name))
+    }
+    catch {
+      return []
+    }
+  })
+  if (files.length !== 1) return false
+  const file = files[0]!
+  const source = readFileSync(file, "utf8")
+  // Vite asks once per plugin while it filters them, so parse each version of the file once.
+  if (lastGitHubCheck?.file !== file || lastGitHubCheck.source !== source) {
+    lastGitHubCheck = { file, source, uses: importsGitHubSource(source, file, parse) }
+  }
+  return lastGitHubCheck.uses
+}
+
+function importsGitHubSource(source: string, file: string, parse: typeof parseAst): boolean {
+  try {
+    // The same rule that adds the GitHub push webhook route.
+    return inspectContentModule(parse(source, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" })).github
+  }
+  catch {
+    return false
   }
 }
 

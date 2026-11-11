@@ -68,21 +68,26 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** A `github()` Source has a token, but the app has no KV store for its head commit. */
     CONTENT_R0021: {
-      fix: "Enable ViteHub KV in `vite.config.ts`. Content keeps the head commit in the `default` KV store. On Cloudflare, bind a KV namespace as `KV`.",
+      fix: "Remove `kv: false` from `vitehub()`, or install `@vite-hub/kv`. ViteHub turns KV on when `server/content.ts` imports `github()`. If `server/content.ts` gets its Sources from another file, enable KV yourself. Content keeps the head commit in the `default` KV store.",
       why: ({ source }: { source: string }) => `[vitehub] Content source ${JSON.stringify(source)} has a GitHub token, but the app has no KV store, so it has no head commit. Each load reads the latest commit of its branch without validation.`,
     },
-    /** A request to the GitHub push webhook route has no valid `X-Hub-Signature-256` header. */
+    /** The KV store failed while Content read or stored the head commit of a `github()` Source. */
     CONTENT_R0022: {
+      fix: "Check the `default` KV store of the app. On Cloudflare, bind a KV namespace as `KV`. On Vercel, set `KV_REST_API_URL` and `KV_REST_API_TOKEN`. `vitehub kv get <key>` reads the head.",
+      why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] The KV store failed on ${JSON.stringify(key)} for Content source ${JSON.stringify(source)}: ${reason}. Reads do not fail: they serve the commit that this server already serves, or the latest commit of the branch without validation, and try KV again after 5 seconds.`,
+    },
+    /** A request to the GitHub push webhook route has no valid `X-Hub-Signature-256` header. */
+    CONTENT_R0024: {
       fix: "Set the webhook secret in GitHub to the value of `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env, and set the content type to `application/json`. GitHub shows the failed delivery under Settings, Webhooks, Recent Deliveries.",
       why: ({ delivery }: { delivery: string | null }) => `[vitehub] The GitHub webhook delivery ${delivery ?? "without an id"} has no valid X-Hub-Signature-256 signature, so Content ignored it.`,
     },
     /** A signed push names a repository that no `github()` Source of Content reads. */
-    CONTENT_R0023: {
+    CONTENT_R0025: {
       fix: "Point the webhook at the app whose `server/content.ts` reads this repository with `github({ repo })`, or remove the webhook from the repository.",
       why: ({ repo, heads }: { repo: string, heads: string }) => `[vitehub] Content received a GitHub push for ${repo}, but no github() Source reads that repository. Sources with a head: ${heads}.`,
     },
     /** The GitHub push webhook route has no secret, so it is disabled. */
-    CONTENT_R0024: {
+    CONTENT_R0026: {
       fix: "Set `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env to the secret of the GitHub webhook. Without it, the head of each `github()` Source moves at most once per hour.",
       why: () => "[vitehub] The Content GitHub webhook route answers 404, because the Server Env has no VITEHUB_GITHUB_WEBHOOK_SECRET.",
     },

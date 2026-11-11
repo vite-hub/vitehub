@@ -101,12 +101,12 @@ describe("GitHub push webhook", () => {
 
     const wrong = await route.fetch(fake.webhook(url, "another-secret"))
     expect(wrong.status).toBe(401)
-    expect(await wrong.json()).toMatchObject({ code: "CONTENT_R0022" })
+    expect(await wrong.json()).toMatchObject({ code: "CONTENT_R0024" })
     const request = fake.webhook(url, secret)
     request.headers.delete("x-hub-signature-256")
     expect((await route.fetch(request)).status).toBe(401)
 
-    expect(warned("CONTENT_R0022")).toHaveLength(2)
+    expect(warned("CONTENT_R0024")).toHaveLength(2)
     expect(await content.sources.head("docs")).toMatchObject({ sha: first, webhook: null })
     expect(await title(content, "/guide")).toBe("Guide")
   })
@@ -123,15 +123,15 @@ describe("GitHub push webhook", () => {
     expect(await content.sources.head("docs")).toMatchObject({ sha: first, webhook: null })
   })
 
-  it("ignores pushes to another repository with CONTENT_R0023", async () => {
+  it("ignores pushes to another repository with CONTENT_R0025", async () => {
     fake.commit("main", { "guide.md": page("Guide") })
     const { route } = await server()
 
     const response = await route.fetch(fake.webhook(url, secret, { repo: "acme/other" }))
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ code: "CONTENT_R0023" })
-    expect(warned("CONTENT_R0023")).toEqual([expect.stringContaining("acme/other")])
+    expect(await response.json()).toMatchObject({ code: "CONTENT_R0025" })
+    expect(warned("CONTENT_R0025")).toEqual([expect.stringContaining("acme/other")])
   })
 
   it("answers GitHub's ping", async () => {
@@ -161,7 +161,7 @@ describe("GitHub push webhook", () => {
     expect(await content.sources.head("docs")).toMatchObject({ sha: second, webhook: { result: "moved" } })
   })
 
-  it("is disabled with CONTENT_R0024 when the Server Env has no webhook secret", async () => {
+  it("is disabled with CONTENT_R0026 when the Server Env has no webhook secret", async () => {
     vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "")
     const first = fake.commit("main", { "guide.md": page("Guide") })
     const { content, route } = await server()
@@ -170,7 +170,7 @@ describe("GitHub push webhook", () => {
     expect((await route.fetch(fake.webhook(url, secret))).status).toBe(404)
     expect((await route.fetch(fake.webhook(url, secret))).status).toBe(404)
 
-    expect(warned("CONTENT_R0024")).toEqual([expect.stringContaining("VITEHUB_GITHUB_WEBHOOK_SECRET")])
+    expect(warned("CONTENT_R0026")).toEqual([expect.stringContaining("VITEHUB_GITHUB_WEBHOOK_SECRET")])
     expect((await content.sources.head("docs")).sha).toBe(first)
   })
 })

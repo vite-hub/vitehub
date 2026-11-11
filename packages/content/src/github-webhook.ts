@@ -56,7 +56,7 @@ export function defineContentGitHubWebhookHandler(content: { sources: ContentSou
     async fetch(request) {
       const secret = readForgeEnv(forgeEnv.github.webhookSecret)
       if (!secret) {
-        if (!reportedMissingSecret) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0024()))
+        if (!reportedMissingSecret) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0026()))
         reportedMissingSecret = true
         return new Response("Not Found", { status: 404 })
       }
@@ -64,7 +64,7 @@ export function defineContentGitHubWebhookHandler(content: { sources: ContentSou
       const delivery = request.headers.get("x-github-delivery")
       const body = new Uint8Array(await request.arrayBuffer())
       if (!await verifyViteHubHmacSignature(secret, request.headers.get("x-hub-signature-256"), body, githubHmacSignatureFormat)) {
-        const diagnostic = contentErrorDiagnostics.CONTENT_R0022({ delivery })
+        const diagnostic = contentErrorDiagnostics.CONTENT_R0024({ delivery })
         console.warn(formatDiagnostic(diagnostic))
         return Response.json({ code: diagnostic.code, error: diagnostic.message }, { status: 401 })
       }
@@ -77,7 +77,7 @@ export function defineContentGitHubWebhookHandler(content: { sources: ContentSou
       const runtime = contentSourceHeadsRuntime(content.sources)
       const match = runtime?.match(push.repository.full_name, push.ref, push.repository.default_branch) ?? { repository: false, sources: [] }
       if (!match.repository) {
-        const diagnostic = contentErrorDiagnostics.CONTENT_R0023({ repo: push.repository.full_name, heads: runtime?.names().join(", ") || "none" })
+        const diagnostic = contentErrorDiagnostics.CONTENT_R0025({ repo: push.repository.full_name, heads: runtime?.names().join(", ") || "none" })
         console.warn(formatDiagnostic(diagnostic))
         return Response.json({ code: diagnostic.code, ignored: diagnostic.message })
       }

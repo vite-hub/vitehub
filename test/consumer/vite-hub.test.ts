@@ -320,8 +320,10 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "  \"workerd\": false",
     "blockExoticSubdeps: false",
     "overrides:",
-    // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
-    "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Match the workspace-tested runtime and keep its Emnapi peers on compatible 1.x versions.
+    "  \"@napi-rs/wasm-runtime\": \"1.2.4\"",
+    "  \"@emnapi/core\": \"1.9.2\"",
+    "  \"@emnapi/runtime\": \"1.9.2\"",
     // Keep Workflow's broad Nest peer pair on the same major in isolated installs.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
@@ -838,6 +840,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/agent": specs["@vite-hub/agent"],
+            "@vite-hub/database": specs["@vite-hub/database"],
             "@vite-hub/workflow": specs["@vite-hub/workflow"],
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
@@ -873,7 +876,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
 
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
-      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/workflow", "vite-hub"])
+      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/database", "@vite-hub/workflow", "vite-hub"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
 

@@ -93,7 +93,9 @@ await content.sources.unpin("docs")
 - A pinned head does not move until `unpin()`. `pin()` takes a full 40-character commit SHA and validates it too.
 - Each server instance holds the head in memory for 5 seconds. Other server instances serve a moved head within 5 seconds. `content.get()`, `list()`, `navigation()`, `search()`, and the Content route follow the head.
 - Without a token, the Source is not live: each load reads the latest commit of its branch without validation, and Content logs `CONTENT_R0020` once. The token is `github({ auth })`, or the Server Env `VITEHUB_GITHUB_TOKEN`.
-- The head uses the `default` KV store. On Cloudflare, bind a KV namespace as `KV`. `vitehub kv get content:head:docs` shows the stored head.
+- ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
+- Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
+- When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
 - Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It writes `checkedAt` first, so other server instances do not check in the same hour.
 
 ### GitHub push webhook
@@ -107,12 +109,12 @@ The route checks `X-Hub-Signature-256` against the raw body in constant time, wi
 
 | Request | Response |
 | --- | --- |
-| No `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env | 404. Content logs `CONTENT_R0024` once. The hourly check still moves the head. |
-| Missing or wrong signature | 401 with `CONTENT_R0022`. Nothing moves. |
+| No `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env | 404. Content logs `CONTENT_R0026` once. The hourly check still moves the head. |
+| Missing or wrong signature | 401 with `CONTENT_R0024`. Nothing moves. |
 | `ping` | 200 `{ ok: true }` |
 | `push` to the branch of a Source | `advance()` for each matching Source. When the host gives the request `waitUntil`, such as Cloudflare Workers, 202 `{ sources }` and the work runs after the response. Otherwise 200 `{ sources, deliveries }`. |
 | `push` to another branch, a deleted branch, or another event | 200 `{ ignored }` |
-| `push` to a repository that no Source reads | 200, and Content logs `CONTENT_R0023`. |
+| `push` to a repository that no Source reads | 200, and Content logs `CONTENT_R0025`. |
 
 A Source without `ref` follows the default branch in the payload. `content.sources.head()` shows the last delivery in `webhook`: `{ id, at, sha, result }`, where `id` is the `X-GitHub-Delivery` id and `result` is `moved`, `kept`, `rejected`, `pinned`, or `failed` with `error`. `vitehub kv get content:webhook:docs` shows the same record. A delivery with a bad signature writes nothing, so only the log shows it.
 
