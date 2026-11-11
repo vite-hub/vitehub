@@ -125,7 +125,38 @@ await content.sources.at("9c1e4f…", "docs") // kind: "commit", a full 40-chara
 - The view reads the commit through the commit cache, so it validates like a head. When a document does not parse, `at()` fails with `CONTENT_R0030`. Refs at the same commit share one view and one download.
 - Each server instance holds 8 views open, and closes the least recently used one. A closed view opens again on its next read, from the commit cache. `head().views` lists the open commits.
 - A view works without a token or KV for a public repository. GitHub then allows 60 lookups per hour.
-- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Decide with `kind`, `ref`, and `pull` (`fork`, `labels`) whether a caller may read the view before you return anything from it.
+- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
+
+### Who may read a ref
+
+GitHub serves the commits of a fork pull request through your repository, and the CMS keeps drafts on a branch of the same repository. So a route that serves `at()` must ask `content.sources.allow(ref, request, source?)` first. It decides before Content downloads the commit:
+
+```ts fragment
+const access = await content.sources.allow("pr/12", request, "docs")
+if (!access.allowed) {
+  console.warn(access.error) // CONTENT_R0031, with the reason
+  return new Response("Not Found", { status: 404 })
+}
+const view = await content.sources.at(access.target) // the commit that allow() checked
+```
+
+| Ref | Public | Reason |
+| --- | --- | --- |
+| A commit, a branch, or a pull request whose commit the published branch contains | Yes | `published` |
+| The head commit of an open or merged pull request from the same repository | Yes | `pull` |
+| The head commit of an open or merged fork pull request with the `preview:enabled` label | Yes | `label` |
+| A fork pull request without the label | No | `fork` |
+| A pull request that was closed without a merge, unless the published branch contains its head | No | `closed` |
+| A private branch, such as the CMS draft branch, and a same-repository pull request from it | No | `private` |
+| A branch or commit with no allowed pull request and outside the published history | No | `unpublished` |
+| An invalid ref, or one that the repository does not have | No | `missing` |
+
+- The published branch is the `ref` of the `github()` Source, or the default branch of the repository. Content asks GitHub `compare/<branch>...<sha>` and counts `behind` and `identical`.
+- A request passes every rule with the preview cookie of `content.preview.enable()` (reason `console`), or with a link from `content.sources.sign(ref, source?, { maxAge })` (reason `token`). A link carries `?vitehub-content-token=<token>`, signs one ref of one Source, and expires after `maxAge` seconds: one hour by default, 24 hours at most. Both use `VITEHUB_CONTENT_KEY`. `sign()` is trusted server API: check `content.can()` or Console access before you call it.
+- The `cms` preset with a GitHub store makes its `draftBranch` private. A preset sets other private branches with `privateBranches`.
+- Content holds each decision from GitHub for 10 minutes on each server instance. A removed label or a closed pull request shows after 10 minutes at most. A failed GitHub call holds nothing and throws `CONTENT_R0032`.
+- Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
+- Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
 
 ## Types
 

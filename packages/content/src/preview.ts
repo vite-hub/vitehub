@@ -3,7 +3,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { frameAnswer, frameError, frameHop, framePageUrl } from "./preview-frame.ts"
-import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+import { contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter } from "./preview-parameters.ts"
 
 /** Name of the cookie that carries the Content preview token. */
 export const contentPreviewCookieName = "vitehub-content-preview"
@@ -23,7 +23,12 @@ const frameTokenVersion = "f1"
 const frameTokenPurpose = "vitehub.content.preview.frame"
 const frameTokenPattern = /^f1\.(\d{1,12})\.([\w-]{1,1400})\.([\w-]{43})$/
 
-export { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+// A ref token signs one ref of one Source. Its purpose and shape differ from the other tokens, so none passes as another.
+const refTokenVersion = "r1"
+const refTokenPurpose = "vitehub.content.preview.ref"
+const refTokenPattern = /^r1\.(\d{1,12})\.([\w-]{1,600})\.([\w-]{43})$/
+
+export { contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter } from "./preview-parameters.ts"
 /** The largest preview frame form, in bytes. It carries a whole Markdown document. */
 const maximumFrameBytes = 1024 * 1024
 
@@ -353,6 +358,62 @@ async function verifyFrameToken(key: HmacKey, token: string): Promise<{ expires:
   if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, frameTokenMessage(expires, match[2]!))) return
   const scope = decodeScope(match[2]!)
   return scope && unexpired(expires) ? { expires, ...scope } : undefined
+}
+
+function refTokenMessage(expires: number, scope: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`${refTokenPurpose}.${refTokenVersion}.${expires}.${scope}`)
+}
+
+/**
+ * Sign a token for one ref of one `github()` Source, for `content.sources.sign()`. It uses the key of
+ * `content.preview`, `VITEHUB_CONTENT_KEY`.
+ */
+export async function signContentRefToken(source: string, ref: string, maxAge: number = defaultMaxAge): Promise<ContentPreviewToken> {
+  if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
+    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.sign() maxAge must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+  }
+  const key = await signingKey()
+  if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
+  const scope = encodeScope(source, ref)
+  const expires = Math.floor(Date.now() / 1000) + maxAge
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, refTokenMessage(expires, scope))
+  return { token: `${refTokenVersion}.${expires}.${scope}.${base64url(signature)}`, expiresAt: new Date(expires * 1000) }
+}
+
+/**
+ * How a request may read a ref of a `github()` Source without the public rule: `console` with a valid preview cookie
+ * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token` for this Source and ref. Undefined
+ * otherwise, and when the signing key is missing or invalid.
+ */
+export async function contentRefGrant(request: Request, source: string, ref: string): Promise<"console" | "token" | undefined> {
+  const cookies = cookieValues(request.headers.get("cookie") ?? undefined, contentPreviewCookieName)
+  let token: string | null = null
+  try {
+    token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+  }
+  catch {
+    // A request without an absolute URL carries no link token.
+  }
+  if (!cookies.length && !token) return
+  let key: HmacKey | undefined
+  try {
+    key = await signingKey()
+  }
+  catch {
+    return
+  }
+  if (!key) return
+  for (const value of cookies) {
+    if (await verifyToken(key, value) !== undefined) return "console"
+  }
+  const match = token ? refTokenPattern.exec(token) : null
+  if (!match) return
+  const expires = Number(match[1])
+  const signature = fromBase64url(match[3]!)
+  if (signature.byteLength !== 32) return
+  if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) return
+  const scope = decodeScope(match[2]!)
+  return scope?.collection === source && scope.id === ref && unexpired(expires) ? "token" : undefined
 }
 
 function cookie(value: string, maxAge: number, secure: boolean): string {

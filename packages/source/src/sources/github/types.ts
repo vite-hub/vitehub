@@ -62,4 +62,11 @@ export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>
    * commit SHA. Undefined when the repository has no such commit, branch, or pull request.
    */
   resolveRef(ref: GitHubRef, options?: { signal?: AbortSignal }): Promise<GitHubRefTarget | undefined>
+  /**
+   * Whether the history of the Source ref (the `ref` option, or the default branch) contains a commit: GitHub compares
+   * the ref with the commit and answers `behind` or `identical`. False for a commit that shares no history with it.
+   */
+  contains(sha: string, options?: { signal?: AbortSignal }): Promise<boolean>
+  /** The pull requests whose head commit is this commit, open or closed, from this repository or a fork. */
+  pullsAt(sha: string, options?: { signal?: AbortSignal }): Promise<GitHubPullRequest[]>
 }

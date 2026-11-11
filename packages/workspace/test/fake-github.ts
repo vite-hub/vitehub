@@ -341,10 +341,15 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       return json({ default_branch: state.defaultBranch, full_name: `${owner}/${repo}`, name: repo, owner: { login: owner }, private: true })
     }
     if (rest.startsWith("/compare/") && method === "GET") {
-      const [left, right] = rest.slice("/compare/".length).split("...")
-      if (!left || !right || !commits.has(left) || !commits.has(right)) return failure(404, "Not Found")
+      const [leftRef, rightRef] = rest.slice("/compare/".length).split("...")
+      // GitHub compares branch names and SHAs.
+      const left = leftRef && resolve(leftRef)?.sha
+      const right = rightRef && resolve(rightRef)?.sha
+      if (!left || !right) return failure(404, "Not Found")
       const base = mergeBase(left, right)
-      return base ? json({ merge_base_commit: { sha: base } }) : failure(404, `No common ancestor between ${left} and ${right}.`)
+      if (!base) return failure(404, `No common ancestor between ${leftRef} and ${rightRef}.`)
+      const status = left === right ? "identical" : base === right ? "behind" : base === left ? "ahead" : "diverged"
+      return json({ merge_base_commit: { sha: base }, status })
     }
     if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
       const prefix = rest.slice("/git/matching-refs/heads/".length)
@@ -393,6 +398,15 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
         return [...new Set([...before.keys(), ...after.keys()])].some(name => (name === path || name.startsWith(`${path}/`)) && before.get(name) !== after.get(name))
       }
       return page(ancestors(head.sha).filter(commit => !path || touches(commit)).map(restCommit), url)
+    }
+    if (/^\/commits\/[^/]+\/pulls$/.test(rest) && method === "GET") {
+      const commit = resolve(rest.slice("/commits/".length, -"/pulls".length))
+      if (!commit) return failure(422, "No commit found")
+      // GitHub lists the pull requests whose head branch contains the commit.
+      return page(pulls.filter(pull => {
+        const head = branches.get(pull.head)
+        return head !== undefined && reachable(head).has(commit.sha)
+      }).map(pullBody), url)
     }
     if (rest.startsWith("/commits/") && method === "GET") {
       const ref = rest.slice("/commits/".length)
@@ -533,6 +547,13 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       })
       branches.set(branch, commit.sha)
       return commit.sha
+    },
+    /** Point `branch` at the head of `from`, as `git branch <branch> <from>` or a fast-forward merge would. */
+    branch(branch: string, from: string) {
+      const sha = branches.get(from)
+      if (!sha) throw new Error(`The fake has no branch ${from}.`)
+      branches.set(branch, sha)
+      return sha
     },
     /** Answer the requests that `respond` matches before the fake does. */
     respond(respond: (request: FakeRequest) => Response | undefined) {

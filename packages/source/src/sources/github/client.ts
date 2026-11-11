@@ -14,6 +14,10 @@ export interface GitHubClient {
   commit: (sha: string, token: string | undefined, signal?: AbortSignal) => Promise<string | undefined>
   /** A pull request and its head commit, or undefined when the repository has no such pull request. */
   pull: (number: number, token: string | undefined, signal?: AbortSignal) => Promise<{ sha: string, pull: GitHubPullRequest } | undefined>
+  /** How `head` relates to `base`: `behind` or `identical` when `base` contains it. Undefined when they share no history. */
+  compare: (base: string, head: string, token: string | undefined, signal?: AbortSignal) => Promise<"identical" | "behind" | "ahead" | "diverged" | undefined>
+  /** The pull requests that contain a commit, with their head commits. Empty when the repository has no such commit. */
+  commitPulls: (sha: string, token: string | undefined, signal?: AbortSignal) => Promise<Array<{ sha: string, pull: GitHubPullRequest }>>
   archive: (ref: string, token: string | undefined, signal?: AbortSignal) => Promise<Uint8Array>
   defaultBranch: (token: string | undefined, signal?: AbortSignal) => Promise<string>
   file: (path: string, ref: string, token: string | undefined, signal?: AbortSignal) => Promise<{ content: Uint8Array, sha: string | undefined }>
@@ -90,6 +94,29 @@ export function createGitHubClient(repo: string): GitHubClient {
     return isRecord(value) && isNonEmptyString(value.full_name) ? value.full_name : null
   }
 
+  /** A pull request from `/pulls/<number>` or `/commits/<sha>/pulls`. The list has `merged_at` but no `merged`. */
+  function pullRequest(data: unknown, number: number): { sha: string, pull: GitHubPullRequest } {
+    if (!isRecord(data) || !Number.isSafeInteger(number) || !isRecord(data.head) || !isRecord(data.base) || !isNonEmptyString(data.head.sha) || !isNonEmptyString(data.head.ref) || !isNonEmptyString(data.base.ref)) {
+      throw malformed(repo, "pull request")
+    }
+    const headRepo = repoName(data.head.repo)
+    const baseRepo = repoName(data.base.repo) ?? repo
+    const labels = Array.isArray(data.labels) ? data.labels.flatMap(label => isRecord(label) && isNonEmptyString(label.name) ? [label.name] : []) : []
+    return {
+      sha: data.head.sha,
+      pull: {
+        number,
+        state: data.state === "open" ? "open" : "closed",
+        merged: data.merged === true || isNonEmptyString(data.merged_at),
+        head: data.head.ref,
+        headRepo,
+        base: data.base.ref,
+        fork: headRepo?.toLowerCase() !== baseRepo.toLowerCase(),
+        labels,
+      },
+    }
+  }
+
   return {
     async branch(branch, token, signal) {
       const data = await missingAsUndefined(() => request(branch, "branch", token, signal, async (client, repoRef) => (await client.request<unknown>(
@@ -121,25 +148,27 @@ export function createGitHubClient(repo: string): GitHubClient {
         { signal },
       )).data))
       if (data === undefined) return
-      if (!isRecord(data) || !isRecord(data.head) || !isRecord(data.base) || !isNonEmptyString(data.head.sha) || !isNonEmptyString(data.head.ref) || !isNonEmptyString(data.base.ref)) {
-        throw malformed(repo, "pull request")
-      }
-      const headRepo = repoName(data.head.repo)
-      const baseRepo = repoName(data.base.repo) ?? repo
-      const labels = Array.isArray(data.labels) ? data.labels.flatMap(label => isRecord(label) && isNonEmptyString(label.name) ? [label.name] : []) : []
-      return {
-        sha: data.head.sha,
-        pull: {
-          number,
-          state: data.state === "open" ? "open" : "closed",
-          merged: data.merged === true,
-          head: data.head.ref,
-          headRepo,
-          base: data.base.ref,
-          fork: headRepo?.toLowerCase() !== baseRepo.toLowerCase(),
-          labels,
-        },
-      }
+      return pullRequest(data, number)
+    },
+    async compare(base, head, token, signal) {
+      const data = await missingAsUndefined(() => request(`${base}...${head}`, "compare", token, signal, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+        { signal },
+      )).data))
+      if (data === undefined) return
+      if (!isRecord(data) || (data.status !== "identical" && data.status !== "behind" && data.status !== "ahead" && data.status !== "diverged")) throw malformed(repo, "compare")
+      return data.status
+    },
+    async commitPulls(sha, token, signal) {
+      const data = await missingAsUndefined(() => request(sha, "commit pull requests", token, signal, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/commits/${encodeURIComponent(sha)}/pulls?per_page=100`,
+        { signal },
+      )).data))
+      if (data === undefined) return []
+      if (!Array.isArray(data)) throw malformed(repo, "commit pull requests")
+      return data.map(item => pullRequest(item, isRecord(item) && typeof item.number === "number" ? item.number : Number.NaN))
     },
     async archive(ref, token, signal) {
       const download = (archiveToken: string | undefined) => request(ref, "archive", archiveToken, signal, async (client, repoRef) => {
