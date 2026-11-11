@@ -5731,7 +5731,6 @@ async function isChatMessageAuthorized(
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({
       ...context,
-      actor: invoker,
       invoker,
       input: accessChatInput(thread, message, messageContext),
       provider: chatRegistrationOrigin(registration),
