@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "birpc": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

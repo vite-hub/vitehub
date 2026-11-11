@@ -67,7 +67,8 @@ function writeMigrateUsage(context: ViteHubCliContext): void {
     "Refreshes ViteHub database artifacts and applies pending Drizzle migrations.",
     "It first reads the applied migrations from the database. It refuses pending",
     "migrations that drop tables or columns or delete rows. D1 HTTP databases use",
-    "Wrangler's migrations table, like `wrangler d1 migrations apply`.",
+    "Wrangler's migrations table, like `wrangler d1 migrations apply`. Postgres",
+    "migrations hold the advisory lock that a server holds when it migrates on start.",
     "",
     "Options:",
     "  --dry-run          Print the pending migrations and their SQL. Change nothing.",
@@ -322,17 +323,29 @@ async function runDrizzleKit(
   // D1 HTTP uses Wrangler's ledger, which Drizzle Kit cannot write, so ViteHub applies those migrations itself.
   const usesD1Http = (database: ResolvedDrizzleDatabaseConfig | undefined): database is ResolvedDrizzleDatabaseConfig =>
     feature === "migrate" && database?.dialect === "sqlite" && !!database.cloudflare?.http && database.cloudflare.databaseId !== undefined
-  // A project with only D1 HTTP databases can migrate without Drizzle Kit. Prefer the Database root because the
+  // Postgres uses ViteHub's migrator, the one that a server runs on start, so both hold the same advisory lock.
+  const usesPostgres = (database: ResolvedDrizzleDatabaseConfig | undefined): database is ResolvedDrizzleDatabaseConfig =>
+    feature === "migrate" && database?.dialect === "postgresql"
+  // A project with only D1 HTTP and Postgres databases can migrate without Drizzle Kit. Prefer the Database root because the
   // generated config and working directory belong to it. Fall back to the invoking Vite root for external Database roots.
-  const drizzleKitBin = runs.every(run => usesD1Http(run.database)) ? "" : resolveDrizzleKitBin([projectRoot, context.rootDir])
+  const drizzleKitBin = runs.every(run => usesD1Http(run.database) || usesPostgres(run.database)) ? "" : resolveDrizzleKitBin([projectRoot, context.rootDir])
   if (drizzleKitBin === undefined) {
     context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
     return 1
   }
+  let postgresMigrated = false
   for (const run of runs) {
     const { configFile, database } = run
     if (usesD1Http(database)) {
       const result = await migrateD1Database(database, projectRoot, context)
+      if (result !== 0) return result
+      continue
+    }
+    if (usesPostgres(database)) {
+      // The first Postgres run migrates them all, so Definitions on one Postgres database migrate together.
+      if (postgresMigrated) continue
+      postgresMigrated = true
+      const result = await migratePostgresDatabases(runs.map(run => run.database).filter(usesPostgres), projectRoot, context, allowDataLoss)
       if (result !== 0) return result
       continue
     }
@@ -530,6 +543,21 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
     return 1
   }
   context.stdout.write(`[vitehub] Database "${database.name}": D1 migrations are up to date.\n`)
+  return 0
+}
+
+async function migratePostgresDatabases(databases: ResolvedDrizzleDatabaseConfig[], projectRoot: string, context: ViteHubCliContext, allowDataLoss: boolean): Promise<number> {
+  const { migratePostgresDatabases: migrate } = await import("./internal/migration-plan.ts")
+  const error = await migrate(
+    databases.map(database => ({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) })),
+    { allowDataLoss, env: context.env ?? process.env, projectRoot },
+    message => context.stdout.write(`${message}\n`),
+  )
+  if (error) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    return 1
+  }
+  for (const database of databases) context.stdout.write(`[vitehub] Database "${database.name}": migrations are up to date.\n`)
   return 0
 }
 

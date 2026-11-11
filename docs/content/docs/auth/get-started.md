@@ -137,6 +137,10 @@ Keep users in a database, set the secret, and add rate limits.
 Protect your routes so that only signed-in users can use them.
 :::
 
+:::card{title="Abilities" icon="i-lucide-shield-check" to="/docs/auth/abilities"}
+Write each permission rule once and check it on the server and in Vue.
+:::
+
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/auth/hosts"}
 See what Auth needs on each host.
 :::

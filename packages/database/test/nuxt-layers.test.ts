@@ -233,7 +233,7 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 60_000)
 
-  it("merges the relations of every layer into db.query, at runtime and in types", async () => {
+  it.each([false, true])("merges layer relations into db.query at runtime and in types (replace users: %s)", async (replaceUsers) => {
     const app = await createLayeredApp()
     // The blog layer relates its posts to the users of the accounts layer.
     await writeModule(app.layerDefinition("blog"), [
@@ -247,15 +247,21 @@ describe("Database Definitions in Nuxt layers", () => {
       "  relations: defineRelationsPart({ posts, users }, r => ({ posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) } })),",
       "})",
     ])
-    // The application adds the reverse relation without tables of its own.
+    // The app adds the reverse relation, and may replace users and every relation that uses it.
     await writeModule(join(app.appDir, "server/databases/default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { defineRelationsPart } from 'drizzle-orm'",
-      "import { users } from '../../../layers/accounts/server/databases/default.ts'",
+      replaceUsers
+        ? "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'"
+        : "import { users } from '../../../layers/accounts/server/databases/default.ts'",
       "import { posts } from '../../../layers/blog/server/databases/default.ts'",
+      ...replaceUsers ? ["const users = sqliteTable('users', { id: integer('id').primaryKey(), email: text('email').notNull(), name: text('name') })"] : [],
       "export default defineDatabase({",
-      "  schema: {},",
-      "  relations: defineRelationsPart({ posts, users }, r => ({ users: { posts: r.many.posts({ from: r.users.id, to: r.posts.authorId }) } })),",
+      replaceUsers ? "  schema: { users }," : "  schema: {},",
+      "  relations: defineRelationsPart({ posts, users }, r => ({",
+      "    users: { posts: r.many.posts({ from: r.users.id, to: r.posts.authorId }) },",
+      ...replaceUsers ? ["    posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },"] : [],
+      "  })),",
       "})",
     ])
 
@@ -274,6 +280,10 @@ describe("Database Definitions in Nuxt layers", () => {
     await db.run(drizzleSql`CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL)`)
     await db.run(drizzleSql`CREATE TABLE posts (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT NOT NULL)`)
     await db.run(drizzleSql`INSERT INTO users VALUES (1, 'ada@example.com')`)
+    if (replaceUsers) {
+      await db.run(drizzleSql`ALTER TABLE users ADD COLUMN name TEXT`)
+      await db.run(drizzleSql`UPDATE users SET name = 'Ada'`)
+    }
     await db.run(drizzleSql`INSERT INTO posts VALUES (1, 1, 'Hello')`)
     const query = db.query as unknown as Record<string, { findFirst: (options: unknown) => Promise<unknown> }>
     await expect(query.users!.findFirst({ columns: { email: true }, with: { posts: { columns: { title: true } } } })).resolves.toEqual({
@@ -284,6 +294,9 @@ describe("Database Definitions in Nuxt layers", () => {
       author: { email: "ada@example.com" },
       title: "Hello",
     })
+    if (replaceUsers) {
+      await expect(query.posts!.findFirst({ with: { author: true } })).resolves.toMatchObject({ author: { name: "Ada" } })
+    }
 
     // The Nuxt development runtime merges the same parts in the same order.
     const hooks: Record<string, Array<(value: Record<string, unknown>) => Promise<void> | void>> = {}

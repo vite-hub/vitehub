@@ -30,6 +30,10 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "imports": {
+    "#vitehub/auth/abilities": {
+      "types": "./dist/runtime/empty-abilities.d.ts",
+      "default": "./dist/runtime/empty-abilities.js"
+    },
     "#vitehub/auth/definition": {
       "types": "./dist/runtime/empty-definition.d.ts",
       "default": "./dist/runtime/empty-definition.js"
@@ -40,6 +44,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./abilities": {
+      "types": "./dist/abilities.d.ts",
+      "import": "./dist/abilities.js",
+      "default": "./dist/abilities.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
