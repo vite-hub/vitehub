@@ -3,15 +3,17 @@
  * reach an app on another origin.
  */
 export interface ConsoleProject {
-  /** The app origin, such as `https://agents.example.com`. An empty string is the origin of the Console page. */
+  /** The request origin, such as `https://agents.example.com`. An empty string is the Console page origin. */
   origin: string
-  /** The application mount, such as `/portal`, or an empty string when the app is at the root. */
+  /** The request mount, such as `/portal` or `/p/<project>`, or an empty string at the origin root. */
   base: string
+  /** The original app location when requests go through the Console server. Links and served media use it. */
+  app?: { origin: string, base: string }
   /**
-   * The `authorization` header of each request, such as `Bearer <token>`. Cookies go only to the origin of the Console
-   * page, so a project on another origin needs it.
+   * The Console server forwards the requests, such as `/p/<project>` of an `account` Console. The origin is the page's,
+   * but the app is elsewhere, so its cookies, frames, and WebSockets do not work.
    */
-  authorization?: () => string | undefined
+  remote?: boolean
 }
 
 let active: ConsoleProject = { origin: "", base: "" }
@@ -25,9 +27,18 @@ export function setConsoleProject(project: ConsoleProject): void {
   active = project
 }
 
-/** The URL of an app path on the project, such as `/_vitehub/rpc/__call` → `/portal/_vitehub/rpc/__call`. */
+function urlOf(project: ConsoleProject, path: string): string {
+  return `${project.origin}${project.base}${path}`
+}
+
+/** The URL of an app path on the project, such as `/_vitehub/rpc` → `/portal/_vitehub/rpc`. */
 export function projectUrl(path: string): string {
-  return `${active.origin}${active.base}${path}`
+  return urlOf(active, path)
+}
+
+/** An app link, such as a provider sign-in page or the MCP endpoint, without the Console request forward. */
+export function projectAppUrl(path: string): string {
+  return urlOf(active.app ?? active, path)
 }
 
 /**
@@ -35,38 +46,27 @@ export function projectUrl(path: string): string {
  * `/api/_vitehub/blob/a.png` gets the project origin. An absolute URL stays as it is.
  */
 export function resolveProjectUrl(url: string): string {
-  return active.origin && url.startsWith("/") && !url.startsWith("//") ? `${active.origin}${url}` : url
+  const origin = (active.app ?? active).origin
+  return origin && url.startsWith("/") && !url.startsWith("//") ? `${origin}${url}` : url
 }
 
-/** Request headers with the `authorization` header of the project, when it has one. */
-export function projectHeaders(headers: Record<string, string> = {}): Record<string, string> {
-  const authorization = active.authorization?.()
-  return authorization ? { ...headers, authorization } : headers
+/** The URL of an app path on the project that is active now, and the request headers. */
+export function projectRequest(path: string, headers: Record<string, string> = {}): { url: string, headers: Record<string, string> } {
+  return { url: urlOf(active, path), headers }
 }
 
-/**
- * `fetch()` of an app path on the project. Cookies go only to the origin of the Console page, and the `authorization`
- * header of the project goes with every request.
- */
-export function projectFetch(path: string, init: Omit<RequestInit, "credentials" | "headers"> & { headers?: Record<string, string> } = {}): Promise<Response> {
-  return fetch(projectUrl(path), { ...init, credentials: "same-origin", headers: projectHeaders(init.headers) })
+/** `fetch()` of an app path on the project. Cookies go only to the origin of the Console page. */
+export async function projectFetch(path: string, init: Omit<RequestInit, "credentials" | "headers"> & { headers?: Record<string, string> } = {}): Promise<Response> {
+  return await fetch(urlOf(active, path), { ...init, credentials: "same-origin", headers: { ...init.headers } })
 }
 
 /**
- * Whether the project is on another origin than the Console page, such as in a hosted Console. Cookies, frames, and
+ * Whether the project is on another origin than the Console page, such as in an `account` Console. Cookies, frames, and
  * WebSockets of the app do not work then, so features that need them show a note instead.
  */
 export function isRemoteProject(): boolean {
   // Read the page origin without depending on DOM types in the package's server build.
   const location: unknown = Reflect.get(globalThis, "location")
   const pageOrigin: unknown = location instanceof Object ? Reflect.get(location, "origin") : undefined
-  return active.origin !== "" && active.origin !== pageOrigin
-}
-
-/**
- * The URL of a page of the Console that the app serves, such as `/kv` → `https://app.example.com/portal/_vitehub/kv`.
- * Features that need the app origin link there.
- */
-export function projectConsoleUrl(path = "/"): string {
-  return projectUrl(`/_vitehub${path}`)
+  return active.remote === true || (active.origin !== "" && active.origin !== pageOrigin)
 }

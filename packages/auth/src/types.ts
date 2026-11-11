@@ -1,6 +1,9 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, ViteHubContext } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+// From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
+import type { ViteHubContext } from "@vite-hub/runtime/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
+import type { AuthRedirects } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 declare global {
@@ -17,6 +20,7 @@ export type AuthReservedOption =
   | "events"
   | "console"
   | "access"
+  | "adminClaim"
   | "basePath"
   | "database"
   | "preset"
@@ -100,12 +104,6 @@ export type AuthAnonymousGuardedHandler<TInput, TResult> = (
   authorization: AuthAuthorization | AuthAnonymousAuthorization,
 ) => TResult | Promise<TResult>
 
-/**
- * Route middleware with the `(event, next)` contract of H3 2.
- * It returns the rejection `Response`, or the result of `next()` after the check passes.
- */
-export type AuthMiddleware = (event: AuthRequestInput, next: () => unknown) => Promise<unknown>
-
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]
   signIn?: AuthSignInConfiguration
@@ -128,6 +126,8 @@ export interface AuthSecondaryStorageReference {
 export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
+  /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
+  adminClaim?: false
   /** Opt in to durable auth events with an explicit store. */
   events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
@@ -188,6 +188,8 @@ export interface ResolvedAuthAccessRoute {
 }
 
 export interface ResolvedAuthViteConfig {
+  /** The absolute path of `shared/abilities.ts`, when the app has rules. */
+  abilities?: string
   access: {
     routes: ResolvedAuthAccessRoute[]
   }
@@ -210,6 +212,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "events"
       | "console"
       | "access"
+      | "adminClaim"
       | "database"
       | "preset"
       | "route"
@@ -222,6 +225,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "events"
       | "console"
       | "access"
+      | "adminClaim"
       | "database"
       | "preset"
       | "route"
@@ -246,4 +250,9 @@ export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Om
 export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
   ? AuthFor<TDefinition>
   : ViteHubAuth
-export type AuthModuleOptions = false | Record<string, never>
+export interface AuthObjectOptions {
+  /** Where the Nuxt page guard of `definePageMeta({ auth })` sends visitors. Vite apps without Nuxt ignore it. */
+  redirects?: AuthRedirects
+}
+
+export type AuthOptions = false | AuthObjectOptions

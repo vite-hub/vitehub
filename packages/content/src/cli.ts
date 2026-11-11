@@ -7,6 +7,7 @@ import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff"
 import { findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { callOperation } from "@vite-hub/internal/operations"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
@@ -48,7 +49,7 @@ type ContentCliOption =
   | "ref" | "revision" | "search" | "site" | "status" | "xml" | "yes"
 
 type ContentCliCommandName =
-  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "rm" | "restore"
+  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "delete" | "restore"
   | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap"
 
 interface ContentCliCommand {
@@ -107,7 +108,7 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "Print a unified diff of one document from published to draft, frontmatter included. Omit the id for a singleton.", name: "diff", options: [], positionals: ["collection", "id?"] },
   { description: "List the revisions that saved, removed, restored, or published one document, newest first.", name: "revisions", options: ["ref", "limit", "cursor"], positionals: ["collection", "id?"] },
   { description: "Edit the draft of one document in $EDITOR, or save it from --file. Fails while someone else holds the edit lease, unless --override-lease.", name: "edit", options: ["file", "if-digest", "message", "override-lease"], positionals: ["collection", "id?"] },
-  { description: "Delete one document from the draft. The next publish deletes it from the site. Asks for confirmation unless --yes. Fails while someone else holds the edit lease, unless --override-lease.", name: "rm", options: ["message", "override-lease", "yes"], positionals: ["collection", "id?"] },
+  { description: "Delete one document from the draft. The next publish deletes it from the site. Asks for confirmation unless --yes. Fails while someone else holds the edit lease, unless --override-lease.", name: "delete", options: ["message", "override-lease", "yes"], positionals: ["collection", "id?"] },
   { description: "Save the version of one document from an earlier revision as its draft. Publishes nothing. Fails while someone else holds the edit lease, unless --override-lease.", name: "restore", options: ["revision", "message", "override-lease"], positionals: ["collection", "id?"] },
   { description: "Publish the listed draft documents in one revision, pinned to the digests shown. Asks for confirmation unless --yes. A draft saved after the list fails the publish.", name: "publish", options: ["collection", "id", "message", "dry-run", "yes"], positionals: [] },
   { description: "Publish the listed draft documents at a later time, pinned to the digests shown. A Schedule Definition that calls content.publishDue() runs it.", name: "schedule", options: ["at", "collection", "id", "message", "dry-run", "yes"], positionals: [] },
@@ -171,8 +172,8 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     "",
     command.description,
     "The command runs the content.* operation of the running app, so it reads and writes the same Workspace Store",
-    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set the credentials in",
-    "VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set",
+    "VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls.",
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
@@ -307,10 +308,6 @@ function requestBody(parsed: ParsedContentArgs): ContentDevRequestOptions {
   if (parsed.status !== undefined) body.status = parsed.status
   if (parsed.site !== undefined) body.site = parsed.site
   return body
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 function writeFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure): number {
@@ -842,7 +839,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       return await runPublish(command, parsed, context, call, options)
     case "edit":
       return await runEdit(parsed, context, call, options)
-    case "rm":
+    case "delete":
       return await runRemove(parsed, context, call, options)
     case "restore":
       return await runRestore(parsed, context, call)

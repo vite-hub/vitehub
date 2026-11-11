@@ -1,12 +1,16 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
+import { consoleBodySha256, readConsolePublicKeys, readConsoleSigningKey, signConsoleRequest, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
+
 import { secretCliFeatures } from "../src/secret-cli.ts"
+import { unseal } from "../src/index.ts"
 import { deriveSecret } from "../src/server.ts"
 import { hubEnv } from "../src/vite.ts"
 
@@ -50,6 +54,26 @@ describe("root app secret", () => {
     expect(await readFile(secretPath, "utf8")).toBe(secret)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("generated development VITEHUB_SECRET"))
     warn.mockRestore()
+  })
+
+  it("seals with the generated development secret through #vitehub/env/server", async () => {
+    vi.stubEnv("VITEHUB_SECRET", "")
+    vi.stubEnv("NUXT_APP_SECRET", "")
+    vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-seal-dev-"))
+    roots.push(root)
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "seal-dev-app", type: "module" }))
+    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
+    await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
+    const secret = (await readFile(join(root, ".vitehub", "env", "secret"), "utf8")).trim()
+    const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const sealed: string = await generated.seal("app:upload", { userId: "u_1" }, { ttl: 60 })
+    expect(await generated.unseal("app:upload", sealed)).toEqual([undefined, { userId: "u_1" }])
+    expect(await unseal("app:upload", sealed, { secret })).toEqual([undefined, { userId: "u_1" }])
+    warn.mockRestore()
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export const seal: typeof import(\"@vite-hub/env/internal/server\").seal")
   })
 
   it("isolates generated, configured, and later generated projects", async () => {
@@ -123,11 +147,35 @@ describe("root app secret", () => {
 
     const derived = output()
     const env = { VITEHUB_SECRET: "cli-root-secret-at-least-32-characters-long" }
-    expect(await derive!.run(["vitehub:dispatch"], { env, stderr: output().stream, stdout: derived.stream } as never)).toBe(0)
-    expect(derived.text().trim()).toBe(await deriveViteHubSecret(env.VITEHUB_SECRET, "vitehub:dispatch"))
+    expect(await derive!.run(["app:webhooks"], { env, stderr: output().stream, stdout: derived.stream } as never)).toBe(0)
+    expect(derived.text().trim()).toBe(await deriveViteHubSecret(env.VITEHUB_SECRET, "app:webhooks"))
 
     const missing = output()
-    expect(await derive!.run(["vitehub:dispatch"], { env: {}, stderr: missing.stream, stdout: output().stream } as never)).toBe(1)
+    expect(await derive!.run(["app:webhooks"], { env: {}, stderr: missing.stream, stdout: output().stream } as never)).toBe(1)
     expect(missing.text()).toContain("Set VITEHUB_SECRET")
+  })
+
+  it("prints a Console key pair whose private key signs requests that the public key verifies", async () => {
+    const consoleKey = secretCliFeatures.find(feature => feature.name === "console-key")!
+    const printed = output()
+    expect(await consoleKey.run(["ci"], { env: {}, stderr: output().stream, stdout: printed.stream } as never)).toBe(0)
+    const lines = Object.fromEntries(printed.text().split("\n").filter(line => line && !line.startsWith("#")).map(line => line.split("=") as [string, string]))
+    expect(Object.keys(lines)).toEqual(["VITEHUB_CONSOLE_KEY_CI", "VITEHUB_CONSOLE_PRIVATE_KEY_CI"])
+    const key = readConsoleSigningKey({ VITEHUB_CONSOLE_PRIVATE_KEY_CI: lines.VITEHUB_CONSOLE_PRIVATE_KEY_CI })!
+    const url = "https://app.example.com/_vitehub/rpc"
+    const body = JSON.stringify({ a: [{}], i: "1", m: "project.get", t: "q" })
+    const headers = new Headers(await signConsoleRequest({ body, caller: { via: "cli" }, key, method: "POST", url }))
+    const keys = readConsolePublicKeys({ VITEHUB_CONSOLE_KEY_CI: lines.VITEHUB_CONSOLE_KEY_CI })
+    if (!(keys instanceof Map)) throw new Error(keys.message)
+    await expect(verifyConsoleSignature({ headers, keys, method: "POST", origin: "https://app.example.com", url })).resolves.toEqual({
+      bodySha256: await consoleBodySha256(body),
+      caller: { via: "cli" },
+      key: "CI",
+      ok: true,
+    })
+
+    const refused = output()
+    expect(await consoleKey.run(["a", "b"], { env: {}, stderr: refused.stream, stdout: output().stream } as never)).toBe(1)
+    expect(refused.text()).toContain("Usage: vitehub secret console-key [name]")
   })
 })

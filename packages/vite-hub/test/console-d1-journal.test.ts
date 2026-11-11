@@ -1,4 +1,4 @@
-import { runAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { eq } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
@@ -6,12 +6,12 @@ import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vit
 import { defineAgent } from "../src/agent.ts"
 import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
 
-import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
-import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
+import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
@@ -66,7 +66,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     await expect(db.select().from(schema.invocations)).resolves.toEqual([])
     await expect(db.select().from(schema.invocations).get()).resolves.toBeUndefined()
 
-    await expect(runAgent(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
 
     // Each journal write is bounded to one second and retried in the background, so wait for the terminal state.
     await vi.waitFor(async () => {
@@ -79,7 +79,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     const query = db.select().from(schema.invocations).where(eq(schema.invocations.id, summary.id))
     await expect(query.all()).resolves.toMatchObject([{ id: summary.id, agentName: "labeller", status: "completed", record: { id: summary.id } }])
     await expect(query.get()).resolves.toMatchObject({ id: summary.id, status: "completed" })
-    await expect(db.query.invocations.findFirst({ where: eq(schema.invocations.id, summary.id) })).resolves.toMatchObject({ id: summary.id, status: "completed" })
+    await expect(db.query.invocations.findFirst({ where: { id: summary.id } })).resolves.toMatchObject({ id: summary.id, status: "completed" })
     expect(env).toHaveBeenCalled()
   })
 

@@ -24,6 +24,7 @@ export async function hashPasswordWithNoble(password: string): Promise<string> {
 /** Verifies a hash that Better Auth's default hasher or `hashPasswordWithNoble()` made. */
 export async function verifyPasswordWithNoble({ hash, password }: { hash: string, password: string }): Promise<boolean> {
   const [salt, key] = hash.split(":")
+  // Internal invariant: same error as the default verifier of `@better-auth/utils`, which this one replaces.
   if (!salt || !key) throw new Error("Invalid password hash")
   const derived = await scryptKey(password, salt)
   return derived === key

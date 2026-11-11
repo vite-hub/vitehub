@@ -24,13 +24,13 @@ vi.mock("nuxt/server", () => ({
     ? { headers: { "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" } }
     : {},
 }));
-const request = new H3()
-  .use((event) => {
-    event.context.cloudflare = { env: { ASSETS: new Fetcher() }, request: event.req };
-  })
+const app = new H3()
   .use(staticAssets)
-  .use(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden")
-  .fetch;
+  .use(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden");
+// Nitro's Worker entry decorates the Request before passing it to H3.
+const request = (input: Request) => app.fetch(Object.assign(input, {
+  runtime: { cloudflare: { env: { ASSETS: new Fetcher() }, context: {} } },
+}));
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -53,32 +53,62 @@ describe("Cloudflare prerendered page middleware", () => {
     expect(shouldServePrerenderedAsset({ ...input, accept: "text/markdown ; q=1,text/html;q=0" })).toBe(false);
   });
 
-  it.each(["GET", "HEAD"])("renders a tutorial with its saved open navigation for %s requests", async (method) => {
-    const response = await request(new Request("https://vitehub.dev/docs/kv/get-started", {
-      method,
-      headers: { Accept: "text/html", Cookie: "vh-tutorial-navigation=true" },
-    }));
+  it.each([
+    { Accept: "text/markdown", "User-Agent": "" },
+    { Accept: "text/html", "User-Agent": "GPTBot" },
+  ])("leaves negotiated requests in Nitro with headers %j", async (headers) => {
+    const response = await request(new Request("https://vitehub.dev/learn/first-agent", { headers }));
 
     expect(fetchAsset).not.toHaveBeenCalled();
+    expect(await response.text()).toBe("rendered: hidden");
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("vary")).toContain("Cookie");
-    if (method === "GET") expect(await response.text()).toBe("rendered: open");
+  });
+
+  it.each([
+    "/docs/kv/get-started",
+    "/playground",
+    "/playground/?template=kv",
+    "/learn/first-agent",
+    "/learn/first-agent/",
+  ])("renders %s with its saved open navigation", async (path) => {
+    for (const method of ["GET", "HEAD"]) {
+      const response = await request(new Request(`https://vitehub.dev${path}`, {
+        method,
+        headers: { Accept: "text/html", Cookie: "vh-tutorial-navigation=true" },
+      }));
+
+      expect(fetchAsset).not.toHaveBeenCalled();
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("vary")).toContain("Cookie");
+      if (method === "GET") expect(await response.text()).toBe("rendered: open");
+    }
   });
 
   it.each([undefined, "vh-tutorial-navigation=false"])("keeps hidden tutorials prerendered with cookie %s", async (cookie) => {
     const headers = new Headers({ Accept: "text/html" });
     if (cookie) headers.set("Cookie", cookie);
-    const response = await request(new Request("https://vitehub.dev/docs/kv/get-started", { headers }));
+    const input = new Request("https://vitehub.dev/docs/kv/get-started", { headers });
+    const response = await request(input);
 
     expect(fetchAsset).toHaveBeenCalledOnce();
-    expect(fetchAsset.mock.calls[0]?.[0].url).toBe("https://vitehub.dev/docs/kv/get-started");
+    expect(fetchAsset).toHaveBeenCalledWith(input);
     expect(await response.text()).toBe("prerendered: hidden");
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("vary")).toBe("Accept-Encoding, Accept, User-Agent, Cookie");
   });
 
-  it("keeps ordinary docs prerendered when tutorial navigation was opened", async () => {
-    const response = await request(new Request("https://vitehub.dev/docs/kv/agent-capability", {
+  it.each(["/playground", "/learn/first-agent"])("keeps collapsed app page %s prerendered", async (path) => {
+    const response = await request(new Request(`https://vitehub.dev${path}`, { headers: { Accept: "text/html" } }));
+
+    expect(fetchAsset).toHaveBeenCalledOnce();
+    expect(await response.text()).toBe("prerendered: hidden");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("vary")).toContain("Cookie");
+  });
+
+  it.each(["/docs/kv/agent-capability", "/learn", "/learn/not/a/lesson", "/playground-info"])("keeps ordinary page %s prerendered when tutorial navigation was opened", async (path) => {
+    const response = await request(new Request(`https://vitehub.dev${path}`, {
       headers: { Accept: "text/html", Cookie: "vh-tutorial-navigation=true" },
     }));
 

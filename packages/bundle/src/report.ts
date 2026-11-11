@@ -1,7 +1,9 @@
 import { allocateBytes } from "./bytes.ts"
+import { checkBundle } from "./checks.ts"
 import { moduleGroup } from "./groups.ts"
+import { explainRoute, routesOf } from "./routes.ts"
 
-import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleSide } from "./types.ts"
+import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleRouteExplanation, BundleSide } from "./types.ts"
 
 interface PlacedModule extends BundleModule {
   environment: string
@@ -93,7 +95,15 @@ function sideOf(side: "client" | "server", reports: readonly BundleEnvironmentRe
       chunks: startup.length,
     },
     groups: groupsOf(placedModules(outer, reports)),
+    ...routesField(outer),
   }
+}
+
+function routesField(reports: readonly BundleEnvironmentReport[]): Pick<BundleSide, "routes" | "routesUnavailable"> {
+  const unavailable = reports.find(report => report.routeOptions?.unavailable)?.routeOptions?.unavailable
+  if (unavailable) return { routesUnavailable: unavailable }
+  const routes = reports.flatMap(routesOf).sort((left, right) => right.bytes - left.bytes || left.path.localeCompare(right.path))
+  return routes.length ? { routes } : {}
 }
 
 /** Joins the environment reports of one build into the report of the app. */
@@ -102,7 +112,9 @@ export function createBundleReport(reports: readonly BundleEnvironmentReport[]):
   if (!current.length) return undefined
   const client = sideOf("client", current)
   const server = sideOf("server", current)
-  return { schemaVersion: 1, build: current[0]!.build, ...(client ? { client } : {}), ...(server ? { server } : {}) }
+  const host = current.find(report => report.host)?.host
+  const findings = checkBundle(current, server, host, target => explainBundle(current, target))
+  return { schemaVersion: 1, build: current[0]!.build, ...(host ? { host } : {}), ...(client ? { client } : {}), ...(server ? { server } : {}), findings }
 }
 
 function matches(id: string, target: string): boolean {
@@ -191,4 +203,17 @@ export function explainBundle(reports: readonly BundleEnvironmentReport[], targe
     })
   }
   return explanations
+}
+
+/**
+ * Says what the browser loads on a first visit to a page route, such as `/docs/kv`: the startup files, the files of the
+ * route's layout and pages, and the modules that the route adds. `undefined` when no route of the last build matches.
+ */
+export function explainBundleRoute(reports: readonly BundleEnvironmentReport[], target: string): BundleRouteExplanation | undefined {
+  for (const report of latestBuild(reports)) {
+    if (report.side !== "client") continue
+    const explanation = explainRoute(report, target)
+    if (explanation) return explanation
+  }
+  return undefined
 }

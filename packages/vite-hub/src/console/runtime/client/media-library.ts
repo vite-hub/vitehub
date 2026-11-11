@@ -1,5 +1,7 @@
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
+
 import { ConsoleRequestError, requestConsole } from "./request"
-import { projectHeaders, projectUrl, resolveProjectUrl } from "./project"
+import { projectRequest, resolveProjectUrl } from "./project"
 import { consoleRpcHeader } from "../rpc"
 
 // These types mirror the media library contract in `server/media.ts`.
@@ -144,7 +146,7 @@ interface ConsoleUploadRequest {
   open(method: string, url: string): void
   readonly response: unknown
   responseType: string
-  send(body: FormData): void
+  send(body: string): void
   setRequestHeader(name: string, value: string): void
   readonly status: number
   abort(): void
@@ -152,36 +154,57 @@ interface ConsoleUploadRequest {
   readonly upload: { addEventListener(type: "progress", listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void): void }
 }
 
-/** Sends one file as `multipart/form-data` with XMLHttpRequest, which reports upload progress and fetch does not. */
-function uploadRequest(url: string, form: FormData, options: ConsoleMediaUploadOptions): Promise<unknown> {
+/** Base64 of a file. Chunks keep each `String.fromCharCode()` call below the argument limit of the engine. */
+async function fileBase64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
+}
+
+/**
+ * Sends one `media.upload` call with XMLHttpRequest, which reports upload progress and fetch does not. The file travels
+ * as base64 in the JSON body of the Console RPC.
+ */
+async function uploadRequest(input: Record<string, string>, options: ConsoleMediaUploadOptions): Promise<unknown> {
+  const { url, headers } = projectRequest(operationRpcPath, { "content-type": "application/json", [consoleRpcHeader]: "1" })
+  const outcome = await callOperationRpc("media.upload", input, body => sendUpload(url, headers, body, options))
+  if (outcome.ok) return outcome.value
+  // Host middleware answers with the diagnostic body and no birpc reply.
+  const failure = outcome.error ?? (outcome.answer.body instanceof Object && !Array.isArray(outcome.answer.body) ? outcome.answer.body : undefined)
+  const message: unknown = failure ? Reflect.get(failure, "message") : undefined
+  const code: unknown = failure ? Reflect.get(failure, "code") : undefined
+  const status = outcome.answer.status >= 200 && outcome.answer.status < 300 ? 502 : outcome.answer.status
+  throw new ConsoleRequestError(status || 502, String(message) === message ? message : status === 413 ? "The file is too large for this server." : undefined, String(code) === code ? { code } : {})
+}
+
+interface ConsoleUploadAnswer {
+  status: number
+  body: unknown
+}
+
+function sendUpload(url: string, headers: Record<string, string>, body: string, options: ConsoleMediaUploadOptions): Promise<ConsoleUploadAnswer> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new DOMException("The upload was cancelled.", "AbortError"))
+      return
+    }
     // SAFETY: The media library runs in the browser, where XMLHttpRequest exists with this shape.
     const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => ConsoleUploadRequest
     const request = new XHR()
     request.open("POST", url)
-    for (const [name, value] of Object.entries(projectHeaders({ [consoleRpcHeader]: "1" }))) request.setRequestHeader(name, value)
+    for (const [name, value] of Object.entries(headers)) request.setRequestHeader(name, value)
     request.responseType = "json"
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total)
     })
     request.addEventListener("load", () => {
-      const body: unknown = request.response
-      const result = body instanceof Object && !Array.isArray(body) ? body : undefined
-      const ok: unknown = result ? Reflect.get(result, "ok") : undefined
-      if (request.status >= 200 && request.status < 300 && ok === true) {
-        resolve(Reflect.get(result!, "value"))
-        return
-      }
-      const message: unknown = result ? Reflect.get(result, "message") : undefined
-      const code: unknown = result ? Reflect.get(result, "code") : undefined
-      const failure: { code?: string } = {}
-      if (String(code) === code) failure.code = code
-      reject(new ConsoleRequestError(request.status || 502, String(message) === message ? message : request.status === 413 ? "The file is too large for this server." : undefined, failure))
+      resolve({ body: request.response, status: request.status })
     })
     request.addEventListener("error", () => reject(new ConsoleRequestError(0, "The upload could not reach the server.")))
     request.addEventListener("abort", () => reject(new DOMException("The upload was cancelled.", "AbortError")))
     options.signal?.addEventListener("abort", () => request.abort(), { once: true })
-    request.send(form)
+    request.send(body)
   })
 }
 
@@ -206,15 +229,15 @@ export function createConsoleMediaClient(base: string, section: string): Console
     removeFolder: (path, force = false) => typed(call("removeFolder", { force, path })),
     update: (pathname, patch) => typed(call("update", { ...patch, pathname })),
     async upload(file, options = {}) {
-      const form = new FormData()
-      form.set("file", file)
+      const input: Record<string, string> = { data: await fileBase64(file), filename: file.name || "file", section }
+      if (file.type) input.contentType = file.type
       if (options.crop) {
-        form.set("crop", options.crop.name)
-        form.set("pathname", options.crop.pathname)
+        input.crop = options.crop.name
+        input.pathname = options.crop.pathname
       }
-      else if (options.folder) form.set("folder", options.folder)
-      // SAFETY: The upload route returns `{ duplicate, file }`.
-      return await uploadRequest(`${projectUrl("/_vitehub/rpc/__upload")}?section=${encodeURIComponent(section)}`, form, options) as ConsoleMediaUploadResult
+      else if (options.folder) input.folder = options.folder
+      // SAFETY: The `media.upload` operation returns `{ duplicate, file }`.
+      return await uploadRequest(input, options) as ConsoleMediaUploadResult
     },
     async usage(pathnames) {
       const result = await call("usage", { pathnames: [...pathnames] })

@@ -4,21 +4,17 @@ import { drizzle } from "drizzle-orm/libsql";
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text, unique, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-import {
-  consoleDatabaseKey,
-  consoleDatabaseRegistryKey,
-  consoleDatabaseRootKey,
-} from "../src/console/internal.ts";
+import { consoleState } from "../src/console/internal.ts";
 import {
   consoleDatabaseRequestQuery,
   parseConsoleDatabase,
 } from "../src/console/runtime/components/console-database-model.ts";
-import consoleDatabaseHandlerRoute from "../src/console/runtime/server/database.get.ts";
+import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts";
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
-import { allowed } from "./support/console-access.ts";
-import { consoleEvent } from "./console-event.ts";
-
-const consoleDatabaseHandler = allowed(consoleDatabaseHandlerRoute);
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts";
 
 const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -35,14 +31,11 @@ const posts = sqliteTable("posts", {
 const schema = { posts, users };
 const clients: Array<ReturnType<typeof createClient>> = [];
 
-function event(query = "", method = "GET") {
-  return consoleEvent({ method, url: `http://localhost/_vitehub/api/database${query}` });
-}
 
 async function database(name = "default") {
   const client = createClient({ url: "file::memory:" });
   clients.push(client);
-  const db = drizzle({ client, schema });
+  const db = drizzle({ client });
   await client.execute(
     "create table users (id integer primary key autoincrement, email text not null unique, full_name text)",
   );
@@ -60,14 +53,30 @@ async function database(name = "default") {
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();
-  Reflect.deleteProperty(globalThis, consoleDatabaseKey);
-  Reflect.deleteProperty(globalThis, consoleDatabaseRootKey);
-  Reflect.deleteProperty(process, consoleDatabaseKey);
-  Reflect.deleteProperty(process, consoleDatabaseRootKey);
-  Reflect.deleteProperty(process, consoleDatabaseRegistryKey);
+  delete consoleState().database;
+  delete consoleState().sections;
+  delete consoleState().navigationSections;
 });
 
 describe("Console database inspection", () => {
+  it("serves local table and row operations with Setup-only navigation", async () => {
+    installConsoleSections("/project", ["setup", "databases"], ["setup"]);
+    installConsoleDatabase("/project", { default: await database() }, ["default"]);
+    for (const [operation, input, expected] of [
+      ["sections.list", {}, { sections: ["setup"] }],
+      ["databases.tables", {}, { tables: [expect.objectContaining({ name: "posts" }), expect.objectContaining({ name: "users" })] }],
+      ["databases.browse", { table: "users" }, { table: "users", total: 3 }],
+    ] as const) {
+      const response = await handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc", {
+        body: operationRpcBody(operation, input),
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      }), { remoteAddress: "127.0.0.1" });
+      expect(response.status).toBe(200);
+      expect(await operationRpcResponseResult(response)).toMatchObject({ ok: true, value: expected });
+    }
+  });
+
   it("omits table controls from schema requests", () => {
     expect(
       consoleDatabaseRequestQuery({
@@ -85,7 +94,7 @@ describe("Console database inspection", () => {
   it("lists schema metadata before reading a selected table", async () => {
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
 
-    const result = await consoleDatabaseHandler(event());
+    const result = await browseConsoleDatabase({});
 
     expect(result).toMatchObject({
       database: "default",
@@ -124,9 +133,9 @@ describe("Console database inspection", () => {
     const client = createClient({ url: "file::memory:" });
     clients.push(client);
     const schema = { accounts };
-    installConsoleDatabase("/project", { default: { db: drizzle({ client, schema }), schema } }, ["default"]);
+    installConsoleDatabase("/project", { default: { db: drizzle({ client }), schema } }, ["default"]);
 
-    const result = await consoleDatabaseHandler(event());
+    const result = await browseConsoleDatabase({});
 
     expect(Object.fromEntries(result.tables[0]!.columns.map(column => [column.key, column.unique])))
       .toEqual({ tenant: false, email: false, handle: true, externalId: true, activeAlias: false, expression: false });
@@ -135,9 +144,7 @@ describe("Console database inspection", () => {
   it("paginates, filters, and sorts rows through structured read-only inputs", async () => {
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
 
-    const page = await consoleDatabaseHandler(
-      event("?table=users&limit=1&offset=1&sort=email&direction=desc"),
-    );
+    const page = await browseConsoleDatabase({ direction: "desc", limit: 1, offset: 1, sort: "email", table: "users" });
     expect(page).toMatchObject({
       direction: "desc",
       limit: 1,
@@ -154,33 +161,30 @@ describe("Console database inspection", () => {
       },
     ]);
 
-    const filtered = await consoleDatabaseHandler(event("?table=users&search=lovelace"));
+    const filtered = await browseConsoleDatabase({ search: "lovelace", table: "users" });
     expect(filtered.total).toBe(1);
     expect(filtered.rows[0]?.email).toEqual({ kind: "text", value: "ada@example.com" });
   });
 
-  it("selects named databases and rejects mutation or free-form query inputs", async () => {
+  it("selects named databases and rejects free-form query inputs", async () => {
     installConsoleDatabase(
       "/project",
       { analytics: await database("analytics"), default: await database() },
       ["analytics", "default"],
     );
 
-    const named = await consoleDatabaseHandler(event("?database=analytics&table=posts"));
+    const named = await browseConsoleDatabase({ database: "analytics", table: "posts" });
     expect(named.database).toBe("analytics");
     expect(named.databases).toEqual(["default", "analytics"]);
     expect(named.rows[0]?.title).toEqual({ kind: "text", value: "analytics database" });
 
-    await expect(consoleDatabaseHandler(event("?table=users", "POST"))).rejects.toMatchObject({
-      statusCode: 405,
-    });
-    await expect(consoleDatabaseHandler(event("?database=missing"))).rejects.toMatchObject({
+    await expect(browseConsoleDatabase({ database: "missing" })).rejects.toMatchObject({
       statusCode: 404,
     });
     await expect(
-      consoleDatabaseHandler(event("?table=users&sort=drop%20table%20users")),
+      browseConsoleDatabase({ sort: "drop table users", table: "users" }),
     ).rejects.toMatchObject({ statusCode: 400 });
-    await expect(consoleDatabaseHandler(event("?table=users&limit=101"))).rejects.toMatchObject({
+    await expect(browseConsoleDatabase({ limit: 101, table: "users" })).rejects.toMatchObject({
       statusCode: 400,
     });
   });

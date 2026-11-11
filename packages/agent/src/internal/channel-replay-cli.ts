@@ -1,7 +1,9 @@
+import { callOperation, operationCredentialHint } from "@vite-hub/internal/operations"
+
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 import { readAgentDevLoopTokenHeaders } from "./agent-info-cli.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ChannelReplayCliContext {
   env: NodeJS.ProcessEnv
@@ -29,12 +31,10 @@ interface ParsedChannelReplayArgs {
   url?: string
 }
 
-interface ReplayTarget {
-  body: (replay: Record<string, unknown>) => Record<string, unknown>
-  headers: Headers
-  remote: boolean
-  url: string
-}
+/** The running Vite Development Server, or the deployed app that the `channels.replay` operation runs on. */
+type ReplayTarget =
+  | { remote: false, headers: Headers, url: string }
+  | { remote: true, url: string }
 
 /** Items per request. A small batch keeps each request within host time limits and reports progress often. */
 const replayBatchSize = 10
@@ -52,7 +52,7 @@ function writeUsage(context: ChannelReplayCliContext, queryHelp: string[] = []):
     "Without --url, the command uses the running Vite Development Server.",
     "",
     "Options:",
-    "  --url <url>          Deployed Console URL. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to authenticate.",
+    "  --url <url>          Origin of the deployed app. The command calls its channels.replay operation. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the call.",
     "  --server <url>       Vite Development Server URL. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --dry-run            Record Channel message writes in the trace instead of sending them.",
     "  --force              Replay items that already have an Invocation.",
@@ -133,47 +133,39 @@ function baseUrl(value: string, label: string): URL {
   return url
 }
 
-function replayTarget(parsed: ParsedChannelReplayArgs & { agent: string }, env: NodeJS.ProcessEnv): ReplayTarget {
-  const headers = new Headers({ accept: "application/json", "content-type": "application/json" })
-  if (parsed.url) {
-    const base = baseUrl(parsed.url, "--url")
-    if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
-    if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
-    if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
-    if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
-    return {
-      body: replay => ({ agent: parsed.agent, ...replay }),
-      headers,
-      remote: true,
-      url: new URL("_vitehub/channels/replay", base.href.endsWith("/") ? base.href : `${base.href}/`).href,
-    }
-  }
+function replayTarget(parsed: ParsedChannelReplayArgs, env: NodeJS.ProcessEnv): ReplayTarget {
+  if (parsed.url) return { remote: true, url: baseUrl(parsed.url, "--url").href }
   const server = baseUrl(parsed.server || env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173", "--server")
-  headers.set(agentInvocationStreamHeader, agentInvocationStreamHeaderValue)
-  return {
-    body: replay => ({ agent: parsed.agent, replay }),
-    headers,
-    remote: false,
-    url: new URL(agentInvocationStreamRoute, server).href,
-  }
+  const headers = new Headers({ accept: "application/json", "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue })
+  return { headers, remote: false, url: new URL(agentInvocationStreamRoute, server).href }
 }
 
-async function sendReplay(target: ReplayTarget, replay: Record<string, unknown>, fetchImpl: typeof fetch): Promise<Record<string, unknown>> {
+/** Time limit of one replay request. One request runs at most 10 Agent invocations. */
+const replayTimeout = 15 * 60_000
+
+async function sendReplay(target: ReplayTarget, agent: string, replay: Record<string, unknown>, context: ChannelReplayCliContext, fetchImpl: typeof fetch): Promise<Record<string, unknown>> {
+  if (target.remote) {
+    // A deployed app runs the replay as the `channels.replay` operation on its Console RPC.
+    const result = await callOperation({ env: context.env, fetch: fetchImpl, timeout: replayTimeout, url: target.url }, "channels.replay", { agent, ...replay })
+    if (!result.ok) {
+      if (result.status === 401 || result.status === 403) throw cliError(`Console authentication failed with HTTP ${result.status}: ${result.message} ${result.fix ?? operationCredentialHint}`)
+      throw cliError(`Channel replay failed with HTTP ${result.status}: ${result.message}`)
+    }
+    if (!isRuntimeRecord(result.value)) throw cliError("Channel replay returned an invalid response.")
+    return result.value
+  }
   let response: Response
   try {
     response = await fetchImpl(target.url, {
-      body: JSON.stringify(target.body(replay)),
+      body: JSON.stringify({ agent, replay }),
       headers: target.headers,
       method: "POST",
       redirect: "manual",
-      signal: AbortSignal.timeout(15 * 60_000),
+      signal: AbortSignal.timeout(replayTimeout),
     })
   }
   catch {
-    throw cliError(target.remote ? `Channel replay request to ${target.url} failed.` : `No Compatible Vite Development Server found at ${new URL(target.url).origin}.`)
-  }
-  if (target.remote && (response.status === 401 || response.status === 403 || (response.status >= 300 && response.status < 400))) {
-    throw cliError(`Console authentication failed with HTTP ${response.status}. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.`)
+    throw cliError(`No Compatible Vite Development Server found at ${new URL(target.url).origin}.`)
   }
   const text = await response.text()
   let json: unknown
@@ -184,7 +176,7 @@ async function sendReplay(target: ReplayTarget, replay: Record<string, unknown>,
     json = undefined
   }
   if (!response.ok) {
-    const message = isRuntimeRecord(json) && hasRuntimeType(json.message, "string") ? json.message : text.slice(0, 500)
+    const message = isRuntimeRecord(json) && typeof json.message === "string" ? json.message : text.slice(0, 500)
     throw cliError(`Channel replay failed with HTTP ${response.status}${message ? `: ${message}` : "."}`)
   }
   if (!isRuntimeRecord(json)) throw cliError("Channel replay returned an invalid response.")
@@ -203,11 +195,11 @@ export function channelReplayQueryHelp(schema: unknown): string[] {
   if (!properties) return ["  This history query has no JSON Schema. Use --filter key=value."]
   const required = isRuntimeRecord(schema) && Array.isArray(schema.required) ? schema.required : []
   return Object.entries(properties).map(([name, property]) => {
-    const values = Array.isArray(property.enum) ? property.enum.map(String).join("|") : hasRuntimeType(property.type, "string") ? property.type : "value"
+    const values = Array.isArray(property.enum) ? property.enum.map(String).join("|") : typeof property.type === "string" ? property.type : "value"
     const notes = [
       required.includes(name) ? "required" : undefined,
       property.type === "array" ? "repeatable" : undefined,
-      hasRuntimeType(property.description, "string") ? property.description : undefined,
+      typeof property.description === "string" ? property.description : undefined,
     ].filter(Boolean).join(", ")
     return `  ${valueOptions.has(`--${name}`) ? `--query ${name}=<${values}>` : `--${name} <${values}>`}${notes ? `  ${notes}` : ""}`
   })
@@ -235,15 +227,15 @@ function writeItems(context: ChannelReplayCliContext, items: unknown): number {
   if (!Array.isArray(items)) return 0
   for (const item of items) {
     if (!isRuntimeRecord(item)) continue
-    const reason = hasRuntimeType(item.reason, "string") ? ` (${item.reason})` : ""
-    const error = hasRuntimeType(item.error, "string") ? `: ${item.error}` : ""
+    const reason = typeof item.reason === "string" ? ` (${item.reason})` : ""
+    const error = typeof item.error === "string" ? `: ${item.error}` : ""
     context.stdout.write(`${String(item.status).padEnd(9)} ${String(item.key)}${reason}${error}\n`)
   }
   return items.length
 }
 
 function count(result: Record<string, unknown>, key: "failed" | "processed" | "skipped"): number {
-  return hasRuntimeType(result[key], "number") ? result[key] : 0
+  return typeof result[key] === "number" ? result[key] : 0
 }
 
 export async function runAgentChannelReplayCli(
@@ -261,14 +253,14 @@ export async function runAgentChannelReplayCli(
     if (!agent) throw cliError("channels replay requires --agent <name>.")
     if (!channel) throw cliError("channels replay requires --channel <name>.")
     const fetchImpl = options.fetch || globalThis.fetch
-    const target = replayTarget({ ...parsed, agent }, context.env)
+    const target = replayTarget(parsed, context.env)
     if (!target.remote) {
       const tokenHeaders = await readAgentDevLoopTokenHeaders(target.url, context.rootDir, fetchImpl, AbortSignal.timeout(30_000)).catch(() => {
         throw cliError(`No Compatible Vite Development Server found at ${new URL(target.url).origin}.`)
       })
       for (const [name, value] of Object.entries(tokenHeaders)) target.headers.set(name, value)
     }
-    const description = await sendReplay(target, { channel, describe: true }, fetchImpl)
+    const description = await sendReplay(target, agent, { channel, describe: true }, context, fetchImpl)
     if (parsed.help) {
       writeUsage(context, channelReplayQueryHelp(description.query))
       return 0
@@ -279,7 +271,7 @@ export async function runAgentChannelReplayCli(
     let remaining = parsed.limit ?? Number.POSITIVE_INFINITY
     const seenCursors = new Set<string>(cursor ? [cursor] : [])
     while (remaining > 0) {
-      const result = await sendReplay(target, {
+      const result = await sendReplay(target, agent, {
         channel,
         ...(cursor ? { cursor } : {}),
         ...(parsed.dryRun ? { dryRun: true } : {}),
@@ -287,13 +279,13 @@ export async function runAgentChannelReplayCli(
         ...(parsed.label !== undefined ? { label: parsed.label } : {}),
         limit: Math.min(remaining, replayBatchSize),
         ...(Object.keys(query).length ? { query } : {}),
-      }, fetchImpl)
+      }, context, fetchImpl)
       const read = writeItems(context, result.items)
       totals.failed += count(result, "failed")
       totals.processed += count(result, "processed")
       totals.skipped += count(result, "skipped")
       remaining -= read
-      const nextCursor = hasRuntimeType(result.nextCursor, "string") ? result.nextCursor : undefined
+      const nextCursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined
       if (nextCursor && seenCursors.has(nextCursor)) throw cliError("Channel replay returned a repeated pagination cursor.")
       if (nextCursor) seenCursors.add(nextCursor)
       cursor = nextCursor

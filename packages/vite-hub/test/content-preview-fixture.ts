@@ -22,7 +22,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import * as v from "valibot"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { registerWorkspace } from "@vite-hub/workspace/test"
-import { defineContent, documents } from "vite-hub/content"
+import { defineContent } from "vite-hub/content"
+import { documents } from "vite-hub/content/collections"
 
 const objects = new Map()
 const object = (pathname, bytes) => ({ pathname, size: bytes.byteLength, contentType: "application/octet-stream", uploadedAt: new Date() })
@@ -33,10 +34,10 @@ const blob = {
   async del(pathnames) { for (const pathname of [pathnames].flat()) objects.delete(pathname); return [undefined, undefined] },
   async list({ prefix = "" } = {}) { return [undefined, { blobs: [...objects].filter(([key]) => key.startsWith(prefix)).map(([key, bytes]) => object(key, bytes)), hasMore: false }] },
 }
-const database = drizzle(createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }), { schema: workspaceHistorySchema })
+const database = drizzle({ client: createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }) })
 registerWorkspace("site", { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "site" }) })
 
-export const content = defineContent({
+export default defineContent({
   workspace: "site",
   collections: { posts: documents({ path: "posts/**/*.md", fields: { title: v.string() } }) },
   logger: false,
@@ -46,7 +47,7 @@ export const content = defineContent({
 /** Server routes, as `[path, source]`, relative to the server directory. */
 export function contentRoutes(contentImport: string): Array<[string, string]> {
   const page = (delay: number) => `
-import { content } from ${JSON.stringify(contentImport)}
+import content from ${JSON.stringify(contentImport)}
 
 let renders = 0
 export default async () => {
@@ -59,7 +60,7 @@ export default async () => {
     ["routes/page.ts", page(0)],
     ["routes/slow.ts", page(300)],
     ["routes/seed.post.ts", `
-import { content } from ${JSON.stringify(contentImport)}
+import content from ${JSON.stringify(contentImport)}
 
 export default async () => {
   const posts = content.collection("posts")
@@ -72,7 +73,7 @@ export default async () => {
 }
 `],
     ["routes/preview.post.ts", `
-import { content } from ${JSON.stringify(contentImport)}
+import content from ${JSON.stringify(contentImport)}
 
 export default async event => await content.preview.enable(event)
 `],
@@ -107,7 +108,7 @@ export async function createHistoryDatabase(path: string): Promise<void> {
   }
 }
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   const server = createServer()
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
   const address = server.address()
@@ -124,8 +125,8 @@ export interface BuiltServer {
 }
 
 /** Start `.output/server/index.mjs` and wait until it answers. */
-export async function startBuiltServer(root: string, env: Record<string, string>): Promise<BuiltServer> {
-  const port = await freePort()
+export async function startBuiltServer(root: string, env: Record<string, string>, options: { port?: number } = {}): Promise<BuiltServer> {
+  const port = options.port ?? await freePort()
   let output = ""
   const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
     env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },
@@ -197,7 +198,7 @@ export async function expectPreviewBypassesCache(server: BuiltServer, expect: ty
  * redirect hop answers with, so a browser run sees what every hop read and which cookies it got.
  */
 const framePage = `
-import { content } from "./content.ts"
+import content from "./content.ts"
 
 const escape = value => String(value ?? "").replace(/[&<>"]/g, character => "&#" + character.charCodeAt(0) + ";")
 
@@ -273,7 +274,7 @@ export function nitro3FrameRoutes(contentImport: string): Array<[string, string]
   const redirect = (location: string) => `export default () => new Response(null, { status: 302, headers: { location: ${JSON.stringify(location)} } })\n`
   return [
     ["frame-page.ts", framePage],
-    ["routes/sign.post.ts", `import { content } from ${JSON.stringify(contentImport)}\n\nexport default async () => await content.preview.sign({ collection: "posts", id: "hello" })\n`],
+    ["routes/sign.post.ts", `import content from ${JSON.stringify(contentImport)}\n\nexport default async () => await content.preview.sign({ collection: "posts", id: "hello" })\n`],
     ["routes/frame-page.ts", `import { page } from "../frame-page.ts"\n\nexport default async event => ${html(`await page(event.req.headers.get("cookie"))`)}\n`],
     ["routes/account.ts", `import { page } from "../frame-page.ts"\n\nexport default async (event) => {\n  const cookie = event.req.headers.get("cookie") ?? ""\n  if (!cookie.includes("session=")) return new Response("Sign in first", { status: 401 })\n  return ${html("await page(cookie)")}\n}\n`],
     ["routes/go.ts", redirect("/frame-page?from=go#intro")],

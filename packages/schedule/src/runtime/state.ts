@@ -1,13 +1,29 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import { createMemoryScheduleRunStore } from "./store.ts"
+import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 
-import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
+
+/** The cron and time zone of a Schedule that the Process Runtime runs. */
+type ProcessScheduleTimingRecord = Pick<ScheduleDefinition, "cron" | "timeZone">
+
+/** What `startSchedule()` and the started-Schedule tick use. The generated Nitro plugin installs it. */
+export interface StartedScheduleRuntime {
+  /** How far back the first tick after a start runs cron minutes that no tick checked. */
+  catchUpMs: number
+  /** Last minute, in epoch milliseconds, that a tick of this process checked. */
+  checkedThrough?: number
+  /** Schedule Definitions without `cron`, by name. */
+  registry: ScheduleDefinitionRegistry
+  store: StartedScheduleStore
+}
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
-const processDefinitions = new Set<ReadonlyMap<string, ScheduleRegistryDefinition>>()
+const processDefinitions = new Set<ReadonlyMap<string, ProcessScheduleTimingRecord>>()
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
+let startedRuntime: StartedScheduleRuntime | undefined
 const loadedRegistryEntries = new Map<string, ScheduleRegistryDefinition | undefined>()
 const loadingRegistryEntries = new Map<string, {
   promise: Promise<ScheduleRegistryDefinition | undefined>
@@ -15,14 +31,9 @@ const loadingRegistryEntries = new Map<string, {
 }>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function isScheduleDefinition(value: unknown): value is ScheduleRegistryDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof Reflect.get(value, "handler") === "function"
 }
 
@@ -38,12 +49,12 @@ export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undef
 }
 
 /** Publish only ready runtimes, retaining earlier snapshots until their controllers close. */
-export function registerProcessScheduleDefinitions(definitions: ReadonlyMap<string, ScheduleRegistryDefinition>): () => void {
+export function registerProcessScheduleDefinitions(definitions: ReadonlyMap<string, ProcessScheduleTimingRecord>): () => void {
   processDefinitions.add(definitions)
   return () => { processDefinitions.delete(definitions) }
 }
 
-export function getProcessScheduleDefinitions(): ReadonlyMap<string, ScheduleRegistryDefinition> | undefined {
+export function getProcessScheduleDefinitions(): ReadonlyMap<string, ProcessScheduleTimingRecord> | undefined {
   return [...processDefinitions].at(-1)
 }
 
@@ -53,6 +64,14 @@ export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
 
 export function getScheduleRunStore(): ScheduleRunStore {
   return runStore ??= createMemoryScheduleRunStore()
+}
+
+export function setStartedScheduleRuntime(runtime: StartedScheduleRuntime | undefined): void {
+  startedRuntime = runtime
+}
+
+export function getStartedScheduleRuntime(): StartedScheduleRuntime | undefined {
+  return startedRuntime
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleRegistryDefinition | undefined> {
@@ -108,6 +127,7 @@ export function resetScheduleRuntime(): void {
   processDefinitions.clear()
   runtimeRegistryVersion++
   runStore = undefined
+  startedRuntime = undefined
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
 }

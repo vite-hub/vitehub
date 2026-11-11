@@ -6,7 +6,6 @@ import { defineAgent } from "../src/index.ts"
 import { withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
 import { usesProcessHostPreset } from "../src/discovery.ts"
 import { createAgentProcessHosts } from "../src/runtime/process.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 
 const roots: string[] = []
 afterEach(async () => {
@@ -106,7 +105,7 @@ describe("generated process hosts", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await project(workerSource)
     const plugin = hubAgent({ providers: { state: { provider: "libsql", journalMode: "delete", url: "file:state.sqlite" } } })
-    if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+    if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     await plugin.configResolved.call({} as never, { command: "build", root } as never)
     const entry = await readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")
@@ -115,6 +114,16 @@ describe("generated process hosts", () => {
     expect(await readFile(join(root, ".vitehub/agent/process-hosts-plugin.ts"), "utf8")).toContain("setTimeout(() => host.start(), 0)")
     expect(await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")).toContain("export const agentProcessHostState = () => chatStateFromLibsql()")
     expect(await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")).toContain('"journalMode":"delete"')
+    // The drain and health routes are Fetchables. Run them with a stub host.
+    const host = { health: async () => ({ agents: {}, status: "healthy" }), status: () => "accepting" }
+    for (const [file, body] of [["process-hosts-drain.ts", { status: "accepting" }], ["process-hosts-health.ts", { agents: {}, status: "healthy" }]] as const) {
+      const source = await readFile(join(root, ".vitehub/agent", file), "utf8")
+      expect(source).not.toContain("h3")
+      const route = new Function("host", source.replace(/^import .*\n/gm, "").replace("export default ", "return "))(host) as { fetch: () => Response | Promise<Response> }
+      const response = await route.fetch()
+      expect(response.headers.get("content-type")).toBe("application/json")
+      await expect(response.json()).resolves.toEqual(body)
+    }
 
     // The extends form is discovered the same way.
     await writeFile(join(root, "server", "agents", "worker", "agent.ts"), workerSource.replace('preset: "worker", presets: { worker }', "extends: worker"), "utf8")
@@ -131,7 +140,7 @@ describe("generated process hosts", () => {
     const root = await project(workerSource)
     const config = (preset?: string) => {
       const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } })
-      if (!isRuntimeFunction(plugin.config)) throw new TypeError("Expected Agent config hook.")
+      if (typeof plugin.config !== "function") throw new TypeError("Expected Agent config hook.")
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const options = { root, ...(preset ? { preset } : {}), nitro: {} } as never
       plugin.config.call({} as never, options, { command: "build", mode: "production" } as never)

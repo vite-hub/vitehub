@@ -19,6 +19,19 @@ export interface AuthRuntimeState {
   accessIdentityResolvers?: Map<string, AuthAccessIdentityResolver>
   /** The in-memory tables of each Auth Definition without a database, shared by all of its Better Auth instances. */
   memoryDatabases?: WeakMap<object, Record<string, unknown[]>>
+  /** Serializes claim reservations across Auth instances in this process. */
+  adminClaimQueues?: Map<string, Promise<boolean>>
+}
+
+/**
+ * Marks the database that Auth adds to a Definition without one. It keeps rows in the memory of one process, so a value
+ * that another instance must see, such as a one-time ticket, cannot live there.
+ */
+export const authProcessMemoryDatabase: unique symbol = Symbol.for("vitehub.auth.processMemoryDatabase")
+
+/** Whether a Better Auth `database` option is the process memory database that Auth adds. */
+export function isAuthProcessMemoryDatabase(database: unknown): boolean {
+  return database instanceof Object && Reflect.get(database, authProcessMemoryDatabase) === true
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {

@@ -21,6 +21,7 @@ interface DiffModelStub {
 interface CodeViewModelStub {
   cleanUp: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
+  scrollTo: ReturnType<typeof vi.fn>;
   setItems: ReturnType<typeof vi.fn>;
   setOptions: ReturnType<typeof vi.fn>;
   setSelectedLines: ReturnType<typeof vi.fn>;
@@ -57,6 +58,7 @@ vi.mock("@pierre/diffs", () => ({
   CodeView: class {
     cleanUp = vi.fn();
     render = vi.fn();
+    scrollTo = vi.fn();
     setItems = vi.fn();
     setOptions = vi.fn();
     setSelectedLines = vi.fn();
@@ -381,6 +383,29 @@ describe("Pierre lifecycle adapters", () => {
 
     wrapper.unmount();
     expect(instance.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it("scrolls the virtualized CodeView to each new selection", async () => {
+    const items = [{ file: { contents: "ok", name: "status.ts" }, id: "status", type: "file" }] as const;
+    const range = { end: 9, start: 6 };
+    const wrapper = mount(PierreCodeView, {
+      props: { items, scrollToSelectedLines: true, selectedLines: { id: "status", range } },
+    });
+    await flushRender();
+
+    const instance = codeViewState.instances.at(-1)!;
+    expect(instance.scrollTo).toHaveBeenCalledExactlyOnceWith({ align: "center", id: "status", range, type: "range" });
+
+    // The same lines in a new object are not a new selection.
+    await wrapper.setProps({ selectedLines: { id: "status", range: { ...range } } });
+    await flushRender();
+    expect(instance.scrollTo).toHaveBeenCalledOnce();
+
+    await wrapper.setProps({ selectedLines: { id: "status", range: { end: 2, start: 2 } } });
+    await flushRender();
+    expect(instance.scrollTo).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
   });
 
   it("forwards in-place option and versioned CodeView item updates", async () => {

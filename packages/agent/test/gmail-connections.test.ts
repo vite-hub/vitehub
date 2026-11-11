@@ -8,7 +8,8 @@ import { google } from "../../connections/src/google.ts"
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createDatabaseConnectionStore } from "../../connections/src/store.ts"
 import { gmail } from "../src/capabilities/gmail.ts"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { agentInvocationTraceIdContextKey } from "../src/trace.ts"
 
 import type { AgentToolDefinition } from "../src/types.ts"
@@ -17,7 +18,7 @@ const scopes = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.g
 
 async function fixture(rule: { read?: boolean, write?: readonly string[], approve?: boolean } = { read: true, write: ["gmail.users.drafts.create"], approve: false }) {
   const database = createClient({ url: ":memory:" })
-  const store = createDatabaseConnectionStore({ db: drizzle(database), encryptionKey: new Uint8Array(32).fill(3) })
+  const store = createDatabaseConnectionStore({ db: drizzle({ client: database }), encryptionKey: new Uint8Array(32).fill(3) })
   const requests: Array<{ body?: string, method: string, signal?: AbortSignal | null, url: URL }> = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString())
@@ -138,7 +139,7 @@ it("rejects a caller-selected Connection identity on an unnamed public Agent inv
         return await execute(context.tools?.gmail_search, { max: 5, query: "in:inbox" })
       } },
     })
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       agentIdentity: { name: "labeller" },
       runtime: "unknown", memo: (_key, fn) => fn(), waitUntil: () => {},
       capabilities: { connections: { runtime: () => test.runtime } },

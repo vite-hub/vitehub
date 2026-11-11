@@ -7,6 +7,7 @@ import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { provideConsoleMediaPicker } from "../client/media";
 import { consoleMediaBase, consoleMediaFileUrl, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
 import { ConsoleRequestError, isConsoleSignInRequired, requestConsole } from "../client/request";
+import { consoleQueryText } from "../client/route-query";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
@@ -208,6 +209,13 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
 }
 /** The document the editor opens: the route id, or the one document of a singleton. */
 const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
+/** The translation the editor opens, from `?locale=`. The source locale, the default, has no query. */
+const editorLocale = computed(() => {
+  const locale = consoleQueryText(route.query.locale);
+  const locales = collection.value?.locales;
+  return editorDocumentId.value && locale && locales?.includes(locale) && locale !== locales[0] ? locale : undefined;
+});
+const editorClient = computed(() => (editorLocale.value ? createConsoleDocumentsClient(props.documentsBase, section.value, editorLocale.value) : client.value));
 
 async function loadCollections(): Promise<void> {
   const current = ++collectionsRequest;
@@ -338,26 +346,24 @@ onBeforeUnmount(() => {
           <div v-if="!collapsed && error && isConsoleSignInRequired(error)" class="px-1 pb-2">
             <UAlert
               color="neutral"
-              variant="subtle"
               icon="i-lucide-log-in"
               title="Sign in to edit"
               description="You are not signed in, or your session ended. Sign in, then reload."
-              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: reload }]"
+              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: reload }]"
             />
           </div>
           <div v-else-if="!collapsed && error" class="px-1 pb-2">
             <UAlert
               color="error"
-              variant="subtle"
               icon="i-lucide-cloud-off"
               title="Couldn't load collections"
               :description="consoleErrorMessage(error)"
-              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadCollections }]"
+              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: loadCollections }]"
             />
           </div>
           <template v-else-if="loading && !collections.length">
             <!-- Two rows at the 2rem height of a collection link, so a usual section keeps its sidebar layout. -->
-            <USkeleton v-for="index in 2" :key="index" class="h-8 rounded-md" />
+            <USkeleton v-for="index in 2" :key="index" class="h-8" />
           </template>
           <template v-else-if="listCollections.length">
             <UTooltip
@@ -394,12 +400,16 @@ onBeforeUnmount(() => {
               </RouterLink>
             </UTooltip>
           </template>
-          <p v-else-if="!collapsed && !singletons.length && setup?.access" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
-            <ConsoleSetupHint :hint="setup.access" />
-          </p>
-          <p v-else-if="!collapsed && !singletons.length" class="px-2 py-1.5 text-xs text-muted">
-            No collections you can read.
-          </p>
+          <UEmpty v-else-if="!collapsed && !singletons.length && setup?.access" variant="naked" size="xs" title="No one can read documents yet">
+            <template #description><ConsoleSetupHint :hint="setup.access" /></template>
+          </UEmpty>
+          <UEmpty
+            v-else-if="!collapsed && !singletons.length"
+            variant="naked"
+            size="xs"
+            title="No collections you can read"
+            description="Ask an admin for read access to a collection."
+          />
 
           <template v-for="group in pageGroups" :key="group.label">
             <p v-if="!collapsed" class="vitehub-console__section-heading">{{ group.label }}</p>
@@ -430,7 +440,7 @@ onBeforeUnmount(() => {
       @changed="changes++"
     />
 
-    <UDashboardPanel :id="`${section}-documents`" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel :id="`${section}-documents`">
       <ConsoleDocumentDashboard
         v-if="page?.view.kind === 'document-dashboard'"
         :client="client"
@@ -477,10 +487,12 @@ onBeforeUnmount(() => {
       </template>
       <template v-else-if="collection && (editorDocumentId || creating)">
         <ConsoleDocumentEditor
-          :key="`${collection.name}/${editorDocumentId ?? '~new'}`"
-          :client="client"
+          :key="`${collection.name}/${editorDocumentId ?? '~new'}${editorLocale ? `@${editorLocale}` : ''}`"
+          :client="editorClient"
           :collection="collection"
           :document-id="editorDocumentId"
+          :locale="editorLocale"
+          :source-client="editorLocale ? client : undefined"
           :parent="collection.kind === 'singleton' && settingsPage ? { label: settingsPage.label, to: pageRoute(settingsPage) } : undefined"
           :changes="changes"
           :setup="setup"

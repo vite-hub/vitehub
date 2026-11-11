@@ -11,20 +11,24 @@ navigation.group: Start
 icon: i-lucide-messages-square
 ---
 
-Build a chat app you can keep using after a page refresh or a server restart. You will sign in, create conversations, stream replies, switch between saved chats, stop a reply, and delete history. Nuxt serves the app. A ViteHub Agent runs each reply. `@vite-hub/ui` renders the messages and prompt. Your application owns sign-in, transport, and the SQLite database.
+Build a chat app that keeps conversations after a refresh or restart, with sign-in, streaming, saved chats, Stop, and delete. Nuxt serves the app, a ViteHub Agent writes each reply, and `@vite-hub/ui` shows the messages and prompt. Your app owns sign-in, transport, and the SQLite database.
 
-Start with a deterministic Driver. Send `Hello` and see `Offline reply 1: Hello` appear a word at a time. After a restart, send `Still here?` in the same chat and see `Offline reply 2: Still here?`. Once that path works, one environment setting enables a model through AI Gateway.
+You start with an offline Driver, the part of the Agent that makes a fixed reply, so you can test without a model. `Hello` gets `Offline reply 1: Hello`, word by word. After a restart, `Still here?` gets `Offline reply 2: Still here?`. Then one setting switches to a real model through AI Gateway.
 
-The [complete source](https://github.com/vite-hub/vitehub/tree/main/fixtures/tutorials/chat-app) includes the app, a sample environment, and tests. This follows the finished-app structure of the [Nuxt UI chat tutorial](https://ui.nuxt.com/blog/how-to-build-an-ai-chat). It uses the current [ViteHub chat components](/docs/ui/blocks/chat-app).
+The [complete source](https://github.com/vite-hub/vitehub/tree/main/fixtures/tutorials/chat-app) has the app, a sample environment, and tests. It follows the finished app of the [Nuxt UI chat tutorial](https://ui.nuxt.com/blog/how-to-build-an-ai-chat) with the [ViteHub chat components](/docs/ui/blocks/chat-app).
 
-You need Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+, Git, Corepack, and a writable local directory. Allow time for the first repository install and package build. The offline journey needs no provider account, API key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network connection, and a model available to that account. Provider calls can cost money. Check current model pricing and set a provider budget before using that mode.
+You need Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
 
-This is a personal, text-only app for one owner on one Node process. It deliberately leaves out public registration, attachments, tools, and resumable generation. Each completed turn saves the user message and answer together. A failed, stopped, or interrupted turn does not enter saved history.
+::warning
+Provider calls can cost money. Check model prices and set a provider budget before you use model mode.
+::
+
+This is a text-only app for one owner on one Node process, without public registration, attachments, tools, or resumable replies. A completed turn saves the user message and answer together. A failed, stopped, or interrupted turn is not saved.
 
 ::tutorial-step{title="Set up the project"}
 ## Set up the project
 
-Use the repository checkout so the fixture and ViteHub packages come from the same revision. The root lockfile pins the full dependency graph. Do not replace `workspace:*` with the package version printed in the manifest; it may describe an older published contract.
+Clone the repository, so the app and the ViteHub packages come from one commit. The root lockfile pins every dependency. Keep `workspace:*`: the manifest version can point to an older release.
 
 ```sh [commands/checkout]
 git clone https://github.com/vite-hub/vitehub.git
@@ -34,7 +38,7 @@ corepack pnpm exec vp run --cache --filter vite-hub... --filter @vite-hub/ui... 
 cd fixtures/tutorials/chat-app
 ```
 
-The checkout already contains the finished files. Read and edit them as you follow the steps. All file paths below are relative to `fixtures/tutorials/chat-app`. The code panel contains each complete application file.
+The checkout has the finished files to read and edit. Paths start from `fixtures/tutorials/chat-app`. The code panel shows each full file.
 
 ```json [package.json]
 {
@@ -76,7 +80,13 @@ The checkout already contains the finished files. Read and edit them as you foll
 
 The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
-Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
+- The ViteHub module finds Agent Definitions (one file per Agent) in `server/agents`.
+- `preset: "node"` builds for a Node.js server.
+- `workflow: false` runs each short reply (an Invocation) inside the request.
+- Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
+- `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
+- `buildDir: ".nuxt"` keeps generated TypeScript in the project. This Nuxt version builds under `node_modules` by default, where the pinned Nitro skips TypeScript transforms.
+- The Shiki aliases inline its WebAssembly for the Nuxt 5 server build.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -90,6 +100,16 @@ export default defineNuxtConfig({
     console: false,
   }]],
   css: ["~/assets/main.css"],
+  vite: {
+    resolve: {
+      alias: [
+        // Inline Shiki's WebAssembly for the Nuxt 5 server build.
+        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+      ],
+    },
+  },
   ui: { fonts: false },
   devtools: { enabled: false },
 });
@@ -118,7 +138,7 @@ body { margin: 0; font-family: system-ui, sans-serif; }
 node_modules/
 ```
 
-Keep credentials in the server environment. The example contains no secrets.
+Keep credentials in the server environment. The example has no secrets.
 
 ```ini [.env.example]
 CHAT_MODE=offline
@@ -132,7 +152,7 @@ NITRO_HOST=127.0.0.1
 NITRO_PORT=4318
 ```
 
-This setup script creates two different random secrets. The owner uses `CHAT_PASSWORD` to sign in. H3 uses `CHAT_SESSION_SECRET` to encrypt the cookie. The script refuses to overwrite an existing `.env`.
+This script creates `.env` with two random secrets: `CHAT_PASSWORD` to sign in, and `CHAT_SESSION_SECRET` for H3 to encrypt the cookie. It never overwrites an existing `.env`.
 
 ```js [scripts/setup.mjs]
 import { randomBytes } from "node:crypto";
@@ -150,13 +170,13 @@ console.log("Created .env. Open it to read your owner password. Existing .env fi
 corepack pnpm run setup
 ```
 
-Checkpoint: `.env` exists, has private file permissions, and contains random values for both secrets. Open it locally to read the owner password. Do not paste that password or a model key into a source file. Keep the host and origin as `127.0.0.1:4318` for the local steps.
+Checkpoint: `.env` exists, only you can read it, and both secrets are random. Read the owner password there. Never paste it or a model key into source. Keep host and origin at `127.0.0.1:4318` for local steps.
 ::
 
 ::tutorial-step{title="Store completed conversations"}
 ## Store completed conversations
 
-A chat has an ID, a title, a revision, and text messages. The same text-only message shape works with the Agent input and the UI. The server generates message IDs. The first prompt supplies the chat title without another model call.
+A chat has an ID, a title, a revision, and text messages in a shape that both the Agent and the UI accept. The server creates message IDs. The first prompt becomes the title, with no extra model call.
 
 ```ts [shared/chat.ts]
 import { z } from "zod";
@@ -183,9 +203,9 @@ export function textMessage(role: ChatMessage["role"], text: string): ChatMessag
 }
 ```
 
-Use Node's SQLite driver for this one-process example. The database lives at `CHAT_DB_PATH`, outside build output. Every lookup, update, and delete includes the authenticated owner. Knowing a chat ID does not grant access.
+Node's built-in SQLite fits this one-process app. The database is at `CHAT_DB_PATH`, outside the build output. Every query checks the signed-in owner, so knowing a chat ID gives no access.
 
-The revision changes after each completed turn. A conditional update rejects a stale tab instead of overwriting a newer conversation. The app saves both messages in one SQL statement, so a crash cannot leave half of a completed turn.
+Each completed turn increments the revision. A save runs only if the revision still matches, so an old tab gets an error instead of overwriting newer messages. Both messages save in one SQL statement, so a crash cannot save half a turn.
 
 ```ts [server/utils/store.ts]
 import { mkdirSync } from "node:fs";
@@ -252,15 +272,15 @@ export const activeChats = new Set<string>();
 corepack pnpm test
 ```
 
-Checkpoint: the store test passes. It saves a turn, closes and reopens the database, checks that another owner cannot read or delete it, rejects a stale save, and deletes the chat. See the [store test source](https://github.com/vite-hub/vitehub/blob/main/fixtures/tutorials/chat-app/test/store.test.ts).
+Checkpoint: the store test passes. It saves a turn, reopens the database, checks that another owner cannot read or delete it, rejects an old revision, and deletes the chat. See the [store test source](https://github.com/vite-hub/vitehub/blob/main/fixtures/tutorials/chat-app/test/store.test.ts).
 ::
 
 ::tutorial-step{title="Require the owner to sign in"}
 ## Require the owner to sign in
 
-Keep access checks on the server before reading history or running an Agent. This personal app uses H3's encrypted cookie session and one high-entropy owner password. It has no public sign-up route. The cookie lasts 12 hours and uses `HttpOnly` and `SameSite=Strict`. An HTTPS `CHAT_ORIGIN` also enables `Secure`.
+Check access on the server before reading history or running an Agent. The app uses H3's encrypted cookie session and one long random owner password, with no sign-up route. The cookie lasts 12 hours with `HttpOnly` and `SameSite=Strict`, plus `Secure` when `CHAT_ORIGIN` is HTTPS.
 
-Write requests must carry the configured Origin. This check also applies to sign-in and sign-out. A client script such as curl must send the same Origin header as the browser.
+Every write request, including sign-in and sign-out, must send the configured Origin. Scripts such as curl must send it too.
 
 ```ts [server/utils/session.ts]
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -308,7 +328,7 @@ export function validPassword(value: string) {
 }
 ```
 
-The middleware rejects ViteHub's generated endpoints. The app uses only its own `/api/chat` route, where history, ownership, and limits are checked together. Enabling an Agent integration must not open a second route around those checks.
+The middleware blocks ViteHub's generated endpoints. Only the app's `/api/chat` route runs the Agent, so no second route can skip its history, owner, and limit checks.
 
 ```ts [server/middleware/access.ts]
 import { createError, defineEventHandler, setHeader } from "h3";
@@ -327,7 +347,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-The session route supports status, sign-in, and sign-out. Its simple login limit applies to the whole process. Persistent or shared login limits belong at the reverse proxy for a public service.
+The session route handles status, sign-in, and sign-out, with 10 sign-in attempts per minute per process. A public service needs shared limits in the reverse proxy.
 
 ```ts [server/api/session.ts]
 import { createError, defineEventHandler, readValidatedBody } from "h3";
@@ -360,21 +380,21 @@ Start the app from the fixture directory:
 corepack pnpm dev
 ```
 
-Keep it running. In another terminal, test an unauthenticated request:
+In another terminal, send a request without signing in:
 
 ```sh [commands/check-access]
 curl -i http://127.0.0.1:4318/api/chats
 ```
 
-Checkpoint: the request returns `401`. The browser at `http://127.0.0.1:4318` shows sign-in. Use the owner password from `.env`. A missing or short secret leaves the API unavailable; it never enables anonymous access.
+Checkpoint: the request returns `401`. `http://127.0.0.1:4318` shows sign-in. Use the password from `.env`. A missing or short secret makes the API unavailable, never anonymous.
 ::
 
 ::tutorial-step{title="Define the offline and model Agents"}
 ## Define the offline and model Agents
 
-The offline Driver receives the saved conversation plus the new prompt. It counts user turns and streams a fixed reply. Its delay makes the stream visible and gives Stop a path to test. It observes `input.abortSignal`, so closing the response stops its work.
+The offline Driver gets the saved conversation and new prompt, counts user turns, and streams a fixed reply. A delay between words makes the stream visible and Stop testable. It stops when the response closes, through `input.abortSignal`.
 
-ViteHub event deltas use `text`. The AI SDK transport uses `delta`. The API step below connects those contracts.
+ViteHub events carry text in `text`. The AI SDK transport uses `delta`. The API route converts it.
 
 ```ts [server/agents/offline.ts]
 import { setTimeout } from "node:timers/promises";
@@ -398,9 +418,7 @@ export default defineAgent({
 });
 ```
 
-The second Definition uses the supported model Driver. A model ID string selects AI Gateway. ViteHub reads `AI_GATEWAY_API_KEY` from the server environment when that Driver runs. Defining the Agent makes no provider call.
-
-Limit output, retries, and steps before enabling a billed model. This app grants no tools or Workspace access.
+The second Agent uses the model Driver. A model ID string goes through AI Gateway, with `AI_GATEWAY_API_KEY` read when the Driver runs. Defining it calls no provider. Limit output, retries, and steps before you use a paid model. The Agent gets no tools or Workspace access.
 
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from "vite-hub/agent";
@@ -417,13 +435,13 @@ export default defineAgent({
 });
 ```
 
-Checkpoint: `CHAT_MODE=offline` selects the deterministic Agent. Keep `AI_GATEWAY_API_KEY` empty for the first journey. Both Definitions use `runtime: false`; generation belongs to the active Node request and does not resume after a crash. `invocations: false` disables the separate Agent journal. This app keeps conversation history in its own database.
+Checkpoint: `CHAT_MODE=offline` selects the offline Agent. Keep `AI_GATEWAY_API_KEY` empty for now. `runtime: false` runs each reply in the Node request, so it does not resume after a crash. `invocations: false` turns off the Agent journal, because the app keeps history in its own database.
 ::
 
 ::tutorial-step{title="Expose history and streaming routes"}
 ## Expose history and streaming routes
 
-The chat-list route returns only the owner's conversations. It allows up to 100 chats. The detail route reads or deletes one owned chat. Deletion waits until its current reply ends.
+The list route returns the owner's chats, up to 100. The detail route reads or deletes one owned chat, but not while it writes a reply.
 
 ```ts [server/api/chats/index.ts]
 import { createError, defineEventHandler } from "h3";
@@ -461,16 +479,16 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-The streaming route accepts only a chat ID, the last saved revision, and one new prompt. It loads trusted history from SQLite. A browser cannot inject assistant messages or another owner's ID into the model context.
+The streaming route accepts only a chat ID, the last revision, and one prompt. It loads history from SQLite, so a browser cannot inject assistant messages or another owner's ID.
 
-The app calls `streamAgent` with `output: 'events'`. It forwards text through an AI SDK UI message stream, waits for the Agent to finish, then saves the completed pair before sending the final transport event. The UI can therefore reload saved history when it receives completion. If saving fails, the stream reports an error.
+The app calls `streamAgent`, which returns typed Agent events by default. It forwards text through an AI SDK UI message stream, waits for the Agent to finish, then saves the completed pair before sending the final transport event. The UI can therefore reload saved history when it receives completion. If saving fails, the stream reports an error.
 
-`getRuntimeContext` adapts the Nuxt request and its background lifetime. The wrapper consumes the full event stream and drains remaining work before finishing. This Node route also aborts the Invocation on a premature response close or after 60 seconds. It removes its listener and active-chat lock in `finally`.
+`getRuntimeContext` ties the request to its background work, which the route drains before it ends. It aborts the Invocation on an early close or after 60 seconds, and releases its listener and lock in `finally`.
 
 ```ts [server/api/chat.post.ts]
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { createError, defineEventHandler, readValidatedBody } from "h3";
-import { createMessage, streamAgent, type StreamEvent } from "vite-hub/agent";
+import { createMessage, streamAgent } from "vite-hub/agent";
 import { getRuntimeContext } from "vite-hub/runtime/h3";
 import { z } from "zod";
 import { textMessage } from "../../shared/chat";
@@ -505,11 +523,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
   }
 
+  const response = event.node?.res;
+  if (!response) throw createError({ statusCode: 500, statusMessage: "This route requires a Node response." });
+
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
   const controller = new AbortController();
-  const abort = () => { if (!event.node.res.writableEnded) controller.abort(); };
-  event.node.res.once("close", abort);
+  const abort = () => { if (!response.writableEnded) controller.abort(); };
+  response.once("close", abort);
   const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
   activeChats.add(id);
@@ -517,18 +538,15 @@ export default defineEventHandler(async (event) => {
   const stream = createUIMessageStream({
     async execute({ writer }) {
       try {
-        const output = await streamAgent(mode === "model" ? assistant : offline, runtime, {
+        const [error, output] = await streamAgent(mode === "model" ? assistant : offline, {
           messages: [...thread.messages, user].map(message => createMessage(message)),
           abortSignal: controller.signal,
-        }, { output: "events" });
-        if (!output || typeof output !== "object" || !(Symbol.asyncIterator in output)) {
-          throw new Error("Expected an Agent event stream.");
-        }
+        }, { runtimeContext: runtime });
+        if (error) throw error;
         writer.write({ type: "start", messageId: reply.id });
         writer.write({ type: "text-start", id: reply.id });
         let answer = "";
-        // The events output of streamAgent is a StreamEvent iterable.
-        for await (const part of output as AsyncIterable<StreamEvent>) {
+        for await (const part of output) {
           controller.signal.throwIfAborted();
           if (part.type === "error") throw new Error("Agent failed.");
           if (part.type !== "text-delta") continue;
@@ -545,7 +563,7 @@ export default defineEventHandler(async (event) => {
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
         clearTimeout(timeout);
-        event.node.res.off("close", abort);
+        response.off("close", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }
@@ -559,20 +577,20 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-Checkpoint: after signing in, select New chat in the finished app and send `Hello`. The reply is exactly `Offline reply 1: Hello`. Open the browser Network panel and find `/api/chat`; it returns `text/event-stream`. A stale revision returns `409`, and a provider or persistence error does not appear as a completed saved turn.
+Checkpoint: sign in, select New chat, and send `Hello`. The reply is exactly `Offline reply 1: Hello`. In the Network panel, `/api/chat` returns `text/event-stream`. An old revision returns `409`. Provider and save errors never appear as saved turns.
 ::
 
 ::tutorial-step{title="Build the chat interface"}
 ## Build the chat interface
 
-Use the [Chat app block](/docs/ui/blocks/chat-app) composition. A child pane owns each chat's AI SDK state. Its footer keeps the prompt below the message viewport, so status text cannot cover the last reply. Key it by the chat ID so switching conversations unmounts the old prompt and transport.
+Use the [Chat app block](/docs/ui/blocks/chat-app) layout. A child pane holds one chat's AI SDK state. Its footer keeps the prompt below the messages, so status text never covers the last reply. Key it by chat ID, so switching chats removes the old prompt and transport.
 
-`DefaultChatTransport` normally sends client history. Its request callback sends only the fields our endpoint accepts. On completion, the pane reloads the server copy and advances its revision. Stop keeps the partial reply visible until the user reloads saved history. Retry loads the saved state before the user sends their draft again; it does not create a second billable request automatically.
+`DefaultChatTransport` normally sends browser history. Here its request callback sends only the fields the endpoint accepts. On completion, the pane reloads the server copy and its revision. Stop keeps the partial reply visible until a reload. Retry loads saved state before the user resends the draft, so it never sends a second paid request on its own.
 
 ```vue [app/components/ChatPane.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import { ChatSession, PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
+import { ChatSession, PromptInput, type PromptInputSubmit } from "vite-hub/ui";
 import { DefaultChatTransport } from "ai";
 import type { Thread } from "../../shared/chat";
 
@@ -662,7 +680,7 @@ async function stopReply() {
 </template>
 ```
 
-The app shell adds sign-in, a saved-chat list, and deletion. On a narrow screen, the list sits above the conversation. Local storage remembers only the selected ID. The server still checks the cookie and owner before returning that chat.
+The shell adds sign-in, the chat list (above the chat on narrow screens), and deletion. Local storage keeps only the selected ID, and the server still checks cookie and owner.
 
 ```vue [app/app.vue]
 <script setup lang="ts">
@@ -785,19 +803,19 @@ onMounted(() => { if (session.value?.signedIn) void restore(); });
 </template>
 ```
 
-Checkpoint: create two chats, send a different prompt in each, and switch between them. Each chat shows its own history. Tab through the controls and send a message with Enter. Shift+Enter adds a line. Resize the page to a phone width. The message list and composer stay within the available height.
+Checkpoint: two chats with different prompts each keep their own history. Tab reaches every control, Enter sends, and Shift+Enter adds a line. At phone width, messages and prompt fit the screen.
 ::
 
 ::tutorial-step{title="Prove refresh, restart, and cancellation"}
 ## Prove refresh, restart, and cancellation
 
-Send `Hello` in a new chat and wait until the prompt is ready again. Refresh the browser. The same two messages return from SQLite. No model or Agent rerun is needed to display them.
+Send `Hello` in a new chat and wait for the prompt to be ready. Refresh. The two messages come back from SQLite, without running the Agent again.
 
-Stop the dev server with Ctrl+C and start it again with `corepack pnpm dev`. Keep `.env` and `.data` intact. Refresh, open that chat, and send `Still here?`. The exact reply is `Offline reply 2: Still here?`. That count comes from saved history passed to a new Invocation.
+Stop the dev server with Ctrl+C and run `corepack pnpm dev` again, keeping `.env` and `.data`. Open that chat and send `Still here?`. The reply is exactly `Offline reply 2: Still here?`: the count comes from saved history passed to a new Invocation.
 
-Next, send a long sentence and press Stop while words appear. Select Reload saved history. The partial turn disappears because it never completed. If Stop races with completion, the reload can contain the completed turn. The saved database is authoritative. A response lost after a successful save has the same recovery path.
+Send a long sentence, press Stop while words appear, and select Reload saved history. The partial turn disappears because it never completed. If Stop races with completion, the reload can show the completed turn: the database is the truth. A response lost after a save recovers the same way.
 
-Stop the dev server before running the automated production check:
+Stop the dev server, then run the production check:
 
 ```sh [commands/check-journey]
 corepack pnpm typecheck
@@ -805,50 +823,56 @@ corepack pnpm build
 corepack pnpm test:journey
 ```
 
-The [journey test](https://github.com/vite-hub/vitehub/blob/main/fixtures/tutorials/chat-app/test/journey.test.mjs) runs the built server twice on `127.0.0.1:4319`. It creates temporary credentials and a temporary SQLite database. It checks rejected unauthenticated and cross-origin requests, blocked generated routes, streamed text, history after a real process restart, a second turn, cancellation, and deletion. It forces offline mode, then stops the server and removes its temporary data.
+The [journey test](https://github.com/vite-hub/vitehub/blob/main/fixtures/tutorials/chat-app/test/journey.test.mjs) runs the built server twice on `127.0.0.1:4319` in offline mode, with temporary credentials and database. It checks rejected unauthenticated and cross-origin requests, blocked generated routes, streaming, history after a real restart, a second turn, cancel, and delete. Then it stops the server and removes its data.
 
-Checkpoint: all checks pass, port 4319 is free again, and your manual browser chat still exists. The automated test uses a different database. HTTP tests cover the server journey; the browser checks cover the layout and interaction.
+Checkpoint: all checks pass, port 4319 is free, and your browser chat still exists, because the test uses its own database. HTTP tests cover the server; your browser checks cover layout and interaction.
 ::
 
 ::tutorial-step{title="Connect a real model"}
 ## Connect a real model
 
-Stop the server. Edit these existing keys in `.env`: set `CHAT_MODE` to `model`, set `AI_GATEWAY_API_KEY` to your private gateway key, and choose an available model through `CHAT_MODEL`. The example defaults to `openai/gpt-4.1-mini`.
+Stop the server. In `.env`, set `CHAT_MODE` to `model`, `AI_GATEWAY_API_KEY` to your gateway key, and `CHAT_MODEL` to a model your account can use (default `openai/gpt-4.1-mini`).
 
-Do not put the key in `runtimeConfig.public`, Vue code, or a `VITE_` variable. Set a provider budget before the first request. Each send includes the saved conversation, so later turns can use more input tokens. The app's 800-output-token limit and request limits are not a spending cap.
+::warning
+Never put the key in `runtimeConfig.public`, Vue code, or a `VITE_` variable. Set a provider budget first. Each message sends the whole conversation, so later turns use more input tokens. The 800-token output limit and request limits are not a spending cap.
+::
 
 ```sh [commands/start-model]
 corepack pnpm dev
 ```
 
-Checkpoint: the sidebar says that model requests may incur charges. Start a new chat and ask a question. The answer streams through the same route and persists through the same store. The exact text varies. If the request fails, check the model ID, gateway account, key, quota, and network access. Reload saved history before retrying. This tutorial's automated tests never validate a live provider call.
+Checkpoint: the sidebar says requests may cost money. A question in a new chat streams and saves as before, with varying text. If it fails, check the model ID, account, key, quota, and network, then reload saved history before retrying. The automated tests never call a live provider.
 
-Return `CHAT_MODE` to `offline` and restart whenever you need the exact teaching response again.
+Set `CHAT_MODE` back to `offline` and restart to get the fixed reply again.
 ::
 
 ::tutorial-step{title="Run on a persistent Node server"}
 ## Run on a persistent Node server
 
-The deployment target is a self-hosted Node.js server with one process and a persistent local disk. Keep `preset: 'node'`. Do not also set a Nitro preset.
+Deploy to a self-hosted Node.js server with one process and a persistent local disk. Keep `preset: 'node'` and set no Nitro preset.
 
 ```sh [commands/build-node]
 corepack pnpm build
 corepack pnpm start
 ```
 
-The start script reads `.env`; a built Nitro server does not load it on its own. Keep `NITRO_HOST=127.0.0.1` and use an SSH tunnel for personal access. If you put an HTTPS reverse proxy in front, set `CHAT_ORIGIN` to the exact public HTTPS origin. Preserve the Origin header, disable buffering for `/api/chat`, and cap request bodies at 16 KiB. Restart after changing the environment.
+The start script reads `.env`, which a built Nitro server does not load. Keep `NITRO_HOST=127.0.0.1` and reach the app through an SSH tunnel. Behind an HTTPS reverse proxy, set `CHAT_ORIGIN` to the exact public origin, keep the Origin header, turn off buffering for `/api/chat`, and cap bodies at 16 KiB. Restart after environment changes.
 
-Before deploying, set `CHAT_DB_PATH` to a private absolute path on a persistent disk, such as `/var/lib/vitehub-chat/chat.sqlite`. Run Node as a user who owns that directory. Keep `CHAT_PASSWORD` and `CHAT_SESSION_SECRET` stable across restarts. Back up the database while the server is stopped, including its WAL side files. Replacing `.output` does not migrate or remove the database.
+Before you deploy, set `CHAT_DB_PATH` to a private absolute path on a persistent disk, such as `/var/lib/vitehub-chat/chat.sqlite`, owned by the Node user. Keep `CHAT_PASSWORD` and `CHAT_SESSION_SECRET` stable. Back up the database and its WAL files while the server is stopped. Replacing `.output` does not migrate or remove the database.
 
-Checkpoint: repeat sign-in, one completed reply, a browser refresh, and a process restart on the target Node host. Keep the first deployment in offline mode until those checks pass. This guide does not deploy a service or provision storage for you.
+Checkpoint: on the target host, sign in, get one reply, refresh, and restart the process. Stay in offline mode until these pass. This guide does not deploy a service or create storage.
 
-The single-owner sign-in is suitable for a private teaching app. It has no account recovery or per-session revocation list. Sign-out clears the current browser cookie. Rotating `CHAT_SESSION_SECRET` signs out all sessions; changing only the owner password does not. Before public registration, replace this flow with [ViteHub Auth](/docs/auth), use its checked user ID as the store owner, add shared access and rate policies, and test access between two real users. A chat ID is never proof of identity.
+::warning
+The single-owner sign-in suits a private learning app only. It has no account recovery or per-session revocation. Sign-out clears the current browser's cookie. A new `CHAT_SESSION_SECRET` signs out all sessions; a new password alone does not.
+::
 
-Storage limits are explicit. The app stores at most 100 chats for the owner and 20 completed turns per chat. It accepts up to 2,000 characters per prompt and 20,000 per answer. It stores plain text. Delete removes a row, but does not securely erase SQLite pages or backups. Choose a retention policy for the data you collect.
+Before public registration, switch to [ViteHub Auth](/docs/auth), use its checked user ID as the store owner, add shared access and rate limits, and test with two real users. A chat ID never proves identity.
 
-Use one Node process. Active-chat locks and request limits live in memory. This setup does not support multiple replicas, network-mounted SQLite, serverless filesystems, or ephemeral container disks. A process crash interrupts generation. Completed turns remain; unfinished turns are not replayed.
+The app keeps at most 100 chats and 20 completed turns per chat, with up to 2,000 characters per prompt and 20,000 per answer, as plain text. Delete removes a row but does not securely erase SQLite pages or backups. Choose a retention policy.
 
-To clean up, stop the server first. Delete individual chats through the UI. For a full local reset, remove this fixture's `.data`, `.output`, `.nuxt`, and `.vitehub` directories. Remove its `.env` only when you want to discard the local credentials. Clean up a custom `CHAT_DB_PATH` separately. Revoke a gateway key through its provider when you no longer need it.
+Use one Node process: active-chat locks and request limits live in memory. Multiple replicas, network-mounted SQLite, serverless filesystems, and ephemeral container disks are not supported. A crash stops the running reply. Completed turns stay; unfinished ones are not replayed.
+
+To clean up, stop the server and delete chats in the UI. For a full reset, remove the fixture's `.data`, `.output`, `.nuxt`, and `.vitehub`, and `.env` only to discard the credentials. Clean up a custom `CHAT_DB_PATH` separately. Revoke the gateway key when you no longer need it.
 
 Continue with [Agent Drivers](/docs/agents/agent-drivers), [Auth](/docs/auth), and [Node hosting](/docs/frameworks-hosts/node-self-hosted).
 ::

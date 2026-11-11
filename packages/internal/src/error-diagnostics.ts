@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: INTERNAL_B0002 to INTERNAL_B0008, INTERNAL_B0023, INTERNAL_B0024, INTERNAL_B0041, INTERNAL_B0042, INTERNAL_B0044, and INTERNAL_B0045.
 export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -27,7 +28,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0024: {
-      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app with credentials in VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app and set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key whose public key the app has in VITEHUB_CONSOLE_KEY_<NAME>.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0023: {
@@ -35,13 +36,6 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_B0001: dynamicError,
-    INTERNAL_B0002: dynamicError,
-    INTERNAL_B0003: dynamicError,
-    INTERNAL_B0004: dynamicError,
-    INTERNAL_B0005: dynamicError,
-    INTERNAL_B0006: dynamicError,
-    INTERNAL_B0007: dynamicError,
-    INTERNAL_B0008: dynamicError,
     INTERNAL_B0009: dynamicError,
     INTERNAL_B0010: dynamicError,
     INTERNAL_B0011: dynamicError,
@@ -56,8 +50,6 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0020: dynamicError,
     INTERNAL_B0021: dynamicError,
     INTERNAL_B0022: dynamicError,
-    INTERNAL_B0023: dynamicError,
-    INTERNAL_B0024: dynamicError,
     INTERNAL_B0025: dynamicError,
     INTERNAL_B0026: dynamicError,
     INTERNAL_B0027: dynamicError,
@@ -74,11 +66,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0038: dynamicError,
     INTERNAL_B0039: dynamicError,
     INTERNAL_B0040: dynamicError,
-    INTERNAL_B0041: dynamicError,
-    INTERNAL_B0042: dynamicError,
     INTERNAL_B0043: dynamicError,
-    INTERNAL_B0044: dynamicError,
-    INTERNAL_B0045: dynamicError,
     INTERNAL_B0046: dynamicError,
     INTERNAL_B0047: dynamicError,
     INTERNAL_B0048: {

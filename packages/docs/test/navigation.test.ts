@@ -22,6 +22,7 @@ import {
   docsSectionHome,
   docsSectionGroup,
   docsSectionIcon,
+  docsStartPage,
   docsSidebarGroup,
   docsSidebarGroups,
   docsSidebarSections,
@@ -251,6 +252,18 @@ describe("docs home links", () => {
     expect(docsHomePath({ base: "/docs", root: null, sections: [], pages: [] })).toBeNull()
   })
 
+  it("skips a home landing at the docs base for the first start link that is a docs page, else the start section", () => {
+    const landing = { ...small, root: { ...small.sections[0]!.pages[0]!, path: "/docs", layout: "home" as const } }
+    const intro = { ...small.sections[0]!.pages[0]!, path: "/docs/introduction", layout: "article" as const }
+    const withIntro = { ...landing, pages: [...landing.pages, intro] }
+    expect(docsHomePath(withIntro, { section: "guides", links: [{ to: "/playground" }, { to: "/docs/introduction/" }] })).toBe("/docs/introduction")
+    expect(docsHomePath(landing, { section: "guides", links: [{ to: "/playground" }] })).toBe("/docs/guides/configuration")
+    expect(docsHomePath(landing, "")).toBe("/docs/getting-started")
+    expect(docsHomePath(manifest, { section: "guides", links: [] })).toBe("/docs")
+    expect(docsStartPage(withIntro, { section: "guides", links: [{ to: "/docs" }, { to: "/docs/introduction" }] })).toBe("/docs/introduction")
+    expect(docsStartPage(withIntro, "")).toBeNull()
+  })
+
   it("opens the first listed page of a section without an Overview", () => {
     expect(docsSectionHome(section("kv"))).toBe("/docs/kv")
     const guides = small.sections.find(candidate => candidate.id === "guides")
@@ -364,6 +377,7 @@ describe("docs icons", () => {
     family: "i-ph-",
     page: "i-ph-file-light",
     section: "i-ph-folder-light",
+    stroke: 1.5,
   }
 
   it("prefers explicit maps, then aliases, then icons inside the family", () => {

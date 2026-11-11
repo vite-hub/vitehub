@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
-import { readFile, writeFile } from "node:fs/promises"
 import { delimiter } from "node:path"
 import process from "node:process"
 
@@ -8,6 +7,7 @@ import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type { SetupLink } from "../link.ts"
@@ -34,6 +34,10 @@ export interface DeployRunOptions {
   stdin?: string
   /** Copies the child's output, line by line and redacted, to the CLI's stderr. */
   show?: boolean
+  /** Stops the child after this many milliseconds. Its result then has a `null` exit code. */
+  timeoutMs?: number
+  /** Cancels the child with the rest of a bounded host lookup. */
+  signal?: AbortSignal
 }
 
 /** Runs a host CLI with an argument array and no shell. */
@@ -68,35 +72,48 @@ export interface DeployResult {
   project?: { id?: string, name: string, accountId?: string }
 }
 
-/**
- * One host. `setSecret` sends the value over stdin or in a JSON request body, never in argv.
- * `withTemporaryVar` writes a plain runtime var for the deploy and restores the generated files afterwards.
- */
+/** One host. */
 export interface DeployAdapter {
   deploy: () => Promise<DeployResult>
-  setSecret: (name: string, value: string) => Promise<void>
-  hasSecret: (name: string) => Promise<boolean>
-  /** False when the host project does not exist yet, so a secret has no place to go before the first deploy. */
-  projectExists: () => Promise<boolean>
-  withTemporaryVar?: (name: string, value: string, deploy: () => Promise<DeployResult>) => Promise<DeployResult>
 }
 
-/** Keep temporary vars in generated output only while the host reads it, including when writing or deploying fails. */
-export async function withTemporaryOutput(files: readonly string[], key: "vars" | "environment", name: string, value: string, deploy: () => Promise<DeployResult>): Promise<DeployResult> {
-  const originals = await Promise.all(files.map(file => readFile(file)))
-  try {
-    for (const [index, file] of files.entries()) {
-      const config: unknown = JSON.parse(originals[index]!.toString("utf8"))
-      if (!isRecord(config)) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
-      config[key] = { ...(isRecord(config[key]) ? config[key] : {}), [name]: value }
-      await writeFile(file, `${JSON.stringify(config, null, 2)}\n`)
-    }
-    return await deploy()
-  }
-  finally {
-    await Promise.all(files.map((file, index) => writeFile(file, originals[index]!)))
-  }
+/** Where a deployment came from, when the host says. */
+export type HostDeploymentSource = "cli" | "git" | "dashboard" | "api" | "unknown"
+
+/** One deployment as the host lists it. */
+export interface HostDeployment {
+  id: string
+  /** The URL of this deployment. Absent when the host gives it no own URL. */
+  url?: string
+  createdAt: string
+  state: "ready" | "building" | "error" | "canceled" | "unknown"
+  target: "production" | "preview"
+  /** True for the deployment that receives production traffic. */
+  live: boolean
+  /** The Worker version of a Cloudflare deployment. */
+  version?: string
+  /**
+   * The deployed commit. `from: "vitehub"` is the marker of `vitehub deploy`. `from: "host"` is the commit of a Git
+   * integration build, which builds a clean checkout.
+   */
+  commit?: DeployCommit & { from: "vitehub" | "host" }
+  source: HostDeploymentSource
 }
+
+/** What a host listing reads. The link names the host project, and the credentials resolved. */
+export interface DeploymentsContext {
+  root: string
+  link: SetupLink
+  credentials: Extract<HostCredentials, { ok: true }>
+  env: NodeJS.ProcessEnv
+  run: DeployRun
+  fetch: typeof fetch
+  /** Stops each host CLI run after this many milliseconds. */
+  timeoutMs?: number
+}
+
+/** Lists the newest `limit` deployments. Status can also request the live record outside that history window. */
+export type ListDeployments = (context: DeploymentsContext, options: { limit: number, includeLive?: boolean }) => Promise<HostDeployment[]>
 
 /** Replaces every value in `secrets` with `<redacted>`. */
 export function redact(text: string, secrets: readonly string[]): string {
@@ -109,7 +126,7 @@ export function redact(text: string, secrets: readonly string[]): string {
  */
 export function createDeployRun(stderr: { write: (chunk: string) => unknown }, secrets: readonly string[]): DeployRun {
   return (command, args, options) => new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"] })
+    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
     const output = { stderr: "", stdout: "" }
     const pending = { stderr: "", stdout: "" }
     const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
@@ -235,20 +252,10 @@ export function lastJsonObject(text: string): Record<string, unknown> | undefine
   }
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+export { isRecord }
 
 export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
-}
-
-/** True when `value` or a nested object has `key: name`, such as an env var list. */
-export function listsName(value: unknown, keys: readonly string[], name: string): boolean {
-  if (Array.isArray(value)) return value.some(item => listsName(item, keys, name))
-  if (!isRecord(value)) return false
-  if (keys.some(key => value[key] === name)) return true
-  return Object.values(value).some(item => typeof item === "object" && listsName(item, keys, name))
 }
 
 /** The first `https://` URL in `text` that matches `host`, else undefined. */
@@ -262,6 +269,26 @@ export function findUrl(text: string, host: RegExp): string | undefined {
 /** The `vitehub:` marker that Cloudflare and Netlify store as the deploy message. */
 export function commitMessage(commit: DeployCommit): string {
   return `vitehub:${JSON.stringify({ commit: commit.sha, dirty: commit.dirty })}`
+}
+
+/** Reads the `vitehub:` marker of `commitMessage`. Returns undefined for any other message. */
+export function parseCommitMessage(message: unknown): DeployCommit | undefined {
+  if (typeof message !== "string" || !message.startsWith("vitehub:")) return
+  let value: unknown
+  try {
+    value = JSON.parse(message.slice("vitehub:".length))
+  }
+  catch {
+    return
+  }
+  if (!isRecord(value) || typeof value.commit !== "string" || !/^[0-9a-f]{40,64}$/u.test(value.commit)) return
+  return { dirty: value.dirty === true, sha: value.commit }
+}
+
+/** A host time, such as an ISO string or a millisecond timestamp, as an ISO string. */
+export function isoTime(value: unknown): string {
+  const time = typeof value === "number" || typeof value === "string" ? new Date(value) : undefined
+  return time && !Number.isNaN(time.getTime()) ? time.toISOString() : ""
 }
 
 /** Reads the commit with git, using argument arrays. Returns undefined without git or outside a repository. */

@@ -9,11 +9,14 @@ describe("workspace package exports", () => {
   it("keeps generated registries private and removes unused public subpaths", () => {
     const script = `
       const removed = [
+        "@vite-hub/workspace/ai",
         "@vite-hub/workspace/cli",
         "@vite-hub/workspace/internal/runtime/empty-assets-registry",
         "@vite-hub/workspace/internal/runtime/empty-registry",
         "@vite-hub/workspace/internal/stores/cloudflare-artifacts",
         "@vite-hub/workspace/internal/stores/vercel-blob",
+        "@vite-hub/workspace/mountx",
+        "@vite-hub/workspace/nitro",
       ]
 
       for (const specifier of removed) {
