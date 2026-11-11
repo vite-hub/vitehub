@@ -6,8 +6,8 @@ import { useConsoleToast } from "../client/toast";
 
 /** The config that an app needs before an `account` Console can link it, for Nuxt and for Vite. */
 const snippets = {
-  nuxt: { label: "Nuxt", file: "nuxt.config.ts", code: "export default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: {\n    console: { auth: 'token' },\n  },\n})" },
-  vite: { label: "Vite", file: "vite.config.ts", code: "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    console: { auth: 'token' },\n  })],\n})" },
+  nuxt: { label: "Nuxt", file: "nuxt.config.ts", code: "export default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: {\n    console: true,\n  },\n})" },
+  vite: { label: "Vite", file: "vite.config.ts", code: "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    console: true,\n  })],\n})" },
 } as const;
 type Framework = keyof typeof snippets;
 

@@ -50,13 +50,9 @@ describe("forwardProjectRequest", () => {
     expect(init?.method).toBe("POST")
   })
 
-  it.each([
-    "/_vitehub/rpc",
-    "/_vitehub/api/env/manage",
-    "/_vitehub/page/session",
-  ])("sends the data route %s", async (path) => {
+  it("sends the Console route", async () => {
     const send = upstream()
-    expect((await forwardProjectRequest(call(), target, path, send)).status).toBe(200)
+    expect((await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)).status).toBe(200)
   })
 
   it.each([
@@ -65,6 +61,11 @@ describe("forwardProjectRequest", () => {
     "/_vitehub/kv",
     "/_vitehub/sign-in",
     "/_vitehub/mcp",
+    "/_vitehub/api/env/manage",
+    "/_vitehub/env/manage",
+    "/_vitehub/page/session",
+    "/_vitehub/auth/manage",
+    "/_vitehub/rpc/__call",
     "/api/users",
     "/_vitehub/api/../../admin",
     "/_vitehub/api/%2e%2e/%2e%2e/admin",
@@ -76,9 +77,10 @@ describe("forwardProjectRequest", () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("does not send other methods", async () => {
+  it.each(["GET", "PUT", "DELETE", "PATCH"])("does not send %s", async (method) => {
     const send = upstream()
-    expect((await forwardProjectRequest(call({ method: "PATCH" }), target, "/_vitehub/rpc", send)).status).toBe(405)
+    const request = new Request("https://console.example.com/p/1/_vitehub/rpc", { method, ...(method === "GET" ? {} : { body: "{}" }) })
+    expect((await forwardProjectRequest(request, target, "/_vitehub/rpc", send)).status).toBe(405)
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -121,8 +123,7 @@ describe("forwardProjectRequest", () => {
     })
     if (type) headers.set("content-type", type)
     const send = upstream(new Response(new TextEncoder().encode(body), { headers }))
-    const request = new Request("https://console.example.com/p/1/_vitehub/api/download")
-    const response = await forwardProjectRequest(request, target, "/_vitehub/api/download", send)
+    const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)
 
     expect(response.headers.get("content-type")).toBe("application/octet-stream")
     expect(response.headers.get("content-disposition")).toBe("attachment")
@@ -134,7 +135,7 @@ describe("forwardProjectRequest", () => {
   it("keeps binary Operations responses readable by the client", async () => {
     const body = new Uint8Array([0, 255, 60, 62])
     const send = upstream(new Response(body, { headers: { "content-type": "application/octet-stream" } }))
-    const response = await forwardProjectRequest(call(), target, "/_vitehub/api/download", send)
+    const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)
 
     expect(response.headers.get("content-type")).toBe("application/octet-stream")
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(body)

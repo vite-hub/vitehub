@@ -68,7 +68,7 @@ const organizationReference = { model: "organization", field: "id", onDelete: "c
 
 /**
  * The Better Auth core tables, with the fields of the plugins that ViteHub ships: `admin()` (`user.role`, bans, and
- * `session.impersonatedBy`), the `jwt()` and `oauthProvider()` tables of `consoleMcpOAuth()`, the tables of
+ * `session.impersonatedBy`), the `jwt()` and `oauthProvider()` tables of `mcpOAuth()`, the tables of
  * `organization()` and of `passkey()` from `@better-auth/passkey`, and the table of Better Auth's limiter. A test checks this
  * list against Better Auth's own `getAuthTables()`, so a Better Auth upgrade that changes a table fails it.
  */
