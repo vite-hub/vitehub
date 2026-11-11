@@ -38,9 +38,30 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
-
+| `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `define-forms`
+
+ViteHub keeps one define form for each primitive. `define-forms` rewrites the former forms:
+
+| Former form | New form |
+| --- | --- |
+| `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
+| `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
+| `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
+| `server/databases/config.ts` and the files beside it | `server/databases/default/index.ts` and the same files in `server/databases/default/` |
+| `server/databases/migrations/` | `server/databases/default/migrations/` |
+| `server/databases/<name>/config.ts` | `server/databases/<name>/index.ts` |
+
+The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
+
+The report lists what it cannot change: Schedule options that are not an object literal, which it spreads into the object, Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+
+```sh
+npx @vite-hub/codemods define-forms [dir] [--dry-run]
+```
 
 ## `vitehub-options`
 

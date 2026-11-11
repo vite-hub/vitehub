@@ -1,6 +1,6 @@
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
-import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
+import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
@@ -253,6 +253,24 @@ export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: str
     configurable: true,
     value: names,
   })
+}
+
+/** Records whether the options of a `defineAgent()` call have a `workspace` value. A parent's value does not count. */
+export function rememberDeclaredAgentWorkspace(agent: object, options: unknown): void {
+  const workspace = isRuntimeRecord(options) ? options.workspace : undefined
+  Object.defineProperty(agent, declaredAgentWorkspace, { configurable: true, value: workspace !== undefined && workspace !== null })
+}
+
+/**
+ * Returns a discovered folder Agent that discovery found no `workspace` key for. The Agent fails here when it owns a
+ * Workspace that a Capability, Channel, preset, parent, or configure callback added. An Agent whose `defineAgent()`
+ * options have the key passes, also when discovery could not read the key.
+ */
+export function withDeclaredAgentWorkspace<Agent>(agent: Agent, name: string): Agent {
+  if (workspaceAgentOwnsWorkspaceDefinition(agent) && Reflect.get(Object(agent), declaredAgentWorkspace) !== true) {
+    throw agentDiagnostics.AGENT_R1037({ name })
+  }
+  return agent
 }
 
 export function markDiscoveredWorkspaceAgentDefinitionRegistered(

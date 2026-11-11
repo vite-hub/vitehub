@@ -842,7 +842,7 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
       const contentFile = join(root, "server", "content.ts")
-      await writeFile(contentFile, "export const content = {}", "utf8")
+      await writeFile(contentFile, "export default {}", "utf8")
       const roots: Array<string | undefined> = []
       const sourcePlugin = {
         api: {
@@ -862,7 +862,7 @@ describe("agent Vite plugin", () => {
       }
 
       const registry = await configure(hubAgent(), [sourcePlugin])
-      expect(registry).toContain(`import { content as vitehubContent } from ${JSON.stringify(contentFile.replaceAll("\\", "/"))}`)
+      expect(registry).toContain(`import { default as vitehubContent } from ${JSON.stringify(contentFile.replaceAll("\\", "/"))}`)
       expect(registry).toContain("content: vitehubContent")
       expect(roots.at(-1)).toBe(resolveViteHubProjectRoot(root))
 

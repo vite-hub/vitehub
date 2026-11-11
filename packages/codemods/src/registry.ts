@@ -1,4 +1,5 @@
 import { agentSurface } from "./agent-surface/index.ts"
+import { defineForms } from "./define-forms/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
 import { oneEntryImports } from "./one-entry-imports/index.ts"
@@ -16,6 +17,7 @@ export const codemods: readonly Codemod[] = [
   resend,
   queueWorkflowVerbs,
   nuxtCron,
+  defineForms,
   oneEntryImports,
   vitehubOptions,
   agentSurface,

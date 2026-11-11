@@ -153,6 +153,7 @@ import {
 import {
   isColocatedAgentInstructionsBuildSource,
   isWorkspaceAgentOptions,
+  rememberDeclaredAgentWorkspace,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
@@ -3119,6 +3120,7 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
     agentOptions = invocations ? { ...rest, invocations } : rest
   }
   const agent = defineAgentDefinition(agentOptions as never)
+  rememberDeclaredAgentWorkspace(agent, options)
   const disabled = setting === false || (setting === undefined && agent.invocations === undefined
     && (inheritsDisabledInvocations(agent) || ("extends" in options && inheritsDisabledInvocations(options.extends))))
   if (!disabled) Reflect.deleteProperty(agent, agentInvocationsDisabledKey)

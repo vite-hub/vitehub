@@ -1,4 +1,3 @@
-import { registerResponseConstructor } from "../src/internal/response.ts"
 import { createRequire } from "node:module"
 import { runInNewContext } from "node:vm"
 

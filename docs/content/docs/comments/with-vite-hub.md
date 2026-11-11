@@ -159,7 +159,7 @@ import { singleton } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     about: singleton({ path: 'about.json', fields: { title: z.string().min(1) } }),
@@ -173,7 +173,7 @@ Return the published title from a route:
 
 ```ts [server/api/about.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   const about = await content.collection('about').get()

@@ -5,7 +5,7 @@ import { z } from "zod"
 
 const link = z.object({ label: z.string().min(1), to: z.string().min(1), icon: z.string().optional() })
 
-export const content = defineContent({
+export default defineContent({
   workspace: "site",
   collections: {
     // One document for the whole site. The fields are this site's choice; ViteHub has no fixed settings schema.

@@ -65,10 +65,10 @@ export interface ConsoleOptions {
   /**
    * Browser origins that may call the Console data routes from another origin, such as a hosted or self-hosted Console.
    * Defaults to `["https://console.vitehub.dev"]`. `[]` turns cross-origin calls off. An entry is an `https://` origin,
-   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a token in
-   * `Authorization: Bearer`: the Console token of `auth: "token"`, or with `auth: "app"`, an OAuth access token for the
-   * Console resource `<origin><base>/_vitehub`. A development server without sign-in needs none. Cookies never
-   * authorize a cross-origin call.
+   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a bearer token in
+   * `Authorization: Bearer`: the `auth: "token"` secret, or an OAuth access token for the Console resource from the app
+   * Auth. With `consoleMcpOAuth()`, it is also the allow list of OAuth clients: a client ID Metadata Document URL must be
+   * on a listed `https://` origin. Development without sign-in needs no token. Cookies never authorize a cross-origin call.
    */
   origins?: string[]
   /**
@@ -346,15 +346,14 @@ export function resolveConsoleAccessBuild(
     ...(authorize ? { authorize } : {}),
     ...(configured.impersonation === true ? { impersonation: true as const } : {}),
   })
-  // The hosted Console opens a development server without a token. In production, only the token mode accepts
-  // cross-origin calls, because it is the one mode that verifies a bearer token on the data routes.
-  if ("local" in configured && configured.local === true) return { mode: "local", origins: resolveConsoleOrigins(configured.origins) }
-  if (configured.auth === false || configured.auth === undefined) return withAccessOptions({ mode: "open", origins: resolveConsoleOrigins(configured.origins) })
-  if (configured.auth === "token") return withAccessOptions({ mode: "token", origins: resolveConsoleOrigins(configured.origins) })
-  // App Auth accepts an OAuth access token for the Console resource from `console.origins`, never a cookie.
+  // Hosted Consoles use bearer tokens, or development access without sign-in.
+  const origins = resolveConsoleOrigins(configured.origins)
+  if ("local" in configured && configured.local === true) return { mode: "local", origins }
+  if (configured.auth === false || configured.auth === undefined) return withAccessOptions({ mode: "open", origins })
+  if (configured.auth === "token") return withAccessOptions({ mode: "token", origins })
   if (configured.auth === "app") {
     return withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins: resolveConsoleOrigins(configured.origins) }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins }
       : { mode: "auth" })
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })
