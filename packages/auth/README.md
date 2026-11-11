@@ -370,6 +370,32 @@ client.$store.listen("$sessionSignal", () => {});
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-started/concepts/client) for framework entrypoints and session helpers.
 
+## Abilities
+
+Write named permission rules once in `shared/abilities.ts`, next to the `server/` folder. The server and the app run the same rules. The design comes from [Capsa](https://github.com/OrlS15/nuxt-capsa) by Orlando Sica.
+
+```ts
+// shared/abilities.ts
+import { defineAbilities, deny, guest } from "@vite-hub/auth/abilities";
+
+export interface Post { authorId: string; published: boolean }
+
+export default defineAbilities({
+  "posts.read": guest((user, post: Post) => post.published || user?.id === post.authorId),
+  "posts.edit": (user, post: Post) => user.id === post.authorId || "not-author",
+  "posts.publish": (user, post: Post) => user.id === post.authorId || deny("not-found", { status: 404 }),
+});
+```
+
+A rule gets the signed-in user, then its arguments, and returns at once. `true` allows. `false` and a code refuse with `403`, and `deny(code, { status, details })` with another 4xx status. A signed-out visitor gets `401` with the code `signed-out` before the rule runs, except in a `guest()` rule, where `user` is `null`. The Vite plugin serves the file as `#vitehub/auth/abilities` and registers its type in `.vitehub/types/auth.d.ts`, so ability names and arguments type-check.
+
+- Server: `requireAbility(event, name, ...args)` from `@vite-hub/auth/server` returns the checked `{ request, session, user }`, or throws `AbilityError`. H3 2 sends it with the rule's status and `{ code, details }` in `data`. `can(event, name, ...args)` returns a boolean.
+- Vue: `useAbility().can(name, ...args)` and `<Can do="posts.edit" :with="post">` from `@vite-hub/auth/vue`. Both give no answer (`undefined`, or no content) until the session is known. `<Can>` takes the one argument of a rule in `with`, the list of any other rule in `args` (`:args="[from, to]"`), and `pending` to show nothing while data loads. The arguments go to the rule as they are, the same as on the server. `<Can>` renders the `#denied` slot with `{ code, details }` when the rule refuses. The Nuxt module auto-imports both.
+
+Nuxt uses the Auth Definition's base path for the shared browser client. In other Vue apps, call `provideAuthClient(client)` from `@vite-hub/auth/vue` in a parent component's setup to share a custom client with descendant Auth composables and `<Can>`. You can also pass a client directly to `useAbility(client)`.
+
+`requireAuthorization(event, authorize)` checks inside the handler, and `withAuthorization()` wraps it. Use them for checks that need only the user. A rule that needs data the handler loads belongs in `shared/abilities.ts`.
+
 ## Nuxt: server session and page guard
 
 In Nuxt, the server reads the session once for each page request that has a Better Auth session cookie and sends it to the browser in the page payload, without the session token. `useUserSession()` and `useSession()` start from it, so a signed-in page renders signed in on the server and does not flash signed out while Better Auth loads. A request without a session cookie skips the lookup, so pages for signed-out visitors do not load Better Auth. A prerendered or cached page was rendered without the visitor's cookie, so its session counts as unknown.

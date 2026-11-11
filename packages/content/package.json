@@ -99,6 +99,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "comark": "catalog:markdown-ui",
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",

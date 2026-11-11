@@ -154,6 +154,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/email/runtime/console",
+  "@vite-hub/kv/runtime/redis-driver",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
@@ -781,10 +782,8 @@ describe("framework package contract", () => {
       }
       // Apps serve the Console endpoints only: no Console page, client script, or page tools session.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc/**",
+        "/_vitehub/rpc",
         "/_vitehub/env/manage",
-        "/_vitehub/channels/replay",
-        "/_vitehub/schedules/run",
         "/_vitehub/mcp",
       ]);
       for (const registration of handlers) {
