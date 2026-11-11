@@ -19,7 +19,7 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/development/console) on. Put the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
+The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/development/console) on, and [sign each call](/docs/development/console#sign-console-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 
 ## Commands
 
@@ -191,7 +191,7 @@ Fix them with `vitehub content edit <collection> <id>`, then run the command aga
 
 With `--json`, the error is `CONTENT_INVALID` and `details.documents` lists `{ collection, id, path, issues }`.
 
-The operations call `content.can()` with the signed-in Console user, like the Console editor. One exception: under `vite dev` without Console sign-in (`local` access, or `console: { auth: false }`), the CLI has no user and skips the policy. This applies only to a dev server, which serves only loopback requests (`localhost`, `127.0.0.1`, `[::1]`). A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
+The operations call `content.can()` with the user of the call: the person that the Console signed, or no user for the CLI. One exception: under `vite dev` without signed calls (`local` access, or `console: { auth: false }`), the CLI has no user and skips the policy. This applies only to a dev server, which serves only loopback requests (`localhost`, `127.0.0.1`, `[::1]`). A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
 
 ## Schedule
 

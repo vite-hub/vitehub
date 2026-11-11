@@ -162,7 +162,7 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 ## Live editing
 
 > [!NOTE]
-> The live editor was part of the Console that the app served, which is removed. The hosted Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
+> The live editor was part of the Console that the app served, which is removed. The Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
 
 With Realtime, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
@@ -173,7 +173,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
-    console: { auth: 'app' },
     realtime: { authority: 'memory' },
   },
 })
@@ -190,7 +189,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      console: { auth: 'app' },
       realtime: { authority: 'memory' },
     }),
     nitro(),
@@ -208,7 +206,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'node',
-      console: { auth: 'app' },
       realtime: { authority: 'memory' },
     }),
   ],
@@ -234,7 +231,7 @@ The room holds the edit lease as `kind: 'live'` for everyone in it. It holds it 
 
 ### Build your own live editor
 
-ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the Console session when the Console is on, else with the ViteHub Auth session. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
+ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the ViteHub Auth session. With the Console on, rooms check Console access instead, which takes only signed calls, so a browser editor needs the Console off. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
 
 ```ts [app editor]
 import { contentRealtimeEditor } from 'vite-hub/content/editor'

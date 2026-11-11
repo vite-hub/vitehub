@@ -7,12 +7,12 @@ import { expect, it } from "vitest"
 import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
-// Every app with Console access serves the operation RPC and the MCP endpoint.
-const consoleRoutes = ["/_vitehub/rpc", "/_vitehub/mcp"]
+// Every app with Console access serves the operation RPC, and no other Console route.
+const consoleRoutes = ["/_vitehub/rpc"]
 
 it.each([
   ["no primitives", { env: false }, []],
-  ["only Server Env", { env: true }, ["/_vitehub/env/manage"]],
+  ["only Server Env", { env: true }, []],
   ["only KV", { env: false, kv: true }, []],
   ["Agents", { agent: true, env: false }, []],
   ["only Schedules", { schedule: true, env: false }, []],
@@ -20,7 +20,7 @@ it.each([
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-section-routes-"))
   try {
     await writeFile(join(root, "package.json"), "{}\n")
-    const plugin = consoleVitePlugin({ console: { auth: "token" }, preset: "node", sections: resolveConsoleSectionIds(features) })
+    const plugin = consoleVitePlugin({ console: {}, sections: resolveConsoleSectionIds(features) })
     const hook = plugin.config
     const config: { nitro?: { handlers?: Array<{ route?: string }> }, root: string } = { root }
     await Reflect.apply(typeof hook === "function" ? hook : hook!.handler, {}, [config, { command: "build", mode: "production" }])
