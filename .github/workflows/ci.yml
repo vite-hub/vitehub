@@ -345,9 +345,6 @@ jobs:
     if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # Exercise the package floor while keeping contributor installs on Node 24.
-      PNPM_CONFIG_RUNTIME_ON_FAIL: ignore
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -366,6 +363,10 @@ jobs:
       # Bootstrap the exact Corepack version independently of workspace dependencies.
       - name: Install Corepack with native pnpm support
         run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
+      # Cached Vite tasks filter environment overrides. Persist this job's
+      # runtime policy so pack-time pnpm subprocesses can use the package floor.
+      - name: Allow the package runtime floor
+        run: corepack pnpm --runtime-on-fail=ignore config set --location=project runtimeOnFail ignore
       # Install-time builds ran on Node 24. Rebuild once on Node 22.18 before
       # allowing the six targets to reuse each other's dependency builds.
       - name: Clear install-time build cache
