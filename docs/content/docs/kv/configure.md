@@ -76,6 +76,8 @@ export default defineConfig({
 | `kv: { driver: 'fs-lite', base?: string }` | Saves values as local files. Default `base`: `.vitehub/data/kv`. |
 | `kv: { driver: 'cloudflare-kv-binding', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
 | `kv: { driver: 'deno-kv', path?: string }` | Uses native Deno KV through `Deno.openKv()`. |
+| `kv: { driver: 'redis', url?: string, base?: string }` | Uses a Redis server over TCP. Default `url`: `env:REDIS_URL`, which the server reads when the store starts. `env:<NAME>` reads another variable. A literal URL goes into the build output. `base` prefixes the keys. Default `base`: `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart, and `kv.clear()` deletes only this store. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. |
+| `kv: { driver: 'database', database?: string }` | Keeps the keys in the table `vitehub_kv` of a Database. Default `database`: `default`. The store creates the table when it is missing. Works on Postgres and libSQL, not on D1. |
 | `kv: { driver: 'upstash', url?: string, token?: string }` | Uses Upstash REST KV. Values can come from `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or from `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` when the first pair is unset. |
 | `kv: { remote?: boolean }` | Infers the driver from the host and the env. `remote: true` lets `vite dev` use the inferred hosted store. See [Development stays local](#development-stays-local). |
 | `kv: { stores: Record<string, KVStoreConfig> }` | Defines named KV Stores. `stores.default` is required. |
@@ -86,10 +88,25 @@ export default defineConfig({
 
 | Provider | Driver | Default resolution in a build |
 | --- | --- | --- |
-| Local filesystem | `fs-lite` | Used when no hosted env or host is detected. |
+| Redis | `redis` | Selected with `driver: 'redis'`; the server reads the URL at runtime. |
+| Database | `database` | Used on Node when the app has a Postgres Default Database. |
+| Local filesystem | `fs-lite` | Used on Node when neither applies. |
 | Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
 | Deno KV | `deno-kv` | Used on Deno hosting. |
-| Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
+| Upstash | `upstash` | Used when Upstash env vars are present during the build or when Vercel hosting is detected. |
+
+### Node picks a shared store
+
+Several Node processes share KV keys only through a shared store. Without a `driver`, a Node build picks the store in this order:
+
+1. `database` when the app has a Default Database on Postgres. The build reads the Database integration's resolved configuration, without running the Database.
+2. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
+
+The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver.
+
+`vitehub inspect definitions --kind kv` and `vitehub kv list` report the selected driver. `vitehub({ dataDir })` selects `fs-lite` in that directory. `vite dev` keeps the inferred store on `fs-lite`.
+
+The Nitro cache follows KV with `cache: { driver: 'kv' }`, so cached responses are shared too. See [Nitro cache in KV](#nitro-cache-in-kv).
 
 `fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. The migration lock stays in that folder, so only `base` needs write access. Copies and backups must preserve hidden files and hard links; follow the procedure below before opening a copied store.
 
@@ -203,6 +220,6 @@ export default defineConfig({
 ::
 
 - Cache keys start with `nitro-cache:`, apart from your keys. `base` changes the prefix. Development uses the dev store.
-- Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds, Upstash and Deno KV expire them on time, and `fs-lite` keeps the file until a new write. Nitro checks the age on each read, so it never serves an expired entry as fresh.
+- Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds, Redis, the `database` driver, Upstash, and Deno KV expire them on time, and `fs-lite` keeps the file until a new write. Nitro checks the age on each read, so it never serves an expired entry as fresh.
 - The build fails when `kv` is not enabled.
 - A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) wins over this option.

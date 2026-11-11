@@ -15,7 +15,7 @@ describe("Console and the prerender crawler", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-prerender-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: [] })
       const configHook = plugin.config
       const resolvedHook = plugin.configResolved
       if (!configHook || !resolvedHook) throw new TypeError("Expected Console Vite configuration hooks.")
@@ -45,7 +45,7 @@ describe("Console and the prerender crawler", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-rpc-prerender-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ preset: "node", rpcOnly: true, sections: [] })
+      const plugin = consoleVitePlugin({ rpcOnly: true, sections: [] })
       const hook = plugin.config
       if (!hook) throw new TypeError("Expected a Console Vite configuration hook.")
       const configure = "handler" in hook ? hook.handler : hook

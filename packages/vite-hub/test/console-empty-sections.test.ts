@@ -37,6 +37,18 @@ it("hides empty sections through RPC while keeping their readers available", asy
   await expect(env.json()).resolves.toMatchObject({ ok: true, value: { entries: [] } })
 })
 
+it("filters empty sections within the installed navigation without removing operations", async () => {
+  installConsoleSections(projectRoot, ["agents", "skills", "channels", "env"], ["env"])
+
+  const sections = await call("sections.list")
+  expect(sections.status).toBe(200)
+  await expect(sections.json()).resolves.toMatchObject({ ok: true, value: { sections: [] } })
+
+  const env = await call("env.get")
+  expect(env.status).toBe(200)
+  await expect(env.json()).resolves.toMatchObject({ ok: true, value: { entries: [] } })
+})
+
 it("shows bundled Skills and declared Env through the operation reader", async () => {
   const definition = agentWithSkills(defineAgent({ driver: codexDriver(), runtime: false }), {
     review: "# Review\n\nRead the evidence.\n",

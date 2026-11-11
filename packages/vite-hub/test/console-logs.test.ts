@@ -7,6 +7,7 @@ import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import type { LogPage, LogSource } from "../src/logs/source.ts";
 import { consoleEvent } from "./console-event.ts";
 import { routeRequest } from "./console-event.ts";
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const request = (query = "") => consoleEvent({ url: `http://localhost/_vitehub/api/logs${query}` });
 afterEach(() => installConsoleAccess({ mode: "open" }));
@@ -78,14 +79,14 @@ describe("Console Logs", () => {
     });
     installLogSource("/logs-rpc-tests", buffer.source);
     const response = await handleConsoleRpcRequest(
-      new Request("http://localhost/_vitehub/rpc/__call", {
+      new Request("http://localhost/_vitehub/rpc", {
         method: "POST",
         headers: { "content-type": "application/json", "x-vitehub-console": "1" },
-        body: JSON.stringify({ operation: "logs.list", input: { limit: 1 } }),
+        body: operationRpcBody("logs.list", { limit: 1 }),
       }),
     );
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({
       ok: true,
       value: { page: { entries: [{ id: "rpc-event" }] } },
     });
@@ -112,10 +113,10 @@ describe("Console Logs", () => {
     const controller = new AbortController();
     const req = transport === "HTTP"
       ? new Request("http://localhost/_vitehub/api/logs", { signal: controller.signal })
-      : new Request("http://localhost/_vitehub/rpc/__call", {
+      : new Request("http://localhost/_vitehub/rpc", {
           method: "POST",
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
-          body: JSON.stringify({ operation: "logs.list", input: {} }),
+          body: operationRpcBody("logs.list", {}),
           signal: controller.signal,
         });
     const reading = transport === "HTTP" ? logsRoute.fetch(req) : handleConsoleRpcRequest(req);

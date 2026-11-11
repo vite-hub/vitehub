@@ -1,5 +1,5 @@
 /**
- * The JSON Schema of one argument. The MCP server checks these keywords itself, so a tool lists only them, plus
+ * The JSON Schema of one argument. A tool lists only these keywords, plus
  * `description` and `title` for the Agent.
  */
 export type ViteHubMcpValueSchema = {
@@ -39,8 +39,8 @@ export interface ViteHubMcpToolContext {
 }
 
 /**
- * One tool of the ViteHub MCP server at `/_vitehub/mcp`. An owner package registers its tools when the server starts.
- * The server lists and runs a tool only for a person whose Console access includes the tool's `section`.
+ * One tool for an app's own MCP server, such as a Comments tool of `commentsMcpTools()`. ViteHub MCP offers operations
+ * instead. The server lists and runs a tool only for a person whose Console access includes the tool's `section`.
  */
 export interface ViteHubMcpTool {
   /** Snake case and prefixed with the owner, such as `comments_list_threads`. */
@@ -53,84 +53,4 @@ export interface ViteHubMcpTool {
   /** The Console section whose access the tool needs, such as `comments`. */
   section: string
   call(input: Record<string, unknown>, context: ViteHubMcpToolContext): Promise<ViteHubMcpToolResult>
-}
-
-const registryKey: unique symbol = Symbol.for("vitehub.mcp.tools")
-// SAFETY: This module owns the process slot that separately bundled owner plugins and the MCP route share.
-const scope = globalThis as typeof globalThis & { [registryKey]?: Map<string, readonly ViteHubMcpTool[]> }
-
-/** Registers the tools of one owner, such as `comments`. A second call replaces them, as in development reloads. */
-export function registerViteHubMcpTools(owner: string, tools: readonly ViteHubMcpTool[]): void {
-  const registry = scope[registryKey] ??= new Map()
-  registry.set(owner, tools)
-}
-
-/** Every registered tool, in owner registration order. */
-export function getViteHubMcpTools(): ViteHubMcpTool[] {
-  return [...scope[registryKey]?.values() ?? []].flat()
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-function checkValue(schema: ViteHubMcpValueSchema, value: unknown, path: string): string | undefined {
-  if (schema.enum && !schema.enum.some(item => item === value)) return `${path} must be one of ${schema.enum.map(item => JSON.stringify(item)).join(", ")}`
-  switch (schema.type) {
-    case undefined:
-      return undefined
-    case "boolean":
-      return typeof value === "boolean" ? undefined : `${path} must be a boolean`
-    case "integer":
-    case "number": {
-      if (typeof value !== "number" || !Number.isFinite(value)) return `${path} must be a number`
-      if (schema.type === "integer" && !Number.isInteger(value)) return `${path} must be an integer`
-      if (schema.minimum !== undefined && value < schema.minimum) return `${path} must be at least ${schema.minimum}`
-      if (schema.maximum !== undefined && value > schema.maximum) return `${path} must be at most ${schema.maximum}`
-      return undefined
-    }
-    case "string": {
-      if (typeof value !== "string") return `${path} must be a string`
-      // JSON Schema counts code points.
-      const length = [...value].length
-      if (schema.minLength !== undefined && length < schema.minLength) return `${path} must have at least ${schema.minLength} characters`
-      if (schema.maxLength !== undefined && length > schema.maxLength) return `${path} must have at most ${schema.maxLength} characters`
-      return undefined
-    }
-    case "array": {
-      if (!Array.isArray(value)) return `${path} must be an array`
-      const items = schema.items
-      if (!items) return undefined
-      for (const [index, item] of value.entries()) {
-        const invalid = checkValue(items, item, `${path}[${index}]`)
-        if (invalid) return invalid
-      }
-      return undefined
-    }
-    case "object":
-      return isPlainObject(value) ? checkObject(schema, value, path) : `${path} must be an object`
-  }
-}
-
-function checkObject(schema: { properties?: Record<string, ViteHubMcpValueSchema>, required?: string[], additionalProperties?: boolean }, value: Record<string, unknown>, path: string): string | undefined {
-  const properties = schema.properties ?? {}
-  for (const name of schema.required ?? []) {
-    if (!Object.hasOwn(value, name)) return `${path ? `${path}.` : ""}${name} is required`
-  }
-  for (const [name, item] of Object.entries(value)) {
-    const property = Object.hasOwn(properties, name) ? properties[name] : undefined
-    const at = path ? `${path}.${name}` : name
-    if (!property) {
-      if (schema.additionalProperties === false) return `${at} is not an argument of this tool`
-      continue
-    }
-    const invalid = checkValue(property, item, at)
-    if (invalid) return invalid
-  }
-  return undefined
-}
-
-/** What is wrong with the arguments of one call, or `undefined` when they match the tool's schema. */
-export function checkViteHubMcpInput(schema: ViteHubMcpInputSchema, input: Record<string, unknown>): string | undefined {
-  return checkObject(schema, input, "")
 }

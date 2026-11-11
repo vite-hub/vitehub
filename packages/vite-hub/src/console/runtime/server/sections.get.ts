@@ -1,7 +1,9 @@
 import { allowedConsoleSections, consoleAccessWrites, type ConsoleAccess } from "./access.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
+import { consoleState } from "../../internal.ts"
+import { consoleSetupRoute } from "./development.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { getConsoleAuth, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
 import type { ConsoleContributedSection } from "../definitions.ts"
 
@@ -30,9 +32,7 @@ async function emptySections(sections: readonly string[]): Promise<Set<string>> 
   return empty
 }
 
-/** The sections that this access may use. The client hides the others. Each operation still checks its own section. */
-export async function listConsoleSections(access: ConsoleAccess): Promise<{
-  auth?: true | "cloudflare-access"
+interface ConsoleSectionsResponse {
   contributions?: readonly ConsoleContributedSection[]
   /** The registered operations that run app code (`console.invoke`) and that this request may run. The pages hide the others. */
   operations?: readonly string[]
@@ -42,18 +42,20 @@ export async function listConsoleSections(access: ConsoleAccess): Promise<{
   /** `console.authorize` limited this request to some sections, so the others may be installed but hidden. */
   scoped?: true
   sections: readonly string[]
-}> {
+  /** The route of the dev Setup endpoints, only on a development server. */
+  setup?: string
+}
+
+/** The sections that this access may use. The client hides the others. Each operation still checks its own section. */
+export async function listConsoleSections(access: ConsoleAccess): Promise<ConsoleSectionsResponse> {
   const projectName = getConsoleProjectName()
-  const allowed = allowedConsoleSections(access, getConsoleSections())
+  const allowed = allowedConsoleSections(access, consoleState().navigationSections ?? getConsoleSections())
   const empty = await emptySections(allowed)
   const sections = allowed.filter(section => !empty.has(section))
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
-  const result: { auth?: true | "cloudflare-access", contributions?: readonly ConsoleContributedSection[], operations?: readonly string[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
+  const result: ConsoleSectionsResponse = { sections }
   const readOnly = sections.filter(section => !consoleAccessWrites(access, section))
   if (readOnly.length) result.readOnly = readOnly
-  const auth = getConsoleAuth()
-  if (auth) result.auth = auth
-  else if (access.mode === "auth") result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   const operations = consoleOperationRegistry().list()
@@ -61,5 +63,7 @@ export async function listConsoleSections(access: ConsoleAccess): Promise<{
     .map(operation => operation.name)
   if (operations.length) result.operations = operations
   if (projectName) result.projectName = projectName
+  const setup = sections.includes("setup") ? consoleSetupRoute() : undefined
+  if (setup) result.setup = setup
   return result
 }

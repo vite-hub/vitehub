@@ -1,3 +1,4 @@
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { Diagnostic } from "nostics"
 
 import { consoleRpcHeader } from "../rpc"
@@ -7,7 +8,6 @@ import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/_vitehub/api/"
-const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -58,7 +58,7 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+/** Whether the project refused a Console request with `401`, such as a signature that it does not accept. */
 export function isConsoleSignInRequired(error: unknown): boolean {
   return error instanceof ConsoleRequestError && error.status === 401
 }
@@ -279,30 +279,35 @@ export async function requestConsoleOperation(
   options: { keepalive?: boolean, signal?: AbortSignal } = {},
 ): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  // The operation comes first so the server can find large calls within the first bytes.
-  const requestBody = JSON.stringify({ operation, input })
-  let response: Response
-  try {
-    response = await projectFetch(consoleRpcCallPath, {
-      body: requestBody,
-      cache: "no-store",
-      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-      ...(options.keepalive ? { keepalive: true } : {}),
-      method: "POST",
-      signal: options.signal,
-    })
+  const outcome = await callOperationRpc(operation, input, async (body) => {
+    let response: Response
+    try {
+      response = await projectFetch(operationRpcPath, {
+        body,
+        cache: "no-store",
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        ...(options.keepalive ? { keepalive: true } : {}),
+        method: "POST",
+        signal: options.signal,
+      })
+    }
+    catch (error) {
+      // Aborted requests are intentional (for example when a view unmounts); preserve
+      // the original error so callers that ignore AbortError can do so reliably.
+      if (error instanceof Error && error.name === "AbortError") throw error
+      throw new ConsoleNetworkError(error)
+    }
+    // The clone keeps the body readable for the error of an answer that is not a reply.
+    return { body: await response.clone().json().catch(() => undefined), response }
+  })
+  if (outcome.ok) return outcome.value
+  const { response } = outcome.answer
+  if (outcome.error) {
+    // The HTTP status of a failed response wins over the status in the body.
+    const status = !response.ok ? response.status : outcome.error.status >= 400 ? outcome.error.status : 502
+    throw new ConsoleRequestError(status, consoleErrorFields(outcome.error), consoleFailureFields(outcome.error))
   }
-  catch (error) {
-    // Aborted requests are intentional (for example when a view unmounts); preserve
-    // the original error so callers that ignore AbortError can do so reliably.
-    if (error instanceof Error && error.name === "AbortError") throw error
-    throw new ConsoleNetworkError(error)
-  }
-  if (!response.ok) throw await consoleResponseError(response)
-  const result = record(await response.json().catch(() => undefined))
-  if (result?.ok === true) return result.value
-  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
-  throw new ConsoleRequestError(status, consoleErrorFields(result), consoleFailureFields(result))
+  throw await consoleResponseError(response)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {

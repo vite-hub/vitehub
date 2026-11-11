@@ -152,7 +152,6 @@ function runtime(threadId: string, events: unknown[], options: {
 function context(threadId: string, overrides: Record<string, unknown> = {}) {
   const values = new Map<string, unknown>()
   return {
-    actor: { id: "actor" },
     context: {
       entries: () => values.entries(),
       get: (key: string) => values.get(key),
@@ -233,7 +232,7 @@ describe("Provider Agent Driver", () => {
     }).generate(context(threadId) as never)
 
     expect(resolve).toHaveBeenCalledOnce()
-    expect(resolve.mock.calls[0]?.[0]).toMatchObject({ actor: { id: "actor" }, invoker: { id: "invoker" } })
+    expect(resolve.mock.calls[0]?.[0]).toMatchObject({ invoker: { id: "invoker" } })
   })
 
   it("passes only host process essentials and explicitly selected environment values", async () => {
@@ -1798,7 +1797,7 @@ describe("Provider Agent Driver", () => {
     const homes = calls.map(call => (call[0].settings as { homePath: string }).homePath)
     expect(new Set(homes).size).toBe(1)
     expect(credentials).toHaveBeenCalledTimes(3)
-    expect(credentials.mock.calls[0]?.[0]).toMatchObject({ abortSignal: undefined, actor: { id: "actor" }, invoker: { id: "invoker" } })
+    expect(credentials.mock.calls[0]?.[0]).toMatchObject({ abortSignal: undefined, invoker: { id: "invoker" } })
     await expect(readFile(`${homes[0]}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"rotated"}\n')
     await expect(readFile(`${homes[0]}/config.toml`, "utf8")).resolves.toBe('model = "gpt-5.6"\ncli_auth_credentials_store = "file"\n\n[projects."/workspace"]\ntrust_level = "trusted"\n')
     expect((await stat(homes[0])).mode & 0o777).toBe(0o700)

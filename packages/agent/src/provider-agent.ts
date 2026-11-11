@@ -1288,7 +1288,6 @@ function providerMetadataContext<
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
-    actor: context.actor,
     context: context.context,
     fs: context.workspace ? context.workspace.fs : inherited?.fs,
     invoker: context.invoker,
