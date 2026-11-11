@@ -70,6 +70,7 @@ const workspaceEntries = [
   "./workspace-boot-status",
   "./connect-panel",
   "./browser-support-notice",
+  "./playground-container",
 ];
 const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
 
@@ -87,14 +88,14 @@ describe("@vite-hub/ui package contract", () => {
       "./agent-trace",
     ]));
     expect(packageJson.peerDependencies).toMatchObject({
-      "@iconify-json/ph": expect.any(String),
+      "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
       vite: expect.any(String),
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
-      "@iconify-json/ph": { optional: true },
+      "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
@@ -107,11 +108,11 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.8.1",
+      "@comark/vue": "0.9.0",
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",
       "vega-loader": "^5.1.3",
-      katex: "^0.18.7",
+      katex: "^0.19.1",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
       "@shikijs/themes": "4.5.0",
@@ -177,8 +178,14 @@ describe("@vite-hub/ui package contract", () => {
     const webContainerImporters = readdirSync(dist)
       .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container"/.test(read(name)));
     expect(webContainerImporters.every((name) => name === "workspace.js" || name.startsWith("use-workspace-"))).toBe(true);
-    expect(read("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
-    expect(read("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+    // An entry that shares a part with PlaygroundContainer re-exports it from a chunk, so read through to the chunk.
+    const withChunks = (name: string) => {
+      const entry = read(name);
+      return [entry, ...[...entry.matchAll(/from\s*"\.\/([^"]+\.js)"/g)].map(([, chunk]) => read(chunk!))].join("\n");
+    };
+    expect(withChunks("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
+    expect(withChunks("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+    expect(withChunks("playground-container.js")).not.toMatch(/from\s*"@(?:codemirror|xterm)\//);
   });
 
   it("keeps Tiptap out of the root barrel and its own dependency", () => {

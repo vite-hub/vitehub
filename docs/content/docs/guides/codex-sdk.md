@@ -108,7 +108,7 @@ The Agent name `reviewer` comes from the file path. `runtime: false` runs the Ag
 | `permissions` | `'ask'` (default), `'allow-edits'`, `'allow-edits-unattended'`, or `'allow-all'`. `'allow-edits-unattended'` allows file edits and denies other requests without a prompt. |
 | `requirements` | Commands Codex needs. `agent.status()` reports the ones missing on the host. |
 
-[Agent Drivers](/docs/agents/agent-drivers#use-a-provider-backed-driver) lists all options, such as `env`, `launch`, `cwd`, `toolchain`, `retention`, `sessionStorePath`, `output`, and `capacity`.
+[Agent Drivers](/docs/agents/agent-drivers#use-a-provider-backed-driver) lists all options, such as `env`, `launch`, `cwd`, `toolchain`, `sessionStorePath`, `output`, and `capacity`.
 
 ### Set the credential
 
@@ -212,7 +212,6 @@ Copy the whole `.output` folder to the server, container, or VM. [Node and self-
 
 For a long-lived server:
 
-- Codex keeps every session in its Home forever. Set `retention`, such as `{ maxAge: '14d', maxSize: '45%' }`, to limit a persistent Home. See [Limit the Codex Home size](/docs/agents/agent-drivers#limit-the-codex-home-size).
 - Set `sessionStorePath` to keep thread cursors in a SQLite file, so a thread continues after a restart. With `credentials`, this needs a `credentialProfile`.
 - Share one `capacity` object across Agents to cap concurrent Codex processes. See [Adaptive process capacity](/docs/agents/agent-drivers#adaptive-process-capacity).
 - Use a [process host](/docs/agents/process-hosts) for background work that must recover and drain on restart.
@@ -223,7 +222,6 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 - `agent.status()` checks that Codex is installed and signed in, and reads its quota if reported. It sends no prompt. See [Provider status](/docs/agents/provider-status).
 - `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
-- `vitehub agent codex-home status --home <path>` reports a Codex Home's size without the app.
 - The [Console](/docs/development/console) shows the trace, tool calls, and usage of each Invocation.
 
 ## Where Codex can run

@@ -402,6 +402,39 @@ ViteHub writes the `browser` binding, a compatible default `compatibility_date`,
 
 `wrangler dev` can run Browser Run against a local browser. Set `browser: { remote: true }` to run Worker code locally with the Browser binding on Cloudflare, for example to test the hosted service.
 
+## Read a binding
+
+Use a ViteHub primitive when one covers the feature. For a Cloudflare feature that no primitive covers, such as a
+Range request on an R2 bucket or a `send_email` binding, read the raw binding with `getHostBinding()` from
+`vite-hub/runtime`. Declare the binding in the project `wrangler.json`, and run `wrangler types` so that the result
+has the type of the binding.
+
+This route uses the `VIDEOS` R2 binding and the generated `Cloudflare.Env` types.
+
+```ts [server/routes/videos/[file].ts] fragment
+import { defineEventHandler, getRouterParam } from "h3";
+import { getHostBinding } from "vite-hub/runtime";
+
+export default defineEventHandler(async (event) => {
+  const [error, bucket] = getHostBinding("VIDEOS", event);
+  if (error) return new Response(null, { status: 404 });
+  const object = await bucket.get(`videos/${getRouterParam(event, "file")}`);
+  return object ? new Response(object.body) : new Response(null, { status: 404 });
+});
+```
+
+`getHostBinding()` also works in Schedules, Queues, and Workflows, which have no request event. Call it without
+`event` there. It returns an error instead of throwing, so the same code can use another source in `vite dev` on Node.
+
+### RUNTIME_HOST_BINDINGS_UNAVAILABLE
+
+The code runs without host bindings, for example on Node, Vercel, or Netlify. Only Cloudflare Workers give bindings.
+Build with the `cloudflare` preset, or handle the error.
+
+### RUNTIME_HOST_BINDING_NOT_FOUND
+
+The Worker has no binding with this name. Add it to the Wrangler config of the project, then run `wrangler types`.
+
 ## Production notes
 
 Local development and deployed Workers do not always behave the same. Use Provider Output Contracts and Local Provider Runs for pull request checks, and keep Live Smoke tests on real deployments small.
@@ -416,7 +449,7 @@ Agent Definitions run on Cloudflare through generated output when the Agent inte
 
 Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call`, so it needs no session affinity or memory state. With session-based `auth`, the access policy checks the session cookie on each call. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
 
-Protect a production Console with `console: { auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker checks the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite`, so it does not work on Workers. See [Protect the Console route](/docs/development/console#protect-the-console-route).
+To open the Worker in the hosted Console, use `console: { auth: 'token' }`. To protect the endpoint for the CLI and MCP clients, you can also use `console: { auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker checks the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite`, so it does not work on Workers. See [Protect the Console route](/docs/development/console#protect-the-console-route).
 
 ## Next steps
 

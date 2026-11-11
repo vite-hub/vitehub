@@ -579,7 +579,7 @@ Use the [Chat app block](/docs/ui/blocks/chat-app) layout. A child pane holds on
 ```vue [app/components/ChatPane.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import { ChatSession, PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
+import { ChatSession, PromptInput, type PromptInputSubmit } from "vite-hub/ui";
 import { DefaultChatTransport } from "ai";
 import type { Thread } from "../../shared/chat";
 

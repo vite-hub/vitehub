@@ -6,10 +6,9 @@ import { readFile } from "node:fs/promises"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
-import { findExportNames, hasCJSSyntax } from "mlly"
-import { transform } from "esbuild"
+import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { normalizeRoute } from "h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
@@ -96,20 +95,6 @@ function serializeVirtualConfig(config: BlobViteRuntimeConfig): string {
     `export const blob = ${JSON.stringify(config.blob)};`,
     "export default { hosting, blob };",
   ].join("\n")
-}
-
-function cloneNitroConfig(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 type BlobRuntimeContribution = Parameters<typeof contributeProviderRuntime>[1]
@@ -375,6 +360,8 @@ function hasAuthDefinition(plugins: readonly unknown[]): boolean {
   })
 }
 
+const commonJSSyntax = /(?:[\s;]|^)(?:module\.exports\b|exports\.\w|require\s*\(|global\.\w)/m
+
 async function discoverBlobAuthorizeModule(rootDir: string, serverDirs: string[] | undefined): Promise<string | undefined> {
   const directories = (serverDirs === undefined ? ["server"] : serverDirs).map(directory => resolve(rootDir, directory))
   const files = directories
@@ -386,9 +373,15 @@ async function discoverBlobAuthorizeModule(rootDir: string, serverDirs: string[]
   const file = files[0]
   if (!file) return
   const source = await readFile(file, "utf8")
-  if (findExportNames(source).includes("authorize")) return file
-  if (!file.endsWith(".cts") && !file.endsWith(".cjs") && !hasCJSSyntax(source)) return
-  const commonJS = file.endsWith(".cts") ? (await transform(source, { loader: "ts" })).code : source
+  // Vite is an optional peer; load its parser only when the integration discovers a module.
+  const { exportNames } = await import("@vite-hub/internal/build/scan-module")
+  if (exportNames(source, file).includes("authorize")) return file
+  if (!file.endsWith(".cts") && !file.endsWith(".cjs") && !commonJSSyntax.test(source)) return
+  let commonJS = source
+  if (file.endsWith(".cts")) {
+    const { transformWithOxc } = await import("vite")
+    commonJS = (await transformWithOxc(source, file, { lang: "ts" })).code
+  }
   await initCommonJS()
   return parseCommonJS(commonJS, file).exports.includes("authorize") ? file : undefined
 }

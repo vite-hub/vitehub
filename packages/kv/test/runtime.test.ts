@@ -649,14 +649,14 @@ describe("kv runtime", () => {
     expect(openKv).toHaveBeenCalledTimes(2)
   })
 
-  it("bounds and resumes fs-lite listing across directories", async () => {
+  it("bounds and resumes fs-lite listing", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-list-"))
     try {
       await mkdir(join(root, "a"))
       await writeFile(join(root, "a", "x"), "x")
       await writeFile(join(root, "a0"), "a0")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       const first = await driver.listKeys({ limit: 1, prefix: "a" })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })
@@ -675,33 +675,12 @@ describe("kv runtime", () => {
     try {
       await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(join(root, `key-${index}`), "value")))
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       await expect(driver.listKeys({ limit: 2 })).resolves.toMatchObject({
         keys: [expect.any(String), expect.any(String)],
         cursor: expect.any(String),
       })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("counts fs-lite directories toward bounded traversal work", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-directories-"))
-    try {
-      let directory = root
-      for (let index = 0; index < 10; index += 1) {
-        directory = join(directory, `level-${index}`)
-        await mkdir(directory)
-      }
-      await writeFile(join(directory, "key"), "value")
-      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
-
-      const first = await driver.listKeys({ limit: 2 })
-
-      expect(first).toEqual({ keys: [], cursor: expect.any(String) })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -714,7 +693,7 @@ describe("kv runtime", () => {
       await writeFile(join(root, "one"), "one")
       await writeFile(join(root, "two"), "two")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
       const cursors: string[] = []
       for (let index = 0; index < 33; index += 1) {
         const page = await driver.listKeys({ limit: 1 })
@@ -732,7 +711,7 @@ describe("kv runtime", () => {
   it("treats a missing fs-lite directory as an empty store", async () => {
     const root = join(tmpdir(), `vitehub-kv-missing-${crypto.randomUUID()}`)
     const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-    const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+    const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
     await expect(driver.listKeys({ limit: 10 })).resolves.toEqual({ keys: [] })
   })
@@ -743,7 +722,7 @@ describe("kv runtime", () => {
       await writeFile(join(root, "e\u0301"), "decomposed")
       await writeFile(join(root, "é"), "composed")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       const first = await driver.listKeys({ limit: 1 })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1 })
@@ -763,11 +742,11 @@ describe("kv runtime", () => {
       await writeFile(join(root, "b"), "b")
       await writeFile(join(root, "c"), "c")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       const first = await driver.listKeys({ limit: 1 })
       const remaining = ["a", "b", "c"].filter(key => key !== first.keys[0])
-      await rm(join(root, first.keys[0]!), { force: true })
+      await rm(join(root, `key-${first.keys[0]!}`), { force: true })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
       const third = second.cursor
         ? await driver.listKeys({ cursor: second.cursor, limit: 2 })

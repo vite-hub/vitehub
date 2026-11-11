@@ -78,7 +78,7 @@ vitehub({
   host: "node",
   dataDir: "/var/lib/app",
   agent: true,
-  console: { auth: false, authorize: "./server/console-authorize.ts" },
+  console: { auth: { provider: "github", org: "acme" }, authorize: "./server/console-authorize.ts" },
   kv: true,
   blob: true,
   workspace: true,

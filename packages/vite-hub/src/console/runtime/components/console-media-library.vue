@@ -119,10 +119,14 @@ function updated(file: ConsoleMediaFile): void {
       @rename="(file) => browser?.askMove([file])"
       @remove="(file) => browser?.askRemove([file])"
     />
-    <div v-else-if="activeError" class="vitehub-media-library__detail flex flex-col items-center justify-center gap-2 p-6 text-center">
-      <p class="text-sm text-highlighted">Couldn't open {{ file }}</p>
-      <p class="text-xs text-muted">{{ consoleErrorMessage(activeError) }}</p>
-      <UButton variant="outline" size="sm" label="Close" @click="open(undefined)" />
-    </div>
+    <UEmpty
+      v-else-if="activeError"
+      variant="naked"
+      class="vitehub-media-library__detail justify-center"
+      icon="i-lucide-file-x"
+      :title="`Couldn't open ${file}`"
+      :description="consoleErrorMessage(activeError)"
+      :actions="[{ label: 'Close', variant: 'outline', onClick: () => open(undefined) }]"
+    />
   </div>
 </template>

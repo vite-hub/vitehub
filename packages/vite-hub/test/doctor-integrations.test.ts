@@ -182,7 +182,7 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
     expect(await codes(noViteHubPluginInNuxt, {
       "nuxt.config.ts": lines(
         "import { hubDb } from \"@vite-hub/database/vite\"",
-        "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { preset: \"node\" }]], vite: { plugins: [hubDb()] } })",
+        "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { host: \"node\" }]], vite: { plugins: [hubDb()] } })",
       ),
     }, "nuxt")).toEqual([])
   })

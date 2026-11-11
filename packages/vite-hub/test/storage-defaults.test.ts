@@ -9,7 +9,7 @@ import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDa
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 /** The generated Agent Invocations plugin, which installs the default journal with the Console on or off. */
 async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ info: string[], plugin: string }> {
@@ -62,7 +62,7 @@ describe("Node storage defaults", () => {
   it.each(["serve", "build"] as const)("keeps the default Agent journal under dataDir during %s, with the Console on or off", async (command) => {
     const dataDir = "/var/lib/app data"
     const databaseUrl = JSON.stringify(pathToFileURL(join(dataDir, "agent-invocations.sqlite")).href)
-    for (const options of [{ host: "node", dataDir, agent: true }, { host: "node", dataDir, agent: true, console: { auth: false } }] satisfies ViteHubOptions[]) {
+    for (const options of [{ host: "node", dataDir, agent: true }, { host: "node", dataDir, agent: true, console: command === "build" ? productionConsole : { auth: false } }] satisfies ViteHubOptions[]) {
       const { plugin } = await generatedJournalPlugin(options, command)
       expect(plugin).toContain(`default: {"databaseUrl":${databaseUrl}}`)
       expect(plugin).toContain("journal: { projectRoot: ")
@@ -191,7 +191,7 @@ describe("Default Agent journal host defaults", () => {
   it("installs the same D1 journal with the Console on", async () => {
     const definition = 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n'
     const off = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/config.ts": definition })
-    const on = await generatedJournalPlugin({ ...cloudflare, database: true, console: { auth: false, authorize: hostManagedAuthorize } }, "build", { "server/databases/config.ts": definition })
+    const on = await generatedJournalPlugin({ ...cloudflare, database: true, console: productionConsole }, "build", { "server/databases/config.ts": definition })
     expect(off.plugin).toContain('d1: { binding: "APP_DB",')
     expect(off.info).toEqual(["[vitehub] Agent Invocation journal: D1 binding APP_DB, table vitehub_agent_invocations. The journal creates the table on first use."])
     expect(on.plugin.replace(/"\/[^"]*"/g, "ROOT")).toBe(off.plugin.replace(/"\/[^"]*"/g, "ROOT"))

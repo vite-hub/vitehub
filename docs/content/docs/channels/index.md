@@ -69,6 +69,36 @@ icon: i-lucide-send
     return receipt
   })
   ```
+
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: { host: 'node', agent: true, channels: true, queue: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { nitro } from 'nitro/vite'
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true }), nitro()],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true })],
+  })
+  ```
+  ::::
   :::
 ::
 

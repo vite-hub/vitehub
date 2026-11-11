@@ -32,7 +32,7 @@ pnpm add @vite-hub/agent @vite-hub/sandbox
 This Agent gives Codex a private Home and checks the required CLIs before each Invocation (one run of the Agent):
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
@@ -50,12 +50,47 @@ Each Invocation opens a new Sandbox session. It creates a private Home, installs
 `trusted-host` isolates only the Home folder and declared environment values, not the filesystem, network, processes, or installed executables. Use it only when the Agent may act with the host user's authority.
 :::
 
+## Cage the provider in a container
+
+A `container` Sandbox runs the provider in a Docker container on an internal network. The provider has no network access, except to the hosts in `egress`, through a broker. Real credential values stay in the broker. The provider sees only placeholders in its environment, and the broker swaps each one in only for the hosts of that credential.
+
+```ts [server/agents/review/agent.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  sandbox: {
+    runtime: {
+      kind: 'container',
+      image: 'node:24-bookworm',
+      egress: { allow: ['registry.npmjs.org', 'api.openai.com', 'chatgpt.com'] },
+      credentials: {
+        GH_TOKEN: {
+          hosts: ['api.github.com', 'github.com', 'codeload.github.com'],
+          value: () => process.env.GITHUB_BOT_TOKEN!,
+        },
+      },
+    },
+    toolchain: 'project',
+  },
+  driver: codexDriver(),
+})
+```
+
+Git sends a token with Basic authentication, and the broker swaps placeholders there too. Give Git the placeholder through a credential helper in a Home file:
+
+```ini [.vitehub/sandbox/gitconfig]
+[credential "https://github.com"]
+  helper = "!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f"
+```
+
+The ViteHub process needs rootful Docker Engine 28 or newer on native Linux, through a local or remote Docker context. Docker Desktop, OrbStack, WSL, and rootless Docker are not supported. The Sandbox cannot reach the ViteHub process, so the Agent cannot use Capability tools. Read [Caged containers](/docs/guides/sandbox-providers#caged-containers-with-the-container-runtime) for the full list of limits.
+
 ## Pin an exact checkout
 
 When every run must inspect an exact commit, read repository facts from trusted Invocation data, which Sandbox callbacks receive:
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 interface PullRequest {
   ref: string
@@ -121,10 +156,72 @@ Boot fails when the project pins no Node.js version and no `fallbackNode` is set
 
 ## Add credentials and CLI state
 
-Keep secrets out of the repository. Load them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads credentials from the Sandbox Home, such as `.codex/auth.json`.
+Keep secret values outside the repository. Resolve them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads its credentials from the Sandbox Home, for example `.codex/auth.json`. Declare the secrets in Server Env:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    env: {
+      server: {
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({

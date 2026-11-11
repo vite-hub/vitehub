@@ -89,7 +89,6 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
-    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

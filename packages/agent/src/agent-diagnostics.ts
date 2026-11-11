@@ -5,8 +5,6 @@ import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const agentTypeDiagnosticCodes = new Set([
-  "AGENT_R1006",
-  "AGENT_R1008",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -203,11 +201,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0384",
   "AGENT_R0401",
   "AGENT_R0402",
-  "AGENT_R0413",
-  "AGENT_R0414",
-  "AGENT_R0416",
-  "AGENT_R0417",
-  "AGENT_R0420",
   "AGENT_R0425",
   "AGENT_R0426",
   "AGENT_R0430",
@@ -869,14 +862,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0410: dynamicError,
     AGENT_R0411: dynamicError,
     AGENT_R0412: dynamicError,
-    AGENT_R0413: dynamicError,
-    AGENT_R0414: dynamicError,
-    AGENT_R0415: dynamicError,
-    AGENT_R0416: dynamicError,
-    AGENT_R0417: dynamicError,
-    AGENT_R0418: dynamicError,
-    AGENT_R0419: dynamicError,
-    AGENT_R0420: dynamicError,
+    // AGENT_R0413 through AGENT_R0420 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_R0421: dynamicError,
     AGENT_R0422: dynamicError,
     AGENT_R0423: dynamicError,
@@ -1307,18 +1293,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     // AGENT_B0003 and AGENT_B0004 are retired with Runtime Schedule targets. Do not reuse them.
     AGENT_B0005: dynamicError,
     AGENT_B0006: dynamicError,
-    AGENT_B0007: dynamicError,
-    AGENT_B0008: dynamicError,
-    AGENT_B0009: dynamicError,
-    AGENT_B0010: dynamicError,
-    AGENT_B0011: dynamicError,
-    AGENT_B0012: dynamicError,
-    AGENT_B0013: dynamicError,
-    AGENT_B0014: dynamicError,
-    AGENT_B0015: dynamicError,
+    // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_B0016: dynamicError,
     AGENT_B0017: dynamicError,
-    AGENT_B0018: dynamicError,
+    // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.
     AGENT_B0022: dynamicError,
     AGENT_B0023: dynamicError,
     AGENT_B0024: dynamicError,
@@ -1417,10 +1395,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] defineAgent({ capabilities }) must be an ordered array.",
       fix: "Pass an array of Capabilities in execution order.",
     },
-    AGENT_B0001: {
-      why: "[vitehub] Eve extensions must be compiled by the ViteHub Vite plugin.",
-      fix: "Load the Agent Definition through a Vite host with the ViteHub Agent plugin installed.",
-    },
+    // AGENT_B0001 is retired with the Eve extension adapter. Do not reuse it.
     AGENT_B0020: {
       why: ({ root }: { root: string }) => `[vitehub] Cannot identify the owning Agent build for ${JSON.stringify(root)} because its environment does not uniquely match a resolved configuration.`,
       fix: "Use a separate Agent plugin instance per build or preserve the resolved build options in each environment config.",
@@ -1462,9 +1437,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ trigger }: { trigger: string }) => `[vitehub] Channel trigger "${trigger}" declares durableState: true, but it ran without the Channel's State.`,
       fix: "Run the trigger through the Channel's webhook route, its webhook queue or context.dispatch(), and give the Agent a durable state provider.",
     },
-    AGENT_R1006: dynamicError,
     AGENT_R1007: dynamicError,
-    AGENT_R1008: dynamicError,
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
     AGENT_R1013: dynamicError,
@@ -1480,6 +1453,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1029: {
       why: "The default Agent Invocation journal cannot open a file: URL in a Cloudflare Worker.",
       fix: "Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL or agent.invocations.databaseUrl to a remote libSQL URL, or remove the file URL to use the host default journal.",
+    },
+    AGENT_R1036: {
+      why: "The default Agent Invocation journal selected SQLite or libSQL, but the server was built without the libSQL driver.",
+      fix: "Set agent.invocations.databaseUrl to the libSQL URL in the build, so a Cloudflare build includes the driver, or remove VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to use D1 or memory.",
     },
     AGENT_R1024: {
       why: "The ChatGPT access token expired during this Invocation.",

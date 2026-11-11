@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const internalSource = resolve(packageRoot, "../internal/src")
@@ -18,10 +19,15 @@ function staticSpecifiers(code: string): string[] {
   return [...code.matchAll(staticImport)].map(match => match[1]!)
 }
 
-/** The source file of a `vite-hub/*` or `@vite-hub/internal/*` specifier. ViteHub bundles `@vite-hub/internal`. */
+/**
+ * The source file of a `vite-hub/*` or `@vite-hub/internal/*` specifier, or of a module that generated code imports by
+ * path. ViteHub bundles `@vite-hub/internal`.
+ */
 function sourceFile(specifier: string, importer?: string): string | undefined {
   if (specifier.startsWith(".") && importer) return resolve(dirname(importer), specifier)
-  if (specifier === "@vite-hub/agent/invocations/default") return join(agentSource, "invocations/default.ts")
+  if (specifier.startsWith(join(packageRoot, "dist/"))) return join(packageRoot, "src", relative(join(packageRoot, "dist"), specifier).replace(/\.js$/, ".ts"))
+  if (specifier.startsWith(join(packageRoot, "src/"))) return specifier
+  if (specifier === "@vite-hub/agent/invocations/default-core") return join(agentSource, "invocations/default-core.ts")
   if (specifier.startsWith("@vite-hub/internal/")) return join(internalSource, `${specifier.slice("@vite-hub/internal/".length)}.ts`)
   const target = specifier.startsWith("vite-hub/") ? packageExports[`./${specifier.slice("vite-hub/".length)}`]?.import : undefined
   return target ? join(packageRoot, target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")) : undefined
@@ -60,12 +66,13 @@ describe("Console server startup graph", () => {
         runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
       })
       const generated = await readFile(file, "utf8")
-      expect(staticSpecifiers(generated).sort()).toEqual(["vite-hub/console/setup"])
-      for (const module of ["vite-hub/console/server", "vite-hub/console/operations", "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
+      expect(staticSpecifiers(generated).sort()).toEqual([generatedModules.consoleSetup])
+      for (const module of ["vite-hub/console/server", generatedModules.consoleOperations, "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 
       const { files, packages } = startupGraph(generated)
+      expect(files).not.toContain(join(agentSource, "invocations/default-core.ts"))
       const loaded = [...files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
       // Agent Definitions and the Console's Agent install load with the Console runtime. `vite-hub/agent` resolves the
@@ -92,16 +99,19 @@ describe("Console server startup graph", () => {
         sections: ["kv"],
         catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         blobStores: [],
-        pageTools: true,
         access: { mode: "local" },
         runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
       })
       const generated = await readFile(file, "utf8")
-      expect(staticSpecifiers(generated)).toEqual(["vite-hub/console/setup"])
-      expect(generated).toContain("installConsoleClient(")
+      expect(staticSpecifiers(generated)).toEqual([generatedModules.consoleSetup])
+      for (const removed of ["installConsoleClient(", "installConsoleBuild(", "installConsolePageTool("]) {
+        expect(generated).not.toContain(removed)
+      }
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
-      expect(loaded).toContain("src/console/runtime/server/client-assets.ts")
+      for (const removed of ["client-assets.ts", "page-tool.ts"]) {
+        expect(loaded).not.toContain(`src/console/runtime/server/${removed}`)
+      }
       for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
         expect(loaded).not.toContain(lazy)
       }

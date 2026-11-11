@@ -160,7 +160,7 @@ The build fails with `SCHEDULE_B0008` when a name matches no schedule. It also f
 A Static Schedule Definition is a file whose cron the build reads, so it can write host cron entries.
 
 ```ts [server/schedules/daily-report.ts] fragment
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',

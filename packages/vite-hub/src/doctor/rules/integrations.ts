@@ -10,7 +10,7 @@ import { diagnostics } from "../diagnostics.ts"
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
 /** True when the project `package.json` lists `name` in any dependency field. */
-function dependsOn(ctx: RuleContext, name: string): boolean {
+export function dependsOn(ctx: RuleContext, name: string): boolean {
   const manifest: unknown = ctx.getJson("package.json")
   if (!manifest || typeof manifest !== "object") return false
   return dependencyFields.some((field) => {
@@ -196,7 +196,7 @@ export const forgeErrorImports: DoctorRule = createRule({
 
 
 const runtimeNames = new Set(["crabbox", "trusted-host", "vercel"])
-const runtimeKinds = new Set(["cloudflare", "crabbox", "trusted-host", "vercel"])
+const runtimeKinds = new Set(["cloudflare", "container", "crabbox", "trusted-host", "vercel"])
 
 function checkSandboxDefinition(ctx: RuleContext, definition: unknown) {
   const target = unwrap(definition)
@@ -212,13 +212,13 @@ function checkSandboxDefinition(ctx: RuleContext, definition: unknown) {
         : `\`runtime: "${runtimeName}"\` is not a Sandbox runtime. \`resolveSandbox()\` throws \`SANDBOX_R0031\` on each call.`,
       fix: runtimeName === "cloudflare"
         ? "Use `runtime: { kind: \"cloudflare\", namespace: env.SANDBOX }`."
-        : "Use `\"crabbox\"`, `\"trusted-host\"`, `\"vercel\"`, a tagged configuration such as `{ kind: \"cloudflare\", namespace }`, or a custom runtime object.",
+        : "Use `\"crabbox\"`, `\"trusted-host\"`, `\"vercel\"`, a tagged configuration such as `{ kind: \"cloudflare\", namespace }` or `{ kind: \"container\", image }`, or a custom runtime object.",
     }), { range: ctx.range(runtimeProperty) })
   }
   if (kind !== undefined && !runtimeKinds.has(kind)) {
     ctx.report(diagnostics.VHUB0027({
       why: `\`kind: "${kind}"\` is not a Sandbox runtime kind. \`resolveSandbox()\` throws \`SANDBOX_R0033\` on each call.`,
-      fix: "Use `kind: \"crabbox\"`, `\"trusted-host\"`, `\"cloudflare\"`, or `\"vercel\"`.",
+      fix: "Use `kind: \"crabbox\"`, `\"trusted-host\"`, `\"cloudflare\"`, `\"container\"`, or `\"vercel\"`.",
     }), { range: ctx.range(runtime) })
   }
   const cwd = hasValue(target, "cwd")
@@ -279,7 +279,7 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
           why: inline.length
             ? `\`rateLimit()\` no longer accepts the inline \`${inline.join("`, `")}\` options. Without \`limiter\`, the Capability throws \`AGENT_R0162\` on the first Invocation.`
             : "`rateLimit()` needs a `limiter`. Without it, the Capability throws `AGENT_R0162` on the first Invocation.",
-          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `@vite-hub/rate-limit` and `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory`.",
+          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `vite-hub/rate-limit` and `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory`.",
         }), { range: ctx.range(node) })
       },
     }

@@ -77,7 +77,7 @@ it("keeps installed Console sections independent of optional Auth packages", asy
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
     }
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { createConsoleAppAuthPages, installConsoleSections } from "vite-hub/console/sections"
+      import { createConsoleAppAuthPages, installConsoleSections } from "./node_modules/vite-hub/dist/console/runtime/server/sections.js"
       installConsoleSections("/consumer", [])
       createConsoleAppAuthPages(async () => ({
         api: { getSession: async () => null },

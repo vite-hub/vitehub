@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -28,13 +29,14 @@ it("starts a KV app with the Console from the Node output", async () => {
     await mkdir(join(root, "server/api"), { recursive: true })
     await writeFile(join(root, "server/api/health.get.ts"), "import { defineEventHandler } from \"h3\"\n\nexport default defineEventHandler(() => ({ ok: true }))\n")
 
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: false }, kv: true, host: "node" })], root })
+    const token = "console-node-start-token-0123456789abcdef"
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: "token" }, kv: true, host: "node" })], root })
     await builder.buildApp()
 
     const port = await freePort()
     const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
       cwd: root,
-      env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port) },
+      env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), VITEHUB_CONSOLE_TOKEN_SHA256: createHash("sha256").update(token).digest("hex") },
       stdio: ["ignore", "ignore", "pipe"],
     })
     let stderr = ""
@@ -54,6 +56,12 @@ it("starts a KV app with the Console from the Node output", async () => {
       expect(stderr).not.toContain("TypeError")
       expect(response?.status).toBe(200)
       expect(await response?.json()).toEqual({ ok: true })
+      // Without the Schedules and Auth sections, their Console routes are absent. Apps no longer serve a Console page.
+      for (const path of ["/_vitehub/schedules/run", "/_vitehub/auth/manage"]) {
+        const post = await fetch(`http://127.0.0.1:${port}${path}`, { body: "{}", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, method: "POST" })
+        expect(post.status, path).toBe(404)
+      }
+      expect(stderr).not.toContain("Unhandled error")
     }
     finally {
       server.kill()
