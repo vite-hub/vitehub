@@ -216,6 +216,7 @@
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
+    "birpc": "catalog:runtime",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
     "esbuild": "catalog:tooling",

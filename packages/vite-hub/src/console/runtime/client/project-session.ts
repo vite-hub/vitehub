@@ -23,8 +23,9 @@ import { ConsolePendingLinkStorageError, consolePendingLinksStorageKey, createCo
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { useConsoleToast } from "./toast"
-import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
+import { consoleProjectHost, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
+import type { ConsoleAccount, ConsoleAccountProject } from "./account"
 import type { ConsoleOAuthFetch, ConsoleOAuthLock, ConsoleOAuthPendingSignIn, ConsoleOAuthRefresher, ConsoleOAuthStateStore, ConsoleOAuthTokens } from "./oauth"
 import type { ConsoleLinkRequest, ConsolePendingLinkLocks, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
@@ -34,8 +35,10 @@ import type { ConsoleLinkedProject, ConsoleProjectStorage, ConsoleProjectStore, 
  * How the Console page started.
  * - `embedded`: the app serves the page, and the app is the only project.
  * - `hosted`: a static site serves the page, and the Console opens the projects that this browser linked.
+ * - `account`: the Console app serves the page. People sign in, and the projects of their team come from the Console
+ *   server, which forwards each call to the project with its token.
  */
-export type ConsoleProjectsMode = "embedded" | "hosted"
+export type ConsoleProjectsMode = "embedded" | "hosted" | "account"
 
 /** What the switcher shows next to a linked project. */
 export type ConsoleProjectStatus = "checking" | "ready" | "sign-in" | "unreachable"
@@ -58,7 +61,22 @@ export type ConsoleProjectGate =
   | { kind: "link", request: ConsoleLinkRequest }
   /** The `/new` page of a hosted Console: build the `vite-hub init` command for a new project. */
   | { kind: "new" }
+  /** The sign-in page of an `account` Console, or the `/invite/<id>` page of an invitation to a team. */
+  | { kind: "account", invitation?: string }
+  /** An `account` Console linked the project, but the project does not have the hash of its token yet. */
+  | { kind: "setup", project: ConsoleAccountProject }
+  /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
+  | { kind: "home", page: ConsoleAccountPage }
   | { kind: "ready" }
+
+/** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
+export const consoleAccountPages = ["home", "team", "settings"] as const
+export type ConsoleAccountPage = typeof consoleAccountPages[number]
+
+function accountPageOf(pathname: string): ConsoleAccountPage | undefined {
+  const page = /^\/([a-z]+)\/?$/.exec(pathname)?.[1]
+  return consoleAccountPages.find(item => item === page)
+}
 
 /** What linking found: the saved project, the token step, or why it failed. */
 export type ConsoleProjectLinkResult =
@@ -103,6 +121,13 @@ interface ConsoleProjectsState {
   linkOpen: Ref<boolean>
   /** `false` when the browser does not keep the project list, so it ends with the page. */
   persistent: Ref<boolean>
+  /** The signed-in account of an `account` Console. */
+  account: ShallowRef<ConsoleAccount | undefined>
+  /**
+   * The frame of a project that is still opening in an `account` Console: the rail of an open app, or the team sidebar.
+   * It matches the first paint of the page, so a slow app does not change the frame twice.
+   */
+  openingView: "app" | "shell"
 }
 
 let state: ConsoleProjectsState | undefined
@@ -150,9 +175,23 @@ function askToSignInAgain(projects: ConsoleProjectsState, projectUrl: string): v
   projects.gate.value = { kind: "oauth", target, problem: sessionEnded(consoleProjectHost(target)) }
 }
 
+/**
+ * Where the requests of a project go. An `account` Console sends them to its own server, at `/p/<project id>`, with the
+ * session cookie of the Console. The server adds the token of the project.
+ */
+function targetOf(projects: Pick<ConsoleProjectsState, "mode">, project: Pick<ConsoleLinkedProject, "id" | "url">): ConsoleProjectTarget {
+  const target = consoleProjectTarget(project)
+  return projects.mode === "account" ? { ...target, origin: "", base: `/p/${encodeURIComponent(project.id)}` } : target
+}
+
 function applyTransport(target: Pick<ConsoleProjectTarget, "base" | "origin">): void {
   const projects = useState()
   const projectUrl = projects.current.value?.url
+  if (projects.mode === "account") {
+    const app = projects.current.value ? consoleProjectTarget(projects.current.value) : undefined
+    setConsoleProject({ ...target, ...(app ? { app: { origin: app.origin, base: app.base } } : {}), remote: true })
+    return
+  }
   setConsoleProject({
     ...target,
     authorization: async () => {
@@ -209,6 +248,7 @@ export function startConsoleProjects(options: {
     current = store.active() ?? projects[0]
     if (current && !store.active()) store.select(current.id)
   }
+  const modeOf = { mode: options.mode }
   const request: ConsoleOAuthFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
   // Without Web Locks, tabs take turns through a lease in the project storage.
   const lock = options.lock ?? browserOAuthLock() ?? storageOAuthLock(options.storage)
@@ -228,14 +268,17 @@ export function startConsoleProjects(options: {
       lock,
       ...(options.now ? { now: options.now } : {}),
     }),
-    gate: shallowRef(options.mode === "hosted" && !current ? { kind: "empty" } : { kind: "opening" }),
+    gate: shallowRef(options.mode !== "embedded" && !current ? { kind: "empty" } : { kind: "opening" }),
+    account: shallowRef(),
+    openingView: "app",
     home: options.home,
     info: shallowRef(),
     linkOpen: ref(false),
     mode: options.mode,
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
-    persistent: ref(options.storage.persistent !== false),
+    // An `account` Console keeps the list on its server. The memory copy is only for this page.
+    persistent: ref(options.mode === "account" || options.storage.persistent !== false),
     pendingLinks: createConsolePendingLinkStore(options.storage),
     storagePersistent: options.storagePersistent === true,
     pendingLinkLocks: options.pendingLinkLocks,
@@ -246,7 +289,7 @@ export function startConsoleProjects(options: {
   state = started
   // The embedded Console sends app paths to its own origin, so cookies of the app still work.
   if (options.mode === "embedded") applyTransport({ origin: "", base: options.base })
-  else if (current) applyTransport(consoleProjectTarget(current))
+  else if (current) applyTransport(targetOf(modeOf, current))
   return started
 }
 
@@ -274,7 +317,8 @@ function open(info: ConsoleProjectInfo): void {
  * refreshed when it expires soon. A refused access token gets one refresh and one more try.
  */
 async function probeProject(target: Pick<ConsoleProjectTarget, "base" | "origin">, project: ConsoleLinkedProject | undefined): Promise<ConsoleProjectProbe> {
-  const { refresher, store } = useState()
+  const { mode, refresher, store } = useState()
+  if (mode === "account") return probeConsoleProject(target)
   const oauth = project?.id && !project.token ? store.find(project.url)?.oauth : undefined
   if (!project || !oauth) return probeConsoleProject(target, project?.token)
   const token = await refresher.accessToken(project.url)
@@ -287,6 +331,12 @@ async function probeProject(target: Pick<ConsoleProjectTarget, "base" | "origin"
 /** Embedded mode opens the app unless it asks for a Console token. The app's own pages show the other sign-in states. */
 function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget, signedIn = false): ConsoleProjectGate | undefined {
   if (probe.kind === "ready") return undefined
+  const projects = useState()
+  // The project has no public key for this link yet, or another one: the person sets the variable of this link.
+  if (projects.mode === "account" && (probe.kind === "signed" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED"))) {
+    const linked = projects.account.value?.projects.find(project => project.url === target.url)
+    if (linked) return { kind: "setup", project: linked }
+  }
   if (probe.kind === "token") return { kind: "token", rejected: probe.rejected }
   if (useState().mode === "embedded") return undefined
   if (probe.kind === "oauth") {
@@ -306,7 +356,7 @@ export async function openConsoleProject(): Promise<void> {
   }
   const version = ++probeVersion
   projects.gate.value = { kind: "opening" }
-  const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : consoleProjectTarget(current)
+  const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : targetOf(projects, current)
   const signedIn = Boolean(current.id && projects.store.find(current.url)?.oauth)
   const probe = await probeProject(target, current)
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
@@ -395,6 +445,7 @@ export function noteConsoleProjectsVolatile(): void {
 export function switchConsoleProject(id: string): void {
   const projects = useState()
   projects.store.select(id)
+  if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, id)
   const project = projects.store.get(id)
   if (projects.gate.value.kind === "ready" || !project) {
     projects.navigate(projects.home)
@@ -402,7 +453,7 @@ export function switchConsoleProject(id: string): void {
   }
   projects.current.value = project
   projects.projects.value = projects.store.list()
-  applyTransport(consoleProjectTarget(project))
+  applyTransport(targetOf(projects, project))
   void openConsoleProject()
 }
 
@@ -419,6 +470,13 @@ export async function forgetConsoleProject(id: string): Promise<void> {
   const projects = useState()
   const project = projects.store.get(id)
   if (!project) return
+  if (projects.mode === "account") {
+    // The Console server removes the project and its token for the whole team.
+    const { unlinkConsoleAccountProject } = await import("./account")
+    await unlinkConsoleAccountProject(id)
+    projects.navigate(projects.home)
+    return
+  }
   const tokens = await projects.lock(consoleOAuthGrantLockName(project.url), async () => {
     const latest = projects.store.get(id)
     projects.store.forget(id)
@@ -459,8 +517,8 @@ export async function checkConsoleProjects(): Promise<void> {
   const pending = list.filter(project => project.id !== opened)
   projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
   await Promise.all(pending.map(async (project) => {
-    const probe = await probeProject(consoleProjectTarget(project), project).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
-    const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "token" || probe.kind === "oauth" || probe.kind === "sign-in" ? "sign-in" : "unreachable"
+    const probe = await probeProject(targetOf(projects, project), project).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
+    const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "token" || probe.kind === "signed" || probe.kind === "oauth" || probe.kind === "sign-in" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
   }))
 }
@@ -718,4 +776,114 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   projects.current.value = project
   applyTransport(target)
   open(probe.info)
+}
+
+const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`
+
+/** The project that an `account` Console opens next for a team, kept in this browser. */
+export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
+  if (!teamId) return
+  try {
+    globalThis.localStorage?.setItem(accountProjectKey(teamId), projectId)
+  }
+  catch {}
+}
+
+function rememberedAccountProject(teamId: string | undefined): string | undefined {
+  if (!teamId) return undefined
+  try {
+    return globalThis.localStorage?.getItem(accountProjectKey(teamId)) ?? undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * Start an `account` Console: read the session, then the projects of the active team from the Console server. Without
+ * a session, or on an `/invite/<id>` page, the gate shows the sign-in page.
+ */
+export async function startConsoleAccount(options: {
+  home: string
+  navigate: (url: string) => void
+  pageOrigin: string
+  pathname: string
+  search?: string
+  showPath: (path: string) => void
+  /** The first paint of the page, which the Console server picked from the path and the cookies. */
+  boot?: string
+}): Promise<void> {
+  showAccountPath = options.showPath
+  // Only an `account` Console loads the Better Auth client.
+  const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
+  const account = await loadConsoleAccount(options.boot === "app" || options.boot === "shell").catch(() => undefined)
+  const storage = memoryProjectStorage()
+  let missingApp = false
+  if (account) {
+    // A link to one app, `/?app=<id>`, opens that app. Other links open the app that this browser used last.
+    const requested = new URLSearchParams(options.search ?? "").get("app") ?? undefined
+    if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
+    // An app of another team, or one that is gone, opens Home instead of another app.
+    else if (requested) missingApp = true
+    const remembered = rememberedAccountProject(account.teamId)
+    const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
+    storage.setItem(consoleProjectsStorageKey, JSON.stringify({
+      ...(active ? { active } : {}),
+      projects: account.projects.map(project => ({ id: project.id, url: project.url, ...(project.label ? { label: project.label } : {}) })),
+    }))
+  }
+  const started = startConsoleProjects({ base: "", home: options.home, mode: "account", navigate: options.navigate, pageOrigin: options.pageOrigin, storage })
+  started.account.value = account
+  if (options.boot === "shell") started.openingView = "shell"
+  const invitation = consoleInvitationOf(options.pathname)
+  const page = accountPageOf(options.pathname)
+  if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}) }
+  else if (page) started.gate.value = { kind: "home", page }
+  else if (missingApp) started.gate.value = { kind: "home", page: "home" }
+}
+
+/** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */
+let showAccountPath: ((path: string) => void) | undefined
+
+/**
+ * Show a page of an `account` Console outside the projects, such as `/team`. Before a project opens, the page changes in
+ * place. In an open project, the Console loads again, because the router owns the path there.
+ */
+export function showConsoleAccountPage(page: ConsoleAccountPage): void {
+  const projects = useState()
+  // An earlier app-opening response must not replace the page the person selected.
+  ++probeVersion
+  const path = `${projects.home.replace(/\/+$/, "")}/${page}`
+  if (projects.gate.value.kind === "ready") {
+    projects.navigate(path)
+    return
+  }
+  showAccountPath?.(path)
+  projects.gate.value = { kind: "home", page }
+}
+
+/** The address of one app of the team, which opens that app in any tab. */
+export function accountProjectPath(id: string): string {
+  return `${useState().home}?app=${encodeURIComponent(id)}`
+}
+
+/** Open a project of the team from a page outside the projects. The Console loads again at its home path. */
+export function openAccountProject(id: string): void {
+  const projects = useState()
+  rememberAccountProject(projects.account.value?.teamId, id)
+  projects.navigate(projects.home)
+}
+
+/** Link an app to the active team, then open it. Until the app keeps the hash of its token, it opens on the setup step. */
+export async function linkAccountProject(url: string, label?: string): Promise<void> {
+  const { linkConsoleAccountProject } = await import("./account")
+  const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined)
+  rememberAccountProject(useState().account.value?.teamId, project.id)
+  reloadConsoleAccount()
+}
+
+/** Load the Console again from its home page, such as after a sign-in, a team switch, or a new project. */
+export function reloadConsoleAccount(): void {
+  const projects = useState()
+  projects.navigate(projects.home)
 }

@@ -33,6 +33,8 @@
   --vh-info: var(--vh-ui-info, var(--ui-info, var(--vh-highlighted)));
   --vh-success: var(--vh-ui-success, var(--ui-success, var(--vh-highlighted)));
   --vh-warning: var(--vh-ui-warning, var(--ui-warning, var(--vh-highlighted)));
+  /* A drawn comment area: the focus blue, else Nuxt UI's info color. The text color would vanish on a white image. */
+  --vh-comment-mark: var(--vh-ui-comment-mark, var(--vh-focus, var(--ui-info, var(--vh-highlighted))));
 }
 
 /*
@@ -1634,6 +1636,10 @@
     flex: 1;
   }
 
+  [data-slot="prompt-input-toolbar"] button:active:not(:disabled) {
+    scale: 0.96;
+  }
+
   /* On a phone the Send button sends, so it gets a 48px target around its 32px circle without a larger circle. */
   @media (pointer: coarse) {
     [data-slot="prompt-input-toolbar"] button {
@@ -1906,14 +1912,123 @@
     position: absolute;
   }
 
-  /* The area that a drag in comment mode draws. */
+  /* The area that a drag in comment mode draws, in one blue that shows on light and dark pages and on images. */
   [data-slot="comment-layer-area"] {
-    background: color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
-    border: 1.5px solid var(--vh-highlighted);
+    background: color-mix(in oklab, var(--vh-comment-mark) 16%, transparent);
+    border: 2px solid var(--vh-comment-mark);
     border-radius: 3px;
     box-sizing: border-box;
     pointer-events: none;
     position: absolute;
+  }
+
+  [data-slot="comment-layer-area-handle"] {
+    background: var(--vh-on-media, white);
+    border: 1.5px solid var(--vh-comment-mark);
+    border-radius: 9999px;
+    box-sizing: border-box;
+    height: 0.5rem;
+    position: absolute;
+    width: 0.5rem;
+  }
+
+  [data-slot="comment-layer-area-handle"][data-corner^="top"] { top: -0.3125rem; }
+  [data-slot="comment-layer-area-handle"][data-corner^="bottom"] { bottom: -0.3125rem; }
+  [data-slot="comment-layer-area-handle"][data-corner$="left"] { left: -0.3125rem; }
+  [data-slot="comment-layer-area-handle"][data-corner$="right"] { right: -0.3125rem; }
+
+  [data-slot="comment-layer-area-size"] {
+    background: color-mix(in oklab, var(--vh-comment-mark), black 10%);
+    border-radius: 0.25rem;
+    color: var(--vh-on-media, white);
+    font: 500 0.6875rem/1rem ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    left: -2px;
+    padding: 0.0625rem 0.3125rem;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    white-space: nowrap;
+  }
+
+  /* Margin placement: a column of cards on the right edge, each level with its pin. Opening one shows its thread there. */
+  [data-slot="comment-margin"] {
+    pointer-events: none;
+    position: absolute;
+    right: 1rem;
+    top: 0;
+    width: 18rem;
+  }
+
+  [data-slot="comment-margin-card"] {
+    background: var(--vh-bg);
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 1.5);
+    box-shadow: var(--vh-shadow-floating, 0 0 0 1px var(--vh-border));
+    box-sizing: border-box;
+    color: var(--vh-text);
+    font: inherit;
+    font-size: 0.875rem;
+    left: 0;
+    pointer-events: auto;
+    position: absolute;
+    right: 0;
+    text-align: start;
+    transition: top 160ms ease;
+  }
+
+  button[data-slot="comment-margin-card"] {
+    align-items: flex-start;
+    cursor: pointer;
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+  }
+
+  button[data-slot="comment-margin-card"]:hover {
+    background: var(--vh-bg-elevated);
+  }
+
+  button[data-slot="comment-margin-card"][data-status="resolved"] {
+    opacity: 0.65;
+  }
+
+  /* The open thread and the new comment's box in the margin: the layer's own card, fixed to the right edge at its top. */
+  [data-slot="comment-layer-item"] > [data-slot="comment-layer-popover"][data-margin="true"][data-margin-key] {
+    bottom: auto;
+    left: auto;
+    position: fixed;
+    right: 1rem;
+    transition: top 160ms ease;
+    width: 18rem;
+    z-index: 1;
+  }
+
+  /* A long thread in the margin keeps inside the screen: its messages scroll, and the reply box stays in view. */
+  [data-slot="comment-layer-popover"][data-margin="true"][data-margin-key] {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 2rem);
+  }
+
+  [data-slot="comment-layer-popover"][data-margin="true"] > [data-slot="comment-thread"] {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  [data-slot="comment-layer-popover"][data-margin="true"] [data-slot="comment-thread-messages"] {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  [data-slot="comment-margin-card"] [data-slot="comment-list-text"] {
+    -webkit-line-clamp: 3;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-margin-card"], [data-slot="comment-layer-popover"][data-margin="true"] { transition: none; }
   }
 
   [data-slot="comment-layer-item"] {
@@ -2546,19 +2661,21 @@
     border-block-start: 1px solid var(--vh-border);
   }
 
-  /* At the bottom of a panel or a thread the box is one row under the divider: attach, the text, send. The divider
-     already bounds it, so the field has no border of its own. */
-  :is([data-slot="comment-panel-composer"], [data-slot="comment-thread"]) > [data-slot="comment-composer"] {
-    padding: 0.375rem;
+  /* A row box is one line under its card's divider: attach, the text, send. The divider already bounds it, so the field
+     shows its edge only while it has the focus. The 2rem round buttons sit 0.125rem and the border inside that edge, so
+     its corners are concentric with them. */
+  [data-slot="comment-composer"][data-layout="row"] {
+    padding: 0.25rem;
 
     & [data-slot="prompt-input-group"] {
       align-items: flex-end;
       background: transparent;
       border-color: transparent;
-      border-radius: var(--vh-radius);
+      border-radius: calc(1rem + 0.125rem + 1px);
       box-shadow: none;
       flex-flow: row wrap;
       gap: 0.25rem;
+      padding: 0.125rem;
     }
 
     & [data-slot="prompt-input-attachments"] {
@@ -2585,19 +2702,6 @@
 
     & [data-slot="prompt-input-toolbar"] > button:last-child {
       order: 2;
-    }
-
-    & [data-slot="prompt-input-toolbar"] > button:not(:last-child) {
-      box-shadow: none;
-      color: var(--vh-muted);
-
-      &:not(:hover) {
-        background: transparent;
-      }
-    }
-
-    &[data-dragging="true"] [data-slot="prompt-input-group"] {
-      box-shadow: 0 0 0 2px var(--vh-primary);
     }
   }
 

@@ -111,7 +111,7 @@ export async function createHistoryDatabase(path: string): Promise<void> {
   }
 }
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   const server = createServer()
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
   const address = server.address()
@@ -128,8 +128,8 @@ export interface BuiltServer {
 }
 
 /** Start `.output/server/index.mjs` and wait until it answers. */
-export async function startBuiltServer(root: string, env: Record<string, string>): Promise<BuiltServer> {
-  const port = await freePort()
+export async function startBuiltServer(root: string, env: Record<string, string>, options: { port?: number } = {}): Promise<BuiltServer> {
+  const port = options.port ?? await freePort()
   let output = ""
   const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
     env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },
