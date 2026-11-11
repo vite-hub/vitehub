@@ -45,7 +45,7 @@ function lineState(file: (typeof files)[number], line: number) {
       </div>
 
       <div class="mt-12 flex flex-col gap-6 lg:mt-16">
-        <figure v-for="file in files" :key="file.path" class="story-file">
+        <figure v-for="file in files" :key="file.path" class="story-file rounded-lg">
           <figcaption class="flex min-h-11 items-center gap-2 border-b border-default px-4 font-mono text-xs text-muted">
             <UIcon name="i-lucide-file-code-2" class="size-3.5 shrink-0" aria-hidden="true" />
             <span class="truncate">{{ file.path }}</span>
@@ -94,14 +94,14 @@ function lineState(file: (typeof files)[number], line: number) {
       <div class="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <NuxtLink
           :to="agentStory.tutorialPath"
-          class="group inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+          class="group inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted"
         >
           Build your first Agent
           <UIcon name="i-lucide-arrow-right" class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           :to="agentStory.route.to"
-          class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+          class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-highlighted"
         >
           How Capabilities use primitives
         </NuxtLink>
@@ -205,11 +205,6 @@ function lineState(file: (typeof files)[number], line: number) {
   font-size: 0.75rem;
   text-decoration: underline dotted var(--ui-border-accented);
   text-underline-offset: 0.25rem;
-}
-
-.story-note-link:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 2px;
 }
 
 @media (hover: hover) and (pointer: fine) {

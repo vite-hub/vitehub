@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router"
 import { consoleOpenPage, parseConsoleOpenQuery } from "../src/console/runtime/client/open-link.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { browserProjectStorage, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { operationRpcFetch } from "../../internal/test-utils/operation-rpc.ts"
 
 const pageProject = consoleProject()
 afterEach(() => {
@@ -59,7 +60,7 @@ describe("/open query", () => {
 
 describe("opening an /open link", () => {
   async function boot(storage = memoryProjectStorage(), fetch: () => Promise<Response> = async () => Response.json(projectGet)) {
-    vi.stubGlobal("fetch", vi.fn(fetch))
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn(fetch)))
     const session = await import("../src/console/runtime/client/project-session.ts")
     const open = await import("../src/console/runtime/client/open-link.ts")
     const navigate = vi.fn<(url: string) => void>()
@@ -142,8 +143,8 @@ describe("opening an /open link", () => {
     expect(state.current.value).toMatchObject({ url: shop.url, token: "secret" })
     expect(state.gate.value).toEqual({ kind: "ready" })
     const project = await import("../src/console/runtime/client/project.ts")
-    const request = await project.projectRequest("/_vitehub/rpc/__call")
-    expect(request.url).toBe(`${shop.url}/_vitehub/rpc/__call`)
+    const request = await project.projectRequest("/_vitehub/rpc")
+    expect(request.url).toBe(`${shop.url}/_vitehub/rpc`)
     expect(request.headers).toEqual({ authorization: "Bearer secret" })
   })
 

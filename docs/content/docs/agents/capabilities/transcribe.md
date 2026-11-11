@@ -27,35 +27,6 @@ export default defineAgent({
 })
 ```
 
-### OpenRouter
-
-`openRouterTranscriptionModel()` returns a normal AI SDK model that handles OpenRouter authentication, audio encoding, request shape, and errors, so your Agent needs no multipart code.
-
-```ts [server/agents/voice.ts]
-import { defineAgent } from 'vite-hub/agent'
-import {
-  openRouterTranscriptionModel,
-  transcribe,
-} from 'vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: { model },
-  capabilities: [
-    transcribe({
-      model: openRouterTranscriptionModel({
-        apiKey: () => env.OPENROUTER_API_KEY,
-        model: 'openai/gpt-4o-transcribe',
-      }),
-    }),
-  ],
-})
-```
-
-- It sends base64 JSON with `response_format: 'json'`, not `verbose_json`, which only some upstream providers support.
-
-- It forwards `providerOptions.openrouter` values for `language`, `temperature`, and `provider` routing.
-- Unsupported options throw instead of being ignored.
-
 ## How transcription works
 
 Before the model runs, for each audio part it:
@@ -219,13 +190,11 @@ Asynchronous transcription is Driver-independent: your code puts the operation a
 | `client.receive(payload)` | `completed \| failed` completion | Normalizes an authenticated completion payload. |
 | `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps Scribe v2 submission and callback payloads, hiding provider types. |
 
-`openRouterTranscriptionModel({ apiKey, model })` returns a model for synchronous `transcribe({ model })`.
-
 Without `artifacts.directory`, transcripts go to `transcripts/<date>/<stem>.txt` with the audio beside them. With transcripts off, audio goes to `audio/<date>/<stem>.<extension>`.
 
 ### Public helpers
 
-Import these from `@vite-hub/agent/capabilities` when hooks or executors need the same data.
+Import these from `vite-hub/agent/capabilities` when hooks or executors need the same data.
 
 | Helper | Return value | Behavior |
 | --- | --- | --- |

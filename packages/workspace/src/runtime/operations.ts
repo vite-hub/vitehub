@@ -1,5 +1,4 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { normalizeHistoryPath } from "../core/history.ts"
 import { contentToBytes } from "../core/path.ts"
@@ -41,7 +40,7 @@ class WorkspaceOperationError extends Error {
 /** Reads the code of a ViteHub error or a Workspace diagnostic. */
 function errorCode(error: unknown): string | undefined {
   const code: unknown = Object(error) === error ? Reflect.get(Object(error), "code") : undefined
-  return hasRuntimeType(code, "string") ? code : undefined
+  return typeof code === "string" ? code : undefined
 }
 
 function isoTime(value: string): string {
@@ -51,11 +50,11 @@ function isoTime(value: string): string {
 
 /** The author of a revision: a string, or a person `{ id, name, email }` as Content and `vitehub push` record it. */
 function authorName(author: unknown): string | undefined {
-  if (hasRuntimeType(author, "string")) return author || undefined
+  if (typeof author === "string") return author || undefined
   if (Object(author) !== author) return undefined
   for (const key of ["name", "email", "id"]) {
     const value: unknown = Reflect.get(Object(author), key)
-    if (hasRuntimeType(value, "string") && value) return value
+    if (typeof value === "string" && value) return value
   }
 }
 
@@ -250,7 +249,7 @@ function replacement(content: string | Uint8Array, before: WorkspaceEntry | unde
 function callerMetadata(context: OperationContext): Record<string, unknown> {
   const author = Object.fromEntries(["id", "name", "email"].flatMap((key) => {
     const value = context.user?.[key]
-    return hasRuntimeType(value, "string") && value ? [[key, value]] : []
+    return typeof value === "string" && value ? [[key, value]] : []
   }))
   return {
     source: context.surface,
@@ -388,11 +387,11 @@ function describeFailure(workspace: string, error: unknown): WorkspaceOperationE
   const message = redactInspectionText(error instanceof Error ? error.message : String(error))
   // A plugin hook that refuses the write, such as a held edit lease, sets its own client status, fix, and details.
   const own: unknown = Object(error) === error ? Reflect.get(Object(error), "status") : undefined
-  if (code && hasRuntimeType(own, "number") && own >= 400 && own < 500) {
+  if (code && typeof own === "number" && own >= 400 && own < 500) {
     const fix: unknown = Reflect.get(Object(error), "fix")
     const details: unknown = Reflect.get(Object(error), "details")
     return new WorkspaceOperationError(code, own, message, {
-      ...(hasRuntimeType(fix, "string") && fix ? { fix } : {}),
+      ...(typeof fix === "string" && fix ? { fix } : {}),
       ...(Object(details) === details && !Array.isArray(details) ? { details: { ...Object(details) } } : {}),
     })
   }

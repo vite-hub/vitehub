@@ -81,6 +81,23 @@ export function tool(bar: HTMLElement, title: string): HTMLButtonElement | null 
   return bar.shadowRoot?.querySelector<HTMLButtonElement>(`button[title^="${title}"]`) ?? null
 }
 
+/** The **Comments** button of the segment, which says the open count. */
+export function commentsButton(bar: HTMLElement): HTMLButtonElement | null {
+  return bar.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label^="Comments"]') ?? null
+}
+
+/**
+ * Opens the list of the page's threads as a person does: **Comments**, then **All comments**. A person who may only read
+ * has one button for it.
+ */
+export async function openList(bar: HTMLElement) {
+  const show = tool(bar, "Show comments")
+  if (show) return show.click()
+  if (!tool(bar, "All comments on this page")) tool(bar, "Comment on the page (C)")!.click()
+  await vi.waitFor(() => expect(tool(bar, "All comments on this page")).not.toBeNull())
+  tool(bar, "All comments on this page")!.click()
+}
+
 /** Types into a composer textarea the way a person does: the value, the caret, then `input`. Vue renders before the next key. */
 export async function type(input: HTMLTextAreaElement | HTMLInputElement, text: string) {
   input.value = text

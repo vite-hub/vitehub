@@ -88,6 +88,9 @@ function appPath(value: unknown, request: Request): string | null {
     const origin = forwardedRequestOrigin(request)
     const url = new URL(raw, origin)
     if (url.origin !== origin) return null
+    // The result of an earlier post without JavaScript, such as `contact.error`, is not part of the page. Another
+    // `form` query of the app stays.
+    if (/(^|\.)(sent|error)$/.test(url.searchParams.get("form") ?? "")) url.searchParams.delete("form")
     // One leading slash: `//evil.test` would be a link to another site.
     return `${url.pathname.replace(/^\/+/, "/")}${url.search}`.slice(0, 2000)
   }
@@ -120,10 +123,14 @@ function wantsPage(request: Request, kind: BodyKind): boolean {
   return kind === "form" && (request.headers.get("accept") ?? "").includes("text/html")
 }
 
-/** A browser form without JavaScript goes back to its page, with `?form=sent` or `?form=error`. */
-export function back(request: Request, page: string | null, result: "sent" | "error"): Response {
+/**
+ * A browser form without JavaScript goes back to its page, with `?form=<name>.sent` or `?form=<name>.error` when
+ * `name` is set, else `?form=sent` or `?form=error`.
+ */
+export function back(request: Request, page: string | null, result: "sent" | "error", name?: string): Response {
   const url = new URL(page ?? "/", request.url)
-  url.searchParams.set("form", result)
+  // The form name tells two forms on one page apart: `?form=contact.sent`.
+  url.searchParams.set("form", name ? `${name}.${result}` : result)
   return new Response(null, { status: 303, headers: { location: `${url.pathname}${url.search}`, "cache-control": "no-store" } })
 }
 
@@ -132,6 +139,8 @@ export interface GuardRequestOptions {
   key: string
   /** Other origins that may post. The app's own origin may always post. */
   origins?: readonly string[]
+  /** The name in the redirect of a browser form without JavaScript: `?form=<name>.sent` or `?form=<name>.error`. */
+  name?: string
   /** A field that people leave empty and bots fill. Default `website`. `false` turns it off. */
   honeypot?: string | false
   /** Largest body in bytes. Default 64 KB. */
@@ -175,7 +184,7 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   if (origin && origin !== forwardedRequestOrigin(request) && !options.origins?.includes(origin)) return [fail(403, "This origin may not send this form."), undefined]
   const html = wantsPage(request, kind)
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
-  const stop = (status: number, message: string, headers?: Record<string, string>): [Response, undefined] => [html ? back(request, appPath(undefined, request), "error") : fail(status, message, headers), undefined]
+  const stop = (status: number, message: string, headers?: Record<string, string>): [Response, undefined] => [html ? back(request, appPath(undefined, request), "error", options.name) : fail(status, message, headers), undefined]
   const bytes = await readBytes(request, options.maxBytes ?? defaultMaxBytes)
   if (bytes === undefined) return stop(413, "The message is too large.")
   // Bound the raw bytes before a callback can consume them. Keep the bytes intact for native body readers.
@@ -197,7 +206,7 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   const page = appPath(raw[pageField], request)
   const honeypot = options.honeypot === false ? undefined : options.honeypot ?? "website"
   const trap = honeypot ? raw[honeypot] : undefined
-  if (typeof trap === "string" && trap.trim()) return [html ? back(request, page, "sent") : json(202, { ok: true }), undefined]
+  if (typeof trap === "string" && trap.trim()) return [html ? back(request, page, "sent", options.name) : json(202, { ok: true }), undefined]
   const body = Object.fromEntries(Object.entries(raw).filter(([key]) => key !== pageField && key !== anchorField && key !== honeypot))
   return [undefined, { body, page, anchor: readAnchor(raw[anchorField]), html }]
 }

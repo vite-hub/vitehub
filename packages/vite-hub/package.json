@@ -282,11 +282,6 @@
       "import": "./dist/connections.js",
       "default": "./dist/connections.js"
     },
-    "./connections/agent": {
-      "types": "./dist/connections/agent.d.ts",
-      "import": "./dist/connections/agent.js",
-      "default": "./dist/connections/agent.js"
-    },
     "./connections/chatgpt": {
       "types": "./dist/connections/chatgpt.d.ts",
       "import": "./dist/connections/chatgpt.js",
@@ -322,20 +317,10 @@
       "import": "./dist/comments/anchor.js",
       "default": "./dist/comments/anchor.js"
     },
-    "./comments/realtime": {
-      "types": "./dist/comments/realtime.d.ts",
-      "import": "./dist/comments/realtime.js",
-      "default": "./dist/comments/realtime.js"
-    },
     "./comments/runtime": {
       "types": "./dist/comments/runtime.d.ts",
       "import": "./dist/comments/runtime.js",
       "default": "./dist/comments/runtime.js"
-    },
-    "./comments/runtime/auth": {
-      "types": "./dist/comments/runtime/auth.d.ts",
-      "import": "./dist/comments/runtime/auth.js",
-      "default": "./dist/comments/runtime/auth.js"
     },
     "./content": {
       "types": "./dist/content.d.ts",
@@ -362,10 +347,20 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/preview": {
+      "types": "./dist/content/preview.d.ts",
+      "import": "./dist/content/preview.js",
+      "default": "./dist/content/preview.js"
+    },
     "./content/realtime": {
       "types": "./dist/content/realtime.d.ts",
       "import": "./dist/content/realtime.js",
       "default": "./dist/content/realtime.js"
+    },
+    "./content/sqlite": {
+      "types": "./dist/content/sqlite.d.ts",
+      "import": "./dist/content/sqlite.js",
+      "default": "./dist/content/sqlite.js"
     },
     "./database": {
       "types": "./dist/database.d.ts",
@@ -386,11 +381,6 @@
       "types": "./dist/decisions/vue.d.ts",
       "import": "./dist/decisions/vue.js",
       "default": "./dist/decisions/vue.js"
-    },
-    "./deployment": {
-      "types": "./dist/deployment.d.ts",
-      "import": "./dist/deployment.js",
-      "default": "./dist/deployment.js"
     },
     "./docs": {
       "types": "./dist/docs.d.ts",
@@ -427,6 +417,11 @@
       "import": "./dist/email/server.js",
       "default": "./dist/email/server.js"
     },
+    "./email/test": {
+      "types": "./dist/email/test.d.ts",
+      "import": "./dist/email/test.js",
+      "default": "./dist/email/test.js"
+    },
     "./env": {
       "types": "./dist/env.d.ts",
       "import": "./dist/env.js",
@@ -446,6 +441,11 @@
       "types": "./dist/env/seal.d.ts",
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
+    },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
     },
     "./forms": {
       "types": "./dist/forms.d.ts",
@@ -522,6 +522,11 @@
       "import": "./dist/markdown-template/file.js",
       "default": "./dist/markdown-template/file.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -537,10 +542,25 @@
       "import": "./dist/rate-limit.js",
       "default": "./dist/rate-limit.js"
     },
+    "./rate-limit/drivers/cloudflare": {
+      "types": "./dist/rate-limit/drivers/cloudflare.d.ts",
+      "import": "./dist/rate-limit/drivers/cloudflare.js",
+      "default": "./dist/rate-limit/drivers/cloudflare.js"
+    },
+    "./rate-limit/drivers/memory": {
+      "types": "./dist/rate-limit/drivers/memory.d.ts",
+      "import": "./dist/rate-limit/drivers/memory.js",
+      "default": "./dist/rate-limit/drivers/memory.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./realtime/client": {
+      "types": "./dist/realtime/client.d.ts",
+      "import": "./dist/realtime/client.js",
+      "default": "./dist/realtime/client.js"
     },
     "./realtime/server": {
       "types": "./dist/realtime/server.d.ts",
@@ -712,6 +732,11 @@
       "import": "./dist/ui/code-view.js",
       "default": "./dist/ui/code-view.js"
     },
+    "./ui/device-frame": {
+      "types": "./dist/ui/device-frame.d.ts",
+      "import": "./dist/ui/device-frame.js",
+      "default": "./dist/ui/device-frame.js"
+    },
     "./ui/file-diff": {
       "types": "./dist/ui/file-diff.d.ts",
       "import": "./dist/ui/file-diff.js",
@@ -822,6 +847,11 @@
       "import": "./dist/workflow.js",
       "default": "./dist/workflow.js"
     },
+    "./workflow/openworkflow": {
+      "types": "./dist/workflow/openworkflow.d.ts",
+      "import": "./dist/workflow/openworkflow.js",
+      "default": "./dist/workflow/openworkflow.js"
+    },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
@@ -868,55 +898,10 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/auth/client": {
-      "types": "./dist/console/auth-client.d.ts",
-      "import": "./dist/console/auth-client.js",
-      "default": "./dist/console/auth-client.js"
-    },
-    "./console/auth/cloudflare-access": {
-      "types": "./dist/console/auth-cloudflare-access.d.ts",
-      "import": "./dist/console/auth-cloudflare-access.js",
-      "default": "./dist/console/auth-cloudflare-access.js"
-    },
-    "./console/auth/inline": {
-      "types": "./dist/console/auth-inline.d.ts",
-      "import": "./dist/console/auth-inline.js",
-      "default": "./dist/console/auth-inline.js"
-    },
-    "./console/blob": {
-      "types": "./dist/console/runtime/server/blob.d.ts",
-      "import": "./dist/console/runtime/server/blob.js",
-      "default": "./dist/console/runtime/server/blob.js"
-    },
-    "./console/database": {
-      "types": "./dist/console/runtime/server/database.d.ts",
-      "import": "./dist/console/runtime/server/database.js",
-      "default": "./dist/console/runtime/server/database.js"
-    },
-    "./console/definitions": {
-      "types": "./dist/console/runtime/server/definitions.d.ts",
-      "import": "./dist/console/runtime/server/definitions.js",
-      "default": "./dist/console/runtime/server/definitions.js"
-    },
-    "./console/env": {
-      "types": "./dist/console/runtime/server/env.d.ts",
-      "import": "./dist/console/runtime/server/env.js",
-      "default": "./dist/console/runtime/server/env.js"
-    },
     "./console/mcp-client": {
       "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
       "import": "./dist/console/runtime/server/mcp-client-operations.js",
       "default": "./dist/console/runtime/server/mcp-client-operations.js"
-    },
-    "./console/operations": {
-      "types": "./dist/console/runtime/server/operation-contributions.d.ts",
-      "import": "./dist/console/runtime/server/operation-contributions.js",
-      "default": "./dist/console/runtime/server/operation-contributions.js"
-    },
-    "./console/sections": {
-      "types": "./dist/console/runtime/server/sections.d.ts",
-      "import": "./dist/console/runtime/server/sections.js",
-      "default": "./dist/console/runtime/server/sections.js"
     },
     "./page/pill.js": {
       "default": "./dist/page/pill.iife.js"
@@ -963,11 +948,6 @@
       "import": "./dist/sandbox/ssh.js",
       "default": "./dist/sandbox/ssh.js"
     },
-    "./console/documents": {
-      "types": "./dist/console/runtime/server/documents.d.ts",
-      "import": "./dist/console/runtime/server/documents.js",
-      "default": "./dist/console/runtime/server/documents.js"
-    },
     "./auth/console": {
       "types": "./dist/auth/console.d.ts",
       "import": "./dist/auth/console.js",
@@ -1000,14 +980,14 @@
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack && node scripts/write-console-digest.ts",
+    "build": "vp pack",
+    "build:console-account": "vp build --config console.account.vite.config.ts",
     "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
-    "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp pack --watch",
+    "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run --cache -t vite-hub#build && vp test"
   },
   "dependencies": {
-    "@cfworker/json-schema": "4.1.1",
     "@cloudflare/workers-types": "^5.20261016.1",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
@@ -1018,6 +998,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "confbox": "^0.2.4",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
@@ -1037,14 +1018,15 @@
     "@aws-sdk/s3-request-presigner": "catalog:storage",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
+    "@better-auth/passkey": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@iconify-json/lucide": "catalog:ui",
-    "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@internationalized/date": "^3.12.4",
     "@json-render/core": "0.21.0",
@@ -1074,12 +1056,12 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
@@ -1087,6 +1069,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1113,7 +1096,7 @@
     "google-auth-library": "catalog:storage",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
@@ -1141,6 +1124,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
@@ -1151,6 +1135,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
@@ -1159,17 +1144,18 @@
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/console-client": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -1190,6 +1176,7 @@
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
     "nitro": "catalog:nitro-compat",
+    "openworkflow": "catalog:workflow",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
@@ -1218,6 +1205,9 @@
       "optional": true
     },
     "@azure/storage-blob": {
+      "optional": true
+    },
+    "@better-auth/cimd": {
       "optional": true
     },
     "@better-auth/oauth-provider": {
@@ -1250,6 +1240,9 @@
     "@supabase/storage-js": {
       "optional": true
     },
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/agent": {
       "optional": true
     },
@@ -1274,9 +1267,6 @@
     "@vite-hub/connections": {
       "optional": true
     },
-    "@vite-hub/console-client": {
-      "optional": true
-    },
     "@vite-hub/content": {
       "optional": true
     },
@@ -1292,6 +1282,9 @@
     "@vite-hub/email": {
       "optional": true
     },
+    "@vite-hub/forge": {
+      "optional": true
+    },
     "@vite-hub/forms": {
       "optional": true
     },
@@ -1305,6 +1298,9 @@
       "optional": true
     },
     "@vite-hub/markdown-template": {
+      "optional": true
+    },
+    "@vite-hub/mcp": {
       "optional": true
     },
     "@vite-hub/presets": {
@@ -1362,6 +1358,9 @@
       "optional": true
     },
     "google-auth-library": {
+      "optional": true
+    },
+    "openworkflow": {
       "optional": true
     },
     "playwright-core": {

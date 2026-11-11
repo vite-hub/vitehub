@@ -5,6 +5,7 @@ import { executeSchedule } from "./execute.ts"
 import { getStartedScheduleRuntime, setStartedScheduleRuntime } from "./state.ts"
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import type { StartedScheduleRuntime } from "./state.ts"
@@ -130,13 +131,8 @@ export function createKVStartedScheduleStore(options: KVStartedScheduleStoreOpti
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function unwrapStartableDefinition(loaded: unknown): ScheduleDefinition | undefined {
   const candidate = isRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
   return isRecord(candidate) && typeof candidate.handler === "function" && !Object.hasOwn(candidate, "cron")
     // SAFETY: The checks above prove the fields that the tick reads.
     ? candidate as unknown as ScheduleDefinition

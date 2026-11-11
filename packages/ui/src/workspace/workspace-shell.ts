@@ -1,7 +1,17 @@
-import { computed, defineComponent, h, onMounted, type PropType, ref, type Slots, useId, type VNode, watch } from "vue";
+import { computed, defineComponent, h, onMounted, type PropType, ref, type Slots, type VNode, watch } from "vue";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export type WorkspaceLayout = "tutorial" | "playground";
-export type WorkspaceTab = "preview" | "terminal" | "connect";
+/** A built-in panel, or the slot name of a panel that the page adds. */
+export type WorkspaceTab = "preview" | "terminal" | "connect" | (string & {});
+
+/** One tab of the panel group. It shows the slot with the name `value`. */
+export interface WorkspaceTabItem {
+  value: WorkspaceTab;
+  label: string;
+  /** A short count or state next to the label, such as the number of connected accounts. */
+  badge?: string | number;
+}
 
 /** Split sizes. `files` is in pixels. `main` and `side` are percents of the shell. */
 export interface WorkspaceSplits {
@@ -11,8 +21,8 @@ export interface WorkspaceSplits {
 }
 
 const defaultSplits: Record<WorkspaceLayout, WorkspaceSplits> = {
-  // `main` is the editor height in a tutorial, and the editor height above the terminal in a playground.
-  playground: { files: 200, main: 65, side: 45 },
+  // `main` is the editor height above the panels. `side` is the preview width of a playground.
+  playground: { files: 200, main: 68, side: 40 },
   tutorial: { files: 180, main: 55, side: 45 },
 };
 
@@ -23,7 +33,11 @@ const limits: Record<keyof WorkspaceSplits, [number, number, number]> = {
   side: [25, 75, 5],
 };
 
-const tabLabels: Record<WorkspaceTab, string> = { connect: "Connect", preview: "Preview", terminal: "Terminal" };
+const builtInTabs: readonly WorkspaceTabItem[] = [
+  { label: "Preview", value: "preview" },
+  { label: "Terminal", value: "terminal" },
+  { label: "Connect", value: "connect" },
+];
 
 function clamp(key: keyof WorkspaceSplits, value: number) {
   const [min, max] = limits[key];
@@ -109,6 +123,11 @@ export const WorkspaceShell = defineComponent({
     layout: { default: "tutorial", type: String as PropType<WorkspaceLayout> },
     /** The visible tab. Use `v-model:tab`. */
     tab: { default: undefined, type: String as PropType<WorkspaceTab> },
+    /**
+     * The tabs of the panel group, in order. Each tab shows the slot with the name of its `value`. Defaults to Preview,
+     * Terminal, and Connect, for the slots that are set. A playground shows the preview at the side, never as a tab.
+     */
+    tabs: { default: undefined, type: Array as PropType<readonly WorkspaceTabItem[]> },
     /** The localStorage key for split sizes. `false` keeps them in memory. Defaults to one key per layout. */
     storageKey: { default: undefined, type: [String, Boolean] as PropType<string | false> },
     /** The accessible name of the workspace region. */
@@ -133,11 +152,10 @@ export const WorkspaceShell = defineComponent({
       catch { /* The split still applies for this page. */ }
     }
 
-    // In a playground the terminal sits under the editor, so the tabs hold the preview and Connect.
-    const tabs = computed(() => {
-      const names: WorkspaceTab[] = props.layout === "playground" ? ["preview", "connect"] : ["preview", "terminal", "connect"];
-      return names.filter(name => slots[name]);
-    });
+    // In a playground the preview sits at the side, so the tabs under the editor never hold it.
+    const items = computed(() => (props.tabs ?? builtInTabs.filter(item => slots[item.value]))
+      .filter(item => props.layout !== "playground" || item.value !== "preview"));
+    const tabs = computed(() => items.value.map(item => item.value));
     const active = computed(() => {
       const wanted = props.tab ?? localTab.value;
       if (wanted && tabs.value.includes(wanted)) return wanted;
@@ -150,45 +168,32 @@ export const WorkspaceShell = defineComponent({
     }
 
     const slotProps = () => ({ layout: props.layout, tab: active.value, showTab: select });
-    const id = `vh-ws${useId()}`.replace(/[^\w-]/g, "");
+    const UTabs = useUIComponent("UTabs");
 
+    // UTabs draws the strip and moves between tabs with the arrow keys. The panels stay here, mounted and laid over each
+    // other, so the terminal keeps its size and output and the preview keeps its page while another tab shows.
     function tabList(): VNode | undefined {
       if (tabs.value.length === 0) return undefined;
       const panels = tabs.value.map(name => h("div", {
-        "aria-labelledby": `${id}-tab-${name}`,
+        "aria-label": items.value.find(item => item.value === name)?.label,
         class: ["vh-ws-tab-panel", active.value !== name && "is-hidden"],
         "data-tab": name,
-        id: `${id}-panel-${name}`,
         inert: active.value === name ? undefined : "",
         key: name,
         role: "tabpanel",
       }, renderSlot(slots, name, slotProps())));
       return h("div", { class: "vh-ws-tabs" }, [
-        h("div", {
+        h(UTabs, {
           "aria-label": "Workspace panels",
           class: "vh-ws-tab-list",
-          role: "tablist",
-          onKeydown(event: KeyboardEvent) {
-            const index = active.value ? tabs.value.indexOf(active.value) : 0;
-            const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-            if (!offset) return;
-            event.preventDefault();
-            const next = tabs.value[(index + offset + tabs.value.length) % tabs.value.length];
-            if (!next) return;
-            select(next);
-            root.value?.querySelector<HTMLElement>(`#${id}-tab-${next}`)?.focus();
+          content: false,
+          items: items.value.map(({ badge, label, value }) => ({ badge: badge === "" ? undefined : badge, label, value })),
+          modelValue: active.value,
+          "onUpdate:modelValue": (value: string | number) => {
+            const tab = tabs.value.find(name => name === value);
+            if (tab) select(tab);
           },
-        }, tabs.value.map(name => h("button", {
-          "aria-controls": `${id}-panel-${name}`,
-          "aria-selected": active.value === name ? "true" : "false",
-          class: "vh-ws-tab",
-          id: `${id}-tab-${name}`,
-          key: name,
-          role: "tab",
-          tabindex: active.value === name ? 0 : -1,
-          type: "button",
-          onClick: () => select(name),
-        }, tabLabels[name]))),
+        }),
         h("div", { class: "vh-ws-tab-panels" }, panels),
       ]);
     }
@@ -206,26 +211,31 @@ export const WorkspaceShell = defineComponent({
 
       let body: VNode;
       if (props.layout === "playground") {
-        const center = slots.terminal
+        const panels = tabList();
+        const center = panels
           ? h("div", { class: "vh-ws-stack" }, [
               h("div", { class: "vh-ws-pane", style: { flexBasis: `${s.main}%` } }, [editor]),
               separator({
                 container: () => root.value?.querySelector<HTMLElement>(".vh-ws-stack") ?? null,
-                label: "Resize terminal",
+                label: "Resize panels",
                 measure: (event, rect) => ((event.clientY - rect.top) / rect.height) * 100,
                 name: "main",
                 orientation: "horizontal",
                 set,
                 splits: s,
               }),
-              h("div", { class: "vh-ws-pane vh-ws-pane--terminal" }, renderSlot(slots, "terminal", slotProps())),
+              h("div", { class: "vh-ws-pane vh-ws-pane--panels" }, [panels]),
             ])
           : editor;
         body = h("div", { class: "vh-ws-body vh-ws-body--row" }, [
           ...filesSplit,
           h("div", { class: "vh-ws-pane vh-ws-pane--center" }, [center]),
-          separator({ container, label: "Resize preview", measure: (event, rect) => ((rect.right - event.clientX) / rect.width) * 100, name: "side", orientation: "vertical", set, splits: s }),
-          h("div", { class: "vh-ws-pane vh-ws-pane--side", style: { flexBasis: `${s.side}%` } }, [tabList()]),
+          ...slots.preview
+            ? [
+                separator({ container, label: "Resize preview", measure: (event, rect) => ((rect.right - event.clientX) / rect.width) * 100, name: "side", orientation: "vertical", set, splits: s }),
+                h("div", { class: "vh-ws-pane vh-ws-pane--side", style: { flexBasis: `${s.side}%` } }, renderSlot(slots, "preview", slotProps())),
+              ]
+            : [],
         ]);
       }
       else {
