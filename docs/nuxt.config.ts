@@ -312,6 +312,8 @@ export default defineNuxtConfig({
       nodeCompat: true,
       wrangler: {
         name: "vitehub-docs",
+        // Minify the final upload, including the icon collections and server-rendered Markdown dependencies.
+        minify: true,
         compatibility_date: "2026-07-19",
         workers_dev: false,
         preview_urls: true,
