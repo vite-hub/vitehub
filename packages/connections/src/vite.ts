@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { existsSync, statSync } from "node:fs"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -28,7 +29,7 @@ import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
-import type { Plugin, ResolvedConfig } from "vite";
+import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
 export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
@@ -299,6 +300,16 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   };
 };
 
+/** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
+export function colocatedConnectionDocsFile(handler: string): string {
+  return handler.replace(/\.(?:[jt]sx?|[cm][jt]s)$/i, ".md");
+}
+
+function hasColocatedConnectionDocs(definition: DiscoveredConnectionDefinition): boolean {
+  const file = colocatedConnectionDocsFile(definition.handler);
+  return file !== definition.handler && existsSync(file) && statSync(file).isFile();
+}
+
 function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
   database: string | false,
@@ -307,6 +318,12 @@ function renderRegistry(
 ): string {
   return [
     `export const activityRetention = ${JSON.stringify(activityRetention)}`,
+    // Each `<name>.md` loads like its definition, so an edit reaches the next `inspect()` in `vite dev`.
+    "export const docs = Object.create(null)",
+    ...definitions.filter(hasColocatedConnectionDocs).map(
+      (definition) =>
+        `docs[${JSON.stringify(definition.name)}] = () => import(${JSON.stringify(`${colocatedConnectionDocsFile(definition.handler)}?raw`)}).then(module => module.default)`,
+    ),
     "const registry = Object.create(null)",
     ...definitions.map(
       (definition) =>
@@ -433,6 +450,14 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
       });
     });
+  }
+
+  async function refreshRegistry(server: ViteDevServer): Promise<void> {
+    resolved = server.config;
+    refresh();
+    await refreshGeneratedFiles();
+    const module = server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
+    if (module) server.moduleGraph.invalidateModule(module);
   }
 
   return {
@@ -588,13 +613,23 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };
     },
+    configureServer(server) {
+      // Vite only calls handleHotUpdate for edits. Docs membership also changes on add and unlink.
+      server.watcher.add([...new Set(definitions.map(definition => dirname(definition.handler)))]);
+      const refreshDocs = (file: string) => {
+        if (!definitions.some(definition => colocatedConnectionDocsFile(definition.handler) === resolve(file))) return;
+        return refreshRegistry(server).catch(error => server.config.logger.error(String(error)));
+      };
+      server.watcher.on("add", refreshDocs);
+      server.watcher.on("unlink", refreshDocs);
+      server.httpServer?.once("close", () => {
+        server.watcher.off("add", refreshDocs);
+        server.watcher.off("unlink", refreshDocs);
+      });
+    },
     async handleHotUpdate(context) {
       if (!isConnectionDefinitionFile(context.file, projectRoot, serverDirs)) return;
-      resolved = context.server.config;
-      refresh();
-      await refreshGeneratedFiles();
-      const module = context.server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
-      if (module) context.server.moduleGraph.invalidateModule(module);
+      await refreshRegistry(context.server);
     },
     resolveId: {
       filter: { id: /^#vitehub\/connections\/registry$/ },

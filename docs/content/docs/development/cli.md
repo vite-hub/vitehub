@@ -8,7 +8,7 @@ icon: i-lucide-terminal-square
 
 The `vitehub` CLI is one entry point for developers and agents. It loads your Vite config and collects the commands each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads each active plugin's commands and Provision Steps once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
 
-The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. The Console catch-all and an app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
+The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. An app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
 
 ## Install and open help
 
@@ -86,7 +86,6 @@ Available namespaces:
 | `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
-| `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
 | `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |
@@ -241,7 +240,7 @@ pnpm vitehub status --json
 
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
-- `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `host`: the `preset` from the config, else the host from the environment, as `detectHost()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
 - `live`: the deployment that receives production traffic, with its commit and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](#list-deployments).
 - `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
@@ -1086,6 +1085,8 @@ Flags come from the input's JSON Schema:
 
 Without `--url`, a command calls its own project's dev server, found in `.vitehub/dev-server.json` (`{ url, root }`). The dev server writes this file when it listens and removes it when it closes. Without it, the command uses `VITEHUB_DEV_SERVER_URL`. With neither, it fails with `CLI_R0005`. It never guesses `localhost:5173`, because another project may use that port. The dev RPC names its project in a response header, and the command stops with `INTERNAL_R0025` when it is another project. A Nuxt dev server does not write the file, so pass `--url` or set `VITEHUB_DEV_SERVER_URL`.
 
+A command sends no credentials to the dev server that it finds. When that dev server asks for sign-in, as with [`auth: 'token'`](/docs/development/console#use-a-console-token), the command fails with `401`, and its fix names the `--url` to pass. With `--url`, the command sends its credentials to the dev server too.
+
 A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exits with `1`. A bad flag value fails with `CLI_R0003` and the usage line. Two operations with the same namespace and command fail the build and the CLI load with `INTERNAL_B0049`. A hand-written command with the same name as a generated one runs instead, as `vitehub content edit` does.
 
 ## Run a Schedule on demand
@@ -1224,15 +1225,15 @@ pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 ```
 
-Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it like a page request. Set the credentials the policy accepts:
+Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console access policy checks it. Set the credentials the policy accepts:
 
 | Variable | Value |
 | --- | --- |
-| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. With Console Auth, copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, for example the Bearer token that a `console.authorize` function checks. |
+| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value with a session cookie of the app Auth or Console Auth. With Console Auth, sign in at `/_vitehub/sign-in` and copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, such as `Bearer <token>` for [`auth: 'token'`](/docs/development/console#use-a-console-token). |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `auth: { provider: 'cloudflare-access' }`. |
 
-A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as a Console page URL from the browser or `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
+A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 

@@ -10,8 +10,6 @@
   },
   "include": [
     "src/console/runtime/components/invocation/**/*.ts",
-    "src/console/page/**/*.ts",
-    "test/console-page-tool-client.test.ts",
     "src/console/ui.ts",
     "src/page/**/*.ts",
     "../ui/src/standalone/virtual.d.ts",

@@ -31,7 +31,67 @@ export default defineAgent({
 
 `openRouterTranscriptionModel()` returns a normal AI SDK model that handles OpenRouter authentication, audio encoding, request shape, and errors, so your Agent needs no multipart code.
 
-```ts [server/agents/voice.ts] fragment
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    env: {
+      server: {
+        openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+```ts [server/agents/voice.ts]
+import { useServerEnv } from '#vitehub/env/server'
 import { defineAgent } from 'vite-hub/agent'
 import {
   openRouterTranscriptionModel,
@@ -39,11 +99,11 @@ import {
 } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model },
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [
     transcribe({
       model: openRouterTranscriptionModel({
-        apiKey: () => env.OPENROUTER_API_KEY,
+        apiKey: () => useServerEnv().openrouterApiKey.unseal(),
         model: 'openai/gpt-4o-transcribe',
       }),
     }),
@@ -225,7 +285,7 @@ Without `artifacts.directory`, transcripts go to `transcripts/<date>/<stem>.txt`
 
 ### Public helpers
 
-Import these from `@vite-hub/agent/capabilities` when hooks or executors need the same data.
+Import these from `vite-hub/agent/capabilities` when hooks or executors need the same data.
 
 | Helper | Return value | Behavior |
 | --- | --- | --- |

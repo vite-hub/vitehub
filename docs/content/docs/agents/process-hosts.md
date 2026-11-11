@@ -48,7 +48,6 @@ import host from '../host'
 export default defineAgent({
   invocations: host.invocations,
   driver: codexDriver({
-    model: 'gpt-5.5',
     capacity: host.capacity,
     sessionStorePath: host.providerSessionStorePath,
   }),

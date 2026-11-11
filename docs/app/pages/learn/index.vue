@@ -33,7 +33,7 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
           Follow a short lesson next to a live editor. Each step runs a real Vite server in this tab, so you install nothing.
         </p>
         <div v-if="first" class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
-          <UButton size="lg" color="neutral" :to="first.to" trailing-icon="i-lucide-arrow-right" label="Start the KV tutorial" />
+          <UButton :to="first.to" trailing-icon="i-lucide-arrow-right" label="Start the KV tutorial" />
         </div>
         <p v-if="first" class="mt-4 text-sm text-dimmed">
           {{ learnMeta(first) }} · Chrome, Edge, or Firefox on a desktop
@@ -52,23 +52,23 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
         <h2 id="learn-browser" class="vh-learn-h2">Start in your browser</h2>
         <p class="vh-learn-lead">Each lesson runs beside an editor and a live preview. Check every step before you go on.</p>
       </header>
-      <ol class="grid gap-4 md:grid-cols-2">
-        <li v-for="(entry, index) in catalog.browser" :key="entry.to">
-          <NuxtLink :to="entry.to" class="vh-learn-card group">
-            <div class="flex items-center gap-3">
-              <span class="vh-learn-index" aria-hidden="true">{{ index + 1 }}</span>
-              <UIcon v-if="entry.icon" :name="entry.icon" class="size-5 text-muted" aria-hidden="true" />
-            </div>
-            <h3 class="mt-5 text-lg font-semibold text-highlighted">{{ entry.title }}</h3>
-            <p class="mt-2 text-pretty text-sm leading-6 text-muted">{{ entry.description }}</p>
-            <p class="vh-learn-meta mt-auto pt-5">
-              <span>{{ learnMeta(entry) }}</span>
-              <span class="inline-flex items-center gap-1.5"><UIcon name="i-lucide-app-window" class="size-3.5" aria-hidden="true" />Runs in your browser</span>
+      <UPageGrid as="ol">
+        <UPageCard
+          v-for="(entry, index) in catalog.browser"
+          :key="entry.to"
+          as="li"
+          :to="entry.to"
+          :icon="entry.icon"
+          :title="entry.title"
+          :description="entry.description"
+        >
+          <template #footer>
+            <p class="text-xs text-dimmed tabular-nums">
+              Lesson {{ index + 1 }} · {{ learnMeta(entry) }} · Runs in your browser
             </p>
-            <span class="vh-learn-cta">Start tutorial<UIcon name="i-lucide-arrow-right" class="size-4 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" /></span>
-          </NuxtLink>
-        </li>
-      </ol>
+          </template>
+        </UPageCard>
+      </UPageGrid>
     </section>
 
     <!-- Complete projects. -->
@@ -77,20 +77,21 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
         <h2 id="learn-projects" class="vh-learn-h2">Build a full app</h2>
         <p class="vh-learn-lead">A complete project on your machine. Each step adds a feature and shows how to check it.</p>
       </header>
-      <div class="grid gap-4">
-        <NuxtLink v-for="entry in catalog.projects" :key="entry.to" :to="entry.to" class="vh-learn-card vh-learn-card--wide group">
-          <UIcon v-if="entry.icon" :name="entry.icon" class="size-6 shrink-0 text-muted" aria-hidden="true" />
-          <div class="min-w-0 flex-1">
-            <p class="text-xs text-muted">{{ entry.product }}</p>
-            <h3 class="mt-1 text-lg font-semibold text-highlighted">{{ entry.title }}</h3>
-            <p class="mt-2 max-w-3xl text-pretty text-sm leading-6 text-muted">{{ entry.description }}</p>
-            <p class="vh-learn-meta mt-4">
-              <span>{{ learnMeta(entry) }}</span>
-              <span class="inline-flex items-center gap-1.5"><UIcon name="i-lucide-laptop" class="size-3.5" aria-hidden="true" />On your machine</span>
+      <div class="grid gap-3">
+        <UPageCard
+          v-for="entry in catalog.projects"
+          :key="entry.to"
+          :to="entry.to"
+          :icon="entry.icon"
+          :title="entry.title"
+          :description="entry.description"
+        >
+          <template #footer>
+            <p class="text-xs text-dimmed tabular-nums">
+              {{ entry.product }} · {{ learnMeta(entry) }} · On your machine
             </p>
-          </div>
-          <UIcon name="i-lucide-arrow-right" class="size-5 shrink-0 self-center text-muted transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-highlighted" aria-hidden="true" />
-        </NuxtLink>
+          </template>
+        </UPageCard>
       </div>
     </section>
 
@@ -100,15 +101,16 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
         <h2 id="learn-playground" class="vh-learn-h2">Try a primitive in the playground</h2>
         <p class="vh-learn-lead">Open a small app that uses one primitive, change the code, and see the result. No lesson, no setup.</p>
       </header>
-      <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <li v-for="template in templates" :key="template.id">
-          <NuxtLink :to="template.id === templates[0]?.id ? '/playground' : `/playground?template=${template.id}`" class="vh-learn-tile group">
-            <span class="font-medium text-highlighted">{{ template.label }}</span>
-            <span class="text-sm text-muted">{{ template.description }}</span>
-            <UIcon name="i-lucide-arrow-up-right" class="vh-learn-tile-icon" aria-hidden="true" />
-          </NuxtLink>
-        </li>
-      </ul>
+      <UPageGrid as="ul">
+        <UPageCard
+          v-for="template in templates"
+          :key="template.id"
+          as="li"
+          :to="template.id === templates[0]?.id ? '/playground' : `/playground?template=${template.id}`"
+          :title="template.label"
+          :description="template.description"
+        />
+      </UPageGrid>
     </section>
 
     <!-- Quickstarts from the docs, by primitive. -->
@@ -138,11 +140,13 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
           </ul>
         </section>
       </div>
-      <div v-else class="py-12 text-center">
-        <p class="text-highlighted">No quickstart matches “{{ search }}”.</p>
-        <p class="mt-1 text-sm text-muted">Try the name of a primitive, such as Queue or Blob.</p>
-        <UButton class="mt-4" color="neutral" variant="outline" label="Clear search" @click="search = ''" />
-      </div>
+      <UEmpty
+        v-else
+        icon="i-lucide-search"
+        :title="`No quickstart matches “${search}”`"
+        description="Try the name of a primitive, such as Queue or Blob."
+        :actions="[{ label: 'Clear search', variant: 'outline', onClick: () => { search = '' } }]"
+      />
     </section>
 
     <!-- Coding agents write most ViteHub apps, so they get their own way in. -->
@@ -152,8 +156,8 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
         <p class="mt-1 text-pretty text-sm leading-6 text-muted">Give it the ViteHub skill or the docs MCP server, so the code it writes matches these lessons.</p>
       </div>
       <div class="flex flex-wrap gap-2">
-        <UButton color="neutral" variant="outline" to="/docs/getting-started/ai-resources/agent-instructions-skills" icon="i-lucide-sparkles" label="Add the ViteHub skill" />
-        <UButton color="neutral" variant="ghost" to="/docs/getting-started/ai-resources/mcp-server" icon="i-lucide-plug" label="Connect the MCP server" />
+        <UButton variant="outline" to="/docs/getting-started/ai-resources/agent-instructions-skills" icon="i-lucide-sparkles" label="Add the ViteHub skill" />
+        <UButton variant="ghost" to="/docs/getting-started/ai-resources/mcp-server" icon="i-lucide-plug" label="Connect the MCP server" />
       </div>
     </section>
   </main>
@@ -189,14 +193,13 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
   max-width: 44rem;
 }
 
-/* The screenshot recedes into the page: a hairline and a soft, layered shadow. */
+/* The screenshot sits in a hairline frame, like every other framed box. */
 .vh-learn-shot {
   overflow: hidden;
   margin: 0;
   border: 1px solid var(--ui-border);
   border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-muted);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -8px rgb(0 0 0 / 0.12), 0 24px 48px -24px rgb(0 0 0 / 0.12);
 }
 
 .vh-learn-shot img {
@@ -228,100 +231,6 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
   text-wrap: pretty;
 }
 
-.vh-learn-card {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  border: 1px solid var(--ui-border);
-  border-radius: calc(var(--ui-radius) * 1.5);
-  background: var(--ui-bg);
-  padding: 1.5rem;
-  transition: border-color 150ms, background-color 150ms;
-}
-
-.vh-learn-card--wide {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 1.25rem;
-}
-
-@media (hover: hover) {
-  .vh-learn-card:hover {
-    border-color: var(--ui-border-accented);
-    background: var(--ui-bg-muted);
-  }
-}
-
-.vh-learn-card:focus-visible,
-.vh-learn-tile:focus-visible,
-.vh-learn-row:focus-visible {
-  outline: 2px solid var(--ui-border-inverted);
-  outline-offset: 2px;
-}
-
-.vh-learn-index {
-  display: inline-grid;
-  width: 1.75rem;
-  height: 1.75rem;
-  place-items: center;
-  border: 1px solid var(--ui-border-accented);
-  border-radius: 999px;
-  color: var(--ui-text-highlighted);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.vh-learn-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.vh-learn-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin-top: 1rem;
-  color: var(--ui-text-highlighted);
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.vh-learn-tile {
-  position: relative;
-  display: grid;
-  gap: 0.25rem;
-  height: 100%;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  padding: 0.875rem 2.5rem 0.875rem 1rem;
-  transition: border-color 150ms, background-color 150ms;
-}
-
-.vh-learn-tile-icon {
-  position: absolute;
-  top: 0.875rem;
-  right: 0.875rem;
-  width: 1rem;
-  height: 1rem;
-  color: var(--ui-text-dimmed);
-}
-
-@media (hover: hover) {
-  .vh-learn-tile:hover {
-    border-color: var(--ui-border-accented);
-    background: var(--ui-bg-muted);
-  }
-
-  .vh-learn-tile:hover .vh-learn-tile-icon {
-    color: var(--ui-text-highlighted);
-  }
-}
-
 .vh-learn-groups {
   display: grid;
   gap: 2rem 2.5rem;
@@ -350,7 +259,7 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
   justify-content: space-between;
   gap: 1rem;
   margin-inline: -0.5rem;
-  border-radius: calc(var(--ui-radius) * 0.75);
+  border-radius: calc(var(--ui-radius) * 1.5);
   padding: 0.375rem 0.5rem;
   color: var(--ui-text);
   font-size: 0.875rem;
@@ -358,7 +267,7 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
 
 @media (hover: hover) {
   .vh-learn-row:hover {
-    background: var(--ui-bg-muted);
+    background: var(--ui-bg-elevated);
     color: var(--ui-text-highlighted);
   }
 }
@@ -370,7 +279,7 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
   gap: 1.25rem 2rem;
   margin-top: 5rem;
   border: 1px solid var(--ui-border);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-muted);
   padding: 1.5rem;
 }

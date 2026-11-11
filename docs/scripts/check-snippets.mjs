@@ -3,11 +3,12 @@
 //
 // Each page is a small project: a block with a file label, such as ```ts [server/db/schema.ts], is written
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
-// must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
+// must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment. A block that shows a
+// mistake on purpose names the errors it must fail with: ```ts [server/auth.ts] fails=TS2769.
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, relative, resolve } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
 
@@ -16,6 +17,7 @@ const docsRoot = join(repoRoot, "docs")
 const packagesRoot = join(repoRoot, "packages")
 const fenceLanguages = new Set(["ts", "typescript", "tsx", "mts"])
 export const fragmentMarker = "fragment"
+export const failsMarker = "fails"
 
 function listMarkdown(directory) {
   return readdirSync(directory, { recursive: true, withFileTypes: true })
@@ -58,7 +60,8 @@ export function extractBlocks(markdown, languages = fenceLanguages) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
       const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
-      blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
+      const fails = meta.find(entry => entry.startsWith(`${failsMarker}=`))?.slice(failsMarker.length + 1).split(",").map(code => Number(code.replace(/^TS/, "")))
+      blocks.push({ code: body.join("\n"), end: end + 1, fails, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
     index = end
   }
@@ -81,7 +84,7 @@ const options = {
   types: ["node", "vite/client"],
 }
 
-/** The untyped `#vitehub/env` modules, for a check that gets no generated Env types. */
+/** Untyped Env aliases for checks without generated declarations. */
 const ambientFiles = [join(packagesRoot, "env/dist/virtual-module.d.ts")]
 const nuxtModules = {
   "@nuxt/ui": "ui",
@@ -101,6 +104,11 @@ const appDeclarations = [
       `declare module "*.vue" {`,
       `  const component: import("vue").DefineComponent`,
       `  export default component`,
+      `}`,
+      // `vite/client` types a `?raw` import as the text of the file.
+      `declare module "*?raw" {`,
+      `  const text: string`,
+      `  export default text`,
       `}`,
     ].join("\n"),
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
@@ -144,9 +152,8 @@ export function collectSnippets(sources = snippetSources()) {
     const page = relative(repoRoot, source.file)
     const used = new Set()
     const markdown = readFileSync(source.file, "utf8")
-    // A config such as `envSchema(new URL('./.env.example', import.meta.url))` reads the `.env.example` of the page.
-    const envFiles = extractBlocks(markdown, new Set(["dotenv", "env", "ini", "sh"]))
-      .filter(block => /^\.env[\w.-]*$/.test(block.label ?? ""))
+    const fixtures = extractBlocks(markdown, new Set(["dotenv"]))
+      .filter(block => block.label && !block.fragment)
       .map(({ code, label }) => ({ code, label }))
     extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
@@ -154,11 +161,14 @@ export function collectSnippets(sources = snippetSources()) {
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, envFiles, file: join(pageRoot, name), page, pageRoot })
+      snippets.push({ ...block, file: join(pageRoot, name), fixtures, page, pageRoot })
     })
   }
   return snippets
 }
+
+/** A whole file of the page's app. Excerpts and examples of mistakes are not part of it. */
+const isAppFile = snippet => !snippet.fragment && !snippet.fails
 
 const workflowStepFile = /(?:^|\/)workflows\/(.+)\/(\d+[.-]?[^/]*\.m?ts)$/
 
@@ -170,7 +180,7 @@ export async function generatedDeclarations(pageSnippets) {
   const workflows = new Map()
   for (const snippet of pageSnippets) {
     const match = workflowStepFile.exec(snippet.label ?? "")
-    if (!match || snippet.fragment) continue
+    if (!match || !isAppFile(snippet)) continue
     const definition = workflows.get(match[1]) ?? { handler: snippet.file.slice(0, -match[2].length - 1), name: match[1], steps: [] }
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
@@ -219,7 +229,7 @@ async function channelNames(label, code, pageSnippets) {
   const indexFolder = /^server\/channels\/(.+)\/index\.(?:[cm]?ts|tsx)$/i
   if (pageSnippets.some((snippet) => {
     const indexLabel = snippet.label?.replace(/^\/+/, "") ?? ""
-    const folder = !snippet.fragment && indexFolder.exec(indexLabel)?.[1]
+    const folder = isAppFile(snippet) && indexFolder.exec(indexLabel)?.[1]
     return folder && label !== indexLabel && label.startsWith(`server/channels/${folder}/`)
   })) return []
   const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
@@ -244,7 +254,7 @@ const registries = [
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
-    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts types `auth.api` with the plugins of `server/auth.ts`.
+    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` is the Auth Definition of the app.
     definitions: label => /^server\/auth(?:\/index)?\.[cm]?ts$/.test(label) ? ["definition"] : [],
     render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
     type: "auth",
@@ -280,7 +290,7 @@ async function registryDeclarations(pageSnippets) {
   for (const registry of registries) {
     const definitions = new Map()
     for (const snippet of pageSnippets) {
-      if (snippet.fragment || !snippet.label) continue
+      if (!isAppFile(snippet) || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
       if (/\.d\.(?:[cm]?ts|tsx)$/i.test(label)) continue
       for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
@@ -319,28 +329,43 @@ function mergeEnv(target, declarations) {
  * an app installs, and the Env plugin of `vitehub()` writes the types.
  */
 async function envDeclarations(pageSnippets) {
-  const configs = pageSnippets.filter(snippet => !snippet.fragment && configFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
+  const configs = pageSnippets.filter(snippet => isAppFile(snippet) && configFile.test(snippet.label ?? "") && /\benv\s*:|\bhubEnv\s*\(/.test(snippet.code))
   if (!configs.length) return []
   const env = {}
   const plugins = []
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
   globalThis.defineNuxtConfig ??= config => config
   try {
-    for (const file of pageSnippets[0].envFiles ?? []) writeFileSync(join(directory, file.label), file.code)
+    // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
+    for (const fixture of pageSnippets[0].fixtures ?? []) {
+      const file = resolve(directory, fixture.label)
+      if (!file.startsWith(`${directory}${sep}`)) continue
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, fixture.code)
+    }
     for (const [index, snippet] of configs.entries()) {
       const file = join(directory, `${index}.ts`)
       writeFileSync(file, snippet.code)
       let config
       try {
-        config = (await import(pathToFileURL(file).href)).default
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
       }
-      catch (error) {
-        throw new Error(`${snippet.page}:${snippet.line} The config does not load.`, { cause: error })
+      catch {
+        // Only excluded blocks may be skipped; a failed app config must not leave a partial Env contract.
+        return []
       }
-      if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
-      // Nuxt passes `vitehub.env` to the same plugin.
-      mergeEnv(env, config.vitehub?.env)
-      for (const plugin of (await vitePlugins(config.plugins)).filter(entry => entry?.name === "@vite-hub/env/vite")) {
+      mergeEnv(env, config.env)
+      const configPlugins = await vitePlugins(config.plugins)
+      // Nuxt configures the same plugin, including providers and runtime imports.
+      const nuxtEnv = [config.vitehub?.env, ...(config.modules ?? [])
+        .filter(module => Array.isArray(module) && module[0] === "vite-hub/nuxt")
+        .map(module => module[1]?.env)].filter(Boolean)
+      if (nuxtEnv.length) {
+        const { hubEnv } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
+        for (const options of nuxtEnv) configPlugins.push(hubEnv(options))
+      }
+      for (const plugin of configPlugins.filter(entry => entry?.name === "@vite-hub/env/vite")) {
         plugins.push(plugin)
         mergeEnv(env, plugin.api.resolveDeclarations(config))
       }
@@ -397,7 +422,7 @@ async function envTypes(pageRoot, env, plugins) {
   ].join("\n")
   return [
     { code, file: join(pageRoot, envTypesFile) },
-    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth-env.d.ts") },
+    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }
 
@@ -415,6 +440,22 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     ...[...appDeclarations, ...declarations].map(declaration => [declaration.file, declaration.code]),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
+  // A page can show one file several times as it grows. A relative import gets the last full version of the
+  // file that the page shows above the importing block, and a later version imports as if it were at its label.
+  const versions = new Map()
+  const labelFiles = new Map()
+  for (const snippet of snippets) {
+    if (!snippet.pageRoot || !/\.(m?ts|tsx)$/.test(snippet.label ?? "")) continue
+    const file = join(snippet.pageRoot, snippet.label.replace(/^\/+/, ""))
+    labelFiles.set(snippet.file, file)
+    versions.set(file, [...versions.get(file) ?? [], snippet])
+  }
+  const lines = new Map(snippets.map(snippet => [snippet.file, snippet.line]))
+  const shownVersion = (file, importer) => {
+    const shown = versions.get(file).filter(isAppFile)
+    const line = lines.get(importer) ?? Number.POSITIVE_INFINITY
+    return (shown.findLast(snippet => snippet.line < line) ?? shown[0])?.file ?? file
+  }
   const virtualDirectories = new Set()
   for (const file of virtualFiles.keys()) {
     for (let directory = dirname(file); directory !== dirname(directory) && !virtualDirectories.has(directory); directory = dirname(directory)) virtualDirectories.add(directory)
@@ -452,6 +493,12 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return installedResolutions.get(key)
   }
   host.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
+    if (virtualFiles.has(containingFile) && /^\.\.?\//.test(text)) {
+      const resolved = ts.resolveModuleName(text, labelFiles.get(containingFile) ?? containingFile, options, host)
+      const file = resolved.resolvedModule?.resolvedFileName
+      if (!file || !versions.has(file)) return resolved
+      return { ...resolved, resolvedModule: { ...resolved.resolvedModule, resolvedFileName: shownVersion(file, containingFile) } }
+    }
     const bare = !/^[./~#]/.test(text)
     // An app installs one Vite. The workspace links one per set of peer versions, and the package
     // declarations would otherwise compare plugins of two Vite copies.
@@ -482,6 +529,13 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     catch (error) {
       diagnostics = [{ code: 0, file: sourceFile, messageText: `TypeScript crashed: ${String(error).split("\n")[0]}`, start: 0 }]
     }
+    if (snippet.fails) {
+      // A mistake on purpose passes when it fails with exactly the errors that its marker names.
+      const codes = new Set(diagnostics.map(diagnostic => diagnostic.code))
+      const missing = snippet.fails.filter(code => !codes.has(code))
+      diagnostics = diagnostics.filter(diagnostic => !snippet.fails.includes(diagnostic.code))
+      if (missing.length) diagnostics.unshift({ code: 0, file: sourceFile, messageText: `The block is marked \`${failsMarker}=${snippet.fails.map(code => `TS${code}`).join(",")}\`, but it does not fail with ${missing.map(code => `TS${code}`).join(", ")}.`, start: 0 })
+    }
     if (!diagnostics.length) continue
     failures.push({
       snippet,
@@ -500,7 +554,7 @@ export function snippetId(snippet) {
 }
 
 /**
- * Blocks that are right but fail because a package type is wrong. The package fix removes its entry; the
+ * Blocks that failed when this check started. Each package fixes its own entries and removes them; the
  * check fails when a listed block passes or changes, so the list only shrinks.
  */
 export const baselinePath = join(docsRoot, "scripts/check-snippets.baseline.json")
@@ -514,8 +568,9 @@ export function baselineEntry({ snippet, diagnostics }) {
 
 export function compareBaseline(failures, baseline) {
   const known = new Map(baseline.map(entry => [entry.id, entry]))
-  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
+  const failed = new Set(failures.filter(({ snippet }) => !snippet.fails).map(failure => snippetId(failure.snippet)))
   const fresh = failures.filter((failure) => {
+    if (failure.snippet.fails) return true
     const current = baselineEntry(failure)
     const expected = known.get(current.id)
     return !expected || expected.label !== current.label || expected.error !== current.error
@@ -533,6 +588,12 @@ export function updateBaseline(failures, path = baselinePath) {
   const entries = failures.map(baselineEntry)
   writeFileSync(path, `${JSON.stringify(entries, null, 2)}\n`)
   return true
+}
+
+/** Expected-error assertions always fail on a mismatch, even if a baseline once listed them. */
+export function checkBaseline(failures, baseline) {
+  const entries = failures.filter(({ snippet }) => !snippet.fails).map(baselineEntry)
+  return { entries, ...compareBaseline(failures, baseline) }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -554,18 +615,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...sharedCheck.failures,
     ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, withEnv(declarations), sharedCheck.program).failures),
   ]
-  const baseline = readBaseline()
+  const { fresh, stale } = checkBaseline(failures, readBaseline())
   if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {
     console.log(`Wrote ${failures.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
-  const { fresh, stale } = compareBaseline(failures, baseline)
   for (const { snippet, diagnostics } of fresh) {
     for (const diagnostic of diagnostics) console.error(`${snippet.page}:${diagnostic.line} TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}`)
   }
   for (const entry of stale) console.error(`${entry.id} passes now or changed. Remove it from ${relative(repoRoot, baselinePath)}.`)
   const fragments = snippets.filter(snippet => snippet.fragment).length
-  console.log(`${snippets.length - fragments} TypeScript blocks type-checked, ${fragments} marked \`${fragmentMarker}\`, ${failures.length} failed, ${failures.length - fresh.length} of them listed as known failures.`)
-  if (fresh.length) console.log(`Fix each new or changed failure, or add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file.`)
+  const mistakes = snippets.filter(snippet => snippet.fails).length
+  console.log(`${snippets.length - fragments} TypeScript blocks type-checked, ${fragments} marked \`${fragmentMarker}\`, ${mistakes} marked \`${failsMarker}\`, ${failures.length} failed, ${failures.length - fresh.length} of them listed as known failures.`)
+  if (fresh.length) console.log(`Fix each block, add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file, or \`${failsMarker}=TS<code>\` to a block that shows a type error on purpose.`)
   if (fresh.length || stale.length) process.exitCode = 1
 }

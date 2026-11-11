@@ -47,10 +47,13 @@ import { defineHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { auth } from 'vite-hub/auth/server'
 
-const roleChange = v.object({ userId: v.string(), role: v.picklist(['viewer', 'commenter', 'editor', 'publisher']) })
+const body = v.object({
+  userId: v.string(),
+  role: v.picklist(['user', 'viewer', 'commenter', 'editor', 'publisher', 'admin']),
+})
 
 export default defineHandler(async (event) => {
-  const { userId, role } = await readValidatedBody(event, body => v.parse(roleChange, body))
+  const { userId, role } = await readValidatedBody(event, body)
   return auth.api.setRole({ body: { userId, role }, headers: event.req.headers })
 })
 ```

@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `RealtimeDocumentConflict` from `vite-hub/realtime` | Throw from a document adapter when `ifDigest` no longer matches. |
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read a room document's `body`, `fields`, and `status` root types. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
@@ -45,21 +45,49 @@ Workspace working tree. To store documents elsewhere, pass an adapter object.
 Realtime calls it with plain snapshots. Your storage stays a copy synced from
 the room.
 
-```ts [server/realtime/pages.ts] fragment
+This adapter stores pages in the `pages` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    pages: sqliteTable('pages', {
+      id: text('id').primaryKey(),
+      title: text('title').notNull(),
+      body: text('body').notNull(),
+      version: text('version').notNull(),
+      editedBy: text('edited_by'),
+    }),
+  },
+})
+```
+
+```ts [server/realtime/pages.ts]
+import { and, eq } from 'drizzle-orm'
+import { useDatabase } from 'vite-hub/database/drizzle'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
   document: {
     kind: 'pages',
     async load({ documentId }) {
-      const page = await db.pages.find(documentId)
+      const { db, schema } = useDatabase('default')
+      const [page] = await db.select().from(schema.pages).where(eq(schema.pages.id, documentId))
       if (!page) return { body: '', digest: null }
       return { body: page.body, digest: page.version, fields: { title: page.title } }
     },
     async save({ documentId }, { body, fields }, { ifDigest, user }) {
-      const version = await db.pages.update(documentId, { body, title: fields?.title, editedBy: user?.id }, { ifVersion: ifDigest })
-      if (!version) throw new RealtimeDocumentConflict()
-      return { digest: version, issues: fields?.title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
+      const { db, schema } = useDatabase('default')
+      const title = String(fields?.title ?? '')
+      const page = { body, title, version: crypto.randomUUID(), editedBy: user?.id ?? null }
+      // `ifDigest: null` saves a page that does not exist yet.
+      const saved = ifDigest === null
+        ? await db.insert(schema.pages).values({ id: documentId, ...page }).onConflictDoNothing().returning()
+        : await db.update(schema.pages).set(page).where(and(eq(schema.pages.id, documentId), eq(schema.pages.version, ifDigest))).returning()
+      if (!saved.length) throw new RealtimeDocumentConflict()
+      return { digest: page.version, issues: title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
     },
   },
 })
@@ -283,8 +311,8 @@ carets out.
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
 ```ts fragment
-import { connectRealtimeRoom } from '@vite-hub/realtime/client'
-import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
 
 const page = normalizeCommentPage(location.pathname)
 const room = connectRealtimeRoom('comments', commentRoom(page), { changes: true, params: { page } })

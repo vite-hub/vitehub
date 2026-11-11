@@ -34,7 +34,6 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/cms` | The `cms` preset for Content collections, with the Workspace, tables, and Database it generates | `@vite-hub/cms`, `@vite-hub/cms/vite` |
 | `@vite-hub/comments` | Comment threads on pages, anchors, the Comments API and overlay, presence rooms, in-place Content edits | `@vite-hub/comments`, `@vite-hub/comments/anchor`, `@vite-hub/comments/database`, `@vite-hub/comments/realtime`, `@vite-hub/comments/runtime`, `@vite-hub/comments/vite` |
 | `@vite-hub/connections` | Connection Definitions, OAuth 2 grants, API keys, access rules, activity, typed Operations, Agent access | `@vite-hub/connections`, `@vite-hub/connections/google`, `@vite-hub/connections/server`, `@vite-hub/connections/agent`, `@vite-hub/connections/vite` |
-| `@vite-hub/console-client` | The prebuilt Console app that `vite-hub` serves at `/_vitehub` when the Console is on. It has no JavaScript API | `@vite-hub/console-client/manifest.json` |
 | `@vite-hub/content` | Comark Content runtime, document collections, Source adaptation, server handler, typed client | `@vite-hub/content`, `@vite-hub/content/client`, `@vite-hub/content/database`, `@vite-hub/content/vite` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database setup | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
 | `@vite-hub/docs` | Docs sites from a Markdown folder: frontmatter, navigation, shell, theme, search, raw Markdown, llms.txt, MCP server, assistant | `@vite-hub/docs`, `@vite-hub/docs/nuxt`, `@vite-hub/docs/server`, `@vite-hub/docs/navigation`, `@vite-hub/docs/assistant` |
@@ -44,6 +43,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/i18n` | [i18n](/docs/i18n): messages in the source language with no keys, PO catalogs, message IDs at build time, and one locale for each request on Nitro 3 | `@vite-hub/i18n`, `@vite-hub/i18n/vue`, `@vite-hub/i18n/vite`, `@vite-hub/i18n/nuxt` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
+| `@vite-hub/mcp` | App MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |
 | `@vite-hub/queue` | Queue Definitions, dispatch helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
@@ -85,8 +85,6 @@ Capabilities, and other app APIs come from feature subpaths.
 - [Config options](/docs/reference/config-options)
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-
-- `@vite-hub/box`
 
 - `@vite-hub/presets`
 

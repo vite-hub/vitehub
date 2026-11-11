@@ -36,7 +36,7 @@ icon: i-lucide-list-checks
 
   // The route is yours. Add auth and limits here.
   export default defineEventHandler(async (event) => {
-    const { text } = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
+    const { text } = await readValidatedBody(event, v.parser(v.object({ text: v.string() })))
     const [error, selection] = await forecast.resolve(text)
     if (error) throw createError({ statusCode: 422, message: error.message })
     return selection

@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import {
@@ -9,16 +9,16 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { findExportNames } from "mlly"
 
-import { parseSync as parseJavaScript } from "vite"
 import type { Plugin, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
-import { collectCollectionFiles } from "./internal/collection-discovery.ts"
+import { collectCollectionFiles, discoverCollections, inspectCollectionSource } from "./internal/collection-discovery.ts"
+import type { DiscoveredCollection } from "./internal/collection-discovery.ts"
 import { collectionRoutePath } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -34,6 +34,7 @@ const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
+const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentTypesPluginEntry = ".vitehub/content/types.mjs"
 // The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
 const contentTypesEntry = ".vitehub/types/content.d.ts"
@@ -91,13 +92,6 @@ export interface GeneratedSourceHandlersListenerOptions {
   projectRoot?: string
 }
 
-interface DiscoveredCollection {
-  exportName: string
-  file: string
-  name: string
-  routeEnabled: boolean
-}
-
 interface NitroGeneratedConfig {
   handlers?: Array<{ handler: string, method?: string, middleware?: boolean, route?: string }>
   modules?: unknown[]
@@ -146,6 +140,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentSqliteEntry,
     contentTypesPluginEntry,
     contentTypesEntry,
   ]
@@ -181,6 +176,7 @@ async function restoreGeneratedSourceArtifacts(
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentSqliteEntry,
     contentTypesPluginEntry,
     contentTypesEntry,
   ]) {
@@ -278,629 +274,9 @@ export function toTypeModuleSpecifier(file: string): string {
   return file.replaceAll("\\", "/")
 }
 
-/** Inspect route metadata without importing Collection modules or evaluating loaders. */
-function collectionRouteEnabled(file: string, source: string, exportName: string): boolean {
-  // Collection files may use TypeScript syntax regardless of their extension
-  // (for example a `.mjs` file supplied by a generated-types fixture).
-  const parsed = parseJavaScript(file, source, { lang: "ts" })
-  if (parsed.errors.length) throw new TypeError(`[vitehub] Cannot parse Collection ${file}: ${parsed.errors[0]!.message}`)
-  type AstNode = {
-    type?: string
-    start?: number
-    object?: AstNode
-    property?: AstNode
-    test?: AstNode
-    consequent?: AstNode
-    alternate?: AstNode
-    name?: string
-    value?: unknown
-    expression?: AstNode | null
-    callee?: AstNode | null
-    argument?: AstNode | null
-    arguments?: AstNode[]
-    properties?: AstNode[]
-    key?: AstNode
-    computed?: boolean
-    declarations?: AstNode[]
-    init?: AstNode | null
-    kind?: string
-    params?: AstNode[]
-    param?: AstNode | null
-    id?: AstNode
-    local?: AstNode
-    exported?: AstNode
-    elements?: Array<AstNode | null>
-    expressions?: AstNode[]
-    quasis?: Array<{ value?: { raw?: string, cooked?: string } }>
-    operator?: string
-    left?: AstNode
-    right?: AstNode
-    body?: AstNode | AstNode[] | null
-  }
-  type Write = { node: AstNode; fn?: AstNode; guards: Array<{ test: AstNode | undefined; truthy: boolean }>; replayed?: boolean }
-  type Binding = { init?: AstNode | null; writes?: Write[] }
-  type Scope = { bindings: Map<string, Binding>, parent?: Scope }
-  const moduleScope: Scope = { bindings: new Map() }
-  const scopes = new WeakMap<AstNode, Scope>()
-  const bindPattern = (node: AstNode | null | undefined, scope: Scope, init?: AstNode | null): void => {
-    if (!node) return
-    if (node.type === "Identifier" && node.name) scope.bindings.set(node.name, { init })
-    else if (node.type === "RestElement") bindPattern(node.argument, scope)
-    else if (node.type === "AssignmentPattern") bindPattern(node.left, scope, { type: "AssignmentPattern", left: init ?? undefined, right: node.right })
-    else if (node.type === "ArrayPattern") for (const element of node.elements ?? []) bindPattern(element, scope)
-    else if (node.type === "ObjectPattern") for (const property of node.properties ?? []) {
-      const member: AstNode = { type: "MemberExpression", object: init ?? undefined, property: property.key, computed: property.computed }
-      scopes.set(member, scope)
-      // SAFETY: Object-pattern properties hold another binding pattern in value.
-      bindPattern(property.type === "RestElement" ? property.argument : property.value as AstNode, scope, property.type === "RestElement" ? undefined : member)
-    }
-  }
-  const indexScopes = (node: AstNode, parent: Scope, functionScope: Scope): void => {
-    const isFunction = ["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"].includes(node.type ?? "")
-    if ((node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") && node.id?.name) {
-      parent.bindings.set(node.id.name, { init: node.type === "FunctionDeclaration" ? node : undefined })
-    }
-    const createsScope = isFunction || ["BlockStatement", "CatchClause", "ForStatement", "ForInStatement", "ForOfStatement", "SwitchStatement"].includes(node.type ?? "")
-    const scope: Scope = createsScope ? { bindings: new Map(), parent } : parent
-    const nextFunctionScope = isFunction ? scope : functionScope
-    scopes.set(node, scope)
-    if (isFunction) {
-      for (const param of node.params ?? []) bindPattern(param, scope)
-      if (node.type === "FunctionExpression") bindPattern(node.id, scope)
-    }
-    if (node.type === "CatchClause") bindPattern(node.param, scope)
-    if (node.type === "VariableDeclaration") for (const item of node.declarations ?? []) {
-      const target = node.kind === "var" ? functionScope : scope
-      bindPattern(item.id, target, item.init)
-    }
-    for (const child of Object.values(node)) {
-      if (Array.isArray(child)) {
-        for (const item of child) if (item) {
-          // SAFETY: Parser-owned AST arrays contain child nodes (or null array holes).
-          indexScopes(item as AstNode, scope, nextFunctionScope)
-        }
-      }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- AST child traversal excludes scalar metadata from parser-owned nodes.
-      else if (child && typeof child === "object") {
-        // SAFETY: Traversal reads only optional AST fields from parser-owned child objects.
-        indexScopes(child as AstNode, scope, nextFunctionScope)
-      }
-    }
-  }
-  // SAFETY: The parser's AST nodes expose the expression and binding fields inspected above.
-  indexScopes(parsed.program as AstNode, moduleScope, moduleScope)
-  const bindingFor = (node: AstNode): Binding | undefined => {
-    for (let scope = scopes.get(node); scope; scope = scope.parent) {
-      if (node.name && scope.bindings.has(node.name)) return scope.bindings.get(node.name)
-    }
-    return undefined
-  }
-  const indexedWrites: Write[] = []
-  const indexWrites = (node: AstNode, fn?: AstNode, guards: Write["guards"] = []): void => {
-    if (["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"].includes(node.type ?? "")) {
-      fn = node
-      guards = []
-    }
-    if (node.type === "IfStatement" || node.type === "ConditionalExpression") {
-      if (node.consequent) indexWrites(node.consequent, fn, [...guards, { test: node.test, truthy: true }])
-      if (node.alternate) indexWrites(node.alternate, fn, [...guards, { test: node.test, truthy: false }])
-      return
-    }
-    if (node.type === "LogicalExpression") {
-      if (node.left) indexWrites(node.left, fn, guards)
-      if (node.right) indexWrites(node.right, fn, [...guards, { test: node.operator === "??" ? undefined : node.left, truthy: node.operator === "&&" }])
-      return
-    }
-    if (["ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement", "DoWhileStatement", "SwitchStatement", "TryStatement"].includes(node.type ?? "")) guards = [...guards, { test: undefined, truthy: true }]
-    if (node.type === "UnaryExpression" && node.operator === "delete" && node.argument?.type === "MemberExpression") {
-      const target = node.argument.object
-      const binding = target?.type === "Identifier" ? bindingFor(target) : undefined
-      if (binding) {
-        const write = { node, fn, guards }
-        ;(binding.writes ??= []).push(write)
-        indexedWrites.push(write)
-      }
-    }
-    if (node.type === "AssignmentExpression") {
-      const target = node.left?.type === "MemberExpression" ? node.left.object : node.left
-      const binding = target?.type === "Identifier" ? bindingFor(target) : undefined
-      if (binding) {
-        const write = { node, fn, guards }
-        ;(binding.writes ??= []).push(write)
-        indexedWrites.push(write)
-      }
-    }
-    for (const child of Object.values(node)) {
-      if (Array.isArray(child)) {
-        for (const item of child) if (item) {
-          // SAFETY: Parser-owned AST arrays contain child nodes.
-          indexWrites(item as AstNode, fn, guards)
-          // SAFETY: Parser-owned child nodes expose their ESTree statement type.
-          if ((item as AstNode).type === "ReturnStatement" || (item as AstNode).type === "ThrowStatement") break
-        }
-      }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only traverse parser-owned child objects.
-      else if (child && typeof child === "object") {
-        // SAFETY: Parser-owned AST children expose optional common node fields.
-        indexWrites(child as AstNode, fn, guards)
-      }
-    }
-  }
-  // SAFETY: The parser owns the AST traversed to index writes.
-  indexWrites(parsed.program as AstNode)
-  let readPosition = Infinity
-  const activeFunctions = new Set<AstNode>()
-  const executedFunctions = new Set<AstNode>()
-  const parameterValues = new Map<Binding, AstNode | undefined>()
-  let routeEffectState: boolean | undefined
-  const snapshotExecution = (): {
-    activeFunctions: Set<AstNode>
-    executedFunctions: Set<AstNode>
-    parameterValues: Map<Binding, AstNode | undefined>
-    readPosition: number
-    routeEffectState: boolean | undefined
-  } => ({
-    activeFunctions: new Set(activeFunctions),
-    executedFunctions: new Set(executedFunctions),
-    parameterValues: new Map(parameterValues),
-    readPosition,
-    routeEffectState,
-  })
-  const restoreExecution = (snapshot: ReturnType<typeof snapshotExecution>): void => {
-    activeFunctions.clear()
-    for (const fn of snapshot.activeFunctions) activeFunctions.add(fn)
-    executedFunctions.clear()
-    for (const fn of snapshot.executedFunctions) executedFunctions.add(fn)
-    parameterValues.clear()
-    for (const [binding, value] of snapshot.parameterValues) parameterValues.set(binding, value)
-    readPosition = snapshot.readPosition
-    routeEffectState = snapshot.routeEffectState
-  }
-  let exported = moduleScope.bindings.get(exportName)
-  for (const statement of parsed.program.body) {
-    if (statement.type !== "ImportDeclaration") continue
-    for (const specifier of statement.specifiers ?? []) {
-      const imported = specifier.type === "ImportSpecifier" ? specifier.imported : undefined
-      const name = imported?.type === "Identifier" ? imported.name : imported?.value
-      moduleScope.bindings.set(specifier.local.name, { init: { type: name === "defineCollection" ? "CollectionFactory" : specifier.type === "ImportNamespaceSpecifier" ? "CollectionNamespace" : "UnknownImport" } })
-    }
-  }
-  for (const statement of parsed.program.body) {
-    if (statement.type === "ExportNamedDeclaration") for (const specifier of statement.specifiers) {
-      if (specifier.type === "ExportSpecifier" && specifier.exported.type === "Identifier" && specifier.exported.name === exportName && specifier.local.type === "Identifier") {
-        exported = moduleScope.bindings.get(specifier.local.name)
-      }
-    }
-  }
-  const unwrap = (node: AstNode | null | undefined, seen = new Set<Binding>()): AstNode | undefined => {
-    if (node?.type === "AssignmentPattern") {
-      const value = unwrap(node.left, new Set(seen))
-      return !node.left || (value?.type === "Literal" && value.value === undefined) ? unwrap(node.right, seen) : value
-    }
-    if (node?.type === "Identifier" && node.name !== undefined) {
-      const declaration = bindingFor(node)
-      if (!declaration) return node.name === "undefined" ? { type: "Literal", value: undefined } : undefined
-      let init = parameterValues.has(declaration) ? parameterValues.get(declaration) : declaration.init
-      for (const write of declaration.writes ?? []) {
-        const state = writeState(write)
-        if (write.node.left?.type === "Identifier" && state !== "skip") init = state === "known" && write.node.operator === "=" ? write.node.right : undefined
-      }
-      if (!init) return undefined
-      if (seen.has(declaration)) throw new TypeError(`[vitehub] Circular Collection options in ${file}.`)
-      seen.add(declaration)
-      return unwrap(init, seen)
-    }
-    if (node?.type === "UnaryExpression" && node.operator === "!") {
-      const value = unwrap(node.argument, new Set(seen))
-      return value?.type === "Literal" ? { type: "Literal", value: !Boolean(value.value) } : node
-    }
-    if (node?.type === "UnaryExpression" && node.operator === "void") return { type: "Literal", value: undefined }
-    if (node && ["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "ParenthesizedExpression"].includes(node.type ?? "")) return unwrap(node.expression, seen)
-    if (node?.type === "MemberExpression") {
-      const object = unwrap(node.object, seen)
-      const key = node.computed ? staticString(node.property) : node.property?.name
-      if (object?.type !== "ObjectExpression" || key === undefined) return undefined
-      let result: AstNode | undefined = { type: "Literal", value: undefined }
-      for (const property of object.properties ?? []) {
-        if (property.type === "SpreadElement") return undefined
-        const name = property.computed ? staticString(property.key) : property.key?.name ?? property.key?.value
-        if (name === key) {
-          // SAFETY: ESTree object property values are expression nodes.
-          result = unwrap(property.value as AstNode, new Set(seen))
-        }
-      }
-      return result
-    }
-    return node ?? undefined
-  }
-  const writeState = (write: Write): "skip" | "known" | "unknown" => {
-    if ((write.node.start ?? Infinity) >= readPosition) return "skip"
-    const previousPosition = readPosition
-    let state: "known" | "unknown" = "known"
-    for (const guard of write.guards) {
-      // Helper guards are evaluated when the helper is called. Rewinding to
-      // the guarded assignment's lexical position can observe later mutations
-      // of closed-over state and disagree with runtime call-time ordering.
-      // Module-level guards run where they appear, so read them there: neither
-      // this write nor later ones in the guarded block can change the test.
-      if (!write.fn && !write.replayed) readPosition = guard.test?.start ?? write.node.start ?? readPosition
-      const test = unwrap(guard.test)
-      if (test?.type !== "Literal") state = "unknown"
-      else if (Boolean(test.value) !== guard.truthy) {
-        readPosition = previousPosition
-        return "skip"
-      }
-    }
-    // Completed helper writes are usable only when the helper executed and
-    // all guards on the write were proven to run.
-    if (write.fn && !activeFunctions.has(write.fn)) {
-      if (!executedFunctions.has(write.fn)) {
-        readPosition = previousPosition
-        return "skip"
-      }
-      const right = unwrap(write.node.right)
-      readPosition = previousPosition
-      if (right?.type === "Literal" && (right.value === undefined || right.value === true || right.value === false)) return "known"
-      return "unknown"
-    }
-    readPosition = previousPosition
-    return state
-  }
-  const staticString = (node: AstNode | null | undefined, seen = new Set<Binding>()): string | undefined => {
-    const value = unwrap(node, seen)
-    if (!value) return undefined
-    if (value.type === "Literal" && String(value.value) === value.value) return value.value
-    if (value.type === "TemplateLiteral") {
-      const quasis = value.quasis ?? []
-      const expressions = value.expressions ?? []
-      if (quasis.length !== expressions.length + 1) return undefined
-      let result = ""
-      for (let index = 0; index < quasis.length; index++) {
-        result += quasis[index]?.value?.cooked ?? quasis[index]?.value?.raw ?? ""
-        if (index < expressions.length) {
-          const expression = staticString(expressions[index], new Set(seen))
-          if (expression === undefined) return undefined
-          result += expression
-        }
-      }
-      return result
-    }
-    if (value.type === "BinaryExpression" && value.operator === "+") {
-      const left = staticString(value.left, new Set(seen))
-      const right = staticString(value.right, new Set(seen))
-      return left !== undefined && right !== undefined ? left + right : undefined
-    }
-    return undefined
-  }
-  type RouteState = { present: boolean, value?: boolean }
-  const routeValue = (value: AstNode | undefined): RouteState => {
-    if (value?.type === "Literal" && (value.value === true || value.value === false)) return { present: true, value: value.value }
-    if (value?.type === "Literal" && value.value === undefined) return { present: true, value: true }
-    // An explicitly configured but unresolved route might be false. Do not expose it.
-    return { present: true, value: value?.type === "Literal" ? true : false }
-  }
-  const staticObjectRoute = (node: AstNode | null | undefined, seen = new Set<Binding>()): RouteState | undefined => {
-    if (node?.type === "CallExpression" && node.callee?.type === "MemberExpression" && !node.callee.computed && node.callee.object?.type === "Identifier" && node.callee.object.name === "Object" && node.callee.property?.name === "assign") {
-      let merged: RouteState = { present: false }
-      for (const argument of node.arguments ?? []) {
-        const current = staticObjectRoute(argument, new Set(seen))
-        if (current?.present) merged = current
-        else if (current === undefined) merged = { present: true, value: false }
-      }
-      return merged
-    }
-    const object = unwrap(node, seen)
-    if (object?.type !== "ObjectExpression") return undefined
-    let route: RouteState = { present: false }
-    for (const property of object.properties ?? []) {
-      if (property.type === "SpreadElement") {
-        const spreadRoute = staticObjectRoute(property.argument, new Set(seen))
-        // An unresolved spread may overwrite route at runtime. Keep the
-        // route decision conservative unless a later explicit property wins.
-        if (spreadRoute?.present) route = spreadRoute
-        else if (spreadRoute === undefined) route = { present: true, value: false }
-        continue
-      }
-      const keyName = property.computed ? staticString(property.key) : property.key?.name ?? property.key?.value
-      if (keyName !== "route") continue
-      // SAFETY: ESTree property values are expression nodes; this narrow view only reads their common shape.
-      const value = unwrap(property.value as AstNode | null | undefined)
-      route = routeValue(value)
-    }
-    if (node?.type === "Identifier") for (const write of bindingFor(node)?.writes ?? []) {
-      const state = writeState(write)
-      if (write.node.left?.type !== "MemberExpression" || state === "skip") continue
-      const key = write.node.left.computed ? staticString(write.node.left.property) : write.node.left.property?.name
-      if (key === "route") {
-        if (write.node.type === "UnaryExpression") route = { present: true, value: true }
-        else route = routeValue(state === "known" && write.node.operator === "=" ? unwrap(write.node.right) : undefined)
-      }
-    }
-    if (node?.type === "Identifier") {
-      const init = bindingFor(node)?.init
-      if (init?.type === "Identifier") {
-        for (const write of bindingFor(init)?.writes ?? []) {
-          const state = writeState(write)
-          if (write.node.left?.type !== "MemberExpression" || state === "skip") continue
-          const key = write.node.left.computed ? staticString(write.node.left.property) : write.node.left.property?.name
-          if (key === "route") route = write.node.type === "UnaryExpression" ? { present: true, value: true } : routeValue(state === "known" ? unwrap(write.node.right) : undefined)
-        }
-      }
-    }
-    if (node?.type === "Identifier") {
-      const alias = unwrap(node)
-      if (alias && alias !== node && alias.type === "Identifier") {
-        for (const write of bindingFor(alias)?.writes ?? []) {
-          const state = writeState(write)
-          if (write.node.left?.type === "MemberExpression" && state !== "skip") {
-            const key = write.node.left.computed ? staticString(write.node.left.property) : write.node.left.property?.name
-            if (key === "route") route = write.node.type === "UnaryExpression" ? { present: true, value: true } : routeValue(state === "known" ? unwrap(write.node.right) : undefined)
-          }
-        }
-      }
-    }
-    if (route.present) routeEffectState = route.value !== false
-    return route
-  }
-  const routeWritesFor = (functions: Set<AstNode>): Write[] => {
-    const writes: Write[] = []
-    for (const write of indexedWrites) if (write.fn && functions.has(write.fn)) {
-          const left = write.node.left
-          const key = left?.type === "MemberExpression"
-            ? (left.computed ? staticString(left.property) : left.property?.name)
-            : undefined
-      if (key === "route") writes.push(write)
-    }
-    return writes
-  }
-  const branchRouteEffect = (functions: Set<AstNode>): boolean | undefined => {
-    const writes = routeWritesFor(functions)
-    // Distinct helpers can establish the same route state. Compare their
-    // resolved writes rather than their AST identities so an unresolved
-    // conditional retains a guaranteed `route: false` effect.
-    const values = writes
-      .map(write => write.node.type === "UnaryExpression" ? true : unwrap(write.node.right))
-      .map(value => value === true ? true : value?.type === "Literal" ? value.value : undefined)
-    if (values.some(value => value === false)) return false
-    if (values.some(value => value === true || value === undefined)) return true
-    return undefined
-  }
-  const findRoute = (node: AstNode | null | undefined, active = new Set<AstNode>()): boolean | undefined => {
-    const value = unwrap(node)
-    if (!value || active.has(value)) return undefined
-    const next = new Set(active).add(value)
-    if (value.type === "ConditionalExpression") {
-      const test = unwrap(value.test)
-      if (test?.type === "Literal") return findRoute(test.value ? value.consequent : value.alternate, next)
-      // An unresolved conditional executes only one branch at runtime. Keep
-      // helper activation, parameter bindings, and writes from either branch
-      // isolated so a helper visited in the consequent cannot affect the
-      // alternate (or subsequent route inspection).
-      const branchSnapshot = snapshotExecution()
-      routeEffectState = undefined
-      const consequent = findRoute(value.consequent, new Set(next))
-      const consequentState = snapshotExecution()
-      const consequentEffect = consequentState.routeEffectState
-      restoreExecution(branchSnapshot)
-      routeEffectState = undefined
-      const alternate = findRoute(value.alternate, new Set(next))
-      const alternateState = snapshotExecution()
-      const alternateEffect = alternateState.routeEffectState
-      restoreExecution(branchSnapshot)
-      // Effects that occur in both branches are guaranteed at runtime and
-      // must remain visible to route inspection after the conditional.
-      for (const fn of consequentState.executedFunctions) {
-        if (alternateState.executedFunctions.has(fn)) executedFunctions.add(fn)
-      }
-      const consequentBranchEffect = consequentEffect ?? branchRouteEffect(consequentState.executedFunctions)
-      const alternateBranchEffect = alternateEffect ?? branchRouteEffect(alternateState.executedFunctions)
-      if (consequentBranchEffect === false && alternateBranchEffect === false) {
-        for (const fn of [...consequentState.executedFunctions, ...alternateState.executedFunctions]) {
-          if (routeWritesFor(new Set([fn])).length > 0) executedFunctions.add(fn)
-        }
-        routeEffectState = false
-        return false
-      }
-      if (consequent !== undefined && consequent === alternate) return consequent
-      if (consequentEffect !== undefined && consequentEffect === alternateEffect) {
-        routeEffectState = consequentEffect
-        return consequentEffect
-      }
-      return undefined
-    }
-    if (value.type === "IfStatement") {
-      const test = unwrap(value.test)
-      if (test?.type === "Literal") return findRoute(test.value ? value.consequent : value.alternate, next)
-      const branchSnapshot = snapshotExecution()
-      routeEffectState = undefined
-      const consequent = findRoute(value.consequent, new Set(next))
-      const consequentState = snapshotExecution()
-      const consequentEffect = consequentState.routeEffectState ?? branchRouteEffect(consequentState.executedFunctions)
-      restoreExecution(branchSnapshot)
-      routeEffectState = undefined
-      const alternate = value.alternate ? findRoute(value.alternate, new Set(next)) : undefined
-      const alternateState = snapshotExecution()
-      const alternateEffect = alternateState.routeEffectState ?? branchRouteEffect(alternateState.executedFunctions)
-      restoreExecution(branchSnapshot)
-      if (consequentEffect === false && alternateEffect === false) {
-        // Both branches establish the same server-only route state, even when
-        // they call different helper functions. Preserve those route-relevant
-        // helpers after restoring the pre-branch execution snapshot so the
-        // later Collection options inspection can observe their writes.
-        for (const fn of [...consequentState.executedFunctions, ...alternateState.executedFunctions]) {
-          if (routeWritesFor(new Set([fn])).length > 0) executedFunctions.add(fn)
-        }
-        routeEffectState = false
-      }
-      else if (consequentEffect !== undefined && consequentEffect === alternateEffect) routeEffectState = consequentEffect
-      return consequent !== undefined && alternate !== undefined && consequent === alternate
-        ? consequent
-        : consequentEffect !== undefined && consequentEffect === alternateEffect
-          ? consequentEffect
-          : undefined
-    }
-    if (value.type === "ExpressionStatement") return findRoute(value.expression, next)
-    if (value.type === "VariableDeclaration") {
-      let result: boolean | undefined
-      for (const declaration of value.declarations ?? []) {
-        if (!declaration.init) continue
-        const candidate = findRoute(declaration.init, next)
-        if (candidate !== undefined) result = candidate
-      }
-      return result
-    }
-    if (value.type === "ObjectExpression") {
-      const route = staticObjectRoute(value)
-      return route?.value !== false
-    }
-    if (value.type === "CallExpression") {
-      const args = value.arguments ?? []
-      const callee = value.callee ?? value.expression
-      const isCollectionCall = unwrap(callee)?.type === "CollectionFactory" || (callee?.type === "Identifier" && callee.name === "defineCollection" && !bindingFor(callee))
-      const isNamespaceCollectionCall = callee?.type === "MemberExpression" && unwrap(callee.object)?.type === "CollectionNamespace" && (callee.computed ? staticString(callee.property) : callee.property?.name) === "defineCollection"
-      if (isCollectionCall || isNamespaceCollectionCall) {
-        const previousPosition = readPosition
-        readPosition = value.start ?? readPosition
-        const route = staticObjectRoute(args.length > 1 ? args[1] : args[0])
-        readPosition = previousPosition
-        return route?.value !== false
-      }
-      // Common transparent wrappers preserve the Collection value and its
-      // route metadata. Inspect their argument without importing application
-      // modules (which may have side effects during generation).
-      if (callee?.type === "MemberExpression" && !callee.computed && callee.object?.type === "Identifier" && callee.object.name === "Object" && ["freeze", "seal", "preventExtensions"].includes(callee.property?.name ?? "")) {
-        return findRoute(args[0], next)
-      }
-      const fn = unwrap(callee)
-      if (!fn || !["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"].includes(fn.type ?? "")) return undefined
-      const previousPosition = readPosition
-      readPosition = value.start ?? readPosition
-      const previousValues = new Map(parameterValues)
-      for (const [index, param] of (fn.params ?? []).entries()) {
-        const binding = bindingFor(param.type === "AssignmentPattern" ? param.left! : param)
-        if (!binding) continue
-        const argument = args[index]
-        const value = unwrap(argument)
-        if (argument && !(value?.type === "Literal" && value.value === undefined && param.type === "AssignmentPattern")) parameterValues.set(binding, argument)
-        else if (param.type === "AssignmentPattern") parameterValues.delete(binding)
-        else parameterValues.set(binding, { type: "Literal", value: undefined })
-      }
-      activeFunctions.add(fn)
-      executedFunctions.add(fn)
-      const result = findRoute(Array.isArray(fn.body) ? undefined : fn.body, next)
-      // A helper may receive an options object and write through its parameter
-      // alias (for example, hide(options) { options.route = false }). Replay
-      // those member writes onto the bound argument so later inspection of the
-      // caller's object sees the same route effect.
-      for (const [index, param] of (fn.params ?? []).entries()) {
-        const parameter = bindingFor(param.type === "AssignmentPattern" ? param.left! : param)
-        const argument = args[index]
-        const target = argument?.type === "Identifier" ? bindingFor(argument) : undefined
-        if (!parameter || !target) continue
-        for (const write of parameter.writes ?? []) {
-          if (write.node.left?.type !== "MemberExpression") continue
-          const key = write.node.left.computed ? staticString(write.node.left.property) : write.node.left.property?.name
-          if (key !== "route") continue
-          const replay = { ...write, fn: undefined, replayed: true }
-          ;(target.writes ??= []).push(replay)
-          indexedWrites.push(replay)
-        }
-      }
-      activeFunctions.delete(fn)
-      parameterValues.clear()
-      for (const [binding, argument] of previousValues) parameterValues.set(binding, argument)
-      readPosition = previousPosition
-      return result
-    }
-    if (value.type === "BlockStatement") {
-      const hasReturn = (candidate: AstNode | null | undefined): boolean => {
-        if (!candidate) return false
-        if (candidate.type === "ReturnStatement") return true
-        for (const child of Object.values(candidate)) {
-          if (Array.isArray(child)) {
-            if (child.some(item => item && typeof item === "object" && hasReturn(item as AstNode))) return true
-          }
-          else if (child && typeof child === "object" && hasReturn(child as AstNode)) return true
-        }
-        return false
-      }
-      for (const statement of Array.isArray(value.body) ? value.body : []) {
-        if (statement.type === "ReturnStatement") return findRoute(statement.argument ?? statement.expression, next)
-        if (statement.type === "IfStatement") {
-          const result = findRoute(statement, next)
-          if (result !== undefined) return result
-          // An unresolved branch that can return a Collection means a later
-          // return is only conditionally reached. Do not select it as the
-          // exported value when the branch's route is unknown.
-          if (hasReturn(statement.consequent) || hasReturn(statement.alternate)) return undefined
-          continue
-        }
-        if (statement.type === "ExpressionStatement" && statement.expression) findRoute(statement.expression, next)
-        if (statement.type === "VariableDeclaration") {
-          for (const declaration of statement.declarations ?? []) if (declaration.init) findRoute(declaration.init, next)
-        }
-        // Non-returning control flow cannot itself supply the exported Collection.
-        // Continue scanning so an unconditional return that follows it is still
-        // inspected (the runtime reaches that return when the control flow ends).
-      }
-    }
-    return undefined
-  }
-  // Module-scope calls execute before exported initializers and may mutate
-  // option objects consumed by the Collection. Replay those calls so their
-  // statically known route effects are visible without importing the module.
-  const exportStart = exported?.init?.start ?? Infinity
-  for (const statement of parsed.program.body) {
-    if ((statement.start ?? Infinity) >= exportStart) continue
-    // Replay all executable module setup, including statically resolvable
-    // control-flow statements that can call route-mutating helpers.
-    findRoute(statement as AstNode)
-  }
-  return findRoute(exported?.init) ?? true
-}
-
-/** Inspects the named Collection export without running application code. */
+/** Inspects the named Collection export without running application code. The docs snippet check calls it. */
 export function inspectCollectionModule(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
-  const exported = findExportNames(source).includes(exportName)
-  return { exported, routeEnabled: exported && collectionRouteEnabled(file, source, exportName) }
-}
-
-async function discoverSourceCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
-  const serverDirs = options.serverDirs === undefined
-    ? [resolve(options.projectRoot, "server")]
-    : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
-  const collections = (await Promise.all(serverDirs.map(async (serverDir) => {
-    const directory = resolve(serverDir, "collections")
-    return await Promise.all((await collectCollectionFiles(directory)).sort().map(async (file) => {
-      const extension = extname(file)
-      const exportName = basename(file, extension)
-      if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
-        throw sourceErrorDiagnostics.SOURCE_B0003({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must use a valid JavaScript identifier as its filename.` })
-      }
-      const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
-      const source = await readFile(file, "utf8")
-      const { exported, routeEnabled } = inspectCollectionModule(file, source, exportName)
-      if (!exported) {
-        throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
-      }
-      return { exportName, file, name, routeEnabled }
-    }))
-  }))).flat().sort((left, right) => left.name.localeCompare(right.name))
-
-  const generatedPaths = new Map<string, DiscoveredCollection>()
-  for (const collection of collections) {
-    const generatedPath = `${collection.name}.mjs`.toLowerCase()
-    const previous = generatedPaths.get(generatedPath)
-    if (previous?.name === collection.name) {
-      throw sourceErrorDiagnostics.SOURCE_B0005({ message: `[vitehub] Collection name ${JSON.stringify(collection.name)} is defined in more than one server directory.` })
-    }
-    if (previous) {
-      const [firstName, secondName] = [previous.name, collection.name].sort()
-      throw sourceErrorDiagnostics.SOURCE_B0006({ message: `[vitehub] Collection names ${JSON.stringify(firstName)} and ${JSON.stringify(secondName)} generate the same route module on case-insensitive filesystems.` })
-    }
-    generatedPaths.set(generatedPath, collection)
-  }
-  return collections
+  return inspectCollectionSource(file, source, exportName)
 }
 
 async function writeFileIfChanged(path: string, contents: string): Promise<void> {
@@ -931,7 +307,7 @@ async function writeCollectionArtifacts(
     return []
   }
 
-  const routedCollections = collections.filter(collection => collection.routeEnabled)
+  const routedCollections = collections.filter(collection => collection.route)
   await writeFileIfChanged(output, [
     "declare global {",
     "  interface ViteHubCollectionMap {",
@@ -993,7 +369,7 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
   if (candidates.length > 1) throw sourceErrorDiagnostics.SOURCE_B0007({ message: "[vitehub] Content is defined in more than one server directory." })
   const file = candidates[0]
   if (!file) return
-  if (!findExportNames(await readFile(file, "utf8")).includes("content")) {
+  if (!exportNames(await readFile(file, "utf8"), file).includes("content")) {
     throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".` })
   }
   return file
@@ -1013,6 +389,8 @@ export interface ContentEntryFeatures {
   markdown: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
+  /** The module imports `sqlite` from `vite-hub/content/sqlite`, so SQLite WASM must load when a Worker starts. */
+  sqlite: boolean
 }
 
 type AstNode = Record<string, unknown> & { type?: unknown }
@@ -1048,7 +426,18 @@ function unwrapAst(node: unknown): unknown {
  * `sitemap`, `robots`, or `markdown` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
-  const maybe: ContentEntryFeatures = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+  return { ...inspectContentOptions(program, contentImportBase), sqlite: importsContentSqlite(program, contentImportBase) }
+}
+
+function importsContentSqlite(program: unknown, contentImportBase?: string): boolean {
+  const bases = contentImportBase ? new Set([...contentModules, contentImportBase]) : contentModules
+  const modules = new Set([...bases].map(base => `${base}/sqlite`))
+  return (isAstNode(program) ? astNodes(program.body) : [])
+    .some(statement => statement.type === "ImportDeclaration" && isAstNode(statement.source) && modules.has(String(statement.source.value)))
+}
+
+function inspectContentOptions(program: unknown, contentImportBase?: string): Omit<ContentEntryFeatures, "sqlite"> {
+  const maybe: Omit<ContentEntryFeatures, "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -1128,7 +517,7 @@ export function inspectContentModule(program: unknown, contentImportBase?: strin
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: ContentEntryFeatures = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const features: Omit<ContentEntryFeatures, "sqlite"> = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
@@ -1154,7 +543,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true, sqlite: false }
   }
 }
 
@@ -1167,10 +556,11 @@ async function writeContentArtifact(
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   const markdown = resolve(options.projectRoot, contentMarkdownEntry)
+  const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
   const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown, typesPlugin, types].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, sqlite, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -1186,18 +576,31 @@ async function writeContentArtifact(
   else await rm(output, { force: true })
   const handlers: GeneratedSourceHandler[] = []
   // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
-  // Previews need collections. Without them the plugin would only load the Content runtime at server startup.
+  // Previews need collections. The plugin imports the small preview entry and loads server/content.ts on the first
+  // preview request, so the server starts without the Content runtime and its Markdown renderer.
   if (features.collections) {
     await writeFileIfChanged(preview, [
-      `import { defineContentPreviewPlugin } from ${importBase}`,
-      `import { content } from ${contentModule}`,
+      `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
       "",
-      "export default defineContentPreviewPlugin(content)",
+      `export default defineContentPreviewPlugin(() => import(${contentModule}).then(module => module.content))`,
       "",
     ].join("\n"))
     handlers.push({ handler: preview, plugin: true })
   }
   else await rm(preview, { force: true })
+  // A Nitro plugin: loads `vite-hub/content/sqlite` while the server starts. Content loads on its first request, and a
+  // Cloudflare Worker compiles WebAssembly only while it starts, which SQLite WASM needs. On Node it loads Node SQLite.
+  if (features.sqlite) {
+    await writeFileIfChanged(sqlite, [
+      `import { sqlite } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/sqlite`)}`,
+      "",
+      "// Returning the import keeps it in the bundle. A bare import is dropped, because the packages have no side effects.",
+      "export default () => sqlite",
+      "",
+    ].join("\n"))
+    handlers.push({ handler: sqlite, plugin: true })
+  }
+  else await rm(sqlite, { force: true })
   // A Nitro plugin: writes the types of `content.get()`, `content.list()`, and `content.query()` in development.
   await writeFileIfChanged(typesPlugin, [
     `import { defineContentTypesPlugin } from ${importBase}`,
@@ -1240,7 +643,7 @@ async function writeContentArtifact(
 
 async function prepareSourceArtifacts(options: SourceGenerationOptions): Promise<{ content?: ContentDefinitionFile, handlers: GeneratedSourceHandler[] }> {
   const [collections, content] = await Promise.all([
-    discoverSourceCollections(options),
+    discoverCollections(options),
     findContentEntry(options),
   ])
   const handlers = [

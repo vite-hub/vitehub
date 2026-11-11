@@ -93,12 +93,12 @@ icon: i-lucide-database
 
   // Add a note and return the new row
   export default defineEventHandler(async (event) => {
-    const { title } = await readValidatedBody(event, body => v.parse(v.object({ title: v.string() }), body))
+    const body = await readValidatedBody(event, v.object({ title: v.string() }))
     const { db, schema } = useDatabase('default')
 
     const [note] = await db
       .insert(schema.notes)
-      .values({ title })
+      .values({ title: body.title })
       .returning()
     return note
   })

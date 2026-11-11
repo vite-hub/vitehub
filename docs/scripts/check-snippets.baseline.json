@@ -1,12 +1,1 @@
-[
-  {
-    "id": "docs/content/docs/agents/channels.md#e9c6d977ab3b",
-    "label": "server/agents/support.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(options: TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown> & { ...; }): ChatChannelAdapter<...>', gave the following error.\n    Object literal may only specify known properties, and 'transcripts' does not exist in type 'TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown> & { ...; }'.\n  Overload 2 of 2, '(options?: TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown> | undefined): ChatChannelAdapter<...>', gave the following error.\n    Object literal may only specify known properties, and 'transcripts' does not exist in type 'TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown>'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(options: TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown> & { ...; }): ChatChannelAdapter<...>', gave the following error.\n    Object literal may only specify known properties, and 'transcripts' does not exist in type 'TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown> & { ...; }'.\n  Overload 2 of 2, '(options?: TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown> | undefined): ChatChannelAdapter<...>', gave the following error.\n    Object literal may only specify known properties, and 'transcripts' does not exist in type 'TelegramChannelOptions<AgentRuntimeConfig, unknown, AgentChannelMessageMethods<AgentRuntimeConfig, unknown>, unknown>'."
-  },
-  {
-    "id": "docs/content/docs/sandbox/configure.md#c19c21559f74",
-    "label": "server/tools/resize.sandbox-task.ts",
-    "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'.\n  Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }>'.\n    Types of parameters 'payload' and 'payload' are incompatible.\n      Type '{ width: number; } | undefined' is not assignable to type '{ width: number; }'.\n        Type 'undefined' is not assignable to type '{ width: number; }'."
-  }
-]
+[]
