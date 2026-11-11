@@ -19,10 +19,10 @@ In this tutorial, you sign up a user with an email and a password. Then you use 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Auth and Better Auth to your app:
+Add Auth, Better Auth, and Drizzle to your app. Auth uses the `drizzle-orm` of your app, so the app has one copy:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/auth better-auth
+pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5
 ```
 
 Add `auth: true` to the ViteHub options of your app. Keep the other options of your app.

@@ -34,7 +34,7 @@ const blob = {
   async del(pathnames) { for (const pathname of [pathnames].flat()) objects.delete(pathname); return [undefined, undefined] },
   async list({ prefix = "" } = {}) { return [undefined, { blobs: [...objects].filter(([key]) => key.startsWith(prefix)).map(([key, bytes]) => object(key, bytes)), hasMore: false }] },
 }
-const database = drizzle(createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }), { schema: workspaceHistorySchema })
+const database = drizzle({ client: createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }) })
 registerWorkspace("site", { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "site" }) })
 
 export default defineContent({

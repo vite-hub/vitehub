@@ -1176,7 +1176,7 @@
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
     "box-typescript-sdk-gen": "catalog:storage",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "dropbox": "catalog:storage",
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
