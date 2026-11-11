@@ -2,7 +2,7 @@ import { contentRealtimeEditor } from "@vite-hub/content/editor"
 import { readRealtimeYDoc, useRealtimeTiptap } from "@vite-hub/realtime/vue"
 import { computed, onBeforeUnmount, shallowRef, watch } from "vue"
 
-import type { RealtimeIssue, RealtimeUser } from "@vite-hub/realtime"
+import type { RealtimeIssue, RealtimeReadOnlyReason, RealtimeUser } from "@vite-hub/realtime"
 import type { RealtimeResetEvent } from "@vite-hub/realtime/vue"
 import type { ComputedRef, Ref, ShallowRef } from "vue"
 import type { ConsoleDocumentSessionUser } from "./documents"
@@ -56,7 +56,7 @@ export interface ConsoleLiveDocument {
   ready: ComputedRef<boolean>
   status: Ref<"connected" | "connecting" | "disconnected">
   /** `access` without write access, `document` when the codec cannot keep the body. */
-  readOnlyReason: Ref<"access" | "document" | null>
+  readOnlyReason: Ref<RealtimeReadOnlyReason | null>
   /** Server-written save state: digest, issues, savedAt, savedBy, and the last error. */
   saveStatus: ReturnType<typeof useRealtimeTiptap>["saveStatus"]
   /** Field issues of the last room save, and the codec issue of a read-only body. */
