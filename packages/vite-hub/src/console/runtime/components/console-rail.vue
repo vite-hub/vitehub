@@ -2,7 +2,7 @@
 import { createAuthClient } from "@vite-hub/auth/vue";
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
-import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
@@ -10,7 +10,7 @@ import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
-import { isRemoteProject, projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
+import { isRemoteProject, projectFetch, projectAppUrl, resolveProjectUrl } from "../client/project";
 import { signOutConsoleProject, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
@@ -20,6 +20,9 @@ import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupC
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectSwitcher from "./console-project-switcher.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+
+// Only an `account` Console shows it, so it loads with the Better Auth client.
+const ConsoleAccountMenu = defineAsyncComponent(() => import("./console-account-menu.vue"));
 
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -39,8 +42,8 @@ const signOutFailed = ref(false);
 const accessIdentity = ref<{ label?: string; signOutURL: string }>();
 const userIdentity = ref<{ email?: string; image?: string; name?: string }>();
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
-const authClientURL = projectUrl(props.sectionsBase.replace(/\/sections$/, "/client.js"));
-const signInURL = projectUrl("/_vitehub/sign-in");
+const authClientURL = projectAppUrl(props.sectionsBase.replace(/\/sections$/, "/client.js"));
+const signInURL = projectAppUrl("/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 let unsubscribe: (() => void) | undefined;
 
@@ -199,7 +202,7 @@ async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>>
     .then((configured) => {
       // The page's Auth base already holds the app mount, such as `/portal/api/auth`. Only the Console route gets the project mount.
       const pageAuthBase = document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content");
-      return configured ?? createAuthClient({ basePath: pageAuthBase || projectUrl(authBase) });
+      return configured ?? createAuthClient({ basePath: pageAuthBase || projectAppUrl(authBase) });
     });
   return await authClientRequest;
 }
@@ -270,7 +273,7 @@ onBeforeUnmount(() => {
           <ConsoleMark class="size-[1.125rem]" />
         </PrimitiveRailItem>
       </UTooltip>
-      <ConsoleProjectSwitcher v-if="projects.mode === 'hosted'" />
+      <ConsoleProjectSwitcher v-if="projects.mode !== 'embedded'" />
     </template>
 
     <template #default="{ expanded }">
@@ -326,8 +329,10 @@ onBeforeUnmount(() => {
           <span class="vh-primitive-rail__label">Search</span>
         </UDashboardSearchButton>
       </UTooltip>
+      <!-- An `account` Console signs people in to itself, not to the app. -->
+      <ConsoleAccountMenu v-if="projects.mode === 'account'" :expanded="expanded" />
       <UDropdownMenu
-        v-if="appearance || signedIn || tokenSignedIn"
+        v-else-if="appearance || signedIn || tokenSignedIn"
         :items="userMenuItems"
         :content="{ side: 'right', align: 'end', sideOffset: 8 }"
         :ui="{ content: 'min-w-52' }"

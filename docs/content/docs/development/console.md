@@ -35,7 +35,7 @@ The build and the development server include only the Console routes and server 
 
 ### In development
 
-A development server needs no setup. Without a `console` option, `vite dev` serves the Operations endpoint, and accepts calls from the origins in [`console.origins`](#call-the-console-from-another-origin) without a token. The default is `https://console.vitehub.dev`. `console: { auth: false }` works the same way.
+A static Console build can connect to a development server directly. The account Console forwards requests from its server, so it needs a deployed app that the server can reach. Without a `console` option, `vite dev` serves the Operations endpoint, and accepts calls from the origins in [`console.origins`](#call-the-console-from-another-origin) without a token. The default is `https://console.vitehub.dev`. `console: { auth: false }` works the same way.
 
 At startup, the development server prints a link that opens the app in the hosted Console:
 
@@ -47,17 +47,17 @@ Open it, and select **Continue** to link the project. Chrome asks for permission
 
 ### In production
 
-A production build accepts the hosted Console only with `auth: "token"`:
+[console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in. The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
 
-1. Set `console: { auth: "token" }`. When you set `console.origins` yourself, keep `https://console.vitehub.dev` in the list.
-2. Create a token. Set its SHA-256 hash as `VITEHUB_CONSOLE_TOKEN_SHA256` on the server, then deploy. The server keeps only the hash, so keep the token in a password manager.
-3. Open [console.vitehub.dev](https://console.vitehub.dev), select **Link project**, enter the app URL, and paste the token. See [Link a project](#link-a-project).
+The Console server keeps a token for each linked project, encrypted, and calls the project's Console data routes with it. The app keeps only the SHA-256 of the token, and the browser never sees the token.
 
-```sh
-TOKEN=$(openssl rand -hex 32)
-echo "$TOKEN"                          # paste this into the Console
-printf %s "$TOKEN" | sha256sum | cut -d' ' -f1  # set this as VITEHUB_CONSOLE_TOKEN_SHA256
-```
+To open a deployed app there:
+
+1. Set `console: { auth: "token" }` and deploy.
+2. Open [console.vitehub.dev](https://console.vitehub.dev) and sign in. **Get started** asks for the app URL. Later, select **+** next to **Apps** in the sidebar.
+3. The Console shows a variable and its value, such as `VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_3F9A12BC=<hash>`. Set it on the server, deploy, and select **Check again**.
+
+Each link has its own variable, so the app can keep other Console tokens next to it. To unlink a project, unlink it in the Console and remove its variable from the app.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -199,6 +199,10 @@ The hosted Console does not have Content live editing, the Content page preview,
 
 ### Link a project
 
+::note
+These steps are for a static Console build that you host yourself, which keeps projects in the browser. [console.vitehub.dev](https://console.vitehub.dev) uses accounts instead. See [Hosted Console](#hosted-console).
+::
+
 1. Select **Link project**.
 2. Enter the app URL: its origin, with its base path if it has one, such as `https://app.example.com` or `https://app.example.com/portal`.
 3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the token that you created for it and select **Sign in**.
@@ -212,6 +216,10 @@ The Console then shows the sections that the project lists for this token. When 
 | `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
 
 ### Start a new project
+
+::note
+These steps are for a static Console build that you host yourself, which keeps projects in the browser. [console.vitehub.dev](https://console.vitehub.dev) uses accounts instead. See [Hosted Console](#hosted-console).
+::
 
 The hosted Console can start a new app for you. It needs a `vite-hub` release with `vite-hub init` ([#3523](https://github.com/vite-hub/vitehub/pull/3523)), which is not released yet.
 
@@ -231,6 +239,10 @@ The address of the page holds the stack: the folder, the host, the features, and
 Creating a command needs persistent browser storage and Web Locks. Allow browser storage and use a current browser.
 
 ### Link a new project
+
+::note
+These steps are for a static Console build that you host yourself, which keeps projects in the browser. [console.vitehub.dev](https://console.vitehub.dev) uses accounts instead. See [Hosted Console](#hosted-console).
+::
 
 A one-time link lets a new project link itself, so you do not copy a token by hand. [Start a new project](#start-a-new-project) makes the link and prints it in the `vite-hub init --console` command. That command is not released yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
 
