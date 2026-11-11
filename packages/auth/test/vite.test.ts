@@ -363,6 +363,10 @@ describe("hubAuth", () => {
 
     expect(config({})).toEqual({
       define: { __VITEHUB_AUTH_DEV__: "false" },
+      optimizeDeps: {
+        exclude: ["@vite-hub/auth", "vite-hub/auth"],
+        include: ["@vite-hub/auth > better-auth/vue"],
+      },
       server: {
         watch: {
           ignored: ["**/.vitehub/**"],
@@ -374,6 +378,10 @@ describe("hubAuth", () => {
     })
     expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } }, ssr: { noExternal: ["existing", "@vite-hub/auth"] } })).toEqual({
       define: { __VITEHUB_AUTH_DEV__: "false" },
+      optimizeDeps: {
+        exclude: ["@vite-hub/auth", "vite-hub/auth"],
+        include: ["@vite-hub/auth > better-auth/vue"],
+      },
       server: {
         watch: {
           ignored: undefined,
