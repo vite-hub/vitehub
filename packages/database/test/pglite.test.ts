@@ -169,7 +169,7 @@ describe("a Postgres Database without a server in development", () => {
     const root = await mkdtemp(join(import.meta.dirname, ".pglite-"))
     roots.push(root)
     vi.spyOn(console, "info").mockImplementation(() => {})
-    const db = await createDevPostgresDatabase({ dialect: "postgresql", drizzle: {}, name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
+    const db = await createDevPostgresDatabase({ dialect: "postgresql", name: "default", schema: { notes } }, { binding: "HYPERDRIVE" }, {
       dataDir: join(root, "pglite"),
       migrationsDir: join(root, "migrations"),
     })
