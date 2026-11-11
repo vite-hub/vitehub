@@ -57,7 +57,7 @@ export default defineConnection({
 
 Connections keeps the grant in the app Database. If the app has only named Databases, pick one with `connections: { database: 'users' }`. If it has none, add a Database Definition:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ schema: {} })
@@ -77,7 +77,7 @@ Start the app, then sign in once from the app folder:
 pnpm vitehub connections connect chatgpt --url http://localhost:3000
 ```
 
-A deployed app needs its own grant. Set `connections: { management: true }` to put the Connections API behind the Console sign-in, and move the grant with [`vitehub connections export` and `import`](/docs/connections/chatgpt#move-the-grant-to-a-vm).
+A deployed app needs its own grant. Set `connections: { management: { actor: './server/connections-actor.ts' } }` to put the Connections API behind your own actor policy, and move the grant with [`vitehub connections export` and `import`](/docs/connections/chatgpt#move-the-grant-to-a-vm).
 
 Every page now has an **Ask** button at the bottom right.
 

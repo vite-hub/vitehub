@@ -2,14 +2,12 @@ import { getAgentInvocationsDatabase } from "../invocations/drizzle.ts"
 
 import type { AgentInvocationsDatabase } from "../invocations/journal-database.ts"
 import type { InputCommand } from "./input-commands.ts"
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 /** Finds the latest earlier Invocation of the same Agent, and of the same Channel thread when the current one has a thread. */
 async function previousInvocation(invocations: AgentInvocationsDatabase, id: string): Promise<{ agentName: string, id: string } | undefined> {
   // Only the default journal reaches here, so an Agent app with another journal does not need drizzle-orm.
   const { and, desc, eq, lt, or, sql } = await import("drizzle-orm")
-  // Both journal drivers are async SQLite databases with the same columns.
-  const db: BaseSQLiteDatabase<"async", unknown, AgentInvocationsDatabase["schema"]> = invocations.db
+  const db = invocations.db
   const table = invocations.schema.invocations
   const [current] = await db
     .select({ agentName: table.agentName, sequence: table.sequence, summary: table.summary })

@@ -124,6 +124,7 @@ function toJobSummary(row: JobRow): LocalQueueJob {
 
 export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): PostgresQueueEngine {
   const table = options.table ?? postgresQueueTable
+  // Internal invariant: only the Queue runtime and its tests choose this private SQL table name.
   if (!identifier.test(table)) throw new TypeError(`The Queue table name "${table}" must be a lowercase SQL identifier.`)
   const rules: LocalQueueDeliveryRules = localQueueDeliveryRules.postgres
   const retryDelayMs = options.retryDelayMs ?? rules.retryDelayMs

@@ -65,6 +65,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ expected, provider }: { expected: QueueProvider, provider: QueueProvider }) => `The ${expected} Queue runtime received the ${provider} provider.`,
       fix: "Set `queue.provider` to the provider of the deployment preset, and build again.",
     },
+    QUEUE_POSTGRES_CLOSING: {
+      why: "The Postgres Queue runtime is shutting down and cannot accept more jobs or connections.",
+      fix: "Send jobs before server shutdown starts, or send them from another running instance.",
+    },
     QUEUE_POSTGRES_INVALID_URL: {
       why: ({ variable }: { variable: string }) => `${variable} is set, and its value is not a \`postgres://\` or \`postgresql://\` URL.`,
       fix: "Set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs, or remove it to use the connection of the Default Database.",

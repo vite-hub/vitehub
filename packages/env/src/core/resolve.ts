@@ -6,7 +6,6 @@ import { promisify } from "node:util"
 import { parseSchema } from "../schema.ts"
 import { runtimeValueSchema, schemaModuleReference } from "./declarations.ts"
 import { envValueTypeName, parseEnvValue, schemaContainsEnum } from "./values.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
 import { Diagnostic } from "nostics"
 import { envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
@@ -391,7 +390,7 @@ function setOwnValue(record: Record<string, unknown>, key: string, value: unknow
 
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
-  const typed = schema.kind === "boolean" || schema.kind === "number" ? hasRuntimeType(value, schema.kind) : true
+  const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : true
   const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind} default.`, success: false as const }
   if (!result.success) {
     throw envErrorDiagnostics.ENV_R0023({ message: `[vitehub] Invalid default for ${path}: ${result.message}` })

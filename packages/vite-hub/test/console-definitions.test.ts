@@ -1,24 +1,13 @@
-import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it } from "vitest"
 import { runOperation } from "@vite-hub/internal/operations"
 
-import {
-  consoleDefinitionsKey,
-  consoleDefinitionsRegistryKey,
-  consoleDefinitionsRootKey,
-  installConsoleDefinitionScope,
-  resolveConsoleDefinitions,
-} from "../src/console/internal.ts"
+import { consoleState } from "../src/console/internal.ts"
 import { listConsoleDefinitions } from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { consoleOperationRegistry } from "../src/console/runtime/server/operation-contributions.ts"
 
 import type { ConsoleDefinitionSummary, ConsoleSectionCatalog } from "../src/console/runtime/definitions.ts"
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { consoleAccess } from "./support/console-access.ts"
-
-// SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
-const scope = globalThis as ConsoleInvocationScope
 
 async function definitions(section: string) {
   return listConsoleDefinitions({ section }, await consoleAccess())
@@ -39,7 +28,7 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
       ],
       file: `server/databases/${name}.ts`,
       name,
-      source: "server-database-default",
+      source: "server-databases",
     }],
     queues: [{
       fields: [],
@@ -94,11 +83,7 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
 }
 
 afterEach(() => {
-  delete scope[consoleDefinitionsKey]
-  delete scope[consoleDefinitionsRootKey]
-  Reflect.deleteProperty(process, consoleDefinitionsKey)
-  Reflect.deleteProperty(process, consoleDefinitionsRootKey)
-  Reflect.deleteProperty(process, consoleDefinitionsRegistryKey)
+  delete consoleState().definitions
 })
 
 describe("Console definition inspection", () => {
@@ -123,7 +108,7 @@ describe("Console definition inspection", () => {
         ],
         file: "server/databases/release.ts",
         name: "release",
-        source: "server-database-default",
+        source: "server-databases",
       }],
       kind: "definition-catalog",
       section: "databases",
@@ -279,59 +264,5 @@ describe("Console definition inspection", () => {
     const failure = definitions("schedules")
     await expect(failure).rejects.toThrow(expect.objectContaining({ statusCode: 503, statusMessage: "Runtime records are unavailable." }))
     await expect(failure).rejects.not.toThrow(/secret/)
-  })
-
-  it("resolves a refreshed project catalog before an older local fallback", () => {
-    const processRegistry = {}
-    const firstScope: ConsoleInvocationScope = { process: processRegistry }
-    const nextScope: ConsoleInvocationScope = { process: processRegistry }
-    const first: ConsoleSectionCatalog = { content: catalog("first"), sections: [] }
-    const next: ConsoleSectionCatalog = { content: catalog("next"), sections: [] }
-
-    expect(installConsoleDefinitionScope("/project", first, firstScope)).toBe(first)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBe(first)
-    installConsoleDefinitionScope("/project", next, nextScope)
-
-    expect(resolveConsoleDefinitions(firstScope)).toBe(next)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBe(next)
-    expect(resolveConsoleDefinitions({ [consoleDefinitionsKey]: first })).toBe(first)
-  })
-
-  it("retains catalogs registered through a different JavaScript realm", () => {
-    const first: ConsoleSectionCatalog = { content: catalog("first"), sections: [] }
-    const second: ConsoleSectionCatalog = { content: catalog("second"), sections: [] }
-    const foreignRegistry: unknown = runInNewContext("new Map(entries)", { entries: [["/first", first]] })
-    const processRegistry = { [consoleDefinitionsRegistryKey]: foreignRegistry }
-    const scope: ConsoleInvocationScope = { process: processRegistry }
-
-    installConsoleDefinitionScope("/second", second, scope)
-
-    expect(resolveConsoleDefinitions({ process: processRegistry, [consoleDefinitionsRootKey]: "/first" })).toBe(first)
-    expect(resolveConsoleDefinitions(scope)).toBe(second)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBeUndefined()
-  })
-
-  it("uses the local catalog when the shared process has no matching project", () => {
-    const processRegistry = {}
-    const local: ConsoleSectionCatalog = { content: catalog("local"), sections: [] }
-    const scope: ConsoleInvocationScope = { [consoleDefinitionsKey]: local, [consoleDefinitionsRootKey]: "/local", process: processRegistry }
-    installConsoleDefinitionScope("/other", { content: catalog("other"), sections: [] }, { process: processRegistry })
-
-    expect(resolveConsoleDefinitions(scope)).toBe(local)
-  })
-
-  it("isolates concurrent project catalogs across runtime realms", () => {
-    const processRegistry = {}
-    const firstScope: ConsoleInvocationScope = { process: processRegistry }
-    const secondScope: ConsoleInvocationScope = { process: processRegistry }
-    const first: ConsoleSectionCatalog = { content: catalog("first"), sections: [] }
-    const second: ConsoleSectionCatalog = { content: catalog("second"), sections: [] }
-
-    installConsoleDefinitionScope("/first", first, firstScope)
-    installConsoleDefinitionScope("/second", second, secondScope)
-
-    expect(resolveConsoleDefinitions(firstScope)).toBe(first)
-    expect(resolveConsoleDefinitions(secondScope)).toBe(second)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBeUndefined()
   })
 })

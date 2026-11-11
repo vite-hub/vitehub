@@ -1,6 +1,9 @@
 import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 
+import { build } from "vite"
 import { describe, expect, it } from "vitest"
 
 const distEntry = new URL("../dist/index.js", import.meta.url)
@@ -33,5 +36,48 @@ describe("published Queue internal runtime", () => {
   it("keeps the supported hosted adapter public", () => {
     expect(resolvePackageImport("@vite-hub/queue/runtime/hosted"))
       .toBe(fileURLToPath(new URL("../dist/runtime/hosted.js", import.meta.url)))
+  })
+})
+
+describe("published Queue provider isolation", () => {
+  it.each(["sendQueue", "createQueueClient"])("bundles %s for Cloudflare without resolving Postgres", async (name) => {
+    const result = await build({
+      configFile: false,
+      logLevel: "silent",
+      ssr: { noExternal: true },
+      resolve: { conditions: ["workerd", "worker", "browser"] },
+      plugins: [{
+        name: "no-postgres",
+        enforce: "pre",
+        resolveId(source) {
+          if (source.includes("postgres")) {
+            throw new Error(`Cloudflare must not resolve ${source}`)
+          }
+          if (source === "virtual:queue-consumer") return "\0queue-consumer"
+        },
+        load(id) {
+          if (id === "\0queue-consumer") return `export { ${name} } from ${JSON.stringify(fileURLToPath(distEntry))}`
+        },
+      }],
+      build: {
+        write: false,
+        ssr: true,
+        rollupOptions: { input: "virtual:queue-consumer", preserveEntrySignatures: "strict", external: [/^@vercel\//] },
+      },
+    })
+    const outputs = Array.isArray(result) ? result : [result]
+    const modules = outputs.flatMap(output => "output" in output ? output.output.flatMap(chunk => chunk.type === "chunk"
+      ? [...Object.keys(chunk.modules), ...chunk.imports, ...chunk.dynamicImports]
+      : []) : [])
+    expect(modules.filter(id => id.includes("postgres"))).toEqual([])
+  })
+
+  it("creates a standalone Postgres producer from the published root", async () => {
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
+      const { createQueueClient } = await import(${JSON.stringify(distEntry.href)});
+      const client = await createQueueClient({ provider: "postgres", queue: "jobs" });
+      if (client.provider !== "postgres") throw new Error("Wrong provider");
+      await client.native.close();
+    `], { env: { ...process.env, QUEUE_POSTGRES_URL: "postgres://localhost/queue" } })
   })
 })

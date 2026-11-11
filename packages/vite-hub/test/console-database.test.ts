@@ -4,17 +4,17 @@ import { drizzle } from "drizzle-orm/libsql";
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text, unique, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-import {
-  consoleDatabaseKey,
-  consoleDatabaseRegistryKey,
-  consoleDatabaseRootKey,
-} from "../src/console/internal.ts";
+import { consoleState } from "../src/console/internal.ts";
 import {
   consoleDatabaseRequestQuery,
   parseConsoleDatabase,
 } from "../src/console/runtime/components/console-database-model.ts";
 import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts";
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts";
 
 const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -35,7 +35,7 @@ const clients: Array<ReturnType<typeof createClient>> = [];
 async function database(name = "default") {
   const client = createClient({ url: "file::memory:" });
   clients.push(client);
-  const db = drizzle({ client, schema });
+  const db = drizzle({ client });
   await client.execute(
     "create table users (id integer primary key autoincrement, email text not null unique, full_name text)",
   );
@@ -53,14 +53,30 @@ async function database(name = "default") {
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();
-  Reflect.deleteProperty(globalThis, consoleDatabaseKey);
-  Reflect.deleteProperty(globalThis, consoleDatabaseRootKey);
-  Reflect.deleteProperty(process, consoleDatabaseKey);
-  Reflect.deleteProperty(process, consoleDatabaseRootKey);
-  Reflect.deleteProperty(process, consoleDatabaseRegistryKey);
+  delete consoleState().database;
+  delete consoleState().sections;
+  delete consoleState().navigationSections;
 });
 
 describe("Console database inspection", () => {
+  it("serves local table and row operations with Setup-only navigation", async () => {
+    installConsoleSections("/project", ["setup", "databases"], ["setup"]);
+    installConsoleDatabase("/project", { default: await database() }, ["default"]);
+    for (const [operation, input, expected] of [
+      ["sections.list", {}, { sections: ["setup"] }],
+      ["databases.tables", {}, { tables: [expect.objectContaining({ name: "posts" }), expect.objectContaining({ name: "users" })] }],
+      ["databases.browse", { table: "users" }, { table: "users", total: 3 }],
+    ] as const) {
+      const response = await handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc", {
+        body: operationRpcBody(operation, input),
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      }), { remoteAddress: "127.0.0.1" });
+      expect(response.status).toBe(200);
+      expect(await operationRpcResponseResult(response)).toMatchObject({ ok: true, value: expected });
+    }
+  });
+
   it("omits table controls from schema requests", () => {
     expect(
       consoleDatabaseRequestQuery({
@@ -117,7 +133,7 @@ describe("Console database inspection", () => {
     const client = createClient({ url: "file::memory:" });
     clients.push(client);
     const schema = { accounts };
-    installConsoleDatabase("/project", { default: { db: drizzle({ client, schema }), schema } }, ["default"]);
+    installConsoleDatabase("/project", { default: { db: drizzle({ client }), schema } }, ["default"]);
 
     const result = await browseConsoleDatabase({});
 

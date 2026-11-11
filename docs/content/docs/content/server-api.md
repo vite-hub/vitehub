@@ -44,7 +44,7 @@ import { documents, singleton } from 'vite-hub/content/collections'
 import { glob } from 'vite-hub/source'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
@@ -74,7 +74,7 @@ Editors can read and edit drafts; admins can also publish.
 | `content.handler(request)` | Answers a Web `Request`. The generated route calls it through `defineContentHandler()`. |
 
 ```ts [server/utils/guide.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function readGuide() {
   await content.get('/guide')
@@ -103,7 +103,7 @@ Comark Content owns the parsed document cache. ViteHub sends each cache call to 
 
 ```ts [server/api/about.get.ts] fragment
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   const page = await content.get('/about')
@@ -126,7 +126,7 @@ In development, Content lists a new or renamed Source file after a restart or `c
 ```ts [server/api/posts/[id].put.ts]
 import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
 import * as v from 'valibot'
-import { content } from '../../content'
+import content from '../../content'
 
 const post = v.object({
   data: v.object({ title: v.string(), date: v.string(), tags: v.array(v.string()) }),
@@ -190,7 +190,7 @@ A [`singleton()`](/docs/content/configure#singletons-and-data-files) has `kind: 
 Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton can omit `id`:
 
 ```ts [server/utils/settings.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function publishSettings() {
   const settings = content.collection('settings')
@@ -202,7 +202,7 @@ export async function publishSettings() {
 ### List documents
 
 ```ts [server/utils/vue-posts.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function vuePosts() {
   const page = await content.collection('posts').list({
@@ -233,7 +233,7 @@ Listing runs in memory over one revision's documents with the [`array()` Collect
 A draft with field issues lists and reads with `issues`, and `data` holds its stored values. On `published`, a document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning. `get()` throws `CONTENT_INVALID` for it, naming each failing field. A file that does not parse is left out on every ref. `raw()` still returns its text, so a tool can show it, diff it with another ref, and save a fix with its `digest` as `ifDigest`.
 
 ```ts [server/utils/compare-refs.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function compareRefs() {
   const posts = content.collection('posts')
@@ -290,7 +290,7 @@ On the [GitHub store](/docs/cms/configure#github-store), `conflict: { base }` ma
 ### Publish
 
 ```ts [server/utils/publish.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function publishAll() {
   await content.publish({ collection: 'posts', ids: ['hello'], message: 'Publish hello' })
@@ -313,7 +313,7 @@ export async function publishAll() {
 `collection` and `ids` publish whatever the draft holds when `publish()` runs. A draft saved after a confirmation or approval would go out unreviewed. Confirm and approve flows must use `expect`: capture the draft digests the person saw, and pass them back.
 
 ```ts [server/utils/publish-reviewed.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function publishReviewed() {
   const reviewed = (await content.collection('posts').status())
@@ -331,7 +331,7 @@ If any draft digest differs, `publish({ expect })` publishes nothing and throws 
 ### Revisions
 
 ```ts [server/utils/restore-post.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function restorePreviousVersion() {
   const { revisions, cursor } = await content.revisions('posts', 'hello', { limit: 10 })
@@ -346,7 +346,7 @@ export async function restorePreviousVersion() {
 Omit the document to list recent changes in all collections, for an activity feed. `metadata.content.documents` lists each revision's documents:
 
 ```ts [server/utils/activity.ts]
-import { content } from '../content'
+import content from '../content'
 
 export async function recentPublishes() {
   const { revisions } = await content.revisions({ ref: 'published', limit: 20 })
@@ -359,7 +359,7 @@ export async function recentPublishes() {
 ```ts [server/api/posts/publish.post.ts]
 import { createError, defineEventHandler } from 'h3'
 import { withAuth } from 'vite-hub/auth/server'
-import { content } from '../../content'
+import content from '../../content'
 
 export default defineEventHandler(
   withAuth(async (event, { user }) => {

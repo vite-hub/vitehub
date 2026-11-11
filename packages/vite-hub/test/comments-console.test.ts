@@ -9,7 +9,7 @@ import { describeConsoleContributedSections } from "../src/console/contributions
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleVitePlugin, resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { productionConsole } from "./support/console-authorize.ts"
 
 import type { UserConfig } from "vite"
 
@@ -26,12 +26,12 @@ describe("Comments activation from the Console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "server/comments.ts"), source)
       const config: UserConfig = { root, base: "/portal/" }
-      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+      for (const plugin of [hubComments(), consoleVitePlugin({ console: productionConsole, sections: ["comments"] })]) {
         const hook = plugin.config
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
-      const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
       expect(generated).toContain('"kind":"operation-view"')
       expect(generated).toContain('"operation":"comments.list"')
       expect(generated).not.toContain('"visit":')
@@ -47,12 +47,12 @@ describe("Comments activation from the Console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const config: UserConfig = { root }
-      for (const plugin of [hubComments({ enabled: true }), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+      for (const plugin of [hubComments({ enabled: true }), consoleVitePlugin({ console: productionConsole, sections: ["comments"] })]) {
         const hook = plugin.config
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
-      const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
       expect(generated).toContain('"operation":"comments.list"')
       expect(generated).not.toContain("readCommentsConsoleRecords")
     }
@@ -73,14 +73,14 @@ describe("Comments activation from the Console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "server/comments.ts"), "export const comments = defineComments()\n")
       const config: UserConfig & { nitro?: { handlers: Array<{ route: string }>, plugins: string[] } } = { root, ...bases }
-      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+      for (const plugin of [hubComments(), consoleVitePlugin({ console: productionConsole, sections: ["comments"] })]) {
         const hook = plugin.config
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
       const route = config.nitro!.handlers.find(handler => handler.route.endsWith("/comments/**"))!.route.slice(0, -3)
       expect(route).toBe(`${mount}/api/_vitehub/comments`)
-      const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
       expect(generated).not.toContain('"visit":')
       expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/session` })]))
 

@@ -16,6 +16,7 @@ export type PostgresQueueDatabasesLoader = () => Promise<PostgresQueueDatabases>
 const postgresUrl = /^postgres(?:ql)?:\/\//i
 
 let loadDatabases: PostgresQueueDatabasesLoader | undefined
+let closing: Promise<void> | undefined
 interface EngineState {
   current?: { engine: PostgresQueueEngine, key: object | string }
   pending?: Promise<PostgresQueueEngine>
@@ -27,6 +28,10 @@ interface EngineState {
 const engines = new Map<string, EngineState>()
 const retiring = new Set<Promise<void>>()
 type EngineConfig = { database?: string, development?: boolean }
+
+function assertOpen(): void {
+  if (closing) throw queueErrorDiagnostics.QUEUE_POSTGRES_CLOSING()
+}
 
 function engineState(config: EngineConfig): EngineState {
   const key = JSON.stringify([config.database ?? null, config.development === true])
@@ -76,10 +81,13 @@ export async function resolvePostgresQueueConnection(
 }
 
 function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngine> {
+  assertOpen()
   const state = engineState(config)
   // Serialize resolution too: concurrent sends must not replace each other's engine.
   const pending = (state.pending?.catch(() => {}) ?? Promise.resolve()).then(async () => {
+    assertOpen()
     const { connection, key } = await resolvePostgresQueueConnection(config)
+    assertOpen()
     if (state.current?.key === key) {
       startWorkers(state, state.current.engine)
       return state.current.engine
@@ -123,6 +131,7 @@ export async function createPostgresQueueRuntimeClient(options: QueueRuntimeProv
  */
 export function startPostgresQueue(config: false | QueueRuntimeOptions, databases?: PostgresQueueDatabasesLoader): void {
   if (config === false || config.provider !== "postgres") return
+  assertOpen()
   loadDatabases = databases
   engineState(config).workers = true
   setQueueRuntimeJobStore(() => usePostgresQueueEngine(config))
@@ -132,12 +141,17 @@ export function startPostgresQueue(config: false | QueueRuntimeOptions, database
 }
 
 /** Stops taking jobs, waits for the running jobs up to 10 seconds, and closes the connections it opened. The jobs stay. */
-export async function closePostgresQueues(): Promise<void> {
-  const states = [...engines.values()]
-  for (const state of states) state.workers = false
-  setQueueRuntimeJobStore(undefined)
-  await Promise.all(states.map(state => state.pending?.catch(() => {})))
-  await Promise.all([...states.map(state => state.current?.engine.close()), ...retiring])
-  engines.clear()
-  loadDatabases = undefined
+export function closePostgresQueues(): Promise<void> {
+  if (closing) return closing
+  closing = (async () => {
+    const states = [...engines.values()]
+    for (const state of states) state.workers = false
+    setQueueRuntimeJobStore(undefined)
+    // Admission is closed before queued resolutions resume, so these sets cannot acquire new engines or retirements.
+    await Promise.all(states.map(state => state.pending?.catch(() => {})))
+    await Promise.all([...states.map(state => state.current?.engine.close()), ...retiring])
+    engines.clear()
+    loadDatabases = undefined
+  })().finally(() => { closing = undefined })
+  return closing
 }

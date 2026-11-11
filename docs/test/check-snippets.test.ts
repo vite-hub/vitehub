@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkBaseline, checkSnippets, collectSnippets, compareBaseline, defaultEnvDeclarations, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -127,6 +127,12 @@ describe("documentation snippet check", () => {
       expect(updateBaseline([knownFailure], path)).toBe(false)
       expect(() => readFileSync(path)).toThrow()
     })
+
+    it("rejects marked failure mismatches even when already listed", () => {
+      const marked = { ...knownFailure, snippet: { ...knownFailure.snippet, fails: [2322] } }
+      expect(updateBaseline([marked], path)).toBe(false)
+      expect(readFileSync(path, "utf8")).toBe(original)
+    })
   })
 
   it("compares complete diagnostic messages without checkout-specific paths", () => {
@@ -169,6 +175,42 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("checks ability names and arguments against the page's shared rules", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/abilities-test")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), label, line: 1, page: "abilities-test.md" })
+    const rules = snippet("shared/abilities.ts", [
+      'import { defineAbilities } from "@vite-hub/auth/abilities"',
+      'export default defineAbilities({ "posts.edit": (user, post: { authorId: string }) => user.id === post.authorId })',
+    ].join("\n"))
+    const consumer = (name: string, argument: string) => snippet("server/check.ts", [
+      'import type { AbilityArgs, AbilityName } from "@vite-hub/auth/abilities"',
+      `export const name: AbilityName = ${JSON.stringify(name)}`,
+      `export const args: AbilityArgs<"posts.edit"> = [${argument}]`,
+    ].join("\n"))
+
+    expect(checkSnippets([rules, consumer("posts.edit", '{ authorId: "author" }')]).failures).toEqual([])
+    const failures = checkSnippets([rules, consumer("posts.delete", '{ authorId: 123 }')]).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322, 2322]])
+  }, 60_000)
+
+  it("requires a block marked fails to fail with exactly the errors that it names", () => {
+    const [marked] = extractBlocks("```ts [server/auth.ts] fails=TS2322,TS2353\nexport const a = 1\n```")
+    expect(marked.fails).toEqual([2322, 2353])
+
+    const page = join(repoRoot, "docs/.snippets/fails-page")
+    const snippet = (name: string, code: string, fails: number[]) => ({ code, fails, file: join(page, name), fragment: false, line: 1, page: "fails-page.md" })
+    const { failures } = checkSnippets([
+      snippet("expected.ts", "export const count: number = 'one'", [2322]),
+      snippet("passes.ts", "export const count: number = 1", [2322]),
+      snippet("different.ts", "export const count: number = missing", [2322]),
+    ])
+
+    expect(failures.map(failure => [failure.snippet.file.slice(page.length + 1), failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["passes.ts", [0]],
+      ["different.ts", [0, 2304]],
+    ])
+  }, 60_000)
+
   it("imports the last full version of a file that the page shows above the importing block", () => {
     const pageRoot = join(repoRoot, "docs/.snippets/version-page")
     const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "version-page.md", pageRoot })
@@ -184,6 +226,24 @@ describe("documentation snippet check", () => {
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["server/api/stale.ts", [2339]],
     ])
+  }, 60_000)
+
+  it("keeps marked mismatches out of regenerated baselines and rejects existing entries for them", () => {
+    const page = join(repoRoot, "docs/.snippets/baseline-page")
+    const snippet = (name: string, code: string, fails?: number[]) => ({ code, fails, file: join(page, name), fragment: false, line: 1, page: "baseline-page.md" })
+    const { failures } = checkSnippets([
+      snippet("passes.ts", "export const count: number = 1", [2322]),
+      snippet("different.ts", "export const count: number = missing", [2322]),
+      snippet("extra.ts", "export const count: number = 'one'\nexport const extra = missing", [2322]),
+      snippet("ordinary.ts", "export const count: number = 'one'"),
+    ])
+    const baseline = failures.map(baselineEntry)
+    const { entries, fresh, stale } = checkBaseline(failures, baseline)
+
+    expect(fresh.map(({ snippet }) => snippet.file.slice(page.length + 1))).toEqual(["passes.ts", "different.ts", "extra.ts"])
+    expect(stale).toEqual(baseline.slice(0, 3))
+    expect(entries.map(entry => entry.id)).toEqual([baseline[3].id])
+    expect(checkBaseline(failures, entries).fresh).toEqual(fresh)
   }, 60_000)
 
   it("imports the first full version when no full definition appears above the importer", () => {
@@ -238,7 +298,7 @@ export default { plugins: [Promise.resolve([hubEnv({ public: { appName: env({ de
 
     expect(env).toContain('"labeller": {')
     expect(env).toContain('"appName": string')
-    expect(env).toContain('"apiToken": import("@vite-hub/env").SecretEnv<string>')
+    expect(env).toContain('"apiToken": import("vite-hub/env").SecretEnv<string>')
     const labeller = snippets.find(snippet => snippet.label === "server/labeller.ts")!
     expect(checkSnippets([labeller], declarations).failures).toEqual([])
   }, 60_000)
@@ -276,13 +336,15 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
 
   it("retains Env types on the Doctor rules page despite its illustrative invalid config", async () => {
     const snippets = collectSnippets([{ file: join(repoRoot, "docs/content/docs/reference/doctor-rules.md"), root: join(repoRoot, "docs") }])
-    expect(snippets.find(snippet => snippet.code.includes("// Invalid") && snippet.code.includes("env: { server: { token:"))?.fragment).toBe(true)
+    expect(snippets.find(snippet => snippet.code.includes("// Invalid") && snippet.code.includes("env: { server: { token:"))?.fails).toEqual([2769])
     const declarations = await generatedDeclarations(snippets)
 
     const env = declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code
-    expect(env).toContain('"token": import("@vite-hub/env").SecretEnv<string>')
+    expect(env).toContain('"token": import("vite-hub/env").SecretEnv<string>')
     expect(env).not.toContain('"githubToken":')
-  })
+    expect(snippets.filter(snippet => snippet.fails)).toHaveLength(7)
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+  }, 60_000)
 
   it("checks Vite import.meta.glob calls against the app's ambient types", () => {
     const page = join(repoRoot, "docs/.snippets/vite-glob")
@@ -376,13 +438,12 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
+    // Only a literal `route: false` in the exported `defineCollection()` call skips the route. An aliased import, a
+    // namespaced call, or options built elsewhere keep it, and the handler answers 404 at request time.
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["wrong-name.ts", [2345]],
       ["unrelated.ts", [2345]],
       ["hidden.ts", [2345]],
-      ["aliased.ts", [2345]],
-      ["namespaced.ts", [2345]],
-      ["wrapped.ts", [2345]],
     ])
   }, 60_000)
 
@@ -421,12 +482,26 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
+  it.each([
+    { fragment: true },
+    { fails: [2322] },
+  ])("ignores excluded Channel indexes when reserving folders: %j", async (excluded) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/excluded-channel-index")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), label, line: 1, page: "excluded-channel-index.md", pageRoot })
+    const declarations = await generatedDeclarations([
+      { ...snippet("server/channels/teams/index.ts", "export default {}"), ...excluded },
+      snippet("server/channels/teams/alerts.ts", "export default { adapter: { kind: 'log', send: () => ({}) } }"),
+    ])
+
+    expect(declarations.find(declaration => declaration.file.endsWith("/channels.d.ts"))?.code).toContain("teams/alerts")
+  })
+
   it("preserves PostgreSQL and SQLite Database client dialects", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/database-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-page.md", pageRoot })
     const snippets = [
-      snippet("server/databases/postgres/config.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', schema: {} })"),
-      snippet("server/databases/config.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })"),
+      snippet("server/databases/postgres/index.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', schema: {} })"),
+      snippet("server/databases/default.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })"),
       snippet("postgres.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('postgres').db.execute('select 1')"),
       snippet("sqlite.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('default').db.run('select 1')"),
       snippet("wrong-postgres.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('postgres').db.run('select 1')"),
@@ -440,8 +515,10 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
   }, 60_000)
 
   it.each([
-    ["server/databases/config.cts", "default"],
-    ["server/databases/analytics/config.cts", "analytics"],
+    ["server/databases/default.cts", "default"],
+    ["server/databases/default/index.cts", "default"],
+    ["server/databases/analytics.cts", "analytics"],
+    ["server/databases/analytics/index.cts", "analytics"],
     ["src/database.ts", "default"],
     ["src/analytics.database.cts", "analytics"],
     ["analytics.database.cts", "analytics"],
@@ -469,6 +546,85 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
       code: "export default { schema: {} }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "unsupported-default-database.md", pageRoot,
     }])).toEqual([])
   })
+
+  it.each([
+    ["vite.config.ts", "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nexport default defineConfig({ plugins: [vitehub({ preset: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } })] })"],
+    ["nuxt.config.ts", "import { env } from 'vite-hub/env'\nexport default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: { preset: 'node', env: { public: { appName: env({ default: 'Acme', mode: 'build' }) }, server: { github: { token: env({ secret: true }) } } } } })"],
+  ])("types the Env values that the page's %s declares", async (label, config) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "env-page.md", pageRoot })
+    const snippets = [
+      snippet(label, config),
+      snippet("server/github.ts", "import { useServerEnv } from '#vitehub/env/server'\nexport const token: string = useServerEnv().github.token.unseal()"),
+      snippet("server/auth.ts", "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth(({ env }) => ({ socialProviders: { github: { clientId: 'id', clientSecret: env.github.token.unseal() } } }))"),
+      snippet("src/app.ts", "import { usePublicEnv } from '#vitehub/env/public'\nexport const name: string = usePublicEnv().appName"),
+      snippet("server/undeclared.ts", "import { useServerEnv } from '#vitehub/env/server'\nexport const token = useServerEnv().gitlab"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/undeclared.ts", [2339]],
+    ])
+  }, 60_000)
+
+  it.each(["vitehub", "module tuple"])("preserves Nuxt-only Env providers and runtime imports in %s", async (form) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/nuxt-env-provider")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "nuxt-env-provider.md", pageRoot })
+    const options = `{
+    preset: "node",
+    env: {
+      providers: { credentials: "./server/env/credentials.ts" },
+      runtimeImports: { secret: "@vite-hub/env", server: "@vite-hub/env/internal/server" },
+      server: { token: env({ secret: true, source: env.provider("credentials", "token") }) },
+    },
+  }`
+    const config = form === "vitehub"
+      ? `{ modules: ["vite-hub/nuxt"], vitehub: ${options} }`
+      : `{ modules: [["vite-hub/nuxt", ${options}]] }`
+    const snippets = [
+      snippet("nuxt.config.ts", `import { env } from "vite-hub/env"\nexport default defineNuxtConfig(${config})`),
+      snippet("server/env/credentials.ts", 'export default { read: async () => ({ token: "secret" }) } satisfies import("vite-hub/env").EnvProvider'),
+      snippet("server/token.ts", 'import { useServerEnv } from "#vitehub/env/server"\nexport const token: string = useServerEnv().token.unseal()'),
+    ]
+    const declarations = await generatedDeclarations(snippets)
+    const env = declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code
+    expect(env).toContain('import("@vite-hub/env").SecretEnv<string>')
+    expect(env).toContain('import("@vite-hub/env/internal/server").ViteHubContext')
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+  }, 60_000)
+
+  it("generates declarations for the Nuxt-only Env Bridge example", async () => {
+    const snippets = collectSnippets([{ file: join(repoRoot, "docs/content/docs/env/bridge.md"), root: join(repoRoot, "docs") }])
+      .filter(snippet => snippet.label !== "vite.config.ts")
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"githubToken":')
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+  }, 60_000)
+
+  it("types Env for a page without Env options as an app without them", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/default-env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "default-env-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet("server/session.ts", "import { deriveSecret } from '#vitehub/env/server'\nexport const secret: Promise<string> = deriveSecret('my-app:session')"),
+      snippet("server/undeclared.ts", "import { useServerEnv } from '#vitehub/env/server'\nexport const token = useServerEnv().github"),
+    ], await defaultEnvDeclarations())
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/undeclared.ts", [2339]],
+    ])
+  }, 60_000)
+
+  it("types auth.api with the plugins of the page's Auth Definition", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/auth-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "auth-page.md", pageRoot })
+    const snippets = [
+      snippet("server/auth.ts", "import { admin } from 'better-auth/plugins'\nimport { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ plugins: [admin()] })"),
+      snippet("server/roles.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRole"),
+      snippet("server/typo.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRoles"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/typo.ts", [2551]],
+    ])
+  }, 60_000)
 
   it("checks the Workflow README steps against generated declarations", async () => {
     const root = join(repoRoot, "packages/workflow")
