@@ -134,6 +134,57 @@ async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: 
   }
 }
 
+/** Runs a development server until its log matches `ready`. The server can answer 500 while it still builds. */
+async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>) {
+  const port = await availablePort()
+  const child = spawn(command, [...args, "--host", "127.0.0.1", "--port", String(port)], {
+    cwd,
+    detached: true,
+    env: { ...process.env, NUXT_TELEMETRY_DISABLED: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let logs = ""
+  child.stdout.on("data", chunk => { logs += String(chunk) })
+  child.stderr.on("data", chunk => { logs += String(chunk) })
+
+  try {
+    for (let attempt = 0; !ready.test(logs); attempt++) {
+      if (child.exitCode !== null) throw new Error(`Development server exited early.\n${logs}`)
+      if (attempt > 2400) throw new Error(`Development server did not start.\n${logs}`)
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    return { logs: () => logs, value: await callback(`http://127.0.0.1:${port}`) }
+  }
+  finally {
+    // The package manager starts the server in a child process, so stop the whole group.
+    await stopProcessGroup(child.pid!)
+  }
+}
+
+/**
+ * Stops a process group and waits until all of it is gone. The package manager exits as soon as it gets the signal, but
+ * the server can still write files while it stops. A caller that removes the app after the package manager exits then
+ * fails with `ENOTEMPTY`.
+ */
+async function stopProcessGroup(pid: number) {
+  signalProcessGroup(pid, "SIGTERM")
+  for (let attempt = 0; attempt < 150 && signalProcessGroup(pid, 0); attempt++) {
+    if (attempt === 100) signalProcessGroup(pid, "SIGKILL")
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+}
+
+/** Sends `signal` to a process group. Returns false when no process of the group is left. */
+function signalProcessGroup(pid: number, signal: NodeJS.Signals | 0) {
+  try {
+    process.kill(-pid, signal)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function packageTarballName(name: string, version: string) {
   return `${name.replace(/^@/, "").replaceAll("/", "-")}-${version}.tgz`
 }
@@ -936,6 +987,73 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
+  it("serves Console operations on the Nuxt development server", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-console-dev-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(join(appDir, "app"), { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "app/app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
+        writeFile(join(appDir, "nuxt.config.ts"), `
+          export default defineNuxtConfig({
+            compatibilityDate: "2026-10-01",
+            modules: ["vite-hub/nuxt"],
+            vitehub: { console: { auth: false }, comments: false, kv: true, preset: "node" },
+          })
+        `, "utf8"),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            "@vite-hub/kv": specs["@vite-hub/kv"],
+            h3: "2.0.8",
+            nitro: "3.0.261102-rc",
+            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            rolldown: "1.1.5",
+            unplugin: "3.3.0",
+            vite: "8.0.8",
+            "vite-hub": specs["vite-hub"],
+          },
+          // The `vite` override selects vite-plus-core, which loads its native binding from vite-plus.
+          devDependencies: { "vite-plus": "0.1.24" },
+          packageManager: "pnpm@10.33.0",
+          private: true,
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
+          "oxc-parser": "0.140.0",
+          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
+          nitro: "3.0.261102-rc",
+          "nitro>h3": "2.0.8",
+          rolldown: "1.2.4",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
+        }), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+
+      const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
+        const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
+          body: JSON.stringify({ operation: "sections.list", input: {} }),
+          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+          method: "POST",
+        })
+        return {
+          sections: { body: await sections.text(), status: sections.status },
+        }
+      })
+
+      expect(server.value.sections.status, server.value.sections.body).toBe(200)
+      expect(JSON.parse(server.value.sections.body)).toMatchObject({ ok: true, value: { sections: expect.arrayContaining(["env", "kv"]) } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+
   it("builds Nuxt database middleware with the app's Database package", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-consumer-"))
     const appDir = join(root, "app")
@@ -974,12 +1092,15 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           dependencies: {
             "@vite-hub/database": specs["@vite-hub/database"],
             "drizzle-orm": "0.45.3",
-            nuxt: "4.6.4",
+            h3: "2.0.8",
+            nitro: "3.0.261102-rc",
+            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            rolldown: "1.1.5",
             unplugin: "3.3.0",
-            vite: "8.3.5",
+            vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
-          devDependencies: { "drizzle-kit": "0.31.11" },
+          devDependencies: { "drizzle-kit": "0.31.11", "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           scripts: { build: "nuxt build" },
@@ -987,11 +1108,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Keep Nitro's native Rollup package on the workspace-tested release.
-          rollup: "4.64.0",
+          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
+          nitro: "3.0.261102-rc",
+          "nitro>h3": "2.0.8",
+          rolldown: "1.2.4",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
 
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/database", "vite-hub"])
       await run("pnpm", ["run", "build"], appDir)

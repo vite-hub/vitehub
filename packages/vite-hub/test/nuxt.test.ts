@@ -15,7 +15,6 @@ import {
   setResolvedFeatureOptions,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
-  VITEHUB_NITRO_MAJOR_VERSION,
   VITEHUB_PROJECT_ROOT,
   VITEHUB_ENV_SERVER,
   VITEHUB_FEATURES,
@@ -35,8 +34,6 @@ import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-// Nuxt's Nitro 2 receives this module after every other Nitro module.
-const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const kvCacheDriver = kvNitroCacheDriver
 const databaseRuntimeState = fileURLToPath(new URL("../dist/internal/database-runtime-state.js", import.meta.url))
@@ -270,6 +267,23 @@ function nitroHandlerRoutes(config: Record<string, unknown>): Array<string | und
 }
 
 describe("ViteHub Nuxt integration", () => {
+  it.each(["4.6.4", "3.17.0"])("stops on Nuxt %s with a diagnostic that names Nuxt 5", async (version) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: version })
+    await expect(viteHubNuxtModule({ preset: "node" }, application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0023",
+      message: expect.stringContaining(`needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}.`),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it("sets up on a Nuxt 5 nightly", async () => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: "5.0.0-2611052317-a04317f" })
+    await expect(viteHubNuxtModule({ preset: "node" }, application.nuxt)).resolves.toBeUndefined()
+    await application.runCloseHook()
+  })
+
   beforeEach(async () => {
     vi.unstubAllEnvs()
     await mkdir(`${tmp}/vitehub-nuxt`, { recursive: true })
@@ -738,20 +752,15 @@ describe("ViteHub Nuxt integration", () => {
 
   it.each([false, true])("bundles facade, owner, and generated imports through Nitro runtime aliases (dev: %s)", async (dev) => {
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
-    const inline = ["existing-inline"]
-    const external = ["existing-external"]
-    const nitroConfig = { externals: { inline, external, trace: false } }
+    const noExternals = ["existing-inline"]
+    const nitroConfig: { noExternals: unknown } = { noExternals }
 
     await viteHubNuxtModule({ preset: "node", blob: true, kv: true, database: true }, nuxt)
     await runNitroConfigHook(nitroConfig)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot],
-      external,
-      trace: false,
-    })
-    expect(inline).toEqual(["existing-inline"])
+    expect(nitroConfig.noExternals).toEqual(["existing-inline", "vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot])
+    expect(noExternals).toEqual(["existing-inline"])
   })
 
   it("loads mode-specific KV credentials only in Nitro's server replay", async () => {
@@ -884,8 +893,6 @@ describe("ViteHub Nuxt integration", () => {
       "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
-      "vite-hub/nitro-generated-relative-imports",
-      "vite-hub/nitro-file-url",
       "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
@@ -1156,7 +1163,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", sandboxTask: true }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.modules).toEqual([existingModule, nitroModule, injectSourcemapsModule])
+    expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
   })
 
   it.each([false, true])("starts a bundle session before each Nuxt production build (retained plugin: %s)", async (retained) => {
@@ -1819,7 +1826,7 @@ describe("ViteHub Nuxt integration", () => {
     await enabled.runNitroConfigHook(config)
     expect(config.imports).toMatchObject({ imports: expect.arrayContaining([{ from: "vite-hub/kv", name: "kv" }]) })
     const mount = { base: "nitro-cache", driver: kvCacheDriver }
-    expect(config).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+    expect(config).toMatchObject({ $development: { kv: { cache: mount } }, kv: { cache: mount } })
 
     const disabled = createNuxt(dev)
     await viteHubNuxtModule({ cache: { driver: "kv" }, kv: false, preset: "node" }, disabled.nuxt)
@@ -2627,7 +2634,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       const registry = resolve(generatedDir, "registry.ts")
       const handler = resolve(generatedDir, "handler.ts")
       expect(config.alias).toMatchObject({ "#vitehub/connections/registry": registry })
-      expect(config.externals).toMatchObject({ inline: expect.arrayContaining(["vite-hub", "@vite-hub/connections"]) })
+      expect(config.noExternals).toEqual(expect.arrayContaining(["vite-hub", "@vite-hub/"]))
       expect(await readFile(registry, "utf8")).toContain(`registry["mail"] = () => import(${JSON.stringify(definition)})`)
       expect(config.handlers).toEqual(expect.arrayContaining([
         { handler, method: "post", route: "/_vitehub/connections" },
@@ -2714,7 +2721,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await mkdir(`${tmp}/vitehub-nuxt/server`, { recursive: true })
     await writeFile(authorize, "export default () => true\n")
     try {
-      // Nuxt sets the Vite root to srcDir, which is `app/` in a Nuxt 4 app.
+      // Nuxt sets the Vite root to srcDir, which is `app/` in a Nuxt app.
       const production = createNuxt(false)
       production.nuxt.options.vite.root = production.nuxt.options.srcDir
       await viteHubNuxtModule({ console: { authorize: "./server/console-authorize.ts" }, preset: "node" }, production.nuxt)
@@ -2809,62 +2816,16 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it.each([
-    [2, "nuxt", "deno", false, "deno-deploy"],
-    [2, "server builder", "deno", false, "deno-deploy"],
-    [3, "server builder", "deno", false, "deno-server"],
-    [2, "nuxt", "cloudflare", true, "cloudflare-durable"],
-    [2, "server builder", "cloudflare", true, "cloudflare-durable"],
-    [3, "server builder", "cloudflare", true, "cloudflare-module"],
-  ] as const)("uses the installed Nuxt Nitro %s via %s for %s with realtime %s", async (major, owner, preset, realtime, expectedPreset) => {
-    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro-"))
-    const writePackage = async (directory: string, manifest: object) => {
-      await mkdir(directory, { recursive: true })
-      await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
-    }
-    try {
-      const nuxtRoot = resolve(root, "node_modules/nuxt")
-      await writePackage(nuxtRoot, {
-        name: "nuxt",
-        dependencies: owner === "nuxt" ? { nitropack: "2.13.4" } : { "@nuxt/nitro-server": `${major + 2}.0.0` },
-      })
-      // The app's standalone Nitro must not override Nuxt's server dependency.
-      await writePackage(resolve(root, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
-      if (owner === "nuxt") {
-        await writePackage(resolve(nuxtRoot, "node_modules/nitropack"), { name: "nitropack", version: "2.13.4" })
-      }
-      else {
-        // Model a hoisted Nuxt 4 builder alongside the app's standalone Nitro 3.
-        const builderRoot = resolve(major === 2 ? root : nuxtRoot, "node_modules/@nuxt/nitro-server")
-        await writePackage(builderRoot, {
-          name: "@nuxt/nitro-server",
-          dependencies: major === 2 ? { nitropack: "2.13.4" } : { nitro: "3.0.261102-rc" },
-        })
-        await writePackage(resolve(major === 2 ? root : builderRoot, `node_modules/${major === 2 ? "nitropack" : "nitro"}`), {
-          name: major === 2 ? "nitropack" : "nitro",
-          version: major === 2 ? "2.13.4" : "3.0.261102-rc",
-        })
-      }
-      const { nuxt, runNitroConfigHook } = createNuxt()
-      nuxt.options.rootDir = root
-      nuxt.options.buildDir = resolve(root, ".nuxt")
-      nuxt.options.serverDir = resolve(root, "server")
-      await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
-      expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
-      expect(nuxt.options.vite).toHaveProperty(VITEHUB_NITRO_MAJOR_VERSION, major)
-      const config: Record<string, unknown> = { ...nitroOptions(nuxt) }
-      await runNitroConfigHook(config)
-      await runNitroConfigHook(config)
-      expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({
-        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-        [VITEHUB_NITRO_MAJOR_VERSION]: major,
-      }), expect.anything())
-      // Only Nitro 2 bundles with Rollup and `@rollup/plugin-inject`.
-      const injectModules = (Array.isArray(config.modules) ? config.modules : []).filter(module => isTestRecord(module) && module.name === "vite-hub/nitro-inject-sourcemaps")
-      expect(injectModules).toHaveLength(major === 2 ? 1 : 0)
-    }
-    finally {
-      await rm(root, { recursive: true, force: true })
-    }
+    ["deno", false, "deno-server"],
+    ["cloudflare", true, "cloudflare-module"],
+  ] as const)("uses the Nitro 3 preset for %s with realtime %s", async (preset, realtime, expectedPreset) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
+    expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
+    const config: Record<string, unknown> = { ...nitroOptions(nuxt) }
+    await runNitroConfigHook(config)
+    await runNitroConfigHook(config)
+    expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true }), expect.anything())
   })
 
   it("detects the Nitro preset from the host's build variables when preset is omitted", async () => {
@@ -2914,7 +2875,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     vi.stubEnv("NITRO_DEV_RUNNER", "")
     const development = createNuxt(true)
     await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, development.nuxt)
-    expect(nitroOptions(development.nuxt)).toMatchObject({ devServer: { runner: "node-worker" }, preset: "cloudflare-durable" })
+    expect(nitroOptions(development.nuxt)).toMatchObject({ devServer: { runner: "node-worker" }, preset: "cloudflare-module" })
 
     const chosen = createNuxt(true)
     Object.assign(chosen.nuxt.options, { nitro: { devServer: { runner: "miniflare" } } })
@@ -2949,9 +2910,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
-  // Runs the Nuxt module twice, as Nuxt can, then Nitro 2's real Cloudflare preset, which merges the project file.
-  describe("Node compatibility flags in the written wrangler.json", { timeout: 30_000 }, () => {
-    async function writtenFlags(inline: string[], project?: string[]) {
+  // Nitro adds `nodejs_compat` itself. ViteHub only turns Node compatibility off when the app opts out.
+  describe("Node compatibility flags", () => {
+    async function configured(inline: string[], project?: string[]) {
       const rootDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-node-compat-"))
       try {
         if (project) await writeFile(resolve(rootDir, "wrangler.json"), JSON.stringify({ compatibility_flags: project }))
@@ -2963,30 +2924,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
         await runNitroConfigHook(config)
         await runNitroConfigHook(config)
-        const { createNitro } = await import("nitropack")
-        const nitro = await createNitro({
-          cloudflare: { ...config.cloudflare, deployConfig: true },
-          compatibilityDate: "2026-04-20",
-          dev: false,
-          logLevel: 0,
-          // The mocked vitehub() adds fake modules, so only this one runs.
-          modules: (config.modules ?? []).filter(module => isTestRecord(module) && module.name === "vite-hub/cloudflare-node-compat") as never,
-          preset: "cloudflare-module",
-          rootDir,
-        })
-        try {
-          await nitro.hooks.callHook("compiled", nitro)
-          const wrangler = JSON.parse(await readFile(resolve(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { compatibility_flags: string[] }
-          return {
-            flags: wrangler.compatibility_flags.filter(flag => flag !== "nodejs_als"),
-            nodeCompat: config.cloudflare.nodeCompat,
-            modules: config.modules ?? [],
-            inlineFlags: config.cloudflare.wrangler.compatibility_flags,
-          }
-        }
-        finally {
-          await nitro.close()
-        }
+        return config
       }
       finally {
         await rm(rootDir, { force: true, recursive: true })
@@ -2994,25 +2932,16 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
 
     it.each([
-      // Wrangler refuses nodejs_compat next to nodejs_compat_v2, and v2 alone lacks node:http before 2026-08-04.
-      ["no flags", [], undefined, ["nodejs_compat"]],
-      ["other inline flags", ["custom"], undefined, ["custom", "nodejs_compat"]],
-      ["an inline nodejs_compat", ["nodejs_compat"], undefined, ["nodejs_compat"]],
-      ["a project nodejs_compat", [], ["nodejs_compat"], ["nodejs_compat"]],
-      // The app's own choices stay.
-      ["an inline no_nodejs_compat_v2", ["no_nodejs_compat_v2"], undefined, ["no_nodejs_compat_v2", "nodejs_compat"]],
-      ["a project no_nodejs_compat_v2", [], ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2", "nodejs_compat"]],
-      ["a project nodejs_compat_v2", [], ["nodejs_compat_v2"], ["nodejs_compat_v2"]],
-      ["an inline no_nodejs_compat", ["no_nodejs_compat"], undefined, ["no_nodejs_compat"]],
-      ["a project no_nodejs_compat", [], ["no_nodejs_compat"], ["no_nodejs_compat"]],
-    ] as const)("writes valid flags for %s", async (_label, inline, project, expected) => {
-      const result = await writtenFlags([...inline], project && [...project])
-      expect(result.flags.toSorted()).toEqual([...expected].toSorted())
-      if (result.flags.includes("no_nodejs_compat")) {
-        expect(result.nodeCompat).toBe(false)
-        expect(result.inlineFlags).toEqual([...inline])
-        expect(result.modules).not.toContainEqual(expect.objectContaining({ name: "vite-hub/cloudflare-node-compat" }))
-      }
+      ["no flags", [], undefined, true],
+      ["other inline flags", ["custom"], undefined, true],
+      ["an inline nodejs_compat", ["nodejs_compat"], undefined, true],
+      ["a project nodejs_compat_v2", [], ["nodejs_compat_v2"], true],
+      ["an inline no_nodejs_compat", ["no_nodejs_compat"], undefined, false],
+      ["a project no_nodejs_compat", [], ["no_nodejs_compat"], false],
+    ] as const)("keeps the app's flags for %s", async (_label, inline, project, nodeCompat) => {
+      const config = await configured([...inline], project && [...project])
+      expect(config.cloudflare.wrangler.compatibility_flags).toEqual([...inline])
+      expect(config.cloudflare.nodeCompat).toBe(nodeCompat)
     })
 
     it("leaves the flags alone without nodeCompat", async () => {
@@ -3291,9 +3220,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
-      modules: ["agent-module", injectSourcemapsModule],
+      modules: ["agent-module"],
+      noExternals: ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot],
       preset: "cloudflare_module",
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
@@ -3307,8 +3236,6 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
           expect.objectContaining({ name: "vite-hub/console-operation-features" }),
           expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
-          expect.objectContaining({ name: "vite-hub/nitro-generated-relative-imports" }),
-          expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
         ],
       },
@@ -4315,9 +4242,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({
-      // Nuxt 4 runs Nitro 2, which upgrades Realtime's sockets only with `experimental.websocket`.
-      experimental: { websocket: true },
-      preset: "cloudflare-durable",
+      features: { websocket: true },
+      preset: "cloudflare-module",
       wasm: { lazy: true },
     })
     const imports = (
@@ -4393,7 +4319,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig).toMatchObject({
-      modules: ["first", "second", injectSourcemapsModule],
+      modules: ["first", "second"],
     })
   })
 
@@ -4404,9 +4330,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     { incomingNoExternals: ["effect"], inPlace: false },
     { incomingNoExternals: false, inPlace: true },
     { incomingNoExternals: true, inPlace: true },
-  ])("translates package inlining lists without replacing incoming Nitro 2 policy ($incomingNoExternals, inPlace: $inPlace)", async ({ incomingNoExternals, inPlace }) => {
+  ])("keeps replayed package lists in noExternals and an explicit boolean ($incomingNoExternals, inPlace: $inPlace)", async ({ incomingNoExternals, inPlace }) => {
     const matcher = /consumer-package/
-    const configuredInline = ["consumer-package", matcher, "effect"]
     const noExternals = ["effect", "@effect/platform-node", matcher]
     mocks.vitehub.mockReturnValue([{
       name: "vite-hub/nitro-inlining",
@@ -4420,27 +4345,19 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       },
     }])
     const { nuxt, runNitroConfigHook } = createNuxt()
-    const nitroConfig: Record<string, unknown> = {
-      externals: { inline: configuredInline, external: ["external-package"], trace: false },
-      ...(incomingNoExternals === undefined ? {} : { noExternals: incomingNoExternals }),
-    }
+    const nitroConfig: Record<string, unknown> = incomingNoExternals === undefined ? {} : { noExternals: incomingNoExternals }
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
+    const viteHubEntries = ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot]
+    // `true` bundles every package and an explicit `false` keeps only ViteHub's packages. Otherwise Nitro must bundle
+    // the replayed lists and ViteHub's packages.
+    const expected = incomingNoExternals === true ? true : incomingNoExternals === false ? viteHubEntries : [...noExternals, ...viteHubEntries]
     await runNitroConfigHook(nitroConfig)
-
-    const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot],
-      external: ["external-package"],
-      trace: false,
-    }
-    if (typeof incomingNoExternals === "boolean") expect(nitroConfig.noExternals).toBe(incomingNoExternals)
-    else expect(nitroConfig).not.toHaveProperty("noExternals")
-    expect(nitroConfig.externals).toEqual(expectedExternals)
+    expect(nitroConfig.noExternals).toEqual(expected)
     await runNitroConfigHook(nitroConfig)
-    if (typeof incomingNoExternals === "boolean") expect(nitroConfig.noExternals).toBe(incomingNoExternals)
-    else expect(nitroConfig).not.toHaveProperty("noExternals")
-    expect(nitroConfig.externals).toEqual(expectedExternals)
-    expect(configuredInline).toEqual(["consumer-package", matcher, "effect"])
+    expect(nitroConfig.noExternals).toEqual(expected)
+    expect(noExternals).toEqual(["effect", "@effect/platform-node", matcher])
+    expect(nitroConfig).not.toHaveProperty("externals")
   })
 
   it.each([
@@ -4448,22 +4365,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     { noExternals: false },
     { noExternals: undefined },
     { noExternals: [] },
-  ])("preserves Nitro 2 externalization policy for $noExternals", async ({ noExternals }) => {
+    { noExternals: ["consumer-package"] },
+  ])("adds ViteHub's packages to Nitro noExternals $noExternals", async ({ noExternals }) => {
     mocks.vitehub.mockReturnValue([])
     const { nuxt, runNitroConfigHook } = createNuxt()
-    const externals = { inline: ["consumer-package"], trace: false }
-    const nitroConfig: Record<string, unknown> = {
-      externals,
-      ...(noExternals === undefined ? {} : { noExternals }),
-    }
+    const nitroConfig: Record<string, unknown> = noExternals === undefined ? {} : { noExternals }
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot] })
-    expect(externals.inline).toEqual(["consumer-package"])
-    if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
-    else expect(nitroConfig.noExternals).toBe(noExternals)
+    const viteHubEntries = ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot]
+    if (noExternals === true) expect(nitroConfig.noExternals).toBe(true)
+    else expect(nitroConfig.noExternals).toEqual([...Array.isArray(noExternals) ? noExternals : [], ...viteHubEntries])
   })
 
   it.each([
@@ -4550,7 +4463,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       const root = resolve(directory, "node_modules/@vite-hub/docs")
       const importer = resolve(root, "dist/runtime/server/page.js")
       await mkdir(dirname(importer), { recursive: true })
-      // `#imports` becomes `h3` in the handler. On Nuxt 4 that must be H3 1, or `setHeader()` reads a missing `event.res`.
+      // `#imports` makes Nuxt treat the handler as Nitro v2 code, and the handler must get the same `h3` as its helpers.
       await writeFile(resolve(root, "package.json"), JSON.stringify({ name: "@vite-hub/docs", version: "0.1.0", devDependencies: { h3: "2.0.0" } }))
       await writeFile(importer, "")
       const fixture = createNuxt(false)
@@ -4698,51 +4611,6 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       configKey: "vitehub",
       name: "vite-hub/nuxt",
     })
-  })
-
-  it("builds the Nitro 2 Cloudflare asset handler with the host H3 API", async () => {
-    mocks.vitehub.mockReturnValue([])
-    const root = await mkdtemp(resolve(tmpdir(), "vitehub-assets-h3-"))
-    try {
-      const fixture = createNuxt(false)
-      Object.assign(fixture.nuxt.options, {
-        rootDir: root,
-        buildDir: resolve(root, ".nuxt"),
-        serverDir: resolve(root, "server"),
-      })
-      await viteHubNuxtModule({ preset: "cloudflare", console: false }, fixture.nuxt)
-      const instance = {
-        options: {
-          imports: false,
-          handlers: [] as Array<{ handler: string, route: string, middleware?: boolean }>,
-          output: { serverDir: resolve(root, ".output/server") },
-        },
-        hooks: { hook: vi.fn() },
-      }
-      await fixture.runNitroConfigHook(instance.options)
-      for (const hook of fixture.nitroInitHooks) hook(instance)
-      const handler = instance.options.handlers.at(-1)!.handler
-      const plugins = (instance.options as { rollupConfig?: { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> } }).rollupConfig!.plugins
-      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
-      const h3 = resolver.resolveId?.("h3", handler) ?? fileURLToPath(import.meta.resolve("h3-v1"))
-      const bundle = await build({
-        entryPoints: [handler], bundle: true, write: false, platform: "node", format: "esm",
-        // Apply ViteHub's resolver before falling back to Nitro 2's host H3, including with auto-imports off.
-        alias: { h3 },
-      })
-      const { default: serve } = await import(
-        `data:text/javascript;base64,${Buffer.from(bundle.outputFiles![0]!.text).toString("base64")}`,
-      )
-      const { createApp, toWebHandler } = await import("h3-v1")
-      const fetch = vi.fn(async () => new Response("static page"))
-      const app = createApp().use(event => { event.context.cloudflare = { env: { ASSETS: { fetch } } } }).use(serve)
-      const response = await toWebHandler(app)(new Request("https://docs.test/guide/"))
-      expect(response.status).toBe(200)
-      expect(await response.text()).toBe("static page")
-      expect(fetch).toHaveBeenCalledOnce()
-      expect(fetch.mock.calls[0]).toEqual([expect.objectContaining({ url: "https://docs.test/guide/" })])
-    }
-    finally { await rm(root, { recursive: true, force: true }) }
   })
 
   it("serves Cloudflare assets after middleware and writes the deploy pointer beside the project config", async () => {
