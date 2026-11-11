@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 
 import { Chat, chatActivity } from "../src/components/chat.ts";
@@ -34,6 +34,11 @@ describe("chatActivity", () => {
 });
 
 describe("Chat activity line", () => {
+  afterEach(async () => {
+    // Chat's lazy component imports must finish before the test environment closes.
+    await vi.dynamicImportSettled();
+  });
+
   it("shows one still line under the last message while the Agent works, then removes it", async () => {
     const wrapper = mount(Chat, { props: { messages: [question, reply(started)], status: "streaming" } });
     const content = wrapper.get("[data-slot=message-scroller-content]");
