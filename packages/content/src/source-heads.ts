@@ -204,8 +204,8 @@ export function registerContentKV(store: ContentKV | undefined, build?: string):
 interface ContentSourceHeadsRuntime {
   /** `content.sources`. */
   api: ContentSourceHeads
-  /** Resolve heads before hub reads, including Comark's internal cache and index paths. */
-  sync(): Promise<void>
+  /** Resolve selected heads before hub reads, including Comark's internal cache and index paths. */
+  sync(names?: readonly string[]): Promise<void>
   /** How the instance of a `github()` Source reads its head commit, for `createContentInstance()`. Undefined for other Sources. */
   commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined
   /** Give a `github()` Source its Comark instance, so a moved head reloads it. */
@@ -214,8 +214,8 @@ interface ContentSourceHeadsRuntime {
   dispose(): Promise<void>
 }
 
-/** Create the head state of a Content runtime. `options` are the Comark options that validation parses with. */
-export function createContentSourceHeads(options: ContentOptions): ContentSourceHeadsRuntime {
+/** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
+export function createContentSourceHeads(options: ContentOptions, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
   const states = new Map<string, HeadState>()
   /** The commits that this server instance holds, by cache key. Each load shares one promise, so one download serves all. */
   const memory = new CommitMemory<Promise<LoadedCommit>>()
@@ -319,7 +319,8 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
   }
 
   function hashOf(state: HeadState): Promise<string> {
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, build: installedBuild ?? null })
+    const { prefix, schema } = contentSource(state.input)
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: installedBuild ?? null })
     return state.hash
   }
 
@@ -371,7 +372,8 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       const stored = await readCommit(key)
       if (stored) {
         state.stats.kv++
-        return { files: stored.files, commit: stored }
+        // Function text cannot identify a custom plugin's captured options. Only its immutable raw files are reusable.
+        return reuseParsed ? { files: stored.files, commit: stored } : await parseCommit(state, stored.files)
       }
       state.stats.misses++
       const loaded = await parseCommit(state, await createSource(state.definition, { revision }).items())
@@ -686,8 +688,8 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       views.clear()
       await Promise.all([...allViews.values()].map(close))
     },
-    async sync() {
-      await Promise.all([...states.values()].map(state => sync(state)))
+    async sync(names) {
+      await Promise.all([...states.values()].filter(state => names === undefined || names.includes(state.name)).map(state => sync(state)))
     },
     commits(name: string, input: ContentSourceInput): ContentSourceCommits | undefined {
       const definition = contentSourceDefinition(input)

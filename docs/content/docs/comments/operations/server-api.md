@@ -46,7 +46,7 @@ import { createRpcTransport } from 'vite-hub/comments/rpc'
 const client = createCommentsClient({ transport: createRpcTransport({ base: '/portal' }) })
 ```
 
-`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc/__call` with the session cookie. It needs Console access to the Comments section. It has no `subscribe`, so the client refreshes on window focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
+`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc` with the session cookie, one birpc call for each request. It needs Console access to the Comments section. It has no `subscribe`, so the client refreshes on window focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
 
 For guests, share link readers, and others without Console access, use [`createRestTransport()`](/docs/comments/server-api#rest-transport) from `vite-hub/comments/client`. It calls the same actions and policy through the Comments API, and adds `upload` and `attachmentUrl(key)`.
 

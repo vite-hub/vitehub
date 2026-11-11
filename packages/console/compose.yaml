@@ -11,8 +11,8 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL to the public URL of the Console}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Create one with openssl rand -hex 32}
       VITEHUB_CONSOLE_SECRET: ${VITEHUB_CONSOLE_SECRET:?Create one with openssl rand -hex 32}
-      VITEHUB_ADMIN_CLAIM: ${VITEHUB_ADMIN_CLAIM:-}
-      VITEHUB_ADMINS: ${VITEHUB_ADMINS:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       VITEHUB_CONSOLE_ALLOW_PRIVATE: ${VITEHUB_CONSOLE_ALLOW_PRIVATE:-false}
     volumes:
       - console-data:/data
