@@ -1,7 +1,8 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
-import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
+import { authForRequest as appAuthForRequest } from "../../auth/src/runtime/console.ts"
+import { resetAuth } from "../../auth/src/server.ts"
 import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
@@ -49,7 +50,7 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
     mode: "auth",
     ...createConsoleAppAuthPages(authForRequest),
     ...createConsoleAppAuthAccess({
-      getAuthForRequest: authForRequest,
+      authForRequest,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
       },
@@ -129,7 +130,7 @@ describe("Console reuses app Auth sign-in", () => {
   })
 
   it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
-    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(appAuthForRequest)
     const event = requestEvent(new Request(`${origin}/portal/_vitehub/sign-in`))
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)
@@ -143,7 +144,7 @@ describe("Console reuses app Auth sign-in", () => {
   it.each(["request", "request-only", "h3"] as const)("provides Standard Context to app Auth for %s inputs", async (host) => {
     const request = new Request(`${origin}/portal/_vitehub/sign-in`)
     const event = host === "request" ? request : host === "request-only" ? { req: request } : new H3Event(request)
-    const resolveAuth = vi.fn(getAuthForRequest)
+    const resolveAuth = vi.fn(appAuthForRequest)
     const pages = createConsoleAppAuthPages(resolveAuth)
 
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
@@ -157,7 +158,7 @@ describe("Console reuses app Auth sign-in", () => {
   })
 
   it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
-    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(appAuthForRequest)
     const event = proxySignInEvent(host)
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)

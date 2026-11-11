@@ -68,7 +68,9 @@ function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): Resolved
 
 /** The key prefix of a Redis store without `base`. Every store has one, so a shared Redis keeps other keys apart. */
 export function redisStorePrefix(name: string): string {
-  return `vitehub:kv:${name}`
+  // Keep the name in one segment through unstorage's key normalization, including an empty name.
+  const segment = name.replace(/[%:/\\?]/g, character => encodeURIComponent(character)) || "%"
+  return `vitehub:kv:${segment}`
 }
 
 export function resolveRedisStore(config: Partial<RedisKVStoreConfig>, name: string): ResolvedRedisKVStoreConfig {

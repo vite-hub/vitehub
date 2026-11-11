@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
@@ -163,7 +163,7 @@ const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|com
 export default defineConfig({
   pack: [
     {
-      tsconfig: "tsconfig.build.json",
+      ...packDefaults,
       // `project.get` reports this version, without the package manifest in the app's server output.
       define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
@@ -592,11 +592,6 @@ export default defineConfig({
         },
         inlinedDependencies: false,
       },
-      outExtensions: () => ({
-        dts: ".d.ts",
-        js: ".js",
-      }),
-      publint: "ci-only",
     },
     {
       clean: false,

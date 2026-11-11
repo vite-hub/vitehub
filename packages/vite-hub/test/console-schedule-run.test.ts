@@ -59,7 +59,7 @@ function installSchedules(handler: (context: { scheduledAt: Date }) => unknown =
   installConsoleSections("/schedule-run", ["schedules"])
   installConsoleDefinitions("/schedule-run", { schedules: { definitions: [scheduleSummary("sync"), scheduleSummary("nightly")], kind: "definition-catalog" } })
   installConsoleSchedules("/schedule-run", {
-    sync: async () => ({ default: defineSchedule("*/5 * * * *", handler, { manual: true }) }),
+    sync: async () => ({ default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler }) }),
   })
 }
 
@@ -182,7 +182,7 @@ describe("Console Schedule runs", () => {
     installSchedules()
     // The Schedule package writes these cells for each Schedule Definition record.
     const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
-      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
+      cells: { manual: "Enabled", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))

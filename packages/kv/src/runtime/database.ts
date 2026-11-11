@@ -255,7 +255,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
          returning value`,
         [namespace, key, ms],
       )
-      if (rows.length === 0) throw new TypeError("kv.increment() needs a stored integer below 9007199254740991. The value did not change.")
+      if (rows.length === 0) throw kvErrorDiagnostics.KV_INVALID_COUNTER()
       const counterValue = Number(rows[0]!.value)
       if (!Number.isSafeInteger(counterValue)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
       return counterValue

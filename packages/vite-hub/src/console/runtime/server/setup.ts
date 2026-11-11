@@ -11,9 +11,10 @@ export { installConsoleOrigins } from "./cors.ts"
 export { installConsoleDevelopment } from "./development.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 
-export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false): readonly ConsoleSectionId[] {
+export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false, navigationSections?: readonly ConsoleSectionId[]): readonly ConsoleSectionId[] {
   const state = consoleState()
   state.auth = independentAuth
+  state.navigationSections = navigationSections ? [...new Set(navigationSections)] : undefined
   return state.sections = [...new Set(sections)]
 }
 

@@ -4,7 +4,6 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
 import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
@@ -259,18 +258,6 @@ export function setupDiff(path: string, before: string, after: string): string {
     .replace(/^=+\n/u, "")
 }
 
-/** The Database owner rejects any Named Definition beside a Default Definition. */
-function namedDatabaseFiles(project: SetupProject, root: string): string[] {
-  const suffix = /\.database\.(?:c|m)?[jt]s$/i
-  return [
-    ...(project.serverDirs ?? [join(project.root, "server")]).flatMap((serverDir) => {
-      const directory = join(serverDir, "databases")
-      return listMatchingFiles(directory, name => /^config\.(?:c|m)?[jt]s$/i.test(name)).filter(file => dirname(file) !== directory)
-    }),
-    ...listMatchingFiles(root, name => suffix.test(name)).filter(file => normalizeSuffixDefinitionName(root, file, suffix, { stripPrefix: "src/" }) !== "database"),
-  ].map(file => relative(project.root, file))
-}
-
 /**
  * The config value that `add` writes for `id`, `undefined` when the config already turns it on, or `expression` when
  * the key is an expression that only a person can edit.
@@ -474,7 +461,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       const conflicts = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
         ? (project.serverDirs ?? [join(project.root, "server")]).map(directory => relative(project.root, join(directory, relative("server", other))))
         : [relative(project.root, join(definitionRoot, other))])
-      if (id === "database" && args.name === "default") conflicts.push(...namedDatabaseFiles(project, definitionRoot))
       const conflict = conflicts.find(other => existsSync(join(project.root, other)))
       if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
@@ -542,7 +528,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   return { files, install, plan, ...(configFile ? { configFile } : {}) }
 }
 
-async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
+/** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */
+export async function applySetupAdd(project: SetupProject, planned: SetupAddPlanned, args: Pick<SetupAddArgs, "install">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
   const { dev, prod } = planned.install
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
@@ -637,7 +624,7 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
       writePlan(plan, context)
       if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
-    await applyPlan(project, planned, parsed, context)
+    await applySetupAdd(project, planned, parsed, context)
     const applied: SetupAddPlan = { ...plan, status: "applied" }
     if (parsed.json) writeSetupJson(context, applied)
     else writeResult(applied, context)

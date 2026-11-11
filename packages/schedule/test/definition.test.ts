@@ -12,13 +12,22 @@ describe("defineSchedule", () => {
     })
   })
 
-  it("creates a positional definition and preserves options", () => {
+  it("keeps the options of the object form", () => {
     const handler = () => "ok"
-    expect(defineSchedule("0 9 * * *", handler)).toEqual({ cron: "0 9 * * *", handler })
-    expect(defineSchedule("0 9 * * *", handler, { manual: true }))
+    expect(defineSchedule({ cron: "0 9 * * *", handler })).toEqual({ cron: "0 9 * * *", handler })
+    expect(defineSchedule({ cron: "0 9 * * *", manual: true, handler }))
       .toEqual({ cron: "0 9 * * *", handler, options: { manual: true } })
-    expect(() => defineSchedule("0 9 * * *", handler, { manual: "yes" } as never)).toThrow(/manual must be a boolean/)
-    expect(() => defineSchedule("0 9 * * *", handler, null as never)).toThrow(/options must be an object/)
+    expect(() => defineSchedule({ cron: "0 9 * * *", manual: "yes", handler } as never)).toThrow(/manual must be a boolean/)
+  })
+
+  it("names the object form when a caller passes the removed positional form", () => {
+    const removed = defineSchedule as unknown as (...args: unknown[]) => unknown
+    for (const args of [["0 9 * * *", () => "ok"], ["0 9 * * *", () => "ok", { manual: true }], [{ cron: "0 9 * * *", handler: () => "ok" }, { manual: true }]]) {
+      expect(() => removed(...args)).toThrow(expect.objectContaining({
+        code: "SCHEDULE_C0007",
+        message: expect.stringContaining("`defineSchedule({ cron: \"0 9 * * *\", handler })`"),
+      }))
+    }
   })
 
   it("rejects invalid definition inputs", () => {
@@ -34,7 +43,7 @@ describe("defineSchedule", () => {
   it("keeps a declared IANA time zone", () => {
     const handler = () => "ok"
     expect(defineSchedule({ cron: "0 8 * * *", handler, timeZone: "Europe/Madrid" })).toEqual({ cron: "0 8 * * *", handler, timeZone: "Europe/Madrid" })
-    expect(defineSchedule("0 8 * * *", handler, { manual: true, timeZone: "Europe/Madrid" }))
+    expect(defineSchedule({ cron: "0 8 * * *", manual: true, timeZone: "Europe/Madrid", handler }))
       .toEqual({ cron: "0 8 * * *", handler, options: { manual: true }, timeZone: "Europe/Madrid" })
     expect(defineSchedule({ cron: "0 8 * * *", handler, timeZone: "UTC" })).toEqual({ cron: "0 8 * * *", handler, timeZone: "UTC" })
   })
@@ -43,6 +52,6 @@ describe("defineSchedule", () => {
     for (const timeZone of ["PST", "Europe/Atlantis", "", " Europe/Madrid", 1]) {
       expect(() => defineSchedule({ cron: "0 8 * * *", handler: () => {}, timeZone } as never)).toThrow(/timeZone must be an IANA time zone/)
     }
-    expect(() => defineSchedule("0 8 * * *", () => {}, { timeZone: "PST" })).toThrow(/timeZone must be an IANA time zone/)
+    expect(() => defineSchedule({ cron: "0 8 * * *", timeZone: "PST", handler: () => {} })).toThrow(/timeZone must be an IANA time zone/)
   })
 })

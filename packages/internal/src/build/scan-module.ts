@@ -136,7 +136,7 @@ export function findDefaultExportCall(module: ScannedModule, names: readonly str
   const name = call.callee.name
   const first = argumentExpression(call.arguments[0])
   if (first?.type === "ObjectExpression") return { call, name, options: first }
-  // The positional form has more than one argument, such as `defineSchedule(cron, handler, options)`.
+  // The positional form has more than one argument, such as `defineQueue(handler, options)`.
   if (options.positionalOptionsIndex === undefined || first === undefined || call.arguments.length < 2) return
   const positional = call.arguments[options.positionalOptionsIndex]
   if (positional === undefined) return { call, name }

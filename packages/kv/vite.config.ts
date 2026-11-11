@@ -1,10 +1,10 @@
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     // unstorage's root declarations import every driver's options. Unused drivers must not pull optional SDK types into KV's declarations.
     // Preserve package sideEffects metadata for other modules so ambient declarations stay out of runtime chunks.
     treeshake: { moduleSideEffects: id => id.startsWith("unstorage/drivers/") ? false : undefined },
@@ -30,10 +30,5 @@ export default defineConfig({
       customExports: normalizePackageExports,
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

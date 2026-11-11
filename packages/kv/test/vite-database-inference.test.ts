@@ -20,7 +20,7 @@ async function createApp(dialect: "postgresql" | "sqlite", serverDir = "server")
   roots.push(root)
   await writeFile(join(root, "package.json"), "{\"type\":\"module\"}\n")
   await mkdir(join(root, serverDir, "databases"), { recursive: true })
-  await writeFile(join(root, serverDir, "databases", "config.ts"), [
+  await writeFile(join(root, serverDir, "databases", "default.ts"), [
     `import { defineDatabase } from "@vite-hub/database"`,
     `export default defineDatabase({ ${dialect === "postgresql" ? `dialect: "postgresql", ` : ""}schema: {} })`,
     ``,
@@ -103,4 +103,3 @@ describe("KV Nitro plugin", () => {
     expect(await nitroPlugins("cloudflare-module")).toBeUndefined()
   })
 })
-
