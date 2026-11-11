@@ -124,7 +124,14 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   }
   return {
     async fetch(request) {
-      const name = decodeURIComponent(new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? "")
+      const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
+      let name = segment
+      try {
+        name = decodeURIComponent(segment)
+      }
+      catch {
+        // A broken escape, such as `%E0`, names no form: the lookup below answers 404.
+      }
       const form = forms.get(name)
       if (!form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name)}.` }), { status: 404, headers: { "content-type": "application/json" } })
       return await handleFormRequest(name, form, request, services(request))

@@ -1,9 +1,10 @@
 import virtualSchema from "#vitehub/database/schema"
 
-import { createAgentDatabase } from "./agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup } from "./agent.ts"
 import { getRuntimeDatabases } from "./drizzle-runtime.ts"
 import { createUseDatabase } from "./use-database.ts"
 
+import type { DatabaseD1Binding } from "./agent.ts"
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "../types.ts"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
@@ -92,6 +93,17 @@ export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Na
 export function useDatabase(name?: string): RuntimeDatabaseEntry<Record<string, unknown>> {
   const runtime = getRuntimeDatabases()
   return createUseDatabase(runtime.databases, [...runtime.configured])(name)
+}
+
+const lookupDatabaseBinding = createDatabaseBindingLookup(databases)
+
+/**
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Exposes the shared
+ * prepare/batch API for consumers such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
+ */
+export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding {
+  return lookupDatabaseBinding(name)
 }
 
 /** The Database Agent Capability handle. Generated Agent routes pass it to the Capability. */
