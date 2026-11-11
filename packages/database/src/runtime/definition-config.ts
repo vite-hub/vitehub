@@ -29,7 +29,6 @@ export function runtimeConfig(
       authToken: definition.connection?.authToken ?? defaults.connection?.authToken,
       url: definition.connection?.url ?? defaults.connection?.url ?? defaultUrl(definition.name),
     },
-    drizzle: definition.drizzle,
     name: definition.name,
   }
   if (cloudflare) config.cloudflare = cloudflare

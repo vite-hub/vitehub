@@ -21,7 +21,7 @@ async function setup(foreignKeys = false) {
   await client.executeMultiple(commentsMigration)
   await client.execute(`PRAGMA foreign_keys = ${foreignKeys ? "ON" : "OFF"}`)
   // SAFETY: libSQL implements the runtime SQLite database and atomic batch contract.
-  const database = drizzle(client) as unknown as CommentsDatabase
+  const database = drizzle({ client }) as unknown as CommentsDatabase
   const onComment = vi.fn()
   const comments = defineComments({ onComment, subjects: [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })] })
   installComments(comments, { database })

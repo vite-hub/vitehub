@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
+import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import { Miniflare } from "miniflare"
 
 const useDatabase = vi.fn()
@@ -25,7 +25,7 @@ describe("createDatabaseAgentInvocationStore", () => {
   })
 
   it("creates the journal schema once and adapts named database rows", async () => {
-    const dialect = new SQLiteAsyncDialect()
+    const dialect = new SQLiteDialect()
     const queries: string[] = []
     const db = {
       all: vi.fn(async (query) => {
@@ -49,18 +49,18 @@ describe("createDatabaseAgentInvocationStore", () => {
     expect(queries.slice(1, 5).every(query => /^CREATE (?:TABLE|INDEX)/i.test(query))).toBe(true)
   })
 
-  it("rejects D1 HTTP row matrices before schema creation or writes", async () => {
+  it("rejects a proxy driver that returns row matrices for named rows, before schema creation or writes", async () => {
     const { drizzle } = await import("drizzle-orm/sqlite-proxy")
-    const execute = vi.fn(async () => ({ rows: [[1]] }))
-    const batch = vi.fn(async queries => queries.map(() => ({ rows: [[1]] })))
-    useDatabase.mockReturnValue({ db: drizzle(execute, batch) })
+    const all = vi.fn(async () => [[1]])
+    const batch = vi.fn(async (queries: unknown[]) => queries.map(() => [[1]]))
+    useDatabase.mockReturnValue({ db: drizzle({ all, batch, get: async () => [1], run: async () => ({}) }) })
     const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
     const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
 
     await expect(store.create(input)).rejects.toThrow("Cloudflare D1 HTTP driver is not supported")
-    expect(execute).not.toHaveBeenCalled()
+    expect(all).not.toHaveBeenCalled()
     expect(batch).toHaveBeenCalledExactlyOnceWith([
-      { method: "all", params: [], sql: "SELECT 1 AS vitehub_probe" },
+      { method: "all", params: [], rowMode: "object", sql: "SELECT 1 AS vitehub_probe" },
     ])
   })
 
@@ -68,7 +68,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     const { createClient } = await import("@libsql/client")
     const { drizzle } = await import("drizzle-orm/libsql")
     const client = createClient({ url: "file::memory:" })
-    const db = drizzle(client)
+    const db = drizzle({ client: client })
     useDatabase.mockReturnValue({ db })
 
     const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
@@ -99,7 +99,7 @@ describe("createDatabaseAgentInvocationStore", () => {
   })
 
   it("reinitializes when a runtime proxy switches its database client", async () => {
-    const dialect = new SQLiteAsyncDialect()
+    const dialect = new SQLiteDialect()
     const createDatabase = (client: object) => {
       const queries: string[] = []
       const db = {

@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, expect, it } from "vitest"
+import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 const execFileAsync = promisify(execFile)
 const bin = new URL("../dist/bin.js", import.meta.url).pathname
@@ -49,8 +50,8 @@ it("runs kv commands against the running app without loading the project", async
     let body = ""
     request.on("data", (chunk: Buffer) => { body += chunk.toString() })
     request.on("end", () => {
-      bodies.push(JSON.parse(body))
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, value: { exists: true, key: "greeting", store: "default" } }))
+      bodies.push(operationRpcRequest(body))
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(operationRpcReply(body, { ok: true, value: { exists: true, key: "greeting", store: "default" } })))
     })
   })
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
