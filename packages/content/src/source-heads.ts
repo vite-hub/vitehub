@@ -118,6 +118,8 @@ interface HeadState {
   refreshing?: Promise<void>
   /** Rejected commits that this server instance already reported. */
   reported: Set<string>
+  /** When KV last failed on a read. Reads skip KV until `failed + HOLD_MS`. */
+  failed?: number
 }
 
 /** One commit that `at()` holds open, with its own Comark instance. */
@@ -158,6 +160,15 @@ export interface ContentKV {
 }
 
 let installedKV: ContentKV | undefined
+
+/** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
+const kvFailures = new WeakSet<object>()
+
+type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
+
+function isKVFailure(error: unknown): error is KVFailure {
+  return error instanceof Error && kvFailures.has(error)
+}
 
 /**
  * Give Content the KV store that keeps the heads of `github()` Sources. When the app enables ViteHub KV, the build
@@ -215,15 +226,33 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     throw contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
   }
 
+  /** Run one KV call. A failure, returned or thrown, becomes `CONTENT_R0022`, so reads can tell it from other errors. */
+  async function kvCall<T>(state: HeadState, call: (store: ContentKV) => Promise<readonly [unknown, T]>): Promise<T> {
+    const store = kv(state)
+    let result: readonly [unknown, T]
+    try {
+      result = await call(store)
+    }
+    catch (error) {
+      throw kvFailure(state, error)
+    }
+    if (result[0]) throw kvFailure(state, result[0])
+    return result[1]
+  }
+
+  function kvFailure(state: HeadState, cause: unknown): KVFailure {
+    const error = contentErrorDiagnostics.CONTENT_R0022({ source: state.name, key: headKey(state.name), reason: cause instanceof Error ? cause.message : String(cause) })
+    kvFailures.add(error)
+    return error
+  }
+
   async function read(state: HeadState): Promise<StoredHead | null> {
-    const [error, stored] = await kv(state).get<StoredHead>(headKey(state.name))
-    if (error) throw error
+    const stored = await kvCall(state, store => store.get<StoredHead>(headKey(state.name)))
     return stored && stored.origin === origin(state) ? stored : null
   }
 
   async function write(state: HeadState, head: StoredHead): Promise<void> {
-    const [error] = await kv(state).set(headKey(state.name), head)
-    if (error) throw error
+    await kvCall(state, store => store.set(headKey(state.name), head))
   }
 
   /** Load and parse every document of `input`. Returns the documents, or the error when a document does not parse. */
@@ -268,7 +297,15 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
   async function readCommit(key: string): Promise<ContentCommit | undefined> {
     const store = installedKV
     if (!store) return
-    const [error, artifact] = await store.get<CacheArtifact>(key)
+    let result: readonly [unknown, CacheArtifact | null | undefined]
+    // A KV store that throws counts as a miss, so the page still loads the commit from GitHub.
+    try {
+      result = await store.get<CacheArtifact>(key)
+    }
+    catch {
+      return
+    }
+    const [error, artifact] = result
     if (error || !artifact) return
     try {
       return await decodeCommit(artifact)
@@ -287,7 +324,7 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     catch (error) {
       failure = error
     }
-    if (failure) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0022({ source: state.name, key, reason: failure instanceof Error ? failure.message : String(failure) })))
+    if (failure) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0023({ source: state.name, key, reason: failure instanceof Error ? failure.message : String(failure) })))
   }
 
   /**
@@ -383,6 +420,18 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
       }
     }
     await state.refreshing
+  }
+
+  /**
+   * What a read serves when KV fails: the commit that this server instance already serves, which passed validation,
+   * or else no head, so the Source reads the latest commit of its branch as it does without KV.
+   */
+  function fallback(state: HeadState): StoredHead | null {
+    return state.served ? { origin: origin(state), sha: state.served.sha, ref: state.served.ref, movedAt: null, pinned: false, rejected: null } : null
+  }
+
+  function kvFailing(state: HeadState): boolean {
+    return state.failed !== undefined && Date.now() - state.failed < HOLD_MS
   }
 
   async function view(state: HeadState, head: StoredHead | null, live = true): Promise<ContentSourceHead> {
@@ -554,7 +603,23 @@ export function createContentSourceHeads(options: ContentOptions): ContentSource
     async sync(): Promise<void> {
       await Promise.all([...states.values()].map(async (state) => {
         if (!await isLive(state)) return
-        await serve(state, await current(state))
+        // After a KV failure, reads keep the fallback for the hold time, so a broken store is not called on each read.
+        if (kvFailing(state)) return await serve(state, fallback(state))
+        let head: StoredHead | null
+        try {
+          head = await current(state)
+        }
+        catch (error) {
+          if (!isKVFailure(error)) throw error
+          // A KV failure must not fail the page. Content logs it once per hold and reads without the head.
+          if (!kvFailing(state)) {
+            state.failed = Date.now()
+            console.warn(formatDiagnostic(error))
+          }
+          return await serve(state, fallback(state))
+        }
+        state.failed = undefined
+        await serve(state, head)
       }))
     },
   }
